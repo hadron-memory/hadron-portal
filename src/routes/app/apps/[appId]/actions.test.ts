@@ -1,18 +1,29 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { pageOf } from '$lib/test/pagedFixture';
+import { castWorkerSchema } from './schema';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
 import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
 import {
+  AI_SERVICE_CONFIGS_QUERY,
+  APP_CHATBOT_AI_CONFIG_QUERY,
   INSTALL_AGENT_INTO_APP_MUTATION,
-  APP_NODES_QUERY,
+  APP_NODES_PAGE_QUERY,
   APP_QUERY,
+  APP_CHAT_TARGET_QUERY,
+  CHANNEL_CHAT_TARGET_QUERY,
+  CREATE_CHANNEL_MESSAGE_MUTATION,
+  CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   APP_KEYS_QUERY,
+  APP_VIEWER_MANAGES_QUERY,
   APP_MEMBERS_QUERY,
   CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
+  GRANT_APP_KEY_SCOPE_MUTATION,
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
+  APP_ORG_AGENT_GRANTS_QUERY,
   UNINSTALL_AGENT_FROM_APP_MUTATION,
   RELEASE_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
@@ -20,7 +31,7 @@ import {
   SELF_CAN_MANAGE_QUERY,
   TEAM_CHAT_MESSAGES_QUERY,
   TEAM_WORK_ITEMS_QUERY,
-  APP_CHAT_ROOTS_QUERY,
+  APP_CHAT_ROOTS_PAGE_QUERY,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
 
@@ -46,7 +57,7 @@ function baseApp(over: Record<string, unknown> = {}) {
     appType: 'CHATBOT',
     role: 'ADMIN',
     description: null,
-    systemPrompt: null,
+
     createUserPermission: 'DENY',
     identifyUserMethod: 'USER_ID',
     sessionTimeoutSeconds: 3600,
@@ -70,8 +81,8 @@ beforeEach(() => {
 async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
-    | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
-    | 'postTeamChatMessage',
+    | 'revokeKey' | 'grantKeyScope' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
+    | 'postTeamChatMessage' | 'postChannelMessage',
   fields: Record<string, string | string[]>,
   // #825 — the signed-in user, for actions whose COPY depends on whether the
   // caller is the party the server named. Defaults to absent, which is the
@@ -101,7 +112,7 @@ const validSettings = {
   appType: 'CHATBOT',
   role: 'ADMIN',
   description: 'A demo',
-  systemPrompt: 'Be useful',
+
   createUserPermission: 'IMPLICIT',
   identifyUserMethod: 'SECRET',
   sessionTimeoutSeconds: '3600',
@@ -111,7 +122,7 @@ const validSettings = {
 describe('load', () => {
   it('seeds the link-agent form with an explicit empty choice', async () => {
     // mockResolvedValue (not …Once): the loader makes SEVERAL paginated calls —
-    // AI configs and, since #974, the App's Worker staff.
+    // Complete-context consumers such as the App's Worker staff.
     mockFetchAllItems.mockResolvedValue([]);
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
@@ -126,7 +137,7 @@ describe('load', () => {
             appType: 'CHATBOT',
             role: 'ADMIN',
             description: null,
-            systemPrompt: null,
+
             createUserPermission: 'DENY',
             identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600,
@@ -146,11 +157,15 @@ describe('load', () => {
           organization: { id: 'org-1', agents: [{ id: 'agent-1', name: 'Agent One', urn: 'agent:one' }] },
         });
       }
+      if (query === APP_ORG_AGENT_GRANTS_QUERY) {
+        return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
+      }
+      if (query === AI_SERVICE_CONFIGS_QUERY) return Promise.resolve({ aiServiceConfigs: { items: [], total: 0 } });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       // #744: chat-root discovery for the Chats selector. Shares the appNodes
       // resolver but is its own document, so the strict mock needs it by name.
-      if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -159,6 +174,7 @@ describe('load', () => {
       }
       // #1106: the viewer's manage self-audit (the Client tab's plugin grid).
       if (query === SELF_CAN_MANAGE_QUERY) return Promise.resolve({ effectiveAccess: { canManage: true } });
+      if (query === APP_CHATBOT_AI_CONFIG_QUERY) return Promise.resolve({ app: { id: 'app-1', chatbotAiConfigId: null } });
       throw new Error('Unexpected query');
     });
 
@@ -184,7 +200,7 @@ describe('load', () => {
   // statements, and the empty state must not tell the second lie. The loader
   // therefore coerces a failed workers fetch to null, never [].
   it('reports a failed staff fetch as null, distinct from an empty staff list', async () => {
-    mockRequest.mockImplementation((query) => {
+    mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
           app: {
@@ -200,7 +216,7 @@ describe('load', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -234,7 +250,7 @@ describe('load', () => {
   });
 
   it('returns an empty staff list as [] with no error flag', async () => {
-    mockRequest.mockImplementation((query) => {
+    mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
           app: {
@@ -250,7 +266,7 @@ describe('load', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -287,7 +303,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.reject(new Error('chat exploded'));
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
@@ -321,7 +337,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -355,6 +371,91 @@ describe('load', () => {
     expect(result.teamChatTotal).toBe(0);
   });
 
+  // #1137: `?team=` is read by the loader and applied by the SERVER on the tail
+  // read; an invalid value reads nothing; the server's typed refusal is carried
+  // to the thread and never retried unfiltered.
+  describe('team filter (#1137)', () => {
+    async function loadWith(search: string, chat: (vars: Record<string, unknown>) => Promise<unknown>) {
+      mockRequest.mockImplementation((query, vars) => {
+        if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+        if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
+        if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+        if (query === TEAM_CHAT_MESSAGES_QUERY) return chat(vars as Record<string, unknown>);
+        if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+        return Promise.resolve({ resolveAiServiceConfigs: [] });
+      });
+      mockFetchAllItems.mockResolvedValue([]);
+      const { load } = await import('./+page.server');
+      return (await load({
+        params: { id: 'org-1', appId: 'app-1' },
+        locals: { token: 'tok', user: { id: 'user-1' } },
+        parent: async () => ({}),
+        depends: () => {},
+        url: new URL(`http://localhost/app/apps/app-1${search}`),
+      } as unknown as Parameters<typeof load>[0])) as Record<string, any>;
+    }
+    const teamChatCalls = () => mockRequest.mock.calls.filter((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY);
+
+    it('reads the tail UNDER the filter and reports what it was read under', async () => {
+      const r = await loadWith('?team=h1', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRefs: ['h1'] });
+      expect(r.teamFilter).toEqual({ kind: 'teams', headRefs: ['h1'] });
+      expect(r.teamFilterInvalid).toBe(false);
+    });
+
+    it('reads a multi-head selection as ONE list and reports it (#1482)', async () => {
+      const r = await loadWith('?team=h2&team=h1&team=h2', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRefs: ['h2', 'h1'] });
+      expect(r.teamFilter).toEqual({ kind: 'teams', headRefs: ['h2', 'h1'] });
+      expect(r.teamFilterInvalid).toBe(false);
+    });
+
+    it('reads NOTHING for `untagged` mixed with heads — one-sided reads are not a fallback (#1482)', async () => {
+      const r = await loadWith('?team=untagged&team=h1', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()).toHaveLength(0);
+      expect(r.teamFilterInvalid).toBe(true);
+      expect(r.teamChatError).toBe(true);
+    });
+
+    it('sends no filter argument when the parameter is absent', async () => {
+      const r = await loadWith('', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()[0][1]).not.toHaveProperty('teamHeadRefs');
+      expect(teamChatCalls()[0][1]).not.toHaveProperty('untagged');
+      expect(r.teamFilter).toEqual({ kind: 'none' });
+    });
+
+    it('reads NOTHING for an invalid value, and says so, instead of serving the unfiltered thread', async () => {
+      const r = await loadWith('?team=a%20b', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()).toHaveLength(0);
+      expect(r.teamFilterInvalid).toBe(true);
+      expect(r.teamChatMessages).toEqual([]);
+      expect(r.teamChatError).toBe(true);
+    });
+
+    it('carries the server’s typed head refusal, and does not retry unfiltered', async () => {
+      const r = await loadWith('?team=gone', async () =>
+        Promise.reject(
+          Object.assign(new Error('refused'), {
+            response: { errors: [{ message: 'Team broadcast target is unavailable in this Channel.', extensions: { code: 'TEAM_CHAT_TEAM_HEAD_INVALID' } }] },
+          }),
+        ),
+      );
+      expect(r.teamChatRefusal).toEqual({
+        code: 'TEAM_CHAT_TEAM_HEAD_INVALID',
+        message: 'Team broadcast target is unavailable in this Channel.',
+      });
+      expect(r.teamChatError).toBe(true);
+      expect(r.teamChatMessages).toEqual([]);
+      expect(teamChatCalls()).toHaveLength(1);
+    });
+
+    it('names no refusal for an ordinary failure', async () => {
+      const r = await loadWith('?team=h1', async () => Promise.reject(new Error('boom')));
+      expect(r.teamChatRefusal).toBeNull();
+      expect(r.teamChatError).toBe(true);
+    });
+  });
+
   // The server's total is what tells the tab its view is a suffix of the real
   // thread. Passing back `items.length` instead would make every truncated
   // transcript look complete.
@@ -362,7 +463,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({
           teamChatMessages: { items: [{ nodeId: 'n1', seq: 42 }], total: 913 },
@@ -397,7 +498,7 @@ describe('load', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -430,7 +531,7 @@ describe('load', () => {
 describe('update action', () => {
   it('updates app settings from a validated Superform and returns a typed success', async () => {
     mockRequest.mockResolvedValueOnce({});
-    const result = await runAction('update', validSettings);
+    const result = await runAction('update', { ...validSettings, systemPrompt: 'stale must not be forwarded' });
     expect(result).toMatchObject({
       form: {
         valid: true,
@@ -447,7 +548,7 @@ describe('update action', () => {
         appType: 'CHATBOT',
         role: 'ADMIN',
         description: 'A demo',
-        systemPrompt: 'Be useful',
+
         createUserPermission: 'IMPLICIT',
         identifyUserMethod: 'SECRET',
         sessionTimeoutSeconds: 3600,
@@ -461,11 +562,11 @@ describe('update action', () => {
     await runAction('update', {
       ...validSettings,
       description: '',
-      systemPrompt: '',
+
     });
     expect(mockRequest.mock.calls[0][1]).toMatchObject({
       description: null,
-      systemPrompt: null,
+
     });
   });
 
@@ -504,14 +605,14 @@ describe('update action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when app update fails', async () => {
+  it('returns fallback copy when app update transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('update', validSettings)) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to update app' });
   });
 });
 
@@ -539,6 +640,46 @@ describe('addAgent action', () => {
     mockRequest.mockResolvedValueOnce({});
     await runAction('addAgent', { agentId: 'agent-1' });
     expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app-1', agentRef: 'agent-1' });
+  });
+
+  // portal#1715 S2. Stubbed refusals: these prove the mapping, not that a real
+  // server reaches each code on this path.
+  describe('a refused install', () => {
+    const GENERIC = 'Something went wrong on our side.';
+    const refusal = (code: string, text = 'internal server text') => Object.assign(new Error(text), { response: { errors: [{ message: text, extensions: { code } }] } });
+    const refuse = async (error: unknown) => {
+      mockRequest.mockRejectedValueOnce(error);
+      return (await runAction('addAgent', { agentId: 'agent-1' })) as { status: number; data: { form: { message: { type: string; text: string } } } };
+    };
+
+    it.each([
+      ['AGENT_ORG_GRANT_INACTIVE', 'This App’s organization has an inactive grant for that agent, so it can’t be installed.'],
+      ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs a grant for that agent before it can be installed.'],
+    ])('%s shows portal copy, never the server’s, at status 500', async (code, text) => {
+      const result = await refuse(refusal(code));
+      expect(result.status).toBe(500);
+      expect(result.data.form.message).toEqual({ type: 'error', text });
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([['AGENT_NOT_FOUND'], ['SOME_NEW_DOMAIN_CODE'], ['AGENT_DEPENDENCY_UNAVAILABLE']])('%s keeps today’s handling', async (code) => {
+      const result = await refuse(refusal(code));
+      expect(result.status).toBe(500);
+      expect(result.data.form.message).toEqual({ type: 'error', text: GENERIC });
+    });
+
+    it('a prototype key as a code is not a map entry', async () => {
+      const result = await refuse(refusal('constructor'));
+      expect(result.data.form.message.text).toBe(GENERIC);
+    });
+
+    it('a transport failure uses fallback copy and is not read as a typed unknown outcome', async () => {
+      const failure = new Error('socket hang up');
+      const result = await refuse(failure);
+      expect(result.status).toBe(500);
+      expect(result.data.form.message.text).toBe('Failed to add agent');
+      expect(result.data.form.message.text).not.toContain('could not be confirmed');
+    });
   });
 
   it('rejects missing agent ids before mutation', async () => {
@@ -607,14 +748,14 @@ describe('createKey action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when key creation fails', async () => {
+  it('returns the fallback copy, not the raw text, when key creation fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('createKey', { label: 'production' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to create key' });
   });
 
   // portal#1068 (Holger #8095): whoever manages the App mints its keys. The
@@ -683,14 +824,14 @@ describe('removeAgent action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed removeAgent errors', async () => {
+  it('returns fallback copy for removeAgent transport errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('removeAgent', { agentId: 'agent-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to remove agent' });
   });
 });
 
@@ -734,14 +875,14 @@ describe('updateAgentTools action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed updateAgentTools errors', async () => {
+  it('returns the fallback copy for a transport failure in updateAgentTools errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('updateAgentTools', { agentTools: 'CLAUDE_CODE' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to update agent tools' });
   });
 
   // portal#1106: a non-manager's tick is refused by updateApp's gate. That is
@@ -772,7 +913,7 @@ describe('updateAgentTools action', () => {
     expect(result.data.form.message.text).toBe(AGENT_TOOLS_IMPERSONATION_READ_ONLY());
   });
 
-  it('an unknown GraphQL code stays a 500 with the server’s message', async () => {
+  it('an unknown GraphQL code stays a 500 with generic copy', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'db down', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
     });
@@ -781,7 +922,7 @@ describe('updateAgentTools action', () => {
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message.text).toBe('db down');
+    expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 });
 
@@ -823,14 +964,14 @@ describe('revokeKey action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed revokeKey errors', async () => {
+  it('returns the fallback copy for a transport failure in revokeKey errors', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('revokeKey', { keyId: 'key-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to revoke key' });
   });
 
   it('a FORBIDDEN revoke is a 403 with the same manager copy', async () => {
@@ -845,6 +986,212 @@ describe('revokeKey action', () => {
     expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
     // The copy is generic: it never echoes the key it refused.
     expect(result.data.form.message.text).not.toContain('key-1');
+  });
+});
+
+// portal#1487 — giving a live App key one scope of the closed list
+// (hrn:node:hadronmemory.com:specs:cor:aut:010:03). The server is the gate: the action always sends the
+// mutation and translates the server's own refusal codes, never a portal-side
+// role guess. host:operate names its ONE host (hrn:node:hadronmemory.com:specs:cor:agt:070:04); a second host
+// is refused APP_KEY_SCOPE_HOST_CONFLICT and the SERVER's sentence is what the
+// reader sees.
+describe('grantKeyScope action', () => {
+  it('grants attention:deliver with no host variable at all', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: ' key-1 ', scope: 'attention:deliver' });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'grantKeyScope', keyId: 'key-1', scope: 'attention:deliver' },
+        message: { type: 'success', text: 'Scope granted.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      GRANT_APP_KEY_SCOPE_MUTATION,
+      { id: 'key-1', scope: 'attention:deliver' },
+    ]);
+  });
+
+  it('grants host:operate with the named host, trimmed', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: ' h-1 ' });
+
+    expect(result).toMatchObject({
+      form: { valid: true, data: { _kind: 'grantKeyScope', keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' } },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      GRANT_APP_KEY_SCOPE_MUTATION,
+      { id: 'key-1', scope: 'host:operate', hostId: 'h-1' },
+    ]);
+  });
+
+  // Acceptance 2: without a host the grant is NOT sent — the server would
+  // only answer BAD_USER_INPUT for the missing target of a host scope.
+  it('refuses host:operate with no host before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '' })) as {
+      status: number;
+      data: { form: { errors: { hostId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.hostId?.[0]).toBe('Name the host this key may operate.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses host:operate with a whitespace-only host before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '   ' })) as {
+      status: number;
+      data: { form: { errors: { hostId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.hostId?.[0]).toBe('Name the host this key may operate.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a scope off the closed list before the mutation', async () => {
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'admin:everything' })) as {
+      status: number;
+      data: { form: { errors: { scope?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.scope).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects grantKeyScope POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('grantKeyScope', {
+      _kind: 'revokeKey',
+      keyId: 'key-1',
+      scope: 'attention:deliver',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  // Acceptance 4: a key that already holds the scope (same host) is a plain
+  // success — the server's grant is idempotent and keeps the first record.
+  it('a repeated grant of a held scope is a plain success', async () => {
+    mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' });
+    expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Scope granted.' } } });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  // Acceptance 3: the server's own conflict sentence, verbatim, as a 409. It
+  // names the held host and its remedy; the portal adds nothing.
+  it('a HOST_CONFLICT refusal is the server’s own sentence as a 409', async () => {
+    const serverText = 'This key already operates as host h-1. A host key reaches one host: revoke host:operate first, or use another key.';
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: serverText, extensions: { code: 'APP_KEY_SCOPE_HOST_CONFLICT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-2' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+  });
+
+  // LOCAL review F3: a malformed host is BAD_USER_INPUT, which the refusal
+  // map does not know — per hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only it stays
+  // the generic branch: a 500 whose text is still the server's own message,
+  // passed through untranslated (never the generic fallback, never dropped).
+  it('a BAD_USER_INPUT refusal passes the server’s message through as a 500', async () => {
+    const serverText = 'hostId: not a valid host id';
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: serverText, extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'not-a-host' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+  });
+
+  // Acceptance 5: the audience refusals. A participant who does not manage the
+  // App, a worker session and an App key all answer FORBIDDEN — the portal
+  // cannot and does not distinguish them; an impersonating admin is blocked
+  // before the resolver by the server's read-only plugin.
+  it('a FORBIDDEN refusal is a 403 naming who may manage keys', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+    expect(result.data.form.message.text).not.toContain('key-1');
+  });
+
+  it('an impersonation session’s refusal is a 403 with the read-only copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'read-only', extensions: { code: 'IMPERSONATION_READ_ONLY' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message.text).toBe(APP_KEY_IMPERSONATION_READ_ONLY());
+  });
+
+  // Acceptance 7: a revoked key, or a key id that is not in this App, is the
+  // server's not-found — shown AS not-found, never as an internal error.
+  it('an APP_KEY_NOT_FOUND refusal is a 404 with the server’s not-found text', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'App key not found.', extensions: { code: 'APP_KEY_NOT_FOUND' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'gone-key', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(404);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'App key not found.' });
+  });
+
+  // Acceptance 6 + the known-codes-only rule
+  // (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only):
+  // an unknown code is a generic 500, never a portal role guess, and an
+  // unknown GraphQL code carries no free server text.
+  it('an unknown code stays a generic 500, not a role guess', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'exploded', extensions: { code: 'APP_KEY_EXPLODED' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.text).not.toBe(APP_KEY_MANAGERS_ONLY());
+    expect(result.data.form.message.text).not.toContain('exploded');
+  });
+
+  // A malformed host token that slips past the form's empty-check meets the
+  // server's own BAD_USER_INPUT, whose message does carry (framework code).
+  it('a BAD_USER_INPUT backstop is a 500 carrying the server’s message', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'host:operate is granted for one host: name it with hostId (a host token).', extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: '!!!' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.text).toBe('host:operate is granted for one host: name it with hostId (a host token).');
+  });
+
+  it('returns the fallback copy for a transport failure', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to grant the scope' });
   });
 });
 
@@ -884,7 +1231,7 @@ describe('deleteApp action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns typed deleteApp errors', async () => {
+  it('returns fallback copy for deleteApp transport errors', async () => {
     mockRequest
       .mockResolvedValueOnce({ app: { organizationId: 'org-1' } }) // org lookup ok
       .mockRejectedValueOnce(new Error('nope')); // delete fails
@@ -893,7 +1240,7 @@ describe('deleteApp action', () => {
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to delete app' });
   });
 });
 
@@ -907,16 +1254,17 @@ describe('deleteApp action', () => {
 // asymmetric, and that asymmetry is what these tests hold up:
 //
 //   name — rejected client-side when blank, never coerced
-//   role — still blank→UNDEFINED, because omitting it inherits the agent's
-//          personaRole while '' would be an explicit-and-invalid role
+//   role — omitted entirely under R222, including stale posted overrides
 
 describe('castWorker action', () => {
-  it('casts an installed agent under an explicit name and role', async () => {
+  it('casts an installed agent without forwarding a stale role override', async () => {
     mockRequest.mockResolvedValueOnce({});
     const result = await runAction('castWorker', {
       agentId: 'agent-1',
       name: 'Iris',
       role: 'backend-engineer',
+      reporting: 'none',
+      promptOverride: 'stale must not be forwarded',
     });
     expect(result).toMatchObject({
       form: { valid: true, message: { type: 'success', text: 'Worker cast.' } },
@@ -927,8 +1275,7 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-        role: 'backend-engineer',
-        promptOverride: undefined,
+        noTeam: true,
       },
     ]);
   });
@@ -937,7 +1284,7 @@ describe('castWorker action', () => {
   // This asserted that a blank name reached the mutation as `undefined` —
   // correct while an omitted name walked the register, and the exact behaviour
   // #760 reports as broken now that hadron-server#1050 removed it. The
-  // invariant that survives is the ROLE half; the name half inverts.
+  // name invariant still holds under R222.
   it('rejects a blank name BEFORE the mutation, rather than coercing it', async () => {
     const result = (await runAction('castWorker', {
       agentId: 'agent-1',
@@ -950,13 +1297,14 @@ describe('castWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('still sends a blank ROLE as UNDEFINED, not ""', async () => {
-    // Unchanged by #1050: an omitted role inherits the agent's personaRole,
-    // while '' would be an explicit-and-invalid role.
+  it('omits role entirely from the schema, mutation and variables', async () => {
+    // R222: no writable role survives at any layer of this form.
     mockRequest.mockResolvedValueOnce({});
-    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '' });
+    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '', reporting: 'none' });
     const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
-    expect(vars.role).toBeUndefined();
+    expect(vars).not.toHaveProperty('role');
+    expect(castWorkerSchema.shape).not.toHaveProperty('role');
+    expect(CAST_WORKER_MUTATION).not.toMatch(/\$role|role:\s*\$role/);
     expect(vars.name).toBe('Iris');
   });
 
@@ -984,7 +1332,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'taken', extensions: { code: 'WORKER_NAME_TAKEN' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
@@ -1006,7 +1354,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ extensions: { code: 'WORKER_NAME_REQUIRED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toMatch(/needs a name/i);
@@ -1014,11 +1362,21 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).not.toMatch(/cast list|register/i);
   });
 
+  it('translates a stale-client role override refusal', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'WORKER_ROLE_OVERRIDE_REFUSED', extensions: { code: 'WORKER_ROLE_OVERRIDE_REFUSED' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: 'old-role', reporting: 'none' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.');
+  });
+
   it('translates WORKER_AGENT_NOT_INSTALLED', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ extensions: { code: 'WORKER_AGENT_NOT_INSTALLED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-9', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-9', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('not installed');
@@ -1032,34 +1390,54 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('permission to staff this App');
     expect(result.data.form.message.text).toContain('contributor access');
   });
 
-  it('falls back to the server message for an UNKNOWN code', async () => {
+  // portal#1813 (hadron-server#3626): the personal App's owner no longer
+  // qualifies for its ORGANIZATION-visible Agent. Without its own entry this
+  // fell to extractGqlError's generic "Failed to cast the worker.". The status
+  // stays the action's 500 for every refusal; only the copy is pinned.
+  it('translates BOOT_PROMPT_INSTALL_LICENSE_INACTIVE into its fixed copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      message: 'server text',
+      response: { errors: [{ message: 'server text', extensions: { code: 'BOOT_PROMPT_INSTALL_LICENSE_INACTIVE' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'The owner of this App no longer qualifies to use this organization Agent, so the worker can’t be cast. Trying again won’t help.',
+    });
+  });
+
+  it('uses generic copy for an UNKNOWN code', async () => {
     // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — only known codes get friendly
     // copy; an internal error must not be relabelled as a user mistake.
     mockRequest.mockRejectedValueOnce({
       message: 'boom',
       response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('boom');
+    expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 
-  it('falls back to the server message for a payload-less transport failure', async () => {
+  it('uses action fallback copy for a payload-less transport failure', async () => {
     // No `response.errors` at all — reading extensions.code off it would yield
     // undefined and, with a catch-all, mislabel an outage.
     mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('bad gateway');
+    expect(result.data.form.message.text).toBe('Failed to cast the worker.');
   });
 });
 
@@ -1084,14 +1462,14 @@ describe('retireWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when retiring fails', async () => {
+  it('returns fallback copy when retiring transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('retireWorker', { workerId: 'worker-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to retire the worker.' });
   });
 
   // Retiring shares castWorker's gate, so it must share its refusal copy —
@@ -1324,7 +1702,7 @@ describe('releaseWorker action', () => {
     const result = await releaseAgainst({}, { id: 'user-1' });
     expect(result.status).toBe(500);
     const message = messageOf(result);
-    expect(message.text).toBe('hold is stale');
+    expect(message.text).toBe('Something went wrong on our side.');
     expect(message).not.toHaveProperty('staleHold');
   });
 
@@ -1334,14 +1712,14 @@ describe('releaseWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns a typed error when releasing fails', async () => {
+  it('returns fallback copy when releasing transport fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-9' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Failed to release the name.' });
   });
 
   // releaseWorker does NOT share the staffing gate: it admits the HOLDER or an
@@ -1439,13 +1817,13 @@ describe('postTeamChatMessage action (#732)', () => {
   // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — an unknown code (or a transport
   // failure with no GraphQL payload) must fall through to the server's own
   // message rather than being relabelled as a user mistake.
-  it('falls through to the server message for an unmapped code', async () => {
+  it('uses generic copy for an unmapped code', async () => {
     mockRequest.mockRejectedValueOnce(gqlError('SOME_NEW_CODE'));
     const result = (await runAction('postTeamChatMessage', {
       _kind: 'postTeamChatMessage',
       body: 'hi',
     })) as { data: { form: { message: { text: string } } } };
-    expect(result.data.form.message.text).toContain('raw server message');
+    expect(result.data.form.message.text).toContain('Something went wrong on our side.');
   });
 });
 
@@ -1456,14 +1834,15 @@ describe('worklog loading (#733)', () => {
    * argument so the existing single-purpose calls read unchanged.
    */
   function stubAll(worklog: Record<string, unknown> | Error) {
-    const chatRoots = (worklog as Record<string, unknown>)?.appChatRoots;
+    const configuredChatRoots = (worklog as Record<string, unknown>)?.appChatRoots;
+    const chatRoots = Array.isArray(configuredChatRoots) || configuredChatRoots instanceof Error ? configuredChatRoots : undefined;
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
-      if (query === APP_CHAT_ROOTS_QUERY) {
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) {
         if (chatRoots instanceof Error) return Promise.reject(chatRoots);
-        return Promise.resolve({ appNodes: chatRoots ?? [] });
+        return Promise.resolve({ appNodesPage: { items: chatRoots ?? [], total: chatRoots?.length ?? 0, hasMore: false } });
       }
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
@@ -1494,7 +1873,7 @@ describe('worklog loading (#733)', () => {
 
   it('passes ref, kind and tool filters through to the server', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    await loadWithUrl('?worklogRef=owner/repo%23371&worklogKind=pr&worklogTool=github');
+    await loadWithUrl('?tab=worklog&worklogRef=owner/repo%23371&worklogKind=pr&worklogTool=github');
     const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_WORK_ITEMS_QUERY);
     expect(call?.[1]).toMatchObject({
       appRef: 'app-1',
@@ -1509,7 +1888,7 @@ describe('worklog loading (#733)', () => {
   // unfiltered list.
   it('drops an invalid kind rather than forwarding it into a server error', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    const result = await loadWithUrl('?worklogKind=pull-request');
+    const result = await loadWithUrl('?tab=worklog&worklogKind=pull-request');
     const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_WORK_ITEMS_QUERY);
     expect(call?.[1].kind).toBeUndefined();
     // And the echoed-back filter must not claim a filter that was never applied.
@@ -1518,7 +1897,7 @@ describe('worklog loading (#733)', () => {
 
   it('reports a failed worklog fetch as an error, not as an empty worklog', async () => {
     stubAll(new Error('worklog exploded'));
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect(result.worklogError).toBe(true);
     expect(result.worklog).toEqual([]);
   });
@@ -1526,14 +1905,14 @@ describe('worklog loading (#733)', () => {
   // Negative case for the above (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail).
   it('reports a genuinely empty worklog with no error flag', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect(result.worklogError).toBe(false);
     expect(result.worklogTotal).toBe(0);
   });
 
   it('carries the server total through, not the fetched count', async () => {
     stubAll({ teamWorkItems: { items: [{ nodeId: 'n1' }], total: 412 } });
-    const result = await loadWithUrl('');
+    const result = await loadWithUrl('?tab=worklog');
     expect((result.worklog as unknown[]).length).toBe(1);
     expect(result.worklogTotal).toBe(412);
   });
@@ -1619,7 +1998,7 @@ describe('team chat tail paging (#1536)', () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: page });
       }
@@ -1679,7 +2058,7 @@ describe('canManageApp (#1106)', () => {
     mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp({ urn: 'hrn:app:acme.com:demo' }) });
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === SELF_CAN_MANAGE_QUERY) {
         expect(vars).toEqual({ user: 'user-1', resource: 'hrn:app:acme.com:demo' });
@@ -1697,7 +2076,7 @@ describe('canManageApp (#1106)', () => {
       locals: { token: 'tok', user },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=agents'),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
   }
 
@@ -1758,6 +2137,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
     outcome: { resolve: unknown } | { reject: unknown },
     appOver: Record<string, unknown> = {},
     agentsOutcome?: { resolve: unknown } | { reject: unknown },
+    grantsOutcome?: { resolve: unknown } | { reject: unknown },
   ) {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
@@ -1773,9 +2153,16 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
         }
         return Promise.resolve({ organization: { id: 'org-1', agents: [] } });
       }
+      // #1172: the subscribed agents, a request of their own.
+      if (query === APP_ORG_AGENT_GRANTS_QUERY) {
+        if (grantsOutcome) {
+          return 'reject' in grantsOutcome ? Promise.reject(grantsOutcome.reject) : Promise.resolve(grantsOutcome.resolve);
+        }
+        return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
+      }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
-      if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
+      if (query === APP_CHAT_ROOTS_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -1787,7 +2174,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
     mockFetchAllItems.mockResolvedValue([]);
   }
 
-  async function loadAndCatch() {
+  async function loadAndCatch(search = '?tab=agents') {
     const { load } = await import('./+page.server');
     try {
       return {
@@ -1797,7 +2184,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
           locals: { token: 'tok', user: { id: 'user-1' } },
           parent: async () => ({}),
           depends: () => {},
-          url: new URL('http://localhost/app/apps/app-1'),
+          url: new URL(`http://localhost/app/apps/app-1${search}`),
         } as unknown as Parameters<typeof load>[0]),
       };
     } catch (e) {
@@ -1880,6 +2267,62 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       expect((result as { availableAgentsError: boolean }).availableAgentsError).toBe(false);
     });
 
+    // #1172: an Agent the org SUBSCRIBES to is an AgentOrgGrant, not one of
+    // organization.agents, yet installAgentIntoApp accepts it. The picker must
+    // offer it, once, and only while the grant is active and the agent readable.
+    it('offers the agents the org subscribes to, beside the ones it owns (#1172)', async () => {
+      const SUBSCRIBED = { id: 'a2', name: 'Project Manager', urn: 'hrn:agent:hadronmemory.com:project-manager' };
+      stubOrg(
+        { resolve: { organization: ORG } },
+        {},
+        { resolve: { organization: { id: 'org-1', agents: POOL } } },
+        {
+          resolve: {
+            organization: {
+              id: 'org-1',
+              agentOrgGrants: [
+                { isActive: true, agent: SUBSCRIBED },
+                { isActive: true, agent: POOL[0] },
+                { isActive: false, agent: { id: 'a3', name: 'Revoked', urn: 'hrn:agent:revoked' } },
+                { isActive: true, agent: null },
+                { isActive: true, revokedAt: '2026-01-01T00:00:00Z', agent: { id: 'a4', name: 'Swept late', urn: 'hrn:agent:late' } },
+                { isActive: true, expiresAt: '2020-01-01T00:00:00Z', agent: { id: 'a5', name: 'Expired', urn: 'hrn:agent:expired' } },
+              ],
+            },
+          },
+        },
+      );
+      const { result } = await loadAndCatch();
+      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([...POOL, SUBSCRIBED]);
+      expect((result as { subscribedAgentsError: boolean }).subscribedAgentsError).toBe(false);
+    });
+
+    // portal#1188 review (George): agentOrgGrants is a non-null list, so folded
+    // into the agents document its failure nulled `organization` and emptied
+    // the LEGAL owned picker. It is a request of its own: a failure costs only
+    // the subscribed agents.
+    it('a failing grants resolver still leaves the owned picker, and says the subscribed ones are missing', async () => {
+      stubOrg(
+        { resolve: { organization: ORG } },
+        {},
+        { resolve: { organization: { id: 'org-1', agents: POOL } } },
+        { reject: orgRefusal('INTERNAL_SERVER_ERROR') },
+      );
+      const { thrown, result } = await loadAndCatch();
+      expect(thrown).toBeUndefined();
+      const r = result as { availableAgents: unknown[]; availableAgentsError: boolean; subscribedAgentsError: boolean };
+      expect(r.availableAgents).toEqual(POOL);
+      expect(r.availableAgentsError).toBe(false);
+      expect(r.subscribedAgentsError).toBe(true);
+    });
+
+    it('a failing OWNED read is still the picker error, whatever the grants say', async () => {
+      stubOrg({ resolve: { organization: ORG } }, {}, { reject: orgRefusal('INTERNAL_SERVER_ERROR') }, { resolve: { organization: { id: 'org-1', agentOrgGrants: [] } } });
+      const { result } = await loadAndCatch();
+      expect((result as { availableAgentsError: boolean }).availableAgentsError).toBe(true);
+      expect((result as { subscribedAgentsError: boolean }).subscribedAgentsError).toBe(false);
+    });
+
     it('a refusing agents resolver costs the picker, not the page', async () => {
       // `agents` is a non-null list: folded into the org document its failure
       // would null the org and 404 the page over data one tab draws (#851).
@@ -1900,16 +2343,24 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
         mockRequest.mockImplementation((query, ...rest) =>
           query === APP_MEMBERS_QUERY ? never : base(query, ...rest),
         );
-        const pending = loadAndCatch();
-        // The loader's own awaits (dynamic import, the org lookup) must reach the
-        // bounded requests before the clock can fire them.
-        for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
-        const { thrown, result } = await pending;
-        expect(thrown).toBeUndefined();
-        const r = result as { availableAgentsError: boolean; membersError: boolean; availableAgents: unknown[] };
-        expect(r.availableAgentsError).toBe(true);
-        expect(r.membersError).toBe(true);
-        expect(r.availableAgents).toEqual([]);
+        // portal#2240: the picker is the Agents tab's read and the roster the
+        // Human Team tab's, so each is opened on its own tab; the bound holds
+        // on both.
+        const settle = async (search: string) => {
+          const pending = loadAndCatch(search);
+          // The loader's own awaits (dynamic import, the org lookup) must reach the
+          // bounded requests before the clock can fire them.
+          for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
+          return pending;
+        };
+        const agents = await settle('?tab=agents');
+        expect(agents.thrown).toBeUndefined();
+        const a = agents.result as { availableAgentsError: boolean; availableAgents: unknown[] };
+        expect(a.availableAgentsError).toBe(true);
+        expect(a.availableAgents).toEqual([]);
+        const members = await settle('?tab=members');
+        expect(members.thrown).toBeUndefined();
+        expect((members.result as { membersError: boolean }).membersError).toBe(true);
       } finally {
         vi.useRealTimers();
       }
@@ -1937,6 +2388,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       // restore the discarded-resolver invocation that nulls the org. The tests
       // above assert which document was REQUESTED, not what is in it.
       expect(APP_ORG_AGENTS_QUERY).toMatch(/\bagents\b/);
+      expect(APP_ORG_AGENTS_QUERY).not.toMatch(/agentOrgGrants/);
       expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bagents\b/);
     });
   });
@@ -1948,9 +2400,9 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
 // classified read, so a refusal there is a state, not a 404.
 describe('load: key inventory (portal#1068)', () => {
   const forbidden = { response: { errors: [{ message: 'no', extensions: { code: 'FORBIDDEN' } }] } };
-  async function loadWith(keysRead: () => Promise<unknown>) {
+  async function loadWith(keysRead: (vars: { limit?: number; offset?: number }) => Promise<unknown>, managesRead: () => Promise<unknown> = () => Promise.resolve({ app: { id: 'app-1', viewerManages: true } })) {
     mockFetchAllItems.mockResolvedValue([]);
-    mockRequest.mockImplementation((query) => {
+    mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
           app: {
@@ -1961,9 +2413,10 @@ describe('load: key inventory (portal#1068)', () => {
           },
         });
       }
-      if (query === APP_KEYS_QUERY) return keysRead();
+      if (query === APP_KEYS_QUERY) return keysRead(vars as { limit?: number; offset?: number });
+      if (query === APP_VIEWER_MANAGES_QUERY) return managesRead();
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
       return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -1974,15 +2427,28 @@ describe('load: key inventory (portal#1068)', () => {
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
-    } as unknown as Parameters<typeof load>[0])) as { app: { id: string }; appKeys: unknown };
+      url: new URL('http://localhost/app/apps/app-1?tab=keys'),
+    } as unknown as Parameters<typeof load>[0])) as { app: { id: string }; appKeys: unknown; viewerManages: unknown };
   }
   it('the App query selects no keys field', () => {
     expect(APP_QUERY).not.toMatch(/^\s*keys\s*\{/m);
   });
   it('a manager gets the keys', async () => {
-    const r = await loadWith(() => Promise.resolve({ appKeys: [{ id: 'k1' }] }));
+    const r = await loadWith(() => Promise.resolve({ appKeysPage: pageOf([{ id: 'k1' }]) }));
     expect(r.appKeys).toEqual({ kind: 'ok', keys: [{ id: 'k1' }] });
+  });
+  // portal#1615 — the App page's key list follows every page.
+  it.each([21, 201])('a manager with %i keys gets all of them (20 per call)', async (n) => {
+    const all = Array.from({ length: n }, (_, i) => ({ id: `k${i}` }));
+    const limits: (number | undefined)[] = [];
+    const r = await loadWith((v) => { limits.push(v.limit); return Promise.resolve({ appKeysPage: pageOf(all, v) }); });
+    expect(r.appKeys).toEqual({ kind: 'ok', keys: all });
+    expect(Math.max(...(limits as number[]))).toBeLessThanOrEqual(20);
+  });
+  it('a refused later page is failed, not a partial list', async () => {
+    const all = Array.from({ length: 60 }, (_, i) => ({ id: `k${i}` }));
+    const r = await loadWith((v) => ((v.offset ?? 0) >= 20 ? Promise.reject(new Error('boom')) : Promise.resolve({ appKeysPage: pageOf(all, v) })));
+    expect(r.appKeys).toEqual({ kind: 'failed' });
   });
   it('a non-manager still gets the App (no false 404) and a hidden inventory', async () => {
     const r = await loadWith(() => Promise.reject(forbidden));
@@ -1994,6 +2460,46 @@ describe('load: key inventory (portal#1068)', () => {
     expect(r.app.id).toBe('app-1');
     expect(r.appKeys).toEqual({ kind: 'failed' });
   });
+
+  // portal#1153 — App.viewerManages: `false` is an answer, a failed or missing read is unknown.
+  describe('viewerManages', () => {
+    const keys = () => Promise.resolve({ appKeysPage: pageOf([]) });
+    it('true and false are both known answers', async () => {
+      expect((await loadWith(keys, () => Promise.resolve({ app: { id: 'app-1', viewerManages: true } }))).viewerManages).toEqual({ kind: 'known', manages: true });
+      expect((await loadWith(keys, () => Promise.resolve({ app: { id: 'app-1', viewerManages: false } }))).viewerManages).toEqual({ kind: 'known', manages: false });
+    });
+    it('a failed read is unknown, never false, and the App still loads', async () => {
+      const r = await loadWith(keys, () => Promise.reject(new Error('Cannot query field "viewerManages"')));
+      expect(r.app.id).toBe('app-1');
+      expect(r.viewerManages).toEqual({ kind: 'unknown' });
+    });
+    it('an answer without the field is unknown, never false', async () => {
+      expect((await loadWith(keys, () => Promise.resolve({ app: { id: 'app-1' } }))).viewerManages).toEqual({ kind: 'unknown' });
+      expect((await loadWith(keys, () => Promise.resolve({ app: null }))).viewerManages).toEqual({ kind: 'unknown' });
+    });
+    it('is selected in its own request, not on the shared App document', () => {
+      expect(APP_VIEWER_MANAGES_QUERY).toMatch(/viewerManages/);
+      expect(APP_QUERY).not.toMatch(/viewerManages/);
+    });
+  });
+});
+
+
+describe('postChannelMessage (#1033)', () => {
+  it('uses the selected Channel with the human token, keeps replies, and never sends a session', async () => {
+    mockRequest.mockImplementation(async q => q === APP_CHAT_TARGET_QUERY
+      ? { app: { id: 'app-1' } } : q === CHANNEL_CHAT_TARGET_QUERY ? { channel: { id: 'pair-channel', memory: { appId: 'app-1' } } }
+      : { createChannelMessage: { seq: 20 } });
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'pair-channel', body: 'hello', replyToSeq: '12', sessionRef: 'forged' });
+    expect(result).toMatchObject({ form: { id: 'channel:pair-channel', message: { type: 'success' } } });
+    expect(mockRequest).toHaveBeenLastCalledWith(CREATE_CHANNEL_MESSAGE_MUTATION, { channelRef: 'pair-channel', body: 'hello', replyToSeq: 12 });
+  });
+  it('keeps the failed draft and makes no mutation when the Channel belongs to another App', async () => {
+    mockRequest.mockImplementation(async q => q === APP_CHAT_TARGET_QUERY ? { app: { id: 'app-1' } } : { channel: { id: 'pair-channel', memory: { appId: 'other' } } });
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'pair-channel', body: 'kept draft' });
+    expect(result).toMatchObject({ status: 500, data: { form: { data: { body: 'kept draft' }, message: { type: 'error' } } } });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
 });
 
 // portal#1148 (hadron-server#2089): the Human Team roster has three outcomes, and a withheld
@@ -2001,7 +2507,7 @@ describe('load: key inventory (portal#1068)', () => {
 describe('load: Human Team roster states (portal#1148)', () => {
   async function loadMembers(membersRead: () => Promise<unknown>) {
     mockFetchAllItems.mockResolvedValue([]);
-    mockRequest.mockImplementation((query) => {
+    mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
           app: {
@@ -2013,7 +2519,7 @@ describe('load: Human Team roster states (portal#1148)', () => {
         });
       }
       if (query === APP_MEMBERS_QUERY) return membersRead();
-      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_NODES_PAGE_QUERY) return Promise.resolve({ appNodesPage: { items: [], total: 0, hasMore: false } });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
       return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -2024,7 +2530,7 @@ describe('load: Human Team roster states (portal#1148)', () => {
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=members'),
     } as unknown as Parameters<typeof load>[0])) as { members: unknown[]; membersError: boolean; membersWithheld: boolean };
   }
   it('members: null is withheld — not an error, not an empty roster', async () => {
@@ -2043,5 +2549,354 @@ describe('load: Human Team roster states (portal#1148)', () => {
     const r = await loadMembers(() => Promise.resolve({ app: { members: [{ userId: 'u1', appId: 'app-1', role: 'owner' }] } }));
     expect(r).toMatchObject({ membersError: false, membersWithheld: false });
     expect(r.members).toHaveLength(1);
+  });
+});
+
+// ── hadron-portal#1149 (hadron-server#2028, S12): the cast takes a deliberate
+// reporting choice ────────────────────────────────────────────────────────────
+//
+// Gate: hrn:node pointers live on the issue (Xylon 6259594697, binding
+// 6259561416). The wire is PRESENCE-based, so these pins assert actual variable
+// omission, never `null` or a default `false`:
+//   head   → { reportsTo } and NO noTeam key
+//   no team → { noTeam: true } and NO reportsTo key
+//   neither → never sent: the portal always asks, in both server phases.
+describe('castWorker reporting choice (#1149)', () => {
+  const base = { agentId: 'agent-1', name: 'Iris' };
+
+  function sentVariables(): Record<string, unknown> {
+    return mockRequest.mock.calls[0][1] as Record<string, unknown>;
+  }
+
+  it('declares both arms as optional variables and selects teamPlacement, with no default', () => {
+    expect(CAST_WORKER_MUTATION).toMatch(/\$reportsTo:\s*ID(?![!\w])/);
+    expect(CAST_WORKER_MUTATION).toMatch(/\$noTeam:\s*Boolean(?![!\w])/);
+    expect(CAST_WORKER_MUTATION).toMatch(/reportsTo:\s*\$reportsTo/);
+    expect(CAST_WORKER_MUTATION).toMatch(/noTeam:\s*\$noTeam/);
+    expect(CAST_WORKER_MUTATION).not.toMatch(/\$noTeam:\s*Boolean\s*=/);
+    expect(CAST_WORKER_MUTATION).not.toMatch(/\$reportsTo:\s*ID\s*=/);
+    expect(CAST_WORKER_MUTATION).toContain('teamPlacement');
+  });
+
+  it('a chosen head sends reportsTo ALONE: the noTeam key is absent, not false or null', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' });
+    expect(result).toMatchObject({ form: { valid: true, message: { type: 'success' } } });
+    expect(sentVariables()).toEqual({ appRef: 'app-1', agentRef: 'agent-1', name: 'Iris', reportsTo: 'worker-ada' });
+    expect(Object.keys(sentVariables())).not.toContain('noTeam');
+  });
+
+  it('an explicit No team sends noTeam: true ALONE: the reportsTo key is absent, not null', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    await runAction('castWorker', { ...base, reporting: 'none' });
+    expect(sentVariables()).toEqual({ appRef: 'app-1', agentRef: 'agent-1', name: 'Iris', noTeam: true });
+    expect(Object.keys(sentVariables())).not.toContain('reportsTo');
+  });
+
+  it('No team drops a stale head left in the form, so the request never carries both arms', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    await runAction('castWorker', { ...base, reporting: 'none', reportsTo: 'worker-ada' });
+    expect(sentVariables()).toEqual({ appRef: 'app-1', agentRef: 'agent-1', name: 'Iris', noTeam: true });
+  });
+
+  it('refuses a cast with no choice BEFORE the mutation: omission is never No team', async () => {
+    const result = (await runAction('castWorker', base)) as {
+      status: number;
+      data: { form: { errors: { reporting?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.reporting?.[0]).toMatch(/choose/i);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a head with a blank reference', { reporting: 'head', reportsTo: '   ' }],
+    ['a head with no reference', { reporting: 'head' }],
+    ['an unknown choice value', { reporting: 'false' }],
+    ['a blank choice', { reporting: '', reportsTo: 'worker-ada' }],
+  ])('refuses %s before the mutation, and never guesses an arm', async (_label, extra) => {
+    const result = (await runAction('castWorker', { ...base, ...extra })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['WORKER_TEAM_CHOICE_REQUIRED', 'Choose reportsTo or noTeam: true when casting a worker.'],
+    ['WORKER_TEAM_CHOICE_INVALID', 'reportsTo must be a non-empty worker reference, or noTeam must be true.'],
+    ['WORKER_TEAM_CHOICE_CONFLICT', 'Supply reportsTo or noTeam, never both.'],
+  ])('shows %s as the server’s frozen message, verbatim', async (code, message) => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message, extensions: { code } }] } });
+    const result = (await runAction('castWorker', { ...base, reporting: 'none' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.data.form.message).toEqual({ type: 'error', text: message });
+  });
+
+  it('shows WORKER_NOT_FOUND as copy that names no target, since the server conceals it', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Worker not found in this App.', extensions: { code: 'WORKER_NOT_FOUND' } }] },
+    });
+    const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-zzz' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('Worker not found in this App.');
+    expect(result.data.form.message.text).not.toContain('worker-zzz');
+  });
+
+  it('says a head cast is unavailable without promising a head always succeeds', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'unavailable', extensions: { code: 'WORKER_REPORTING_CAST_UNAVAILABLE' } }] },
+    });
+    const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toMatch(/not available|unavailable/i);
+    expect(result.data.form.message.text).toMatch(/no team/i);
+    expect(result.data.form.message.text).not.toBe('unavailable');
+  });
+
+  it('a refusal sends exactly one request: no automatic second cast under another choice', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'x', extensions: { code: 'WORKER_REPORTING_CAST_UNAVAILABLE' } }] },
+    });
+    const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' })) as {
+      data: { form: { data: { reporting?: string; reportsTo?: string } } };
+    };
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    // The user's choice stays available for correction.
+    expect(result.data.form.data).toMatchObject({ reporting: 'head', reportsTo: 'worker-ada' });
+  });
+
+  it('a transport failure is a failure, not a not-found or a retry', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
+    const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('Failed to cast the worker.');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #1778: exercise each actual action catch, not just the shared extractor.
+describe('App action transport copy', () => {
+  const cases = [
+    ['update', validSettings, UPDATE_APP_MUTATION, 'Failed to update app'],
+    ['addAgent', { agentId: 'agent-1' }, INSTALL_AGENT_INTO_APP_MUTATION, 'Failed to add agent'],
+    ['removeAgent', { agentId: 'agent-1' }, UNINSTALL_AGENT_FROM_APP_MUTATION, 'Failed to remove agent'],
+    ['castWorker', { agentId: 'agent-1', name: 'Aster', reporting: 'none' }, CAST_WORKER_MUTATION, 'Failed to cast the worker.'],
+    ['postTeamChatMessage', { body: 'hello' }, CREATE_TEAM_CHAT_MESSAGE_MUTATION, 'Failed to post to the team chat.'],
+    ['retireWorker', { workerId: 'worker-1' }, RETIRE_WORKER_MUTATION, 'Failed to retire the worker.'],
+    ['releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-1' }, RELEASE_WORKER_MUTATION, 'Failed to release the name.'],
+    ['deleteApp', {}, DELETE_APP_MUTATION, 'Failed to delete app'],
+  ] as const;
+
+  it.each(cases)('%s uses its fallback for a plain transport Error', async (name, fields, mutation, fallback) => {
+    // deleteApp reads ownership first; fail the mutation itself, not that
+    // non-fatal lookup. Every case must reach exactly one attempted write.
+    mockRequest.mockImplementation(async query => {
+      if (query === mutation) throw new Error('fetch failed PRIVATE_TRANSPORT_DETAIL');
+      return { app: { organizationId: null } };
+    });
+    const result = await runAction(name, fields) as {
+      status: number; data: { form: { message: { type: string; text: string } } };
+    };
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(mockRequest).toHaveBeenCalledTimes(name === 'deleteApp' ? 2 : 1);
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: fallback });
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_TRANSPORT_DETAIL');
+  });
+
+  it.each(cases)('%s preserves an existing typed validation refusal', async (name, fields, mutation) => {
+    mockRequest.mockImplementation(async query => {
+      if (query === mutation) throw { response: { errors: [{ message: 'Correct the submitted value.', extensions: { code: 'BAD_USER_INPUT' } }] } };
+      return { app: { organizationId: null } };
+    });
+    const result = await runAction(name, fields) as {
+      status: number; data: { form: { message: { type: string; text: string } } };
+    };
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Correct the submitted value.' });
+    expect(result.status).toBe(500);
+  });
+});
+
+// #1789 (ruling hrn:node:hadronmemory.com:hadron-dev-team-shared:rulings:0247):
+// one fixed, identifier-free diagnostic record per transport-failed attempt at
+// each of the eight App actions, on the existing portal container log. GraphQL
+// errors and successes emit nothing. The record is CLOSED — exactly
+// event/action/classification — so every test below also seeds canaries in
+// every forbidden field the ruling names and asserts none reaches the sink.
+describe('App action transport diagnostics (#1789)', () => {
+  const CANARY_MSG = 'CANARY_transport_message_6f2a';
+  const CANARY_NESTED = 'CANARY_nested_response_body_91bd';
+  const CANARY_VARS = 'CANARY_query_variables_c30d';
+  const CANARY_REQID = 'CANARY_request_id_77aa';
+
+  // [action name, ruling-0247 diagnostic label, form fields, mutation]
+  const cases = [
+    ['update', 'update', validSettings, UPDATE_APP_MUTATION],
+    ['addAgent', 'install_link', { agentId: 'agent-1' }, INSTALL_AGENT_INTO_APP_MUTATION],
+    ['removeAgent', 'unlink', { agentId: 'agent-1' }, UNINSTALL_AGENT_FROM_APP_MUTATION],
+    ['castWorker', 'cast', { agentId: 'agent-1', name: 'Aster', reporting: 'none' }, CAST_WORKER_MUTATION],
+    ['postTeamChatMessage', 'team_chat_post', { body: 'hello' }, CREATE_TEAM_CHAT_MESSAGE_MUTATION],
+    ['retireWorker', 'retire', { workerId: 'worker-1' }, RETIRE_WORKER_MUTATION],
+    ['releaseWorker', 'release', { workerId: 'worker-1', expectedHolderUserId: 'user-1' }, RELEASE_WORKER_MUTATION],
+    ['deleteApp', 'delete', {}, DELETE_APP_MUTATION],
+  ] as const;
+
+  let warned: string[];
+  beforeEach(() => {
+    warned = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warned.push(args.map((a) => String(a)).join(' '));
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A plain transport failure seeded with canaries in every forbidden field
+   * the ruling names: message, stack, URL, headers/cookies, query, variables
+   * and nested response-body properties. If any of it can reach the sink, the
+   * canary assertions fail. */
+  function canaryTransportError(): Error {
+    const e = new Error(`fetch failed ${CANARY_MSG}`);
+    Object.assign(e, {
+      stack: `Error: fetch failed ${CANARY_MSG}\n    at CANARY_stack_frame`,
+      request: {
+        url: `https://CANARY_url.example/${CANARY_VARS}`,
+        headers: { cookie: `CANARY_cookie=${CANARY_VARS}` },
+      },
+      query: `mutation { CANARY_query_${CANARY_VARS} }`,
+      variables: { appRef: CANARY_VARS, nested: { deep: CANARY_NESTED } },
+      response: { body: CANARY_NESTED, errors: undefined, data: { secret: CANARY_NESTED } },
+    });
+    return e;
+  }
+
+  /** Succeeds every non-mutation query (deleteApp's non-fatal org lookup) and
+   * fails the named mutation with the seeded transport error. */
+  function failMutationWithTransport(mutation: unknown) {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw canaryTransportError();
+      return { app: { organizationId: null } };
+    });
+  }
+
+  it.each(cases)('%s emits exactly one fixed record for a transport failure', async (name, label, fields, mutation) => {
+    failMutationWithTransport(mutation);
+    await runAction(name, fields);
+    // One attempted write, one record — and no retry or replay between them.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(1);
+    // The exact fixed record: key set, key order, no whitespace, nothing else
+    // on the line. Any fourth field or error-derived text breaks this string.
+    expect(warned[0]).toBe(`{"event":"app_action_transport_failure","action":"${label}","classification":"transport"}`);
+    expect(Object.keys(JSON.parse(warned[0])).sort()).toEqual(['action', 'classification', 'event']);
+    // No canary from any forbidden field reached the sink.
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
+    expect(warned.join(' ')).not.toContain(CANARY_NESTED);
+    expect(warned.join(' ')).not.toContain(CANARY_VARS);
+  });
+
+  it.each(cases)('%s emits one record per independent failed attempt', async (name, _label, fields, mutation) => {
+    failMutationWithTransport(mutation);
+    await runAction(name, fields);
+    await runAction(name, fields);
+    await runAction(name, fields);
+    // Each attempt tried its write exactly once and produced exactly one
+    // record — no duplicates within an attempt, no replay between attempts.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(3);
+    expect(warned).toHaveLength(3);
+    for (const line of warned) {
+      expect(JSON.parse(line)).toMatchObject({ event: 'app_action_transport_failure' });
+    }
+  });
+
+  // Success shapes mirror the existing per-action success tests; deleteApp's
+  // success legitimately rejects with the 303 redirect, swallowed here because
+  // the assertion under test is the ABSENCE of a diagnostic.
+  const successValues = {
+    [UPDATE_APP_MUTATION]: {},
+    [INSTALL_AGENT_INTO_APP_MUTATION]: {},
+    [UNINSTALL_AGENT_FROM_APP_MUTATION]: {},
+    [CAST_WORKER_MUTATION]: {},
+    [CREATE_TEAM_CHAT_MESSAGE_MUTATION]: { createTeamChatMessage: { nodeId: 'n1', seq: 36 } },
+    [RETIRE_WORKER_MUTATION]: {},
+    [RELEASE_WORKER_MUTATION]: { releaseWorker: { worker: { id: 'worker-1' }, forced: false, releasedFrom: null, notified: null } },
+    [DELETE_APP_MUTATION]: {},
+  } as Record<string, unknown>;
+
+  it.each(cases)('%s emits nothing on success', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) return successValues[mutation];
+      return { app: { organizationId: null } };
+    });
+    // The success control must prove success, not swallow any rejection:
+    // deleteApp's success IS the 303 redirect; the other seven return a
+    // success message. A silently-failing mock cannot pass this green.
+    if (name === 'deleteApp') {
+      await expect(runAction(name, fields)).rejects.toMatchObject({ status: 303 });
+    } else {
+      const result = await runAction(name, fields) as { form: { message: { type: string } } };
+      expect(result.form.message.type).toBe('success');
+    }
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+  });
+
+  it.each(cases)('%s emits nothing for a typed validation refusal', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: 'Correct the submitted value.', extensions: { code: 'BAD_USER_INPUT' } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    // The rejection reached the catch (mutation ran once), so the silence
+    // below is the classifier's, not a mock that never fired.
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+  });
+
+  it.each(cases)('%s emits nothing for an internal GraphQL error', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG, extensions: { code: 'INTERNAL_SERVER_ERROR', requestId: CANARY_REQID } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_REQID);
+  });
+
+  // Greer's LOCAL P2 (hrn:node:hadronmemory.com:hadron-dev-team-shared:sprints:sprint-3:reviews:hadron-portal-1803:greer-local-ed805e33):
+  // a mutant that logs every GraphQL code EXCEPT the two covered above
+  // survived the original matrix. Ruling 0247's silence rule is "none for a
+  // GraphQL error" — ANY GraphQL error — so the matrix must pin the codes it
+  // does not name, with canaries, exactly as it pins the ones it does.
+  const CANARY_UNKNOWN_CODE = 'CANARY_unknown_gql_code_4e19';
+
+  it.each(cases)('%s emits nothing for an unknown coded GraphQL error', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG, extensions: { code: CANARY_UNKNOWN_CODE } }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_UNKNOWN_CODE);
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
+  });
+
+  it.each(cases)('%s emits nothing for a GraphQL error with a message but no code', async (name, _label, fields, mutation) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === mutation) throw { response: { errors: [{ message: CANARY_MSG }] } };
+      return { app: { organizationId: null } };
+    });
+    await runAction(name, fields);
+    expect(mockRequest.mock.calls.filter(([query]) => query === mutation)).toHaveLength(1);
+    expect(warned).toHaveLength(0);
+    expect(warned.join(' ')).not.toContain(CANARY_MSG);
   });
 });

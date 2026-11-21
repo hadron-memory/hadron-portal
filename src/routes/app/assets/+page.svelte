@@ -148,7 +148,6 @@
         currentUserId={data.user?.id ?? null}
         showMemory
         listKey={`assets:${activeTab}`}
-        maxHeight="max(200px, calc(100vh - 24rem))"
         ondeleted={refresh}
       />
     {/key}

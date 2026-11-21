@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { LocalStorageViewStore } from './localStorageViewStore';
-import { ViewStorageError } from './viewStore';
+import { ViewStorageError, viewStorageErrorMessages } from './viewStore';
+import { savedViewsStrings } from '$lib/i18n/saved-views-strings';
+import { viewStorageErrorText } from '$lib/test/viewStorageErrorText';
 import type { SavedView } from './savedView';
 
 // Map-backed fake Storage so the localStorage store is testable without a DOM.
@@ -141,5 +143,47 @@ describe('LocalStorageViewStore', () => {
     const got = await s.list(KEY);
     // missing slice is filled so it won't read as perpetually "modified"
     expect(got[0].view.columnSizing).toEqual({});
+  });
+
+  // The App-memories restore pin (AppMemories.client.test.ts) asserts "no
+  // storage error surfaced" via the shared `viewStorageErrorText` regex.
+  // This is the join between the two files, proven in both directions:
+  // every message the store throws IS a member of the family the regex is
+  // built from (the literals below are gone — the throw sites use the same
+  // constants, so a reword cannot desync them), and the regex is not
+  // vacuously broad. The client lane adds the render-path positive control.
+  it('throws exactly the ViewStorageError message family the restore pin keys on', async () => {
+    const base = fakeStorage();
+    const failing = new LocalStorageViewStore({
+      ...base,
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+    } as Storage);
+    await expect(failing.create(KEY, 'v', view())).rejects.toThrow(viewStorageErrorMessages.saveFailed);
+    await expect(failing.setActiveId(KEY, 'v1')).rejects.toThrow(viewStorageErrorMessages.saveActiveFailed);
+    // no injected storage and no DOM localStorage — stubbed explicitly so the
+    // case cannot start silently passing (or failing) the day the node lane
+    // grows a real localStorage global
+    vi.stubGlobal('localStorage', undefined);
+    try {
+      await expect(new LocalStorageViewStore(undefined as never).create(KEY, 'v', view())).rejects.toThrow(
+        viewStorageErrorMessages.unavailable,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const working = new LocalStorageViewStore(fakeStorage());
+    await expect(working.update(KEY, 'missing', {})).rejects.toThrow(viewStorageErrorMessages.viewNotFound);
+    await expect(working.create(KEY, '   ', view())).rejects.toThrow(viewStorageErrorMessages.emptyName);
+    // every family member, plus ViewTabs.run's generic catch-all for any
+    // non-ViewStorageError, is matched by the shared regex the client-lane
+    // pins use — the join this test exists to hold together
+    for (const msg of [...Object.values(viewStorageErrorMessages), savedViewsStrings.updateError()]) {
+      expect(msg).toMatch(viewStorageErrorText);
+    }
+    // non-vacuous in the other direction: the regex is not so broad that any
+    // red text would satisfy it
+    expect('Could not load this App’s memories. Reload to try again.').not.toMatch(viewStorageErrorText);
   });
 });

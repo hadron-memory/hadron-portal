@@ -1,0 +1,335 @@
+/**
+ * portal#482 — the run detail page's step timeline, on the REAL page with data
+ * from the REAL loader (the #995 harness pattern). The trail is the COMPLETED
+ * hops of AppRun.hops: the current/failed step is never a row, an unreadable
+ * trail is "unavailable" (never zero hops), and a trail belongs to the run it
+ * was read for.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
+import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { setStubPage } from '$lib/test/stubs/app-stores';
+import { AGENT_TASKS_APP_QUERY, APP_QUERY, APP_RUN_ENVELOPE_QUERY, APP_RUN_HOPS_QUERY, APP_RUN_QUERY } from '$lib/server/queries';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
+import { cancelAppRunSchema } from './schema';
+import Page from './+page.svelte';
+import { load } from './+page.server';
+
+const mockRequest = vi.fn();
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
+vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
+
+const APP = { id: 'app-1', name: 'Digest', organizationId: 'org-1' };
+const CLASSIFY = 'hrn:node:acme.com:flows:classify';
+const REPLY = 'hrn:node:acme.com:flows:reply';
+const CURRENT = 'hrn:node:acme.com:flows:summarise';
+
+let runOver: Record<string, unknown> = {};
+let hopsAnswer: unknown = null;
+let hopsError = false;
+let hopsAnswerId = 'run-1';
+
+const baseRun = () => ({
+  id: 'run-1', organizationId: 'org-1', appId: 'app-1', status: 'COMPLETED',
+  entryNodeUrn: CLASSIFY, triggerKind: 'MANUAL', eventData: null, failure: null,
+  curNodeUrn: null, attempts: 1, startedAt: '2026-10-01T10:00:00.000Z',
+  finishedAt: '2026-10-01T10:00:09.000Z', createdAt: '2026-10-01T09:59:00.000Z',
+  ...runOver,
+});
+const hop = (over: Record<string, unknown> = {}) => ({
+  node: CLASSIFY, edgeOut: 'to-reply',
+  startedAt: 1790848800000, finishedAt: 1790848802000,
+  tokensSpent: 1200, ...over,
+});
+
+beforeEach(() => {
+  runOver = {}; hopsAnswer = null; hopsError = false; hopsAnswerId = 'run-1';
+  mockRequest.mockReset();
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  setStubPage('http://localhost/app/apps/app-1/runs/run-1', { appId: 'app-1', runId: 'run-1' });
+  mockRequest.mockImplementation(async (doc: string) => {
+    if (doc === APP_QUERY || doc === AGENT_TASKS_APP_QUERY) return { app: APP };
+    if (doc === APP_RUN_QUERY) return { appRun: baseRun() };
+    if (doc === APP_RUN_ENVELOPE_QUERY) return { appRun: { id: 'run-1', data: null } };
+    if (doc === APP_RUN_HOPS_QUERY) {
+      if (hopsError) throw new Error('Cannot query field "hops" on type "AppRun".');
+      return { appRun: { id: hopsAnswerId, hops: hopsAnswer } };
+    }
+    throw new Error(`unexpected query: ${doc.slice(0, 60)}`);
+  });
+});
+const mounted: Array<Mounted<Record<string, unknown>>> = [];
+afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
+
+async function settle() {
+  for (let i = 0; i < 10; i++) await tick();
+  flushSync();
+}
+async function mountPage(runId = 'run-1') {
+  const loaded = (await load({
+    params: { appId: 'app-1', runId },
+    locals: { token: 'tok' },
+  } as never)) as Record<string, unknown>;
+  const props = reactiveProps<Record<string, unknown>>({ data: loaded, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await settle();
+  return m;
+}
+const rows = (m: Mounted<Record<string, unknown>>) => m.target.querySelectorAll('[data-testid="hop-row"]');
+const text = (m: Mounted<Record<string, unknown>>) => m.target.textContent ?? '';
+
+describe('run detail loader reads (portal#2339 #2, #3)', () => {
+  it('the envelope and hops reads are in flight together, not one after the other', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const started: string[] = [];
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === APP_QUERY || doc === AGENT_TASKS_APP_QUERY) return { app: APP };
+      if (doc === APP_RUN_QUERY) return { appRun: baseRun() };
+      if (doc === APP_RUN_ENVELOPE_QUERY) { started.push('envelope'); await gate; return { appRun: { id: 'run-1', data: null } }; }
+      if (doc === APP_RUN_HOPS_QUERY) { started.push('hops'); return { appRun: { id: 'run-1', hops: [] } }; }
+      throw new Error('unexpected');
+    });
+    const p = load({ params: { appId: 'app-1', runId: 'run-1' }, locals: { token: 'tok' } } as never);
+    for (let i = 0; i < 10; i++) await tick();
+    expect(started).toEqual(['envelope', 'hops']); // hops did not wait for the envelope
+    release(); await p;
+  });
+  it('a failed envelope read does not take the trail with it, and the reverse', async () => {
+    const base = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (doc: string, ...r: unknown[]) => {
+      if (doc === APP_RUN_ENVELOPE_QUERY) throw new Error('boom');
+      return base(doc, ...r);
+    });
+    hopsAnswer = [hop()];
+    const d = (await load({ params: { appId: 'app-1', runId: 'run-1' }, locals: { token: 'tok' } } as never)) as Record<string, any>;
+    expect(d.envelopeSupported).toBe(false);
+    expect(d.trail).toMatchObject({ supported: true, raw: [expect.anything()] });
+  });
+  it('only a schema without AppRun.hops is logged as a server without #538; any other failure is logged as itself', async () => {
+    const warn = vi.mocked(console.warn);
+    const read = async () => {
+      warn.mockClear();
+      await load({ params: { appId: 'app-1', runId: 'run-1' }, locals: { token: 'tok' } } as never);
+      return warn.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('[run-detail]')).join('\n');
+    };
+    hopsError = true;
+    expect(await read()).toContain('not supported by this server');
+    hopsError = false;
+    const base = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (doc: string, ...r: unknown[]) => {
+      if (doc === APP_RUN_HOPS_QUERY) throw new TypeError('socket hang up');
+      return base(doc, ...r);
+    });
+    const line = await read();
+    expect(line).toContain('hops fetch failed');
+    expect(line).toContain('TypeError');
+    expect(line).not.toContain('#538');
+  });
+});
+
+describe('run step timeline (portal#482)', () => {
+  it('renders one row per completed hop, in order, with duration, tokens and the edge taken FROM it', async () => {
+    hopsAnswer = [hop(), hop({ node: REPLY, edgeOut: null, tokensSpent: 0, finishedAt: 1790848805000, startedAt: 1790848803000 })];
+    const m = await mountPage();
+    const r = rows(m);
+    expect(r).toHaveLength(2);
+    expect(r[0].textContent).toContain('classify');
+    expect(r[0].textContent).toContain('1,200');
+    expect(r[0].textContent).toContain('2s');
+    expect(r[0].textContent).toContain('to-reply');
+    expect(r[1].textContent).toContain('reply');
+    expect(r[1].textContent).not.toContain('to-reply');
+    expect(r[1].textContent).toMatch(/\b0\b/);
+  });
+
+  it('the edge is a routing NAME: shown as plain escaped text, never as an invented URN with copy controls', async () => {
+    hopsAnswer = [hop({ edgeOut: '<b>next</b>' })];
+    const m = await mountPage();
+    const edge = rows(m)[0].querySelector('[data-testid="hop-edge"]');
+    expect(edge?.textContent).toBe('<b>next</b>');
+    expect(edge?.querySelector('b')).toBeNull();
+    expect(rows(m)[0].textContent).not.toContain('hrn:edge');
+    expect(edge?.querySelector('button')).toBeNull(); // the edge itself carries no controls (the step's own Urn chip has its own)
+  });
+
+  it('a long unbroken routing name wraps inside its cell instead of widening the page (UX P2)', async () => {
+    hopsAnswer = [hop({ edgeOut: 'x'.repeat(60) })];
+    const m = await mountPage();
+    const edge = rows(m)[0].querySelector('[data-testid="hop-edge"]') as HTMLElement;
+    // jsdom has no layout, so pin the three things that bound it: the cell may
+    // shrink (min-w-0), the text may break anywhere, and the row clips nothing.
+    expect(edge.className).toContain('[overflow-wrap:anywhere]');
+    expect(edge.parentElement?.className).toContain('min-w-0');
+    expect(edge.parentElement?.parentElement?.className).toContain('min-w-0');
+  });
+
+  it('null tokens read as unknown, not 0', async () => {
+    hopsAnswer = [hop({ tokensSpent: null, edgeOut: null })];
+    const m = await mountPage();
+    expect(rows(m)[0].textContent).toContain('—');
+    expect(rows(m)[0].textContent).not.toMatch(/\b0\b/);
+  });
+
+  it('the hint says the in-progress or failed step is shown below the list, never "until it completes" (portal#2339 #4)', async () => {
+    hopsAnswer = [hop()];
+    const m = await mountPage();
+    expect(text(m)).toContain('is shown below the list, not as a step');
+    expect(text(m)).not.toContain('until it completes');
+  });
+
+  it('an empty trail says nothing was recorded, not that it is unavailable', async () => {
+    hopsAnswer = [];
+    const m = await mountPage();
+    expect(rows(m)).toHaveLength(0);
+    expect(text(m)).toContain('No completed steps recorded');
+    expect(text(m)).not.toContain('Step trail unavailable');
+  });
+
+  it.each([
+    ['absent', null],
+    ['malformed', [{ node: 3 }]],
+    ['not an array', { nope: true }],
+  ])('a %s trail is unavailable, never zero hops', async (_n, answer) => {
+    hopsAnswer = answer;
+    const m = await mountPage();
+    expect(rows(m)).toHaveLength(0);
+    expect(text(m)).toContain('Step trail unavailable');
+    expect(text(m)).not.toContain('No completed steps recorded');
+  });
+
+  it('an older server (no AppRun.hops) is unavailable and the rest of the page still renders', async () => {
+    hopsError = true;
+    const m = await mountPage();
+    expect(text(m)).toContain('Step trail unavailable');
+    expect(text(m)).toContain('Trigger');
+  });
+
+  it('a RUNNING run shows its current position apart from the rows; the last completed row is not marked live', async () => {
+    runOver = { status: 'RUNNING', curNodeUrn: CURRENT, finishedAt: null };
+    hopsAnswer = [hop({ edgeOut: 'next' })];
+    const m = await mountPage();
+    expect(rows(m)).toHaveLength(1);
+    expect(rows(m)[0].textContent).not.toContain('summarise');
+    // The live pulse is real on this page (the status chip), so its absence from the rows can fail.
+    expect(m.target.querySelector('h1 .animate-pulse')).not.toBeNull();
+    expect(m.target.querySelectorAll('[data-testid="hop-row"] .animate-pulse')).toHaveLength(0);
+    const cur = m.target.querySelector('[data-testid="timeline-current"]');
+    expect(cur?.textContent).toContain('In progress at');
+    expect(cur?.textContent).toContain('summarise');
+  });
+
+  it('a FAILED run shows the failed step separately from the rows (it has no element of its own)', async () => {
+    runOver = { status: 'FAILED', curNodeUrn: CURRENT, failure: { code: 'EDGE_CONDITION_ERROR', message: 'boom' } };
+    hopsAnswer = [hop()];
+    const m = await mountPage();
+    expect(rows(m)).toHaveLength(1);
+    const cur = m.target.querySelector('[data-testid="timeline-current"]');
+    expect(cur?.textContent).toContain('Failed at');
+    expect(cur?.textContent).toContain('summarise');
+  });
+
+  it('a hops answer naming another run is dropped by the loader: run-2 never shows run-1\'s trail', async () => {
+    runOver = { id: 'run-2' };
+    hopsAnswer = [hop()];
+    hopsAnswerId = 'run-1'; // the stale answer a late poll could deliver
+    const m = await mountPage('run-2');
+    expect(rows(m)).toHaveLength(0);
+    expect(text(m)).toContain('Step trail unavailable');
+  });
+
+  // Component-level guard only: one `load` never yields run-2 with run-1's trail, so this
+  // pins the page's own stamp check as defence in depth, not a reachable navigation.
+  it('the page refuses a trail stamped for another run (defence in depth)', async () => {
+    hopsAnswer = [hop()];
+    const m = await mountPage();
+    expect(rows(m)).toHaveLength(1);
+    const data = m.props.data as Record<string, unknown>;
+    // Navigated to run-2 while run-1's poll answer is still the loaded trail.
+    m.props.data = { ...data, run: { ...(data.run as Record<string, unknown>), id: 'run-2' } };
+    await settle();
+    expect(rows(m)).toHaveLength(0);
+    expect(text(m)).toContain('Step trail unavailable');
+  });
+
+  it('a live poll that lands a new hop updates the rows', async () => {
+    runOver = { status: 'RUNNING', curNodeUrn: CURRENT, finishedAt: null };
+    hopsAnswer = [hop()];
+    const m = await mountPage();
+    expect(rows(m)).toHaveLength(1);
+    const data = m.props.data as Record<string, unknown>;
+    m.props.data = { ...data, trail: { runId: 'run-1', supported: true, raw: [hop(), hop({ node: REPLY, edgeOut: null })] } };
+    await settle();
+    expect(rows(m)).toHaveLength(2);
+  });
+
+  it('a CANCELLED run shows where it stopped, apart from the rows (portal#2339 #5)', async () => {
+    runOver = { status: 'CANCELLED', curNodeUrn: CURRENT };
+    hopsAnswer = [hop()];
+    const m = await mountPage();
+    const cur = m.target.querySelector('[data-testid="timeline-current"]');
+    expect(cur?.textContent).toContain('Cancelled at');
+    expect(cur?.textContent).toContain('summarise');
+  });
+
+  describe('long trails (portal#2339 #11)', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => hop({ node: `hrn:node:acme.com:flows:step-${i + 1}` }));
+    const numbers = (m: Mounted<Record<string, unknown>>) => [...rows(m)].map(r => r.querySelector('span')?.textContent);
+    it('a trail within the cap renders whole with no control', async () => {
+      hopsAnswer = many(100);
+      const m = await mountPage();
+      expect(rows(m)).toHaveLength(100);
+      expect(m.target.querySelector('[data-testid="hop-expand"]')).toBeNull();
+    });
+    it('past the cap shows the first and last 50, keeps true step numbers, and expands on demand', async () => {
+      hopsAnswer = many(120);
+      const m = await mountPage();
+      expect(rows(m)).toHaveLength(100);
+      expect(numbers(m).slice(48, 52)).toEqual(['49', '50', '71', '72']);
+      expect(rows(m)[0].textContent).toContain('step-1');
+      expect(rows(m)[99].textContent).toContain('step-120');
+      const expand = m.target.querySelector('[data-testid="hop-expand"]') as HTMLButtonElement;
+      expect(expand.textContent).toContain('Show all 120 steps');
+      expand.click(); await settle();
+      expect(rows(m)).toHaveLength(120);
+      expect(m.target.querySelector('[data-testid="hop-expand"]')).toBeNull();
+    });
+  });
+
+  it('a well-shaped unknown status/trigger renders Unknown: raw in a neutral chip and offers no kill switch (#1766)', async () => {
+    runOver = { status: 'PAUSED', triggerKind: 'FUTURE_KIND' };
+    const m = await mountPage();
+    const chip = m.target.querySelector('h1 span') as HTMLElement;
+    expect(chip.textContent?.trim()).toBe('Unknown: PAUSED');
+    expect(chip.className).toContain('border-zinc-300');
+    expect(chip.className).not.toContain('amber');
+    expect(text(m)).toContain('Unknown: FUTURE_KIND');
+    // Unknown claims no state: not cancellable, so no stop button and no live pulse.
+    expect(text(m)).not.toContain('Stop this run');
+    expect(chip.querySelector('.animate-pulse')).toBeNull();
+  });
+});
+
+describe('the cancel result is announced in a persistent live region (portal#2375)', () => {
+  it('the success text lands in the status region that was already mounted and empty', async () => {
+    runOver = { status: 'RUNNING', finishedAt: null };
+    const m = await mountPage();
+    const idle = idleStatusRegions(m.target);
+    expect(idle.length).toBeGreaterThan(0);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Stop this run')!.click();
+    flushSync();
+    const done = await superValidate(zod4(cancelAppRunSchema), { errors: false });
+    done.message = { type: 'success', text: 'The run will stop at the next action.' };
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/cancel"]')!, { type: 'success', status: 200, data: { form: done } });
+    (m.props as Record<string, unknown>).form = { form: done };
+    await settle();
+    const region = announcedStatusRegion(m.target);
+    expect(region?.textContent).toContain('The run will stop at the next action.');
+    expect(idle).toContain(region);
+  });
+});

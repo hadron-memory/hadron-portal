@@ -1,0 +1,33 @@
+light: coarse phone action + named confirmation + cancel PASS
+dark: coarse phone action + named confirmation + cancel PASS
+saved width/order at 320: PASS
+saved width/order at 390: PASS
+Owned synthetic fixture cleanup PASS
+light: fine desktop action + named confirmation + cancel PASS
+dark: fine desktop action + named confirmation + cancel PASS
+saved width/order at 1280: PASS
+Owned synthetic fixture cleanup PASS
+
+5:11:54 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+390-light-disabled/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-light-enabled/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-light-mixed/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-light-mixed/config-04 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-light-long-name/x_______________________________________________________________ PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-dark-disabled/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-dark-enabled/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-dark-mixed/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-dark-mixed/config-04 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+390-dark-long-name/x_______________________________________________________________ PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-light-disabled/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-light-enabled/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-light-mixed/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-light-mixed/config-04 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-light-long-name/x_______________________________________________________________ PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-dark-disabled/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-dark-enabled/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-dark-mixed/config-02 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-dark-mixed/config-04 PASS: Edit and Delete receive native pointer clicks; opacity on content only
+1280-dark-long-name/x_______________________________________________________________ PASS: Edit and Delete receive native pointer clicks; opacity on content only
+
+Forced-failure control: exit1, Injected synthetic probe failure; Owned synthetic fixture cleanup PASS. Separate signed-in read: zero phone-check fixtures remain.

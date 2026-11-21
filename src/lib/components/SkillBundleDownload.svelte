@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #879 — "download everything checked", once, for the host the user picks.
   //
   // The endpoint answers with JSON — the archive plus what it LEFT OUT — so a
@@ -114,6 +115,9 @@
   };
 
   function failureText(code: string | undefined, detail: string | undefined): string {
+    if (code === 'scope-forbidden') {
+      return t('tasks.bundle.error.scope-forbidden', 'Downloading tasks requires Contributor access or higher in this organization.');
+    }
     if (code === 'no-memories') return t('tasks.bundle.error.no-memories', 'This organization has no memories to export from.');
     return detail ?? t('tasks.bundle.error.failed', 'The download could not be prepared. Try again shortly.');
   }
@@ -201,59 +205,70 @@
     <p role="alert" class="mt-3 text-sm text-red-600 dark:text-red-400">{failure}</p>
   {/if}
 
-  {#if report}
-    <div role="status" class="mt-3 space-y-2 text-sm">
-      {#if report.included.length === 0}
-        <p class="text-amber-700 dark:text-amber-400">
-          {t('tasks.bundle.empty', 'No skill could be exported, so nothing was downloaded.')}
-        </p>
-      {:else}
-        <p class="text-zinc-700 dark:text-zinc-300">
-          {t('tasks.bundle.done', 'Prepared {file} for download. Skills in it: {count}.', {
-            file: report.filename,
-            count: report.included.length,
-          })}
-          {#if report.host === 'claudeSkill'}
-            {t('tasks.bundle.install-claude', 'To install it in Claude, open Customize → Plugins and upload the file.')}
-          {:else}
-            {t('tasks.bundle.install-codex', 'To install it in Codex, unzip it into ~/.agents/skills — or a project’s .agents/skills folder.')}
-          {/if}
-        </p>
-        {#if report.version}
-          <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="skill-bundle-version">
-            {t('tasks.bundle.version', 'Plugin version {version}. A later download gets a new version only if the plugin’s contents changed.', {
-              version: report.version,
+  <LiveRegion>
+    {#if report}
+      <div class="mt-3 space-y-2 text-sm">
+        {#if report.included.length === 0}
+          <p class="text-amber-700 dark:text-amber-400">
+            {t('tasks.bundle.empty', 'No skill could be exported, so nothing was downloaded.')}
+          </p>
+        {:else}
+          <p class="text-zinc-700 dark:text-zinc-300">
+            {t('tasks.bundle.done', 'Prepared {file} for download. Skills in it: {count}.', {
+              file: report.filename,
+              count: report.included.length,
             })}
+            {#if report.host === 'claudeSkill'}
+              {t('tasks.bundle.install-claude', 'To install it in Claude, open Customize → Plugins and upload the file.')}
+            {:else}
+              {t('tasks.bundle.install-codex', 'To install it in Codex, unzip it into ~/.agents/skills — or a project’s .agents/skills folder.')}
+            {/if}
           </p>
         {/if}
-      {/if}
-      {#if report.scopeIncomplete}
-        <p data-testid="bundle-scope-incomplete" role="status" class="text-xs text-amber-700 dark:text-amber-400">
-          {t(
-            'tasks.bundle.scope-incomplete',
-            'The organization’s system memories could not be listed, so skills from them may be missing from this download and from this report. Try again shortly.',
-          )}
-        </p>
-      {/if}
-      {#if report.notForHostUnknown}
-        <p class="text-xs text-amber-700 dark:text-amber-400">
-          {t(
-            'tasks.bundle.other-host-unknown',
-            'Tasks exported only for another host could not be checked, so some may be missing from this list: {detail}',
-            { detail: report.notForHostUnknown },
-          )}
+        {#if report.scopeIncomplete}
+          <p data-testid="bundle-scope-incomplete" class="text-xs text-amber-700 dark:text-amber-400">
+            {t(
+              'tasks.bundle.scope-incomplete',
+              'The organization’s system memories could not be listed, so skills from them may be missing from this download and from this report. Try again shortly.',
+            )}
+          </p>
+        {/if}
+        {#if report.notForHostUnknown}
+          <p data-testid="bundle-other-host-unknown" class="text-xs text-amber-700 dark:text-amber-400">
+            {t(
+              'tasks.bundle.other-host-unknown',
+              'Tasks exported only for another host could not be checked, so some may be missing from this list: {detail}',
+              { detail: report.notForHostUnknown },
+            )}
+          </p>
+        {/if}
+        {#if report.leftOut.length > 0}
+          <p data-testid="bundle-left-out-summary" class="text-xs text-amber-700 dark:text-amber-400">
+            {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
+          </p>
+        {/if}
+        {#if report.unrecognized.length > 0}
+          <p data-testid="bundle-unrecognized-summary" class="text-xs text-amber-700 dark:text-amber-400">
+            {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
+          </p>
+        {/if}
+      </div>
+    {/if}
+  </LiveRegion>
+
+  {#if report && (report.version || report.leftOut.length > 0 || report.unrecognized.length > 0)}
+    <div class="mt-2 space-y-2 text-sm">
+      {#if report.version}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="skill-bundle-version">
+          {t('tasks.bundle.version', 'Plugin version {version}. A later download gets a new version only if the plugin’s contents changed.', {
+            version: report.version,
+          })}
         </p>
       {/if}
       {#if report.leftOut.length > 0}
-        <p class="font-medium text-amber-700 dark:text-amber-400">
-          {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
-        </p>
         <SkillExportLeftOutTable rows={report.leftOut} />
       {/if}
       {#if report.unrecognized.length > 0}
-        <p class="font-medium text-amber-700 dark:text-amber-400">
-          {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
-        </p>
         <p class="text-xs text-zinc-500">
           {t(
             'tasks.bundle.unrecognized.help',

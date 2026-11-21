@@ -1,12 +1,13 @@
 import { gqlClient } from '$lib/server/api';
 import {
-  GRAPH_NODES_QUERY,
+  FIXTURE_NODES_QUERY,
   START_CHAT_MUTATION,
   UPDATE_NODE_MUTATION,
   NODE_BY_ID_QUERY,
 } from '$lib/server/queries';
-import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
 import { ChatError, publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import {
@@ -22,6 +23,7 @@ import { describeRegexFailure, type Verdict } from '$lib/server/agent-tester/ver
 import { testRegexSafely } from '$lib/server/safe-regex';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
+import { drainFindNodes } from '$lib/server/paginate';
 
 /**
  * POST /api/agent-chat/fixtures/run
@@ -59,14 +61,6 @@ const EST_USD_PER_AGENT_TURN = 0.01;
 const EST_AGENT_TURNS_PER_FIXTURE = 2;
 const EST_USD_PER_JUDGE_CALL = 0.005;
 
-async function resolveAgent(token: string, agentId: string): Promise<{
-  agentId: string;
-  systemMemoryId: string;
-} | null> {
-  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId);
-  return systemMemoryId ? { agentId, systemMemoryId } : null;
-}
-
 interface RunBody {
   agentId?: string;
   fixtureLoc?: string | null;
@@ -86,11 +80,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   catch { return json({ error: 'Invalid JSON body' }, 400); }
   if (!body.agentId) return json({ error: 'agentId is required' }, 400);
 
-  const resolved = await resolveAgent(locals.token, body.agentId);
-  if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
+  const systemMemoryId = (await requireTesterAgent(gqlClient(locals.token), locals.user?.id, body.agentId))?.agent.systemMemoryId;
+  if (!systemMemoryId) return json({ error: 'Agent not found or no longer available' }, 404);
 
   // Collect target fixtures.
-  const target = await loadFixtures(locals.token, resolved.systemMemoryId, body.fixtureLoc ?? null);
+  const target = await loadFixtures(locals.token, systemMemoryId, body.fixtureLoc ?? null);
   if (target.length === 0) {
     return json({ error: body.fixtureLoc ? 'Fixture not found' : 'No fixtures to run' }, 404);
   }
@@ -158,7 +152,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         r.baselineRefused = 'the assertion did not run, so there is no verdict to accept as a baseline';
       } else {
         try {
-          await persistNewBaseline(locals.token, resolved.systemMemoryId, t.loc, t.record, {
+          await persistNewBaseline(locals.token, systemMemoryId, t.loc, t.record, {
             reply: r.newReply, route: r.newRoute, verdict: r.newVerdict,
           });
         } catch {
@@ -199,12 +193,11 @@ async function loadFixtures(
   filterLoc: string | null,
 ): Promise<LoadedFixture[]> {
   const client = gqlClient(token);
-  // Scope to the agent's system memory — findNodes hides class:'system'
-  // memories on a broad (no-memoryIds) call, so naming it is what surfaces the
-  // fixture nodes (and overrides the exclusion).
-  const result = await client.request<{ findNodes: { hits: Array<{ node: {
+  // hrn:node:hadronmemory.com:specs:cor:api:090:02: explicit memory scope does not lift the independent
+  // system-node exclusion. Fixtures are system nodes (#1202).
+  const result = await drainFindNodes<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] });
+  } }>(client, FIXTURE_NODES_QUERY, { memoryIds: [systemMemoryId] });
   const out: LoadedFixture[] = [];
   for (const h of result.findNodes?.hits ?? []) {
     const n = h.node;
@@ -247,6 +240,10 @@ async function runOneFixture(
   const turn = fixture.record.turns[0];
   const client = gqlClient(token);
 
+  // portal#1611: one resolution per fixture chat, before startChat, shared by
+  // its welcome turn and its fixture turn.
+  const ai = await resolveChatAi(token, agentId);
+
   const startResult = await client.request<{
     startChat: {
       chatId: string;
@@ -256,13 +253,14 @@ async function runOneFixture(
       stageName: string | null;
     };
   }>(START_CHAT_MUTATION, {
-    agentId,
+    agentRef: agentId,
     conversationName: null,
     // Spec 019: match the test-run endpoint's posture. scope hardcoded
     // to private (no sharing a fixture run across AppMembers);
     // isTestRun skips the AgentSubscription side-effect.
     scope: 'private',
     isTestRun: true,
+    ...llmModelVariable(ai),
   });
 
   const { chatId, conversationName, stageName } = startResult.startChat;
@@ -271,7 +269,7 @@ async function runOneFixture(
   // trace reflects where the user message actually landed (same
   // fix as test-run/+server.ts; see PR #217 review).
   const welcomeTurn = await runChatTurn({
-    token, agentId, chatId, userMessage: null,
+    token, agentId, chatId, userMessage: null, ai,
     startPayload: {
       systemMessage: startResult.startChat.systemMessage,
       tools: startResult.startChat.tools,
@@ -285,7 +283,7 @@ async function runOneFixture(
     throw new ChatError('fixtureEndedWelcome');
   }
 
-  const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user });
+  const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user, ai });
 
   const newRoute: RouteTrace = {
     conversationLoc: t.conversationHandoff ?? welcomeTurn.conversationHandoff ?? conversationName ?? null,

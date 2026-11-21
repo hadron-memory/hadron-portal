@@ -12,12 +12,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { __resetRateLimit } from '$lib/server/rate-limit';
+import { asTesterManager } from '$lib/test/tester-manage';
 
 const mockRequest = vi.fn();
 const mockRunChatTurn = vi.fn();
 
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: () => ({ request: (q: string, v?: unknown) => asTesterManager(mockRequest, { visibleAgentIds: ['agent-1'] })(q, v) }),
 }));
 
 vi.mock('$lib/server/llm/agentChatTurn.js', () => ({
@@ -43,7 +44,7 @@ function ev(opts: { body: unknown; token?: string | null }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(opts.body),
     }),
-    locals: { token: opts.token === undefined ? 'test-token' : opts.token },
+    locals: { token: opts.token === undefined ? 'test-token' : opts.token, user: { id: 'u1' } },
   } as Parameters<Awaited<ReturnType<typeof importPOST>>>[0];
 }
 
@@ -102,7 +103,7 @@ describe('POST /api/agent-chat/test-persona', () => {
     expect(startCalls).toHaveLength(1);
     // Exact equality: a dropped flag fails, and so does an unexpected one.
     expect(startCalls[0][1]).toEqual({
-      agentId: 'agent-1',
+      agentRef: 'agent-1',
       conversationName: 'setup',
       scope: 'private',
       isTestRun: true,

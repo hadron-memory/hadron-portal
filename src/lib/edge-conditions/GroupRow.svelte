@@ -10,11 +10,13 @@
     onRemove,
     depth = 0,
     extraVariables = [],
+    allowedScopes,
   }: {
     group: UiGroup;
     onRemove?: () => void;
     depth?: number;
     extraVariables?: ReadonlyArray<KnownVariable>;
+    allowedScopes?: ReadonlyArray<string>;
   } = $props();
 
   function addClause() {
@@ -76,14 +78,14 @@
         <ClauseRow
           bind:clause={group.children[i] as UiClause}
           onRemove={() => removeChild(i)}
-          {extraVariables}
+          {extraVariables} {allowedScopes}
         />
       {:else}
         <Self
           bind:group={group.children[i] as UiGroup}
           depth={depth + 1}
           onRemove={() => removeChild(i)}
-          {extraVariables}
+          {extraVariables} {allowedScopes}
         />
       {/if}
     {/each}

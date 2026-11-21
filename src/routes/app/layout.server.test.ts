@@ -159,6 +159,14 @@ describe('+layout.server.ts — the signin bounce preserves deep-link state (#76
     );
   });
 
+  it('redirects a signed-out ticker deep link without issuing layout API reads (#1213)', async () => {
+    const path = '/app/u/hrn:ticker:acme.com:team:engineering?after=s1';
+    const r = await expectSigninRedirect(path);
+    expect(r).toMatchObject({ status: 303, location: `/signin?redirect=${encodeURIComponent(path)}` });
+    expect(mockMyOrgsRequest).not.toHaveBeenCalled();
+    expect(mockMeRequest).not.toHaveBeenCalled();
+  });
+
   it('round-trips through the #439 open-redirect guard', async () => {
     // A query string must not make the destination look non-local, or the
     // guard would silently swap it for the dashboard fallback.
@@ -172,6 +180,15 @@ describe('+layout.server.ts — the signin bounce preserves deep-link state (#76
     const r = await expectSigninRedirect('/app/dashboard');
     expect(r.location).toBe(`/signin?redirect=${encodeURIComponent('/app/dashboard')}`);
     expect(r.location).not.toContain('%3F'); // no encoded bare '?'
+  });
+
+  it('keeps the signed-out public-organization boundary on the existing signin redirect (#1846 slice B)', async () => {
+    const path = '/app/org/org-public?from=memory';
+    const r = await expectSigninRedirect(path);
+    expect(r.status).toBe(303);
+    expect(r.location).toBe(`/signin?redirect=${encodeURIComponent(path)}`);
+    expect(mockMyOrgsRequest).not.toHaveBeenCalled();
+    expect(mockMeRequest).not.toHaveBeenCalled();
   });
 });
 
@@ -368,6 +385,35 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     await loadAuthed(event);
 
     const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
+    expect(cookieWrites).toContainEqual(
+      expect.objectContaining({ name: ACTIVE_ORG_COOKIE_NAME, value: 'org-b' }),
+    );
+  });
+
+  // #1394: the memory index page now awaits this load before it redirects, which
+  // only helps while the cookie write stays inside the load. Pin the order: no
+  // write before the delayed org fetch settles, and the write is done by the
+  // time the load itself resolves.
+  it('writes the cookie only after its delayed org fetch, and before the load resolves (#1394)', async () => {
+    const orgA = makeOrg({ id: 'org-a' });
+    const orgB = makeOrg({ id: 'org-b' });
+    let release!: () => void;
+    mockMyOrgsRequest.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ organizations: [orgA, orgB] }); }),
+    );
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({ paramsId: 'org-b', pathname: '/app/orgs/org-b/agents' });
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
+    let resolved = false;
+    const run = loadAuthed(event).then((d) => { resolved = true; return d; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(release).toBeTypeOf('function'); // the org fetch really is in flight
+    expect(resolved).toBe(false);
+    expect(cookieWrites).toHaveLength(0);
+
+    release();
+    await run;
     expect(cookieWrites).toContainEqual(
       expect.objectContaining({ name: ACTIVE_ORG_COOKIE_NAME, value: 'org-b' }),
     );

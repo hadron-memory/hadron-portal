@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #942 slice 2: an App's Channels. A table of the Channels in this App's
   // memories, with create / rename / delete through the sanctioned Channel
   // mutations. Register (who attends which Channel) is the next slice.
@@ -125,10 +126,14 @@
       // memory-relative, so the id is the address there: the server accepts it
       // on every channelRef.
       address: c.chatRootUrn ?? c.id,
-      host: c.memory.name,
+      // #2509: seeing a Channel does not grant its host memory's record, so
+      // memory may be null — the host cell then renders the withheld note.
+      host: c.memory?.name ?? '',
       lastMessage: when(c.lastMessageAt),
       isDefault: c.id === data.defaultChannelId,
-      canWrite: data.canWrite[c.memory.id] ?? null,
+      // A concealed host never entered the loader's audit map, so the lookup
+      // misses and lands on null: write access unknown, the gate decides.
+      canWrite: data.canWrite[c.memoryId] ?? null,
     })),
   );
 
@@ -145,7 +150,7 @@
     },
     { accessorKey: 'address', header: t('app.channels.col.address', 'Address'), size: 300 },
     // The cell shows the memory's name and its URN chip; search finds either.
-    { accessorFn: (r) => `${r.host} ${r.channel.memory.urn}`, id: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
+    { accessorFn: (r) => `${r.host} ${r.channel.memory?.urn ?? ''}`, id: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
     {
       accessorKey: 'lastMessage',
       id: 'lastMessage',
@@ -309,7 +314,6 @@
       searchPlaceholder={t('app.channels.search', 'Search channels…')}
       searchAriaLabel={t('app.channels.search', 'Search channels…')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 30rem))"
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
@@ -327,7 +331,7 @@
             </form>
           {:else}
             <div class="min-w-0">
-              <a href="/app/memories/{row.channel.memory.id}/nodes/{row.channel.chatRootNodeId}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
+              <a href="/app/memories/{row.channel.memoryId}/nodes/{row.channel.chatRootNodeId}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
               {#if row.isDefault}
                 <span class="ml-1 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">{t('app.channels.default', 'Team chat')}</span>
               {/if}
@@ -343,7 +347,13 @@
         {:else if cell.column.id === 'host'}
           <div class="min-w-0">
             <div class="truncate">{row.host}</div>
-            <Urn value={row.channel.memory.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+            {#if row.channel.memory}
+              <Urn value={row.channel.memory.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+            {:else}
+              <!-- #2509: the record is concealed, not empty — render it as
+                   absent (never an empty chip), with the reason on hover. -->
+              <span class="text-xs text-zinc-500 dark:text-zinc-400" title={t('app.channels.host-hidden-title', 'Seeing this channel doesn’t grant its memory’s record.')}>{t('app.channels.host-hidden', 'Memory not shown')}</span>
+            {/if}
           </div>
         {:else if cell.column.id === 'actions'}
           {#if row.canWrite === false}
@@ -400,7 +410,9 @@
         {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}
       </p>
       <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
-      {#if createDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
+      <LiveRegion>
+        {#if createDone}<p class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
+      </LiveRegion>
       {#if createError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{createError}</p>{/if}
       <form method="POST" action="?/createChannel" use:createEnhance novalidate class="mt-3 grid gap-3 sm:grid-cols-2">
         <input type="hidden" name="_kind" value="createChannel" />
@@ -503,7 +515,6 @@
                   searchPlaceholder={t('app.channels.register.search', 'Search…')}
                   searchAriaLabel={t('app.channels.register.search', 'Search…')}
                   bind:globalFilter={effectiveFilter}
-                  maxHeight="max(160px, calc(100vh - 34rem))"
                 >
                   {#snippet cell(cell, row)}
                     {#if cell.column.id === 'channel' && row.channelUrn}

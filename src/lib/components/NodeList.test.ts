@@ -105,7 +105,7 @@ describe('open-feedback cue (portal#1014)', () => {
   });
 
   it('local review on #1025, P3: with no node link the cue is plain text, never a dead link', () => {
-    const plain = render(NodeList, { props: { nodes: [{ ...node, openThreads: 1, memory: null }], memoryUrn: 'micromentor.org::mmdata' } }).body;
+    const plain = render(NodeList, { props: { nodes: [{ ...node, openThreads: 1, memory: null, memoryId: undefined as never }], memoryUrn: 'micromentor.org::mmdata' } }).body;
     expect(plain).toContain('<span data-testid="node-open-feedback"');
     expect(plain).not.toContain('<a href="undefined');
   });
@@ -144,5 +144,27 @@ describe('comment search hits (portal#1015)', () => {
   it('a content row carries none of it', () => {
     const { body } = render(NodeList, { props: { nodes: [node], memoryUrn: 'micromentor.org::mmdata', basePath: '/app/memories/m1' } });
     expect(body).not.toContain('comment-hit');
+  });
+});
+
+// #1161: a deleted row is marked from what the SERVER reported (deletedIds from
+// recoveryNodes), never inferred. Rows not in the set carry no mark.
+describe('deleted rows are marked (#1161)', () => {
+  const live = { ...node, id: 'live1', name: 'Live One', loc: 'live-one' };
+  const gone = { ...node, id: 'gone1', name: 'Gone One', loc: 'gone-one' };
+
+  it('badges only the ids the server reported as deleted', () => {
+    const { body } = render(NodeList, {
+      props: { nodes: [live, gone], memoryUrn: 'micromentor.org::mmdata', deletedIds: ['gone1'] },
+    });
+    expect(body.match(/data-testid="node-deleted"/g)).toHaveLength(1);
+    const goneRow = body.slice(body.indexOf('Gone One'));
+    expect(goneRow).toContain('node-deleted');
+    expect(body.slice(body.indexOf('Live One'), body.indexOf('Gone One'))).not.toContain('node-deleted');
+  });
+
+  it('marks nothing when no deleted ids are supplied', () => {
+    const { body } = render(NodeList, { props: { nodes: [live, gone], memoryUrn: 'micromentor.org::mmdata' } });
+    expect(body).not.toContain('node-deleted');
   });
 });

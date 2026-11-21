@@ -151,8 +151,8 @@ describe('app members add action', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member added.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledWith(ENSURE_APP_MEMBER_MUTATION, {
-      appId: 'app-1',
-      userId: 'user-new',
+      appRef: 'app-1',
+      userRef: 'user-new',
       role: 'editor',
     });
   });
@@ -205,8 +205,8 @@ describe('app members ensure/remove actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member updated.' });
     expect(mockRequest).toHaveBeenCalledWith(ENSURE_APP_MEMBER_MUTATION, {
-      appId: 'app-1',
-      userId: 'user-existing',
+      appRef: 'app-1',
+      userRef: 'user-existing',
       role: 'editor',
     });
   });
@@ -257,8 +257,8 @@ describe('app members ensure/remove actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member removed.' });
     expect(mockRequest).toHaveBeenCalledWith(REMOVE_APP_MEMBER_MUTATION, {
-      appId: 'app-1',
-      userId: 'user-existing',
+      appRef: 'app-1',
+      userRef: 'user-existing',
     });
   });
 
@@ -268,7 +268,7 @@ describe('app members ensure/remove actions', () => {
     const result = await runRemove({ userId: 'user-existing' });
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'nope' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });
 

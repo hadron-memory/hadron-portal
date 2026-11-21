@@ -4,6 +4,8 @@
  * to be covered on the org-detail loader lives here now.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientError } from 'graphql-request';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   ORG_INTEGRATIONS_TAB_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
@@ -128,6 +130,14 @@ function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown }; org?
   });
 }
 
+describe('Integrations form ids (#1320)', () => {
+  it('gives every form the loader returns its own Superforms id', async () => {
+    routeMock({ aiConfigs: { data: { aiServiceConfigs: fakeAiConfigs } }, org: fakeConfiguredOrg });
+    const load = await importLoad();
+    expectDistinctFormIds(await load(ev()), 6);
+  });
+});
+
 describe('Integrations load()', () => {
   it('happy path → returns org data, configs, and seeded GitHub Superforms', async () => {
     // #845: the org is supplied through the QUERY mock now, not parent().
@@ -196,7 +206,7 @@ describe('linkGithub action', () => {
     });
     expect(mockRequest.mock.calls[0]).toEqual([
       LINK_GITHUB_APP_MUTATION,
-      { orgId: 'org-id-123', installationId: 987654 },
+      { orgRef: 'org-id-123', installationId: 987654 },
     ]);
   });
 
@@ -265,7 +275,7 @@ describe('updateGithubApp action', () => {
     expect(mockRequest.mock.calls[0]).toEqual([
       UPDATE_ORG_GITHUB_APP_MUTATION,
       {
-        orgId: 'org-id-123',
+        orgRef: 'org-id-123',
         appId: '123456',
         privateKey: '-----BEGIN RSA PRIVATE KEY-----\nsecret\n-----END RSA PRIVATE KEY-----',
       },
@@ -350,7 +360,7 @@ describe('unlinkGithub action', () => {
     });
     expect(mockRequest.mock.calls[0]).toEqual([
       UNLINK_GITHUB_APP_MUTATION,
-      { orgId: 'org-id-123' },
+      { orgRef: 'org-id-123' },
     ]);
   });
 
@@ -539,4 +549,58 @@ describe('testExchangeConnection action', () => {
       text: 'tenant unavailable',
     });
   });
+});
+
+// portal#1347 (gate: Xan 6441902035 + re-gate 6442184001): the server answers a
+// missing, deleted or not-yours connection with ONE refusal, `FORBIDDEN`
+// (authorizationDenied()). Test and Delete map that code to 403 with the server's
+// message, the same for every case so missing and not-yours stay indistinguishable.
+// Every other failure stays 500. The sibling actions are out of scope.
+describe('Exchange connection Test/Delete: refusal status (#1347)', () => {
+  function gqlError(code: string | undefined, message: string, status = 200) {
+    return new ClientError(
+      { errors: [{ message, ...(code ? { extensions: { code } } : {}) }], status } as never,
+      { query: 'mutation X { x }' },
+    );
+  }
+  /** A gateway failure: a non-GraphQL body, no `errors` array. */
+  function transportError() {
+    return new ClientError({ status: 503, body: 'Service Unavailable' } as never, { query: 'mutation X { x }' });
+  }
+
+  for (const action of ['testExchangeConnection', 'deleteExchangeConnection'] as const) {
+    describe(action, () => {
+      it('a FORBIDDEN refusal is 403 with the server\'s message in the form', async () => {
+        mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'Forbidden'));
+        const result = await runAction(action, { connectionId: 'no-such-connection' });
+        expect((result as { status: number }).status).toBe(403);
+        expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Forbidden' });
+      });
+
+      it('missing and not-yours answer identically (one refusal, one status, one message)', async () => {
+        mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'Forbidden'));
+        const missing = await runAction(action, { connectionId: 'no-such-connection' });
+        mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'Forbidden'));
+        const foreign = await runAction(action, { connectionId: 'someone-elses-connection' });
+        expect((missing as { status: number }).status).toBe((foreign as { status: number }).status);
+        expect(superFormFrom(missing)?.message).toEqual(superFormFrom(foreign)?.message);
+      });
+
+      it('any other GraphQL code stays 500', async () => {
+        for (const code of ['INTERNAL_SERVER_ERROR', 'BAD_USER_INPUT', 'SOMETHING_NEW', undefined]) {
+          mockRequest.mockRejectedValueOnce(gqlError(code, 'private-server-prose'));
+          const result = await runAction(action, { connectionId: 'exchange-1' });
+          expect((result as { status: number }).status, String(code)).toBe(500);
+        }
+      });
+
+      it('a transport failure and a plain Error stay 500', async () => {
+        for (const err of [transportError(), new Error('ECONNRESET')]) {
+          mockRequest.mockRejectedValueOnce(err);
+          const result = await runAction(action, { connectionId: 'exchange-1' });
+          expect((result as { status: number }).status).toBe(500);
+        }
+      });
+    });
+  }
 });

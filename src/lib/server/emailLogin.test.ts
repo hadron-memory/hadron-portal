@@ -3,11 +3,12 @@
  * it to the server as clientState, so the minted handoff code binds to this
  * browser.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$env/dynamic/private', () => ({ env: { LOCAL_SERVER_URL: 'http://server.internal:4000' } }));
 
-import { emailLoginErrorStatus, startBoundMagicLink } from './emailLogin';
+import { EMAIL_LOGIN_TIMEOUT_MS, emailLoginErrorStatus, startBoundMagicLink } from './emailLogin';
+import { emailSignInStrings } from '$lib/i18n/email-sign-in-strings';
 
 type CookieSet = { name: string; value: string; opts: Record<string, unknown> };
 
@@ -60,6 +61,32 @@ describe('startBoundMagicLink', () => {
     expect(body).toEqual({ email: 'user@example.test', redirect: '/invite/x', clientState: cookie!.value });
   });
 
+  // portal#1091 nonce-only slice. The browser nonce must outlive the longest server
+  // path: the magic-link token, then a second emailed link plus the first-passkey
+  // enrolment (the server caps a pending flow at 30 min), plus slack. Figures are
+  // restated here independently of the module so a drift in either shows.
+  // Source: hadron-server a053f05c, src/auth/pendingEmailSignIn.ts
+  // (PENDING_EMAIL_SIGN_IN_TTL_SECONDS 600, PENDING_ENROLLMENT_TTL_SECONDS 1800) and the 15-min link token.
+  it('keeps the nonce cookie for 50 min: 15 link + max(10, 30) pending + 5 slack', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }));
+    const { cookies, sets } = cookieStub();
+    await startBoundMagicLink(cookies, 'user@example.test');
+    const cookie = sets.find((c) => c.name === 'hadron_login_state')!;
+    expect(cookie.opts.maxAge).toBe((15 + 30 + 5) * 60); // 15 link + max(10, 30) pending + 5 slack
+  });
+
+  it('only the lifetime moved: the other nonce cookie attributes are unchanged', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }));
+    const { cookies, sets } = cookieStub();
+    await startBoundMagicLink(cookies, 'user@example.test');
+    // Find the nonce by name (a future second cookies.set must not redirect
+    // this assertion), and compute `secure` the way the module does so the
+    // test still passes when the suite runs with NODE_ENV=production.
+    const nonce = sets.find((c) => c.name === 'hadron_login_state')!;
+    const { maxAge: _maxAge, ...rest } = nonce.opts;
+    expect(rest).toEqual({ path: '/auth', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+  });
+
   it('propagates a server error with its status', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: 'client_state is required' }) }));
     const { cookies } = cookieStub();
@@ -72,5 +99,157 @@ describe('startBoundMagicLink', () => {
     const { cookies } = cookieStub();
     const result = await startBoundMagicLink(cookies, 'user@example.test');
     expect(result).toMatchObject({ ok: false, status: 502 });
+  });
+});
+
+// #1470 — Turnstile token forwarding (hadron-server#2878 contract).
+describe('startBoundMagicLink with a Turnstile token', () => {
+  const TOKEN = 'cf-token-123';
+
+  it('forwards the token as cf-turnstile-response and keeps it out of cookies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { cookies, sets } = cookieStub();
+
+    await startBoundMagicLink(cookies, 'user@example.test', '/x', TOKEN);
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+    expect(body['cf-turnstile-response']).toBe(TOKEN);
+    expect(JSON.stringify(sets)).not.toContain(TOKEN);
+  });
+
+  it('without a token the body is byte-identical to main (no field, not even null)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { cookies, sets } = cookieStub();
+
+    await startBoundMagicLink(cookies, 'user@example.test', '/x');
+
+    const state = sets.find((c) => c.name === 'hadron_login_state')!.value;
+    expect((fetchMock.mock.calls[0][1] as { body: string }).body).toBe(
+      JSON.stringify({ email: 'user@example.test', redirect: '/x', clientState: state }),
+    );
+  });
+
+  it('maps 403 invalid_token and missing_token to a retry message with no reason code', async () => {
+    for (const reason of ['invalid_token', 'missing_token']) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false, status: 403, json: async () => ({ error: 'bot_check_failed', reason }),
+      }));
+      const result = await startBoundMagicLink(cookieStub().cookies, 'user@example.test', undefined, TOKEN);
+      expect(result).toEqual({ ok: false, status: 403, error: 'Complete the check and try again.' });
+    }
+  });
+
+  it('maps 503 provider_error and not_configured to the unavailable message with no reason code', async () => {
+    for (const reason of ['provider_error', 'not_configured']) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false, status: 503, json: async () => ({ error: 'bot_check_failed', reason }),
+      }));
+      const result = await startBoundMagicLink(cookieStub().cookies, 'user@example.test', undefined, TOKEN);
+      expect(result).toEqual({
+        ok: false,
+        status: 503,
+        error: 'Sign-in is temporarily unavailable. Please try again later.',
+      });
+    }
+  });
+
+  it('never shows the raw code, even for a reason this build has not met', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 403, json: async () => ({ error: 'bot_check_failed', reason: 'brand_new_reason' }),
+    }));
+    const result = await startBoundMagicLink(cookieStub().cookies, 'user@example.test', undefined, TOKEN);
+    expect(JSON.stringify(result)).not.toMatch(/bot_check_failed|brand_new_reason/);
+  });
+});
+
+// portal#1528 — the server call is bounded, and only hadron-server's own
+// `{ ok: true }` counts as "sent".
+describe('startBoundMagicLink: bounded call and a confirmed send (portal#1528)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** A server that accepted the connection and never answers; it honours an abort. */
+  function hangingFetch() {
+    return vi.fn((_url: string, init?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason ?? new Error('aborted')));
+      }),
+    );
+  }
+  const PENDING = Symbol('pending');
+  const settledOrPending = <T,>(p: Promise<T>) => Promise.race([p, new Promise<typeof PENDING>((r) => setTimeout(() => r(PENDING), 0))]);
+
+  it('gives up at 20 s with the could-not-confirm message (504), not before', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', hangingFetch());
+    const { cookies } = cookieStub();
+    const result = startBoundMagicLink(cookies, 'user@example.test');
+
+    await vi.advanceTimersByTimeAsync(20_000 - 1);
+    const early = settledOrPending(result);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await early).toBe(PENDING);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const late = settledOrPending(result);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await late).toEqual({
+      ok: false,
+      status: 504,
+      error: emailSignInStrings.unconfirmed(),
+    });
+    // The helper's own text can't catch its instruction being dropped, so pin
+    // the same-browser instruction literally.
+    expect(emailSignInStrings.unconfirmed()).toContain('open it in this browser');
+  });
+
+  it.each([
+    ['an empty object', async () => ({})],
+    ['ok: false', async () => ({ ok: false })],
+    ['an HTML page', async () => { throw new SyntaxError("Unexpected token '<'"); }],
+  ])('a 2xx whose body is %s is not a send', async (_label, json) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json }));
+    const { cookies } = cookieStub();
+    expect(await startBoundMagicLink(cookies, 'user@example.test')).toEqual({ ok: false, status: 502, error: 'Failed to send email' });
+  });
+
+  /** Headers arrive with `status`, then the body never finishes; the read honours an abort. */
+  function stalledBodyFetch(status: number) {
+    return vi.fn((_url: string, init?: { signal?: AbortSignal }) =>
+      Promise.resolve({
+        ok: status >= 200 && status < 300,
+        status,
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal!.reason ?? new Error('aborted')));
+          }),
+      }),
+    );
+  }
+
+  // Greta's LOCAL P2 on #1531: the bound covers the body read on BOTH branches,
+  // so a stalled refusal body is "couldn't confirm" like a stalled 2xx body.
+  it.each([200, 403, 503])('a %i whose body stalls past the bound gives the could-not-confirm 504', async (status) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', stalledBodyFetch(status));
+    const result = startBoundMagicLink(cookieStub().cookies, 'user@example.test');
+    // portal#1532 item 5: once the bound fires the abort settles the read, so
+    // the promise is awaited directly rather than raced against the fake clock.
+    await vi.advanceTimersByTimeAsync(EMAIL_LOGIN_TIMEOUT_MS);
+    expect(await result).toEqual({ ok: false, status: 504, error: expect.stringMatching(/^We couldn't confirm/) });
+  });
+
+  it('control: a refusal whose body is not JSON keeps its own status when it arrives in time', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 403, json: async () => { throw new SyntaxError("Unexpected token '<'"); },
+    }));
+    expect(await startBoundMagicLink(cookieStub().cookies, 'user@example.test')).toEqual({ ok: false, status: 403, error: 'Failed to send email' });
+  });
+
+  it('control: a 200 { ok: true } is still a send', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+    const { cookies } = cookieStub();
+    expect(await startBoundMagicLink(cookies, 'user@example.test')).toEqual({ ok: true });
   });
 });

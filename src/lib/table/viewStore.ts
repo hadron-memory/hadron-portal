@@ -26,6 +26,23 @@ export class ViewStorageError extends Error {
   }
 }
 
+/**
+ * The user-visible messages the storage seam can throw, as ONE family. The
+ * ViewTabs strip renders `e.message` verbatim for these, and the client-lane
+ * "no storage error rendered" pins key on exactly this family (plus
+ * ViewTabs.run's generic catch-all) through the shared `viewStorageErrorText`
+ * in $lib/test — which is BUILT from these constants, so a reword here rides
+ * along instead of silently emptying the match. Throw sites must use these
+ * constants, never a fresh literal, or that guarantee breaks.
+ */
+export const viewStorageErrorMessages = {
+  unavailable: 'Storage is unavailable.',
+  saveFailed: 'Could not save views (storage full or disabled).',
+  viewNotFound: 'View not found.',
+  saveActiveFailed: 'Could not save the active view.',
+  emptyName: 'View name cannot be empty.',
+} as const;
+
 export interface ViewStore {
   list(listKey: string): Promise<SavedViewRecord[]>;
   get(listKey: string, id: string): Promise<SavedViewRecord | null>;
@@ -51,7 +68,7 @@ export interface ViewStore {
  */
 export function normalizeViewName(name: string): string {
   const trimmed = (name ?? '').trim();
-  if (!trimmed) throw new ViewStorageError('View name cannot be empty.');
+  if (!trimmed) throw new ViewStorageError(viewStorageErrorMessages.emptyName);
   return trimmed.slice(0, MAX_VIEW_NAME_LENGTH);
 }
 

@@ -6,7 +6,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import SelectUser from '$lib/components/SelectUser.svelte';
-  import { type SearchUser, userLabel } from '$lib/users/search-user';
+  import { type SearchUser, searchUsersPage, userLabel } from '$lib/users/search-user';
   import Urn from '$lib/components/Urn.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -111,17 +111,7 @@
 
   const memberIdSet = $derived(new Set(members.map((m) => m.user.id)));
 
-  async function searchUsers(query: string): Promise<SearchUser[]> {
-    const res = await fetch('/api/users/search', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
-    if (!res.ok) throw new Error('Search failed');
-    const data = (await res.json()) as { users?: SearchUser[] };
-    // Hide users already in this org — they can't be added again.
-    return (data.users ?? []).filter((u) => !memberIdSet.has(u.id));
-  }
+  const searchUsers = (query: string) => searchUsersPage(query, memberIdSet);
 
   function submitOnChange(e: Event) {
     const select = e.currentTarget as HTMLSelectElement;
@@ -366,7 +356,6 @@
       searchPlaceholder={t('org-members.search.placeholder', 'Search members...')}
       searchAriaLabel={t('org-members.search.aria-label', 'Search members')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 24rem))"
     >
       {#snippet cell(cell, m)}
         {#if cell.column.id === 'name'}
@@ -410,7 +399,7 @@
               <NodeActionsMenu
                 {actions}
                 onselect={(id) => onMemberAction(id, m)}
-                label={`${t('org-members.actions.label', 'Actions for')} ${memberName(m)}`}
+                label={t('org-members.actions.label', 'Actions for {name}', { name: memberName(m) })}
                 fixed
                 compact
               />

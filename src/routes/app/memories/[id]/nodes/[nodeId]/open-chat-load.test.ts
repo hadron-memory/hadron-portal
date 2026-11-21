@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { serveMemoryReads, type SeedNode } from '$lib/test/serveMemoryReads';
 
+// portal#1433: the node reads that replaced the layout's graphNodes.
+let reads = serveMemoryReads([], { id: 'mem-1', urn: 'hrn:mem:acme.com:notes' });
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
@@ -28,7 +31,7 @@ function nodeRow(over: Record<string, unknown> = {}) {
   };
 }
 
-/** A row as it appears in the shared layout's slim `graphNodes` projection. */
+/** A seeded node the server's `nodeBatch` answers with (it used to ride in the layout's `graphNodes`). */
 function graphRow(over: Record<string, unknown> = {}) {
   return {
     id: 'chat-pk', memoryId: MEM, loc: CHAT_LOC, name: 'team',
@@ -38,7 +41,9 @@ function graphRow(over: Record<string, unknown> = {}) {
 }
 
 async function runLoad(over: { node?: Record<string, unknown>; graphNodes?: unknown[] } = {}) {
-  mockRequest.mockImplementation(async (doc: string) => {
+  reads = serveMemoryReads((over.graphNodes ?? [graphRow()]) as SeedNode[], { id: MEM, urn: 'hrn:mem:acme.com:notes' });
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    { const served = reads(doc, vars); if (served !== undefined) return served; }
     if (doc === NODE_BY_ID_QUERY) return { node: over.node ?? nodeRow() };
     return { memories: { items: [], total: 0 } };
   });
@@ -49,7 +54,6 @@ async function runLoad(over: { node?: Record<string, unknown>; graphNodes?: unkn
     locals: { token: 'tok' },
     url: new URL(`http://localhost/app/memories/${MEM}/nodes/msg-pk`),
     parent: vi.fn().mockResolvedValue({
-      graphNodes: over.graphNodes ?? [graphRow()],
       graph: { id: MEM, urn: 'hrn:mem:acme.com:notes', appId: 'app-1' },
       isConsumerMode: false, activeOrgId: 'org-1',
     }),

@@ -29,9 +29,11 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
   const code = url.searchParams.get('code');
   if (!code) redirect(303, '/');
 
-  // GitHub flow: present the browser nonce set at login start so the server can
-  // confirm this is the same browser (session-fixation defense). The email flow
-  // sets no nonce, and the server's code carries no binding — so absence is fine.
+  // Present the browser nonce set at login start so the server can confirm this
+  // is the same browser (session-fixation defense). The IdP starts set it, and
+  // so does the email flow since #505 (`startBoundMagicLink`); an absent nonce
+  // is forwarded as absent and the server decides. A refusal lands on
+  // `/signin?error=auth`, which shows a fixed restart notice (portal#1091).
   const clientState = cookies.get('hadron_login_state') ?? undefined;
   cookies.delete('hadron_login_state', { path: '/auth' });
 

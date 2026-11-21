@@ -2,7 +2,7 @@ import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
@@ -72,14 +72,14 @@ export const actions: Actions = {
 
     try {
       const result = await gqlClient(locals.token).request<{ createMemory: { id: string } }>(CREATE_MEMORY_MUTATION, {
-        orgId: params.id, name, shortDescription, description, tags, license,
+        orgRef: params.id, name, shortDescription, description, tags, license,
         category0, category1, category2, iconUrl, heroUrl, homeUrl,
         source, readBranch, writeBranch, visibility, memoryClass,
       });
       // If display name differs from slug, update the name
       if (displayName && displayName !== name) {
         await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-          id: result.createMemory.id, name: displayName,
+          ref: result.createMemory.id, name: displayName,
         }).catch(() => {}); // best-effort
       }
       // #556: land back on the tab that shows the memory just created — personal
@@ -89,7 +89,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       const error = extractGqlError(e, 'Failed to create memory');
-      if (/memory with URN/i.test(error)) {
+      if (/memory with URN/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'slug', error, { status: 409 });
       }
       return message(form, { type: 'error', text: error }, { status: 500 });

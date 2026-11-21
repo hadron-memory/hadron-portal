@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { deserialize } from '$app/forms';
   import { signinRedirectLocation } from '$lib/forms/signin-redirect';
   import { goto } from '$app/navigation';
@@ -20,7 +21,9 @@
   } from '$lib/flow/conversation-canvas';
   import { addStageSchema } from '$lib/flow/conversation-add-stage-form';
   import { conversationEdgePanelSchema } from '$lib/flow/conversation-edge-panel-form';
+  import { conversationEntryConditionSchema } from '$lib/flow/conversation-entry-condition-form';
   import { conversationGoalsSchema } from '$lib/flow/conversation-goals-form';
+  import { conversationMoveSchema } from '$lib/flow/conversation-move-form';
   import { conversationPromptSchema } from '$lib/flow/conversation-prompt-form';
   import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
@@ -33,6 +36,8 @@
   type AddStageForm = Infer<typeof addStageSchema, 'zod4'>;
   type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
   type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
+  type ConversationEntryConditionForm = Infer<typeof conversationEntryConditionSchema, 'zod4'>;
+  type ConversationMoveForm = Infer<typeof conversationMoveSchema, 'zod4'>;
   type ConversationPromptForm = Infer<typeof conversationPromptSchema, 'zod4'>;
   type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
   type AddEdgeSuperform = SuperValidated<AddEdgeForm, App.Superforms.Message, AddEdgeForm>;
@@ -54,6 +59,12 @@
   type UpdateGoalsActionResult = {
     form?: SuperValidated<ConversationGoalsForm, App.Superforms.Message, ConversationGoalsForm>;
   } | null;
+  type UpdateEntryConditionActionResult = {
+    form?: SuperValidated<ConversationEntryConditionForm, App.Superforms.Message, ConversationEntryConditionForm>;
+  } | null;
+  type MoveConversationActionResult = {
+    form?: SuperValidated<ConversationMoveForm, App.Superforms.Message, ConversationMoveForm>;
+  } | null;
   type UpdatePromptActionResult = {
     form?: SuperValidated<ConversationPromptForm, App.Superforms.Message, ConversationPromptForm>;
   } | null;
@@ -69,6 +80,9 @@
   type Revision = { loc: string; label: string; description: string | null; published: boolean; revision: number; createdAt: string | null };
   let revisions = $state<Revision[]>([]);
   let revisionsLoading = $state(false);
+  // Whether the list has loaded at least once; the Start section's publish note
+  // needs to know, and an unloaded list must not read as "nothing published".
+  let revisionsLoaded = $state(false);
   let revisionsBusy = $state(false);
   let revisionError = $state<string | null>(null);
   let showRevisions = $state(false);
@@ -84,6 +98,7 @@
       });
       const body = await res.json();
       revisions = body.revisions ?? [];
+      revisionsLoaded = Array.isArray(body.revisions);
     } catch { /* ignore */ }
     revisionsLoading = false;
   }
@@ -144,6 +159,12 @@
     }
     revisionsBusy = false;
   }
+
+  // The Start section's publish note depends on it, so read it up front.
+  onMount(() => { loadRevisions(); });
+  const publishState = $derived<'yes' | 'no' | 'unknown'>(
+    !revisionsLoaded ? 'unknown' : revisions.some((r) => r.published) ? 'yes' : 'no',
+  );
 
   // ── Editor Lock ──
   let lockOwned = $state(false);
@@ -239,12 +260,16 @@
       stageOrder,
       data.systemNodes.filter((s) => isStageLoc(s.loc) && s.loc.startsWith(`${n.loc}:`)),
     );
+    const canvasNode = canvasModel.nodes.find((c) => c.id === n.id);
     return {
       id: n.id,
       loc: n.loc,
       label: n.description || n.name || n.loc,
       isSetup: d.isSetup === true,
       isFallback: d.isFallback === true,
+      startOrder: canvasNode?.startOrder ?? null,
+      startTotal: canvasNode?.startTotal ?? null,
+      entryCondition: d.entryCondition ?? null,
       goalDescriptions: Array.isArray(d.goalDescriptions)
         ? (d.goalDescriptions as unknown[]).filter((g): g is string => typeof g === 'string')
         : [],
@@ -437,6 +462,39 @@
       ? goalsForm
       : data.conversationGoalForms[selectedConversation.id];
   });
+  // S7 Start section. Results are matched by _kind AND the conversation's loc, so
+  // another conversation's late result never banners or seeds this one.
+  const startConditionActionForm = $derived.by(() => {
+    const actionForm = (form as UpdateEntryConditionActionResult)?.form ?? null;
+    return actionForm?.data._kind === 'updateEntryCondition' ? actionForm : null;
+  });
+  const moveActionForm = $derived.by(() => {
+    const actionForm = (form as MoveConversationActionResult)?.form ?? null;
+    return actionForm?.data._kind === 'moveConversation' ? actionForm : null;
+  });
+  const startConditionSaved = $derived.by(() => {
+    if (!formIsLive || !startConditionActionForm) return null;
+    return startConditionActionForm.message?.type === 'success' && startConditionActionForm.data?.convLoc === selectedConversation?.loc
+      ? startConditionActionForm.message.text
+      : null;
+  });
+  const startConditionError = $derived.by(() => {
+    if (!formIsLive || !startConditionActionForm) return null;
+    return startConditionActionForm.message?.type === 'error' && startConditionActionForm.data?.convLoc === selectedConversation?.loc
+      ? startConditionActionForm.message.text
+      : null;
+  });
+  const moveError = $derived.by(() => {
+    if (!formIsLive || !moveActionForm) return null;
+    return moveActionForm.message?.type === 'error' && moveActionForm.data?.convLoc === selectedConversation?.loc
+      ? moveActionForm.message.text
+      : null;
+  });
+  // Seeds stay the load-time forms: a result echoes the posted values, and the
+  // panel keeps its own state after a save.
+  const selectedConversationStartForms = $derived(
+    selectedConversation ? data.conversationStartForms[selectedConversation.id] ?? null : null,
+  );
   const conversationAddStageSaved = $derived.by(() => {
     if (!formIsLive || !addStageForm) return null;
     return addStageForm.message?.type === 'success' && addStageForm.data?.conversationLoc === selectedConversation?.loc
@@ -549,13 +607,13 @@
     </p>
   </div>
 
-  <!-- Revisions toolbar -->
-  <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+  <!-- #2092: wrap authoring controls within the page; never clip or hide an action. -->
+  <div data-testid="conversation-toolbar" class="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
     <!-- Lock indicator -->
     {#if lockBlockedBy}
-      <div class="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        Locked by {lockBlockedBy}
+      <div class="flex max-w-full min-w-0 items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+        <svg class="shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <span class="min-w-0 break-words">Locked by {lockBlockedBy}</span>
       </div>
     {:else if lockOwned}
       <div class="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
@@ -567,8 +625,8 @@
     <div class="flex-1"></div>
 
     <!-- Add conversation -->
-    <div class="flex flex-col items-start gap-1">
-      <form method="POST" action="?/addConversation" use:addConversationEnhance class="flex items-center gap-1" novalidate>
+    <div class="flex min-w-0 max-w-full flex-col items-start gap-1">
+      <form method="POST" action="?/addConversation" use:addConversationEnhance class="flex max-w-full flex-wrap items-center gap-1" novalidate>
         <input type="hidden" name="systemMemoryId" bind:value={$addConversationData.systemMemoryId} />
         <input
           type="text"
@@ -578,12 +636,12 @@
           aria-label={t('conversation.editor.addConversation.placeholder', 'New conversation…')}
           aria-invalid={$addConversationErrors.name?.[0] ? 'true' : undefined}
           aria-describedby={$addConversationErrors.name?.[0] ? 'add-conversation-name-error' : undefined}
-          class="w-44 rounded border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+          class="min-h-11 w-44 max-w-full rounded border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
         />
         <button
           type="submit"
           disabled={!$addConversationData.name.trim() || $addConversationSubmitting}
-          class="rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          class="min-h-11 shrink-0 rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
           style="background: #219ebc;"
         >
           {$addConversationSubmitting
@@ -595,21 +653,24 @@
         <span id="add-conversation-name-error" class="text-xs text-red-600 dark:text-red-400">{$addConversationErrors.name[0]}</span>
       {:else if addConversationError}
         <span role="alert" class="text-xs text-red-600 dark:text-red-400">{addConversationError}</span>
-      {:else if addConversationSaved}
-        <span role="status" class="text-xs text-green-600 dark:text-green-400">{addConversationSaved}</span>
       {/if}
+      <LiveRegion class="empty:absolute">
+        {#if !$addConversationErrors.name?.[0] && !addConversationError && addConversationSaved}
+          <span class="text-xs text-green-600 dark:text-green-400">{addConversationSaved}</span>
+        {/if}
+      </LiveRegion>
     </div>
 
     <button type="button" onclick={saveRevision} disabled={revisionsBusy || !!lockBlockedBy}
-      class="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+      class="min-h-11 shrink-0 rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
       Save revision
     </button>
     <button type="button" onclick={() => { showRevisions = !showRevisions; if (showRevisions && revisions.length === 0) loadRevisions(); }}
-      class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+      class="min-h-11 shrink-0 rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
       {showRevisions ? 'Hide revisions' : 'Revisions'}
     </button>
     {#if revisionError}
-      <span class="text-xs text-red-500">{revisionError}</span>
+      <span class="min-w-0 break-words text-xs text-red-500">{revisionError}</span>
     {/if}
   </div>
 
@@ -725,7 +786,7 @@
           onSelectEdge={select}
         />
       {/key}
-    {:else if selectedConversation && selectedConversationGoalsForm && selectedConversationAddStageForm}
+    {:else if selectedConversation && selectedConversationGoalsForm && selectedConversationAddStageForm && selectedConversationStartForms}
       {#key selectedConversation.id}
         <ConversationInfoPanel
           conversation={selectedConversation}
@@ -735,6 +796,12 @@
           addStageForm={selectedConversationAddStageForm}
           addStageSaved={conversationAddStageSaved}
           addStageError={conversationAddStageError}
+          startConditionForm={selectedConversationStartForms.condition}
+          {startConditionSaved}
+          {startConditionError}
+          moveForm={selectedConversationStartForms.move}
+          {moveError}
+          {publishState}
           onClose={() => select(null)}
           onSelectNode={select}
         />

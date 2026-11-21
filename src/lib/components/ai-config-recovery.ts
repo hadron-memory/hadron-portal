@@ -1,0 +1,156 @@
+import type { AiConfigCommitted, AiConfigMutationPending } from './ai-config-manager';
+
+type Pending = Omit<AiConfigMutationPending, 'pending'>;
+type Deferred = { outcome: AiConfigCommitted; order: number };
+type Listener = () => void;
+
+/**
+ * Client-document recovery for AI writes. Component teardown must not erase a
+ * pending mutation or an outcome that still needs readback. Entries contain
+ * owner keys and display text only — never credentials or mutation payloads.
+ * The user scope prevents a client-side account change inheriting the state.
+ */
+export class AiConfigRecoveryStore {
+  private pendingByOwner = new Map<string, Map<number, Pending>>();
+  private deferredByOwner = new Map<string, Deferred>();
+  private uncertaintyByOwner = new Map<string, string>();
+  private refreshWarningByOwner = new Map<string, string>();
+  private outcomeOrders = new WeakMap<AiConfigCommitted, number>();
+  private listeners = new Set<Listener>();
+  private nextOrder = 0;
+
+  private empty(): boolean {
+    return this.pendingByOwner.size === 0 && this.deferredByOwner.size === 0 &&
+      this.uncertaintyByOwner.size === 0 && this.refreshWarningByOwner.size === 0;
+  }
+
+  private pruneWhenUnused() {
+    if (this.listeners.size !== 0 || !this.empty()) return;
+    for (const [scope, candidate] of stores) {
+      if (candidate === this) {
+        stores.delete(scope);
+        return;
+      }
+    }
+  }
+
+  private emit() {
+    for (const listener of [...this.listeners]) listener();
+    this.pruneWhenUnused();
+  }
+
+  private orderFor(outcome: AiConfigCommitted): number {
+    let order = this.outcomeOrders.get(outcome);
+    if (order === undefined) {
+      order = ++this.nextOrder;
+      this.outcomeOrders.set(outcome, order);
+    }
+    return order;
+  }
+
+  setPending(outcome: AiConfigMutationPending) {
+    let owner = this.pendingByOwner.get(outcome.ownerKey);
+    if (outcome.pending) {
+      if (!owner) {
+        owner = new Map();
+        this.pendingByOwner.set(outcome.ownerKey, owner);
+      }
+      owner.set(outcome.mutationId, { ownerKey: outcome.ownerKey, mutationId: outcome.mutationId });
+    } else if (owner) {
+      owner.delete(outcome.mutationId);
+      if (owner.size === 0) this.pendingByOwner.delete(outcome.ownerKey);
+    }
+    this.emit();
+  }
+
+  pending(): Pending[] {
+    return [...this.pendingByOwner.values()].flatMap((owner) => [...owner.values()]);
+  }
+
+  setUncertainty(ownerKey: string, text: string) {
+    if (this.uncertaintyByOwner.get(ownerKey) === text) return;
+    this.uncertaintyByOwner.set(ownerKey, text);
+    this.emit();
+  }
+
+  uncertainty(ownerKey: string): string | null {
+    return this.uncertaintyByOwner.get(ownerKey) ?? null;
+  }
+
+  setRefreshWarning(ownerKey: string, text: string | null) {
+    if ((this.refreshWarningByOwner.get(ownerKey) ?? null) === text) return;
+    if (text === null) this.refreshWarningByOwner.delete(ownerKey);
+    else this.refreshWarningByOwner.set(ownerKey, text);
+    this.emit();
+  }
+
+  refreshWarning(ownerKey: string): string | null {
+    return this.refreshWarningByOwner.get(ownerKey) ?? null;
+  }
+
+  defer(outcome: AiConfigCommitted) {
+    const order = this.orderFor(outcome);
+    const existing = this.deferredByOwner.get(outcome.ownerKey);
+    // An older confirmed read must never replace a newer uncertain outcome.
+    if (existing && existing.order > order) return;
+    this.deferredByOwner.set(outcome.ownerKey, { outcome, order });
+    this.emit();
+  }
+
+  discardDeferred(outcome: AiConfigCommitted) {
+    const order = this.orderFor(outcome);
+    const existing = this.deferredByOwner.get(outcome.ownerKey);
+    if (!existing || existing.order > order) return;
+    this.deferredByOwner.delete(outcome.ownerKey);
+    this.emit();
+  }
+
+  takeDeferred(ownerKey: string): AiConfigCommitted | undefined {
+    const deferred = this.deferredByOwner.get(ownerKey);
+    if (!deferred) return undefined;
+    this.deferredByOwner.delete(ownerKey);
+    this.emit();
+    return deferred.outcome;
+  }
+
+  subscribe(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+      this.pruneWhenUnused();
+    };
+  }
+}
+
+const stores = new Map<string, AiConfigRecoveryStore>();
+let mutationSequence = 0;
+let recoverySequence = 0;
+
+export function createAiConfigRecoveryStore(): AiConfigRecoveryStore {
+  return new AiConfigRecoveryStore();
+}
+
+export function getAiConfigRecoveryStore(userScope: string): AiConfigRecoveryStore {
+  let store = stores.get(userScope);
+  if (!store) {
+    store = createAiConfigRecoveryStore();
+    stores.set(userScope, store);
+  }
+  return store;
+}
+
+/** Positive IDs are unique across every Manager in this client document. */
+export function nextAiConfigMutationId(): number {
+  return ++mutationSequence;
+}
+
+/** Negative IDs cannot collide with a Manager's positive document-unique IDs. */
+export function nextAiConfigRecoveryId(): number {
+  return --recoverySequence;
+}
+
+export function resetAiConfigRecoveryForTests() {
+  stores.clear();
+  mutationSequence = 0;
+  recoverySequence = 0;
+}

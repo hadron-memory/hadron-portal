@@ -1,10 +1,12 @@
 import { gqlClient } from '$lib/server/api';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import {
   START_CHAT_MUTATION,
   SEND_CHAT_MESSAGE_MUTATION,
   PROCESS_CHAT_RESPONSE_MUTATION,
 } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
 import { publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import { rateLimitResponse } from '$lib/server/rate-limit';
@@ -97,6 +99,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   try {
     const client = gqlClient(locals.token);
+    // portal#2083: the Tester is manager-only. The scripted persona run is a
+    // Tester consumer too (PersonaScript), so it asks the same question BEFORE
+    // any AI resolution or startChat. A miss is the existing not-found; a
+    // failed read lands in the catch below, never as a 404 or an admission.
+    if (!(await requireTesterAgent(client, locals.user?.id, body.agentId))) {
+      return new Response(JSON.stringify({ error: 'Agent not found or no longer available' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    // portal#1611: resolve the AI config once, before startChat; the welcome
+    // turn and every scripted turn run it, and startChat reports its model.
+    const ai = await resolveChatAi(locals.token, body.agentId);
+
     const turns: Array<{
       step: number;
       role: 'user' | 'assistant';
@@ -122,10 +138,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         stageName: string | null;
       };
     }>(START_CHAT_MUTATION, {
-      agentId: body.agentId,
+      agentRef: body.agentId,
       conversationName: body.conversationName ?? null,
       scope: 'private',
       isTestRun: true,
+      ...llmModelVariable(ai),
     });
 
     const { chatId } = startResult.startChat;
@@ -136,6 +153,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agentId: body.agentId,
       chatId,
       userMessage: null,
+      ai,
       startPayload: {
         systemMessage: startResult.startChat.systemMessage,
         tools: startResult.startChat.tools,
@@ -165,6 +183,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         agentId: body.agentId,
         chatId,
         userMessage,
+        ai,
       });
 
       turns.push({

@@ -4,11 +4,13 @@
  * and every chrome string goes through t().
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import Page from './+page.svelte';
 import { rowMenuItems } from '$lib/test/rowMenu';
 import {
@@ -30,7 +32,7 @@ function channel(over: Record<string, unknown> = {}) {
   return {
     id: 'ch-team', name: 'Team chat', description: null, kind: 'CHAT', loc: 'chats:team',
     chatRootUrn: 'hrn:node:acme.com:team-shared:chats:team', chatRootNodeId: 'root-1',
-    lastSeq: 12, lastMessageAt: null, createdAt: '2026-09-01T00:00:00Z', memory: SHARED, ...over,
+    lastSeq: 12, lastMessageAt: null, createdAt: '2026-09-01T00:00:00Z', memoryId: 'mem-shared', memory: SHARED, ...over,
   };
 }
 
@@ -47,7 +49,7 @@ async function mountPage(channels: unknown[], extra: Record<string, unknown> = {
     deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
     ...extra,
   };
-  const m = mountComponent(Page as never, { data, form: actionData } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({ data, form: actionData }) as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();
   return m;
@@ -59,6 +61,16 @@ async function html(channels: unknown[]) {
 describe('Channels page', () => {
   it('a Channel with a flat address shows it as a URN chip', async () => {
     expect(await html([channel()])).toContain('hrn:node:acme.com:team-shared:chats:team');
+  });
+
+  it('renders a Channel whose host memory record is concealed (#2509): no crash, link by memoryId, host withheld', async () => {
+    const body = await html([channel({ id: 'ch-x', name: 'Release', loc: 'chats:x', memoryId: 'mem-other', memory: null })]);
+    // The channel itself is still listed…
+    expect(body).toContain('Release');
+    // …its chat root stays reachable through the non-null memoryId…
+    expect(body).toContain('href="/app/memories/mem-other/nodes/root-1"');
+    // …and the concealed host renders as withheld prose, never an empty URN chip.
+    expect(body).toContain('Memory not shown');
   });
 
   it('with no chatRootUrn it shows the id, never the memory-relative loc', async () => {
@@ -287,7 +299,15 @@ describe('Channels page', () => {
     const regTable = [...target.querySelectorAll('table')].find((tb) => tb.querySelector('form[action="?/removeAttendance"], button') && tb.textContent?.includes('Set by'))!;
     let grid: HTMLElement = regTable;
     while (!grid.querySelector('details')) grid = grid.parentElement!;
-    // The Columns menu lists only hideable columns (its <details> is in the DOM while closed).
+    // The Columns menu lists only hideable columns. Its dropdown content
+    // renders only while open (#1587: the open layer arms the shared Escape
+    // fallback on that same `{#if open}` block), so open it before querying
+    // the labels — jsdom never fires the `toggle` event itself.
+    const details = grid.querySelector('details')!;
+    details.querySelector('summary')!.click();
+    details.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(details.open).toBe(true);
     const toggles = [...grid.querySelectorAll('details label')].map((l) => l.textContent?.trim());
     expect(toggles).toContain('Set by'); // the menu is really there
     expect(toggles).not.toContain('Takes part as');
@@ -595,5 +615,23 @@ describe('Channels page', () => {
     const outsider = await mountPage([channel()], { orgRows: [orgRow], navOrgs: [] });
     expect(outsider.target.textContent).not.toContain('Managed by the organization');
     expect(outsider.target.textContent).toContain('Read-only');
+  });
+});
+
+describe('Channels page: the create result is announced in a persistent live region (portal#2375)', () => {
+  it('the success text lands in the status region that was already mounted and empty', async () => {
+    const m = await mountPage([channel()]);
+    const { target } = m;
+    const idle = idleStatusRegions(target);
+    expect(idle.length).toBeGreaterThan(0);
+    const done = await superValidate({ _kind: 'createChannel', name: 'Release', slug: 'release', description: '' }, zod4(createChannelSchema), { errors: false });
+    done.message = { type: 'success', text: 'Created the Release channel.' };
+    const create = target.querySelector<HTMLFormElement>('form[action="?/createChannel"]')!;
+    await submitEnhancedWithResult(create, { type: 'success', status: 200, data: { form: done } });
+    (m.props as Record<string, unknown>).form = { form: done };
+    await tick(3);
+    const region = announcedStatusRegion(target);
+    expect(region?.textContent).toContain('Created the Release channel.');
+    expect(idle).toContain(region);
   });
 });

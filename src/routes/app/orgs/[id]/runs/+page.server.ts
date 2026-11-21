@@ -2,6 +2,7 @@ import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { ORG_APP_RUNS_QUERY, ORG_APP_INSTALLS_QUERY } from '$lib/server/queries';
 import type { AppRun } from '$lib/flow/runs';
+import { isAppRunRow } from '$lib/flow/app-runs-page';
 import type { PageServerLoad } from './$types';
 
 // "App Runs" — every headless run (AppRun) across the ACTIVE org's apps, the
@@ -41,7 +42,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
         limit: WINDOW,
         offset: 0,
       })
-      .then((d) => ({ ok: true as const, ...d.appRuns }))
+      .then((d) => {
+        // Refuse a malformed page before any formatter or table sees it: the per-app sibling does the same
+        // (isRunsSection), and the failure path below is the banner, never an empty success.
+        const page = d?.appRuns;
+        if (!page || !Array.isArray(page.items) || !Number.isSafeInteger(page.total) || page.total < 0 || !page.items.every(isAppRunRow)) {
+          throw new Error('Malformed runs page');
+        }
+        return { ok: true as const, ...page };
+      })
       .catch((e: unknown) => {
         console.error(`[org runs] ORG_APP_RUNS_QUERY failed for ${params.id}:`, e);
         return { ok: false as const, items: [] as AppRun[], total: 0 };

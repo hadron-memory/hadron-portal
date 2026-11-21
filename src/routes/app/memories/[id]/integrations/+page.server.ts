@@ -18,6 +18,7 @@ import {
   pushMemoryIntegrationSchema,
   syncMemoryIntegrationSchema,
 } from './schema';
+import { syncOutcomeMessage, type SyncOutcomeFields } from '$lib/sync-report';
 import { gitFailureMessage } from '$lib/sync-error';
 
 const memoryIntegrationFormAdapter = zod4(memoryIntegrationSchema);
@@ -56,12 +57,12 @@ export const load: PageServerLoad = async ({ parent }) => {
     superValidate<SyncMemoryIntegrationForm>(
       {},
       syncMemoryIntegrationFormAdapter,
-      { errors: false },
+      { errors: false, id: 'syncMemory' },
     ),
     superValidate<PushMemoryIntegrationForm>(
       {},
       pushMemoryIntegrationFormAdapter,
-      { errors: false },
+      { errors: false, id: 'pushMemory' },
     ),
   ]);
   return {
@@ -85,7 +86,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-        id: params.id,
+        ref: params.id,
         source: blankToNull(form.data.source),
         readBranch: blankToNull(form.data.readBranch),
         writeBranch: blankToNull(form.data.writeBranch),
@@ -104,6 +105,7 @@ export const actions: Actions = {
     const form = await superValidate<SyncMemoryIntegrationForm>(
       await request.formData(),
       syncMemoryIntegrationFormAdapter,
+      { id: 'syncMemory' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -114,19 +116,11 @@ export const actions: Actions = {
     // (hadron-server#1578), so it is classified into fixed copy and never
     // shown ($lib/sync-error).
     try {
-      const res = await gqlClient(locals.token).request<{ syncMemory: { syncStatus?: string | null } | null }>(
-        SYNC_MEMORY_MUTATION,
-        { id: params.id },
+      const res = await gqlClient(locals.token).request<{ syncMemory: SyncOutcomeFields | null }>(
+        SYNC_MEMORY_MUTATION, { ref: params.id },
       );
-      if (res.syncMemory?.syncStatus === 'OK') {
-        return message(form, { type: 'success', text: t('integrations.synced', 'Memory synced.') });
-      }
-      return message(form, {
-        type: 'success',
-        text: t('integrations.sync-not-finished', 'The sync didn’t finish (status: {status}). Check the status again shortly.', {
-          status: res.syncMemory?.syncStatus ?? '—',
-        }),
-      });
+      const outcome = syncOutcomeMessage(res.syncMemory);
+      return message(form, outcome, outcome.type === 'error' ? { status: 500 } : undefined);
     } catch (e: unknown) {
       return message(form, { type: 'error', text: gitFailureMessage(extractGqlError(e, ''), 'sync') }, { status: 500 });
     }
@@ -136,11 +130,12 @@ export const actions: Actions = {
     const form = await superValidate<PushMemoryIntegrationForm>(
       await request.formData(),
       pushMemoryIntegrationFormAdapter,
+      { id: 'pushMemory' },
     );
     if (!form.valid) return fail(400, { form });
 
     try {
-      await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.id });
+      await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { ref: params.id });
       return message(form, { type: 'success', text: t('integrations.pushed', 'Pushed to Git.') });
     } catch (e: unknown) {
       // #988: the push path uses the same tokenized remote (hadron-server#1578).

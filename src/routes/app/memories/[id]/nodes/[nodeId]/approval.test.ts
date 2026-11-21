@@ -10,7 +10,7 @@ import {
   NODE_APPROVAL_QUERY,
   NODE_BY_ID_QUERY,
   NODE_QUERY,
-  NODE_REVISIONS_QUERY,
+  NODE_REVISIONS_PAGE_QUERY,
   VERIFY_NODE_QUERY,
 } from '$lib/server/queries';
 import type { NodeApprovalStatus } from '$lib/node-approval';
@@ -53,7 +53,7 @@ function serve(overrides: Map<string, (vars: Record<string, unknown>) => unknown
     const o = overrides.get(doc);
     if (o) return o(vars);
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     return { memories: { items: [], total: 0 } };
   });
 }

@@ -20,20 +20,22 @@
     rosterStateChipClass,
     rosterStateLabel,
     taskRefLabel,
+    taskRefHandle,
     unavailableReasonLabel,
   } from '$lib/agent-tasks/roster';
-  import type { TaskRead, TeamRoster, TeamRosterEntry } from '$lib/agent-tasks/types';
+  import type { TaskRead, TaskRefs, TeamRoster, TeamRosterEntry } from '$lib/agent-tasks/types';
+  import TaskRef from './TaskRef.svelte';
   import NotParticipant from './NotParticipant.svelte';
   import PartyLabel from './PartyLabel.svelte';
 
   let {
     roster,
-    titles,
+    refs,
     basePath,
     impersonating = null,
-  }: { roster: TaskRead<TeamRoster>; titles: Record<string, string>; basePath: string; impersonating?: string | null } = $props();
+  }: { roster: TaskRead<TeamRoster>; refs: TaskRefs; basePath: string; impersonating?: string | null } = $props();
 
-  /** The tasks a state's Detail cell names, so search reaches their titles too. */
+  /** The tasks a state's Detail cell names, so search reaches their titles and handles too. */
   function detailTasks(e: TeamRosterEntry): string[] {
     switch (e.state) {
       case 'ASSIGNED_NOT_STARTED':
@@ -54,7 +56,7 @@
         return [
           e.alarms.length ? t('app.tasks.roster.detail.alarms', '{n} unacknowledged alarm(s)', { n: e.alarms.length }) : '',
           e.unreactedChildTask
-            ? t('app.tasks.roster.detail.unreacted', '{task} ended; not reacted to', { task: taskRefLabel(e.unreactedChildTask, titles) })
+            ? t('app.tasks.roster.detail.unreacted', '{task} ended; not reacted to', { task: taskRefLabel(e.unreactedChildTask, refs) })
             : '',
         ].filter(Boolean).join(' · ');
       case 'UNAVAILABLE':
@@ -75,7 +77,7 @@
       case 'AVAILABLE':
         return e.freeFamilies.length ? t('app.tasks.roster.detail.free-as', 'Free as {f}', { f: e.freeFamilies.join(', ') }) : '';
       default:
-        return detailTasks(e).map((id) => taskRefLabel(id, titles)).join(', ');
+        return detailTasks(e).map((id) => taskRefLabel(id, refs)).join(', ');
     }
   }
 
@@ -104,7 +106,8 @@
           worker: partySearchText(entry.worker),
           role: entry.role ?? '',
           state: rosterStateLabel(entry.state),
-          detail: [detailText(entry), ...detailTasks(entry).map((id) => taskRefLabel(id, titles))].join(' '),
+          // Titles and handles both, like the Alarms and AI Team grid (Dorian's P3 on #1375).
+          detail: [detailText(entry), ...detailTasks(entry).flatMap((id) => [taskRefLabel(id, refs), taskRefHandle(id, refs) ?? ''])].join(' ').trim(),
           family: entry.family ?? '',
           session: rosterSessionLabel(entry),
           lastActiveMs: ms(entry.lastActiveAt),
@@ -194,7 +197,6 @@
     searchPlaceholder={t('app.tasks.roster.search', 'Search the roster…')}
     searchAriaLabel={t('app.tasks.roster.search', 'Search the roster…')}
     bind:globalFilter
-    maxHeight="max(240px, calc(100vh - 24rem))"
   >
     {#snippet cell(cell, row)}
       {@const e = row.entry}
@@ -205,14 +207,19 @@
       {:else if cell.column.id === 'detail'}
         <div class="min-w-0 text-sm">
           {#if e.state === 'YOUR_MOVE' && e.alarms.length}
-            <a href="{basePath}/tasks?view=alarms" class="text-indigo-600 hover:underline dark:text-indigo-300">
+            <!-- Uma's #2021 ruling: this link must land where every counted
+                 alarm is visible. The count is the server's unacknowledged
+                 total, which includes alarms whose escalation ended, so the
+                 In-effect default can show fewer rows than the number beside
+                 the link — All is the only existing view that contains them. -->
+            <a href="{basePath}/tasks?view=alarms&alarms=all" class="text-indigo-600 hover:underline dark:text-indigo-300">
               {t('app.tasks.roster.detail.alarms', '{n} unacknowledged alarm(s)', { n: e.alarms.length })}
             </a>
           {/if}
           {#if detailTasks(e).length}
             <span class="flex flex-wrap gap-x-2">
               {#each detailTasks(e) as id (id)}
-                <a href="{basePath}/tasks/{id}" class="block max-w-full truncate text-indigo-600 hover:underline dark:text-indigo-300">{taskRefLabel(id, titles)}</a>
+                <TaskRef {id} {refs} {basePath} />
               {/each}
               {#if e.state === 'YOUR_MOVE'}<span class="text-zinc-500">{t('app.tasks.roster.detail.ended-unreacted', 'ended; not reacted to')}</span>{/if}
             </span>

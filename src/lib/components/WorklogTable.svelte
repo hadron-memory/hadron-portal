@@ -57,6 +57,8 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import ListPageNav from './ListPageNav.svelte';
+  import type { ListPageNavigation } from '$lib/list-page';
   import { makeGlobalFilterFn, searchableText } from '$lib/table/global-filter';
   import { t } from '$lib/i18n/t';
   import {
@@ -86,14 +88,16 @@
    * a record whose session is unreadable by id rather than dropping it.
    */
   let {
+    serverPage,
     items = [],
     total = 0,
     loadError = false,
     filters = { ref: '', kind: '', tool: '' },
     showFilters = true,
     listKey,
-    maxHeight = 'max(200px, calc(100vh - 30rem))',
+    bounded = false,
   }: {
+    serverPage?: ListPageNavigation;
     items?: TeamWorkItem[];
     /** The SERVER's count for the current filter, which may exceed what was fetched. */
     total?: number;
@@ -113,7 +117,7 @@
      * worker and the other is not.
      */
     listKey: string;
-    maxHeight?: string;
+    bounded?: boolean;
   } = $props();
 
   const truncated = $derived(total > items.length);
@@ -221,6 +225,7 @@
       return items;
     },
     columns,
+    get manualPagination() { return !!serverPage; },
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -338,19 +343,25 @@
            nothing would remove the only controls that could change it. -->
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 px-6 py-6 text-center dark:border-zinc-800 dark:bg-zinc-950">
         <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          {hasFilters
+          {serverPage && serverPage.offset > 0
+            ? t('app.worklog.empty.page', 'No work records on this page')
+            : hasFilters
             ? t('app.worklog.empty.filtered.title', 'No work records match these filters')
             : t('app.worklog.empty.title', 'No work records yet')}
         </p>
         <p class="mt-1 text-sm text-zinc-500">
-          {hasFilters
+          {serverPage && serverPage.offset > 0
+            ? t('app.worklog.empty.page.body', 'Use the page controls to return to earlier pages, or clear the filters.')
+            : hasFilters
             ? t('app.worklog.empty.filtered.body', 'Try a different artifact, kind or tool — or clear the filters.')
             : t('app.worklog.empty.body', 'Workers record milestones here — a PR opened, a branch pushed, an issue closed — from their worker sessions.')}
         </p>
       </div>
     {:else}
       <p class="text-xs text-zinc-500 dark:text-zinc-400">
-        {#if truncated}
+        {#if serverPage}
+          {t('app.worklog.count.page', 'Records on this page')}: {items.length}.
+        {:else if truncated}
           {t('app.worklog.count.truncated', 'Showing the most recent')}
           {items.length} {t('app.worklog.count.of', 'of')} {total}.
         {:else}
@@ -364,8 +375,9 @@
 
     <DataTable
       {table}
+      showFooter={!serverPage}
       {listKey}
-      {maxHeight}
+      {bounded}
       bind:globalFilter
       searchPlaceholder={t('app.worklog.search', 'Search these records…')}
       searchAriaLabel={t('app.worklog.search.aria', 'Search the worklog records on this page')}
@@ -460,5 +472,6 @@
         {/if}
       {/snippet}
     </DataTable>
+    {#if serverPage}<ListPageNav page={serverPage} label={t('app.worklog.pages', 'Worklog pages')} />{/if}
   {/if}
 </div>

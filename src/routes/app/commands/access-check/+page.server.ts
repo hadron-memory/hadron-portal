@@ -107,7 +107,7 @@ export const actions: Actions = {
       if (code === 'NOT_FOUND') {
         // The server distinguishes "User not found" vs "Resource not found";
         // surface that so the user knows which input to fix.
-        const which = extractGqlError(e, t('commands.common.not-found', 'Not found'));
+        const which = extractGqlError(e, t('commands.common.not-found', 'Not found'), ['NOT_FOUND']);
         const hint = /user/i.test(which)
           ? t('commands.access-check.not-found.user-hint', ' Check the handle — yours is on your account page (try @handle or a user id).')
           : t('commands.access-check.not-found.resource-hint', ' Check the resource URN — copy it from the resource’s page.');

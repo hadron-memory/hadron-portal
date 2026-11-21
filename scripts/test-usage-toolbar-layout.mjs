@@ -10,6 +10,15 @@ import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
+// The probe owns its document: a fulfilled inert page, not a dev-server path
+// (/@vite/client falls through to SvelteKit's 404 document and logs a server
+// error). Asserting 200 makes a regression to a Kit-404 URL fail loudly.
+async function gotoFixtureDocument(page, origin) {
+  await page.route('**/__usage_toolbar_layout_fixture*', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>test-usage-toolbar-layout</title>' }));
+  const response = await page.goto(new URL('/__usage_toolbar_layout_fixture', origin).href);
+  assert.equal(response?.status(), 200, `fixture document was not served inert (HTTP ${response?.status()})`);
+}
+
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
 try {
@@ -24,7 +33,7 @@ try {
       // The chart pane fetches its series; answer it so the pane settles.
       await page.route('**/usage/activity**', (route) =>
         route.fulfill({ json: { windowDays: 30, timeZone: 'UTC', buckets: [], loadFailed: false } }));
-      await page.goto(new URL('/@vite/client', origin).href);
+      await gotoFixtureDocument(page, origin);
       await page.evaluate(([css, pane]) => {
         localStorage.setItem('hadron:memoryUsage:pane', pane);
         document.head.innerHTML = '';
@@ -62,11 +71,16 @@ try {
       if (width === 390 && pane === 'chart') {
         // Prove the browser sees the defect: take the toolbar's own wrap away
         // and the page must overflow, or this check cannot tell fixed from
-        // broken. (The heading row's wrap is layout, not containment: without
-        // it the toolbar still fits, squeezed into a column beside the heading.)
-        const row = 'section > div:first-child > div';
+        // broken. (#417 removed the caption and collapsed its wrapper, so the
+        // toolbar row IS section's first div — no inner level to reach through.)
+        const row = 'section > div:first-child';
         const mutant = await page.addStyleTag({ content: `${row} { flex-wrap: nowrap !important; }` });
-        assert.ok((await measure()).scrollWidth > width, 'toolbar no-wrap mutant must overflow');
+        // #417: the row is justify-end, so a no-wrap mutant spills LEFT, which
+        // grows no scrollWidth (measured: scrollWidth stays 390) — the firing
+        // observable at 390/chart is a stranded control (reachable false). The
+        // overflow alternative stays for anyone who re-orders the row.
+        const m = await measure();
+        assert.ok(m.scrollWidth > width || !m.reachable, 'toolbar no-wrap mutant must overflow or strand a control');
         await mutant.evaluate((el) => el.remove());
         assert.equal((await measure()).scrollWidth, width);
       }

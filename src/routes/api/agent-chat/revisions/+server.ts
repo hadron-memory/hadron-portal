@@ -1,6 +1,6 @@
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { fetchAllItems } from '$lib/server/paginate';
+import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import {
   ORGANIZATIONS_QUERY,
   CREATE_REVISION_MUTATION,
@@ -73,7 +73,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (action === 'save') {
       const result = await client.request<{ createRevision: unknown }>(
         CREATE_REVISION_MUTATION,
-        { agentId, description: (body.description as string) ?? null },
+        { agentRef: agentId, description: (body.description as string) ?? null },
       );
       return new Response(JSON.stringify(result.createRevision), {
         status: 200,
@@ -90,7 +90,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       }
       const result = await client.request<{ publishRevision: unknown }>(
         PUBLISH_REVISION_MUTATION,
-        { agentId, revisionLoc: body.revisionLoc, versionLabel: (body.versionLabel as string) ?? null },
+        { agentRef: agentId, revisionLoc: body.revisionLoc, versionLabel: (body.versionLabel as string) ?? null },
       );
       return new Response(JSON.stringify(result.publishRevision), {
         status: 200,
@@ -107,7 +107,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       }
       const result = await client.request<{ restoreRevision: unknown }>(
         RESTORE_REVISION_MUTATION,
-        { agentId, revisionLoc: body.revisionLoc },
+        { agentRef: agentId, revisionLoc: body.revisionLoc },
       );
       return new Response(JSON.stringify(result.restoreRevision), {
         status: 200,
@@ -118,7 +118,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (action === 'lock') {
       const result = await client.request<{ acquireEditorLock: unknown }>(
         ACQUIRE_EDITOR_LOCK_MUTATION,
-        { agentId },
+        { agentRef: agentId },
       );
       return new Response(JSON.stringify(result.acquireEditorLock), {
         status: 200,
@@ -127,7 +127,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
 
     if (action === 'unlock') {
-      await client.request(RELEASE_EDITOR_LOCK_MUTATION, { agentId });
+      await client.request(RELEASE_EDITOR_LOCK_MUTATION, { agentRef: agentId });
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -145,20 +145,26 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      // Fetch revision nodes from the agent's system memory. hrn:node:hadronmemory.com:specs:cor:api:090 —
-      // findNodes hides class:'system' memories on a broad call, so we scope to
-      // the system memory (which also overrides the exclusion) and use
-      // filter.locPrefix for the `revisions:` prefix. Results are hits[].node.
+      // Fetch revision nodes from the agent's system memory. Two ORTHOGONAL default exclusions apply to a
+      // findNodes call (hrn:node:hadronmemory.com:specs:cor:api:090:02):
+      //   1. memory class — hides class:'system' memories on a broad call; naming the memory in `memoryIds`
+      //      overrides it.
+      //   2. node type — an UNQUALIFIED call hides nodeType 'system' and 'chat-message'; only naming a
+      //      `nodeType` lifts it. Revision nodes ARE nodeType 'system', so without `nodeType` the list came
+      //      back empty for a genuinely published Agent (portal#2085).
+      // So we scope to the memory AND name the single Decided `nodeType` filter (not the Proposed `nodeTypes`
+      // list), and use filter.locPrefix for the `revisions:` prefix. Results are hits[].node.
       const REVISIONS_QUERY = /* GraphQL */ `
-        query Revisions($limit: Int, $memoryIds: [ID!]) {
-          findNodes(filter: { memoryIds: $memoryIds, locPrefix: "revisions:" }, limit: $limit) {
+        query Revisions($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
+          findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType, locPrefix: "revisions:" }, limit: $limit, offset: $offset) {
             hits { node { id loc name description data } }
           }
         }
       `;
-      const result = await client.request<{ findNodes: { hits: Array<{ node: { id: string; loc: string; name: string; description: string | null; data: unknown } }> } }>(
+      const result = await drainFindNodes<{ node: { id: string; loc: string; name: string; description: string | null; data: unknown } }>(
+        client,
         REVISIONS_QUERY,
-        { limit: 100, memoryIds: [systemMemoryId] },
+        { memoryIds: [systemMemoryId], nodeType: 'system' },
       );
       const revisions = (result.findNodes?.hits ?? [])
         .map((h) => h.node)

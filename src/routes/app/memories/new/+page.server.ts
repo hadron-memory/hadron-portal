@@ -2,7 +2,7 @@ import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
 import { CREATE_PERSONAL_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { createPersonalMemorySchema } from './schema';
@@ -38,14 +38,14 @@ export const actions: Actions = {
       // when it differs (best-effort, mirrors the org create flow).
       if (displayName && displayName !== name) {
         await gqlClient(locals.token)
-          .request(UPDATE_MEMORY_MUTATION, { id: result.createMemory.id, name: displayName })
+          .request(UPDATE_MEMORY_MUTATION, { ref: result.createMemory.id, name: displayName })
           .catch(() => {});
       }
       redirect(303, `/app/memories/${result.createMemory.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       const error = extractGqlError(e, 'Failed to create memory');
-      if (/memory with URN/i.test(error)) {
+      if (/memory with URN/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'slug', error, { status: 409 });
       }
       return message(form, { type: 'error', text: error }, { status: 500 });

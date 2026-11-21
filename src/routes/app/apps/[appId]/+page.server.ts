@@ -1,3 +1,16 @@
+import { APP_DISPLAY_PAGE_SIZE, appListOffset, appListNavigation } from './app-list-pages';
+import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
+import { flowPageSummaries } from '$lib/flow/flows';
+import { chatAiChoiceOptions, type ChatAiChoiceRow } from '$lib/server/llm/chatAiChoices';
+import { extractGqlErrorCode as chatbotErrorCode } from '$lib/gql-error';
+import { runAppFlow } from '$lib/server/run-app-flow';
+import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
+import { withRegisteredChannels } from '$lib/app-chats';
+
+import { createMemory, readAppMemories, readAppMemoryScope, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
+import { writeCustomisation } from '$lib/server/install-customisation';
+import { readDeleteWorkerPost, deleteWorkerFailureRefusal, type DeleteWorkerRefusal, type DeleteWorkerResult } from '$lib/workers/delete-worker';
+
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -6,17 +19,26 @@ import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout'
 import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
+import { logAppActionTransportFailure } from '$lib/server/app-action-transport-diagnostic';
+import { readAppInstallMarks } from '$lib/server/app-install-marks';
+import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
+import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
+import { loadAppTeamRoster, type TeamRosterRead } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, gqlErrorBody, isDefiniteRefusal } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
+import { fetchOrgVisibleAgents, mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
 import {
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
+  APP_ORG_AGENT_GRANTS_QUERY,
   APP_QUERY,
+  SET_APP_SWEEP_MODE_MUTATION,
   APP_MEMBERS_QUERY,
   SELF_CAN_MANAGE_QUERY,
+  SET_APP_AGENT_BOOT_PROMPT_MUTATION,
   MY_AGENTS_QUERY,
   PUBLIC_AGENTS_QUERY,
   UPDATE_APP_MUTATION,
@@ -24,18 +46,27 @@ import {
   UNINSTALL_AGENT_FROM_APP_MUTATION,
   CREATE_APP_KEY_MUTATION,
   REVOKE_APP_KEY_MUTATION,
+  GRANT_APP_KEY_SCOPE_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
+  APP_NODES_PAGE_QUERY,
+  APP_FLOWS_PAGE_QUERY,
+  APP_CHANNELS_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   RESOLVE_AI_SERVICE_CONFIGS_QUERY,
+  CHAT_AI_CONFIG_CHOICES_QUERY,
+  APP_CHATBOT_AI_CONFIG_QUERY,
+  SET_APP_CHATBOT_AI_CONFIG_MUTATION,
   WORKERS_QUERY,
   CAST_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
+  DELETE_WORKER_MUTATION,
+  SET_WORKER_WAKE_SETTINGS_MUTATION,
   RELEASE_WORKER_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   TEAM_WORK_ITEMS_QUERY,
-  APP_CHAT_ROOTS_QUERY,
+  APP_CHAT_ROOTS_PAGE_QUERY,
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
 // AGENT_CHAT_KEY / TEAM_CHAT_LOC moved out with RETIRED_TAB_ALIASES into
@@ -45,9 +76,12 @@ import {
   chatFullViewFromParams,
   resolveSelectedChat,
 } from '$lib/app-chats';
-import { loadTeamChatTail } from '$lib/server/team-chat';
-import { loadChatMessages } from '$lib/server/team-chat';
+import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
+import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
+import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
+import { liveStopsNameAWorker, pickPayload, readGroupsFor, type ReadGroup } from './first-screen';
+import { loadTemplatesPanel, TEMPLATES_TAB_ID } from './templates-panel';
 import {
   addMember,
   addAppMemberFormAdapter,
@@ -67,14 +101,16 @@ import type {
   TeamWorkItem,
 } from '$lib/types';
 import { loadAppKeyScopes } from '$lib/server/tickers';
-import { loadAppKeys } from '$lib/server/app-keys';
+import { loadAppKeys, loadViewerManages } from '$lib/server/app-keys';
 import type { Actions, PageServerLoad } from './$types';
 import {
+  createAppMemorySchema,
   addAgentSchema,
   appSettingsSchema,
   castWorkerSchema,
   createAppKeySchema,
   deleteAppSchema,
+  grantAppKeyScopeSchema,
   removeAppAgentSchema,
   postTeamChatMessageSchema,
   retireWorkerSchema,
@@ -82,14 +118,24 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
+import { loadLiveStops } from '$lib/server/stop-signals';
 import type { ReleaseWorkerMessage } from './schema';
 import { readHoldStale, type HoldStale } from './hold-stale';
+
+// Flow summaries are a complete-graph consumer, not a display-list read.
+// Keep the established graph window; any lower bound it leaves is labelled.
+const APP_FLOW_GRAPH_LIMIT = 500;
+// A chat deep link outside the loaded root page is resolved by ONE targeted
+// locPrefix page of this size; past it, the link is reported as unresolved
+// rather than draining further pages (#2170 F6).
+const REQUESTED_CHAT_LOOKUP_LIMIT = 200;
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
 type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
 type CastWorkerForm = Infer<typeof castWorkerSchema, 'zod4'>;
 type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
 type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
+type GrantAppKeyScopeForm = Infer<typeof grantAppKeyScopeSchema, 'zod4'>;
 type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
 type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
@@ -140,6 +186,7 @@ const appSettingsFormAdapter = zod4(appSettingsSchema);
 const castWorkerFormAdapter = zod4(castWorkerSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
 const deleteAppFormAdapter = zod4(deleteAppSchema);
+const grantAppKeyScopeFormAdapter = zod4(grantAppKeyScopeSchema);
 
 const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
@@ -338,11 +385,36 @@ function staleHoldMessage(stale: HoldStale & object, callerId: string | null): R
 }
 
 /**
+ * hadron-portal#1149 — the ONE arm of the cast's reporting choice, with the
+ * other key ABSENT. Typed with both keys because the generated operation types
+ * mark every nullable variable required; at runtime exactly one key exists, and
+ * a test pins that (the wire is presence-based, so `undefined`/`null`/`false`
+ * for the unused arm would be a defect, not a spelling).
+ */
+function castReportingArm(data: { reporting: string; reportsTo: string }): { reportsTo: string } | { noTeam: true } {
+  // Fail closed: only an explicit 'none' may mint a permanent No team.
+  if (data.reporting === 'head') return { reportsTo: data.reportsTo };
+  if (data.reporting === 'none') return { noTeam: true };
+  throw new Error('cast reporting choice missing');
+}
+
+/**
  * castWorker's typed refusals (#974), mapped to copy that says what to DO.
  * The raw server message names internals ("no installed agent matches role
  * X"), and the codes are a documented contract, so branching on the code is
  * both stabler and more actionable than echoing the message.
  */
+/**
+ * portal#1715: the grant refusals an install into this App can meet, as portal
+ * copy. `lookupOwn` reads it, as CAST_WORKER_ERRORS. Everything else, an unknown
+ * code included, keeps `extractGqlError`'s handling: a generic error is not an
+ * unknown outcome, and neither is ever retried.
+ */
+const ADD_AGENT_ERRORS: Record<string, () => string> = {
+  AGENT_ORG_GRANT_INACTIVE: () => t('app.agent.add.grant-inactive', 'This App’s organization has an inactive grant for that agent, so it can’t be installed.'),
+  AGENT_ORG_GRANT_REQUIRED: () => t('app.agent.add.grant-required', 'This App’s organization needs a grant for that agent before it can be installed.'),
+};
+
 const CAST_WORKER_ERRORS: Record<string, () => string> = {
   FORBIDDEN: STAFFING_FORBIDDEN,
   WORKER_NAME_TAKEN: () => t(
@@ -361,6 +433,10 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
     'app.staff.error.agent-ambiguous',
     'Several installed agents match that role. Pick an agent explicitly.',
   ),
+  WORKER_ROLE_OVERRIDE_REFUSED: () => t(
+    'app.staff.error.role-override-refused',
+    'A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.',
+  ),
   // #760: WORKER_NAME_REQUIRED replaced WORKER_REGISTER_EXHAUSTED when
   // hadron-server#1050 removed the cast-list register. The old code can no
   // longer fire — there is no register to exhaust — and the new one had no
@@ -378,6 +454,39 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
   APP_UNINSTALLED: () => t(
     'app.staff.error.app-uninstalled',
     'This App has been uninstalled, so nothing can be cast into it.',
+  ),
+  // portal#1813 (hadron-server#3626): a personal App's owner no longer
+  // qualifies for its organization Agent. First sentence shared with #1786's
+  // chat copy; no route back, no retry.
+  BOOT_PROMPT_INSTALL_LICENSE_INACTIVE: () => t(
+    'app.staff.error.boot-prompt-install-license-inactive',
+    'The owner of this App no longer qualifies to use this organization Agent, so the worker can’t be cast. Trying again won’t help.',
+  ),
+  // hadron-portal#1149 — the server's FROZEN public messages (hadron-server#2028,
+  // accepted verbatim by the gate), shown as written. The portal always sends
+  // one deliberate arm, so REQUIRED/INVALID/CONFLICT mean the form and server
+  // have drifted; the sentence beats a code for whoever reads it then.
+  WORKER_TEAM_CHOICE_REQUIRED: () => t(
+    'app.staff.error.team-choice-required',
+    'Choose reportsTo or noTeam: true when casting a worker.',
+  ),
+  WORKER_TEAM_CHOICE_INVALID: () => t(
+    'app.staff.error.team-choice-invalid',
+    'reportsTo must be a non-empty worker reference, or noTeam must be true.',
+  ),
+  WORKER_TEAM_CHOICE_CONFLICT: () => t(
+    'app.staff.error.team-choice-conflict',
+    'Supply reportsTo or noTeam, never both.',
+  ),
+  // Foreign, unknown and malformed heads all answer the same, without the
+  // target; echoing the chosen id here would defeat that concealment.
+  WORKER_NOT_FOUND: () => t('app.staff.error.worker-not-found', 'Worker not found in this App.'),
+  // A head cast can be unavailable while No team still works, but the portal
+  // must not retry it as No team: a cast is permanent, so the choice is the
+  // user's to change.
+  WORKER_REPORTING_CAST_UNAVAILABLE: () => t(
+    'app.staff.error.reporting-cast-unavailable',
+    'Casting under a reporting head is not available right now, and nothing was cast. Choose No team to cast without one, or try again later.',
   ),
 };
 
@@ -421,38 +530,32 @@ const TEAM_CHAT_POST_ERRORS: Record<string, () => string> = {
   ),
 };
 
-/**
- * The `extensions.code` of a graphql-request ClientError, when it carries one.
- *
- * Returns null for a transport-level failure (no GraphQL errors payload) and
- * for any code that isn't a string, so callers fall through to the server's own
- * message rather than mislabelling an outage as a user mistake
- * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
- */
-function gqlErrorCode(e: unknown): string | null {
-  const errors = (e as { response?: { errors?: Array<{ extensions?: { code?: unknown } }> } })
-    ?.response?.errors;
-  if (!Array.isArray(errors) || errors.length === 0) return null;
-  const code = errors[0]?.extensions?.code;
-  return typeof code === 'string' ? code : null;
-}
-
 function slugOfUrn(urn: string): string {
   const idx = urn.lastIndexOf(':');
   return idx >= 0 ? urn.slice(idx + 1) : urn;
 }
 
-// Same cap and same reasoning as TEAM_CHAT_PAGE_SIZE: ask for the server's
-// maximum, and report the server's `total` so a truncated view can say so
-// rather than reading as the whole worklog.
-const WORKLOG_PAGE_SIZE = 200;
 // #744/#793 — how much of an arbitrary chat's transcript is fetched. The size
 // now comes from `$lib/server/team-chat` (CHAT_PAGE_SIZE) rather than a second
 // constant of the same name declared here: two "chat page size" values, 500 and
 // 100, that nothing kept in step is the drift this module's own TEAM_CHAT_LOC
 // comment warns about.
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+const APP_CONCEALED_REFUSALS: readonly string[] = ['FORBIDDEN', 'NOT_FOUND', 'APP_NOT_FOUND', 'UNAUTHENTICATED', 'BAD_USER_INPUT'];
+
+/**
+ * portal#2240 (ruling 0273): the page load reads the frame plus the first
+ * screen's tab; `tab/+server.ts` reads one other tab, on its first show, with
+ * `frame: false`. One function for both, so a tab renders the same payload
+ * whichever way it arrived. `first-screen.ts` holds the tab -> reads table.
+ * (`_`-prefixed: SvelteKit allows it as an extra export of a +page.server.)
+ */
+export const load: PageServerLoad = (event) => _loadAppPage(event, { frame: true });
+
+export async function _loadAppPage(
+  { params, locals, url, setHeaders }: Parameters<PageServerLoad>[0],
+  mode: { frame: boolean; tab?: string | null },
+) {
   // #785: this load no longer carries the team chat's refresh. The poll reads
   // `team-chat/+server.ts` directly, because a background tick must not be able
   // to re-run THIS function — its failure paths are fatal (a 404 on an org
@@ -468,22 +571,66 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const worklogRef = normalizeFilter(url.searchParams.get('worklogRef'));
   const worklogKind = normalizeKind(url.searchParams.get('worklogKind'));
   const worklogTool = normalizeFilter(url.searchParams.get('worklogTool'));
+  const worklogOffset = appListOffset(url.searchParams, 'worklogOffset');
+  const configOffset = appListOffset(url.searchParams, 'configOffset');
+  const appNodesOffset = appListOffset(url.searchParams, 'appNodesOffset');
+  const chatRootsOffset = appListOffset(url.searchParams, 'chatRootsOffset');
+  const flowsOffset = appListOffset(url.searchParams, 'flowsOffset');
 
   // `?tab=` so a filtered worklog URL lands on the worklog rather than the
   // page's default tab, and `?chat=` to preselect a conversation. Both rules
   // live in `tab-intent.ts` — pure, and therefore testable without mocking this
   // loader's ten queries (@copilot on #846).
   const { initialTab, requestedChat } = resolveTabIntent(url.searchParams);
+  // portal#2240: which reads this load makes. The page load: the frame and the
+  // tab the URL opens on (Chats by default). The tab endpoint: that one tab.
+  const reads = readGroupsFor(mode.frame ? initialTab : (mode.tab ?? null), mode);
+  const wants = (group: ReadGroup) => reads.has(group);
   // `?view=full` opens the team chat maximised. Parsed here with the other
   // URL state so the page reads it once at init, like `initialTab`; toggling
   // it afterwards is `replaceState`, not a navigation.
   const initialChatFullView = chatFullViewFromParams(url.searchParams);
+  // #1137/#1482: the team chat's team filter — repeated `?team=<headRef>`
+  // values (one or several heads) or `?team=untagged`. Read here with the
+  // other URL state and applied by the SERVER on the tail read below. A
+  // malformed value is NOT the unfiltered thread: the chat reads nothing and
+  // says the filter is invalid (`teamFilterInvalid`).
+  const teamParam = parseTeamParam(url.searchParams.getAll('team'));
+  const teamFilter = teamParam.ok ? teamParam.filter : NO_TEAM_FILTER;
+  // The server's typed refusal of the head, when it gave one. Set from the tail
+  // read's catch so the chat can show the server's own text instead of the
+  // generic load error.
+  let teamChatRefusal: { code: string; message: string } | null = null;
   // #648: canonical org-optional App detail. No requireNonConsumer — this
   // resolves BOTH org-owned apps (member-gated) and user-owned (org-less) apps
   // (owner-gated) through one owner-accessible path, exactly like /app/agents/[id]
   // (#641). The server's app(ref:) gate IS the auth; a non-owner/non-member gets
   // null → 404 (no over-exposure).
   const client = gqlClient(locals.token);
+  // The complete Flow graph is independent of every other Runs read. Start it
+  // with the first loader round so a slow graph never queues behind chat,
+  // memory-scope, form or selected-transcript work.
+  const flowGraphPromise = wants('runs')
+    ? client.request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_FLOW_GRAPH_LIMIT })
+      .then((r) => r.appNodes)
+      .catch((e) => {
+        console.warn(`[app-runs] Flow graph fetch failed for ${params.appId}:`, e);
+        return null;
+      })
+    : Promise.resolve(null);
+  // The Flows list pages its own window: runnable nodes only (every Flow root
+  // is runnable), on its own offset, so a page is not mostly documents and
+  // the Memory tab's node pages move independently (#1929 LOCAL P3, QA F4).
+  const flowsPagePromise = wants('runs')
+    ? client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_FLOWS_PAGE_QUERY, {
+        appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: flowsOffset,
+      })
+      .then((r) => r.appNodesPage)
+      .catch((e) => {
+        console.warn(`[app-runs] Flows page fetch failed for ${params.appId}:`, e);
+        return { items: [] as MemoryNode[], total: 0, hasMore: false, failed: true };
+      })
+    : Promise.resolve(null);
   const [appData, configsData, membersData] = await Promise.all([
     client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId })
       .catch((e) => {
@@ -491,13 +638,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         // present. A non-critical NULLABLE field erroring (e.g. installedAgentUrn,
         // whose composeInstalledAgentUrn throws on a malformed app/agent urn)
         // must not 404 the whole page — salvage the app from the partial
-        // response so it stays viewable/editable. A genuinely missing app (no
-        // data) still falls through to the 404 below. Only a GraphQL error
+        // response so it stays viewable/editable. Only a clean absence or the existing explicit
+        // absence/refusal codes fall through to the 404 below. A null App
+        // accompanied by a generic/unknown fault remains a 500. Only a GraphQL error
         // carries `response`; rethrow transport/network errors so they surface
         // as a 500, not a misleading 404.
         if (e && typeof e === 'object' && 'response' in e) {
           const partial = (e as { response?: { data?: { app?: App | null } } }).response?.data;
-          return { app: partial?.app ?? null };
+          if (partial?.app) return { app: partial.app };
+          const code = extractGqlErrorCode(e);
+          if (!APP_CONCEALED_REFUSALS.includes(code ?? '')) throw error(500, gqlErrorBody(e, t('app.load-failed', 'Could not load App.')));
+          return { app: null };
         }
         throw e;
       }),
@@ -505,13 +656,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // member's call errors (the page hides the manager for them anyway).
     // Coerce to null so a transient failure surfaces as a load error to admins
     // instead of a misleading empty list.
-    fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
-      ownerType: 'APP', ownerId: params.appId,
-    }).catch(() => null),
+    !wants('aiConfigs') ? Promise.resolve(null) : client.request<{ aiServiceConfigs: { items: AiServiceConfig[]; total: number } }>(AI_SERVICE_CONFIGS_QUERY, {
+      ownerType: 'APP', ownerId: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: configOffset,
+    }).then(r => r.aiServiceConfigs).catch(() => null),
     // #1005: the Human Team tab. null = the fetch failed, distinct from an App
     // with no members, so the tab can say so instead of showing "No members yet."
     // Bounded: a request that HANGS would otherwise hold every tab of the page.
-    withTimeout(
+    !wants('members') ? Promise.resolve(null) : withTimeout(
       client
         .request<{ app: { members: AppMember[] | null } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
         // portal#1148: `members: null` is WITHHELD (hadron-server#2089), distinct from a
@@ -529,16 +680,20 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   // Org chrome only for an org-owned app; a user-owned (org-less) app (spec 047)
   // has none. availableAgents (what the Agents tab can install) = the org's
-  // agents for an org app, or the caller's own personal agents ∪ PUBLIC agents
-  // for an org-less app — mirroring the server install gate (createApp: a
-  // personal App may install a PUBLIC or the caller's OWN personal agent). It is
+  // agents for an org app, or, for an org-less app, the caller's own personal
+  // agents ∪ PUBLIC agents ∪ (#1786, hadron-server#3626) the ORGANIZATION-visible
+  // agents of each organization the caller belongs to — the set the server's
+  // personal-App install gate admits; the server still rechecks. It is
   // sent whether or not the App already has an agent: an App holds MANY (#802),
   // and the picker must not vanish once the first is in (#1006).
 
   let org: AppOrg | null = null;
   let availableAgents: InstallableAgent[] = [];
   let availableAgentsError = false;
-  if (app.organizationId) {
+  let subscribedAgentsError = false;
+  // portal#2240: the org is the frame's (the breadcrumb), and the Memory tab's
+  // create offer; the install pickers below are the Agents tab's only.
+  if (app.organizationId && (mode.frame || wants('appMemories'))) {
     // #851: `loadOrgDetail` rather than a bare `.catch(() => ({ organization:
     // null }))`. That catch took no argument, so nothing was classified: a
     // connection failure, a bad gateway, a resolver crash and a genuine refusal
@@ -560,24 +715,43 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       app.organizationId,
       APP_DETAIL_ORG_QUERY,
     );
+  }
+  if (app.organizationId && wants('availableAgents')) {
     // #1006: the Agents tab's install picker, asked for on its own so a refusal
     // cannot null the org (see APP_ORG_AGENTS_QUERY).
-    const pool = await withTimeout(
-      client
-        .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
-          ref: app.organizationId,
-        })
-        .then((r) => r.organization?.agents ?? null),
-      OPTIONAL_LIST_TIMEOUT_MS,
-      null,
-    ).catch((e) => {
-      console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
-      return null;
-    });
-    availableAgents = pool ?? [];
-    availableAgentsError = pool === null;
-  } else {
-    const [mine, publicAgents] = await Promise.all([
+    // #1172: the subscribed agents are a request of their own, so a failure of
+    // that resolver costs only them and never the owned picker (portal#1188).
+    const [owned, grants] = await Promise.all([
+      withTimeout(
+        client
+          .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
+            ref: app.organizationId,
+          })
+          .then((r) => r.organization?.agents ?? null),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch((e) => {
+        console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
+      withTimeout(
+        client
+          .request<{ organization: Pick<OrgAgentPool, 'agentOrgGrants'> | null }>(APP_ORG_AGENT_GRANTS_QUERY, {
+            ref: app.organizationId,
+          })
+          .then((r) => r.organization?.agentOrgGrants ?? null),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch((e) => {
+        console.warn(`[app-agents] subscribed agents fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
+    ]);
+    availableAgents = owned ? mergeInstallableAgents({ agents: owned, agentOrgGrants: grants ?? [] }) : [];
+    availableAgentsError = owned === null;
+    subscribedAgentsError = owned !== null && grants === null;
+  } else if (!app.organizationId && wants('availableAgents')) {
+    const [mine, publicAgents, orgAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
       // already the caller's own org-less agents — no client-side filter needed.
       withTimeout(
@@ -590,11 +764,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         OPTIONAL_LIST_TIMEOUT_MS,
         null,
       ).catch(() => null),
+      // #1786: one orgId-scoped list per member organization (helper).
+      withTimeout(
+        fetchOrgVisibleAgents<InstallableAgent>(client),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch(() => null),
     ]);
-    availableAgentsError = mine === null || publicAgents === null;
-    // Dedupe by id — a public agent could also be the caller's own.
+    availableAgentsError = mine === null || publicAgents === null || orgAgents === null;
+    // Dedupe by id, first source wins — a public agent could also be the
+    // caller's own, and an organization agent could be either.
     const seen = new Set<string>();
-    availableAgents = [...(mine ?? []), ...(publicAgents ?? [])].filter((a) =>
+    availableAgents = [...(mine ?? []), ...(publicAgents ?? []), ...(orgAgents ?? [])].filter((a) =>
       seen.has(a.id) ? false : (seen.add(a.id), true),
     );
   }
@@ -607,11 +788,36 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys] = await Promise.all([
-    client
-      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
-      .catch(() => ({ appNodes: [] as MemoryNode[] })),
-    app.agentId
+  // portal#1963 (hadron-server#3957): what a chat of this App may choose its AI config from, and the App's
+  // chatbot config. Each its own read, coerced on failure so neither can null the page: no list means no
+  // dropdown (the chat runs `default`, as before); a failed setting read says so rather than showing "none".
+  const aiChoiceRowsP: Promise<ChatAiChoiceRow[] | null> = app.agentId && wants('chatConfigs')
+    ? client
+        .request<{ chatAiConfigChoices: ChatAiChoiceRow[] }>(CHAT_AI_CONFIG_CHOICES_QUERY, { appRef: params.appId })
+        .then((r) => r.chatAiConfigChoices)
+        .catch((e) => {
+          console.warn(`[chat-ai-choices] list failed for ${params.appId}:`, chatbotErrorCode(e) ?? 'error');
+          return null;
+        })
+    : Promise.resolve(null);
+  const chatbotAiConfigP: Promise<{ ok: true; configId: string | null } | { ok: false }> = !wants('chatbotConfig')
+    ? Promise.resolve({ ok: false as const })
+    : client
+      .request<{ app: { chatbotAiConfigId: string | null } | null }>(APP_CHATBOT_AI_CONFIG_QUERY, { ref: params.appId })
+      .then((r) => ({ ok: true as const, configId: r.app?.chatbotAiConfigId ?? null }))
+      .catch(() => ({ ok: false as const }));
+  // portal#2240: the stop banner is the frame's; started first so the staff
+  // read below can tell whether the banner needs worker names.
+  const liveStopsP = mode.frame ? loadLiveStops(client, app.id) : Promise.resolve(null);
+  let staffLoaded = false;
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops] = await Promise.all([
+    !wants('appNodes') ? Promise.resolve({ items: [] as MemoryNode[], total: 0, hasMore: false }) : client
+      .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_NODES_PAGE_QUERY, {
+        appRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: appNodesOffset,
+      })
+      .then((r) => r.appNodesPage)
+      .catch(() => ({ items: [] as MemoryNode[], total: 0, hasMore: false })),
+    app.agentId && wants('chatConfigs')
       ? client
           .request<{ resolveAiServiceConfigs: AiServiceConfig[] }>(RESOLVE_AI_SERVICE_CONFIGS_QUERY, {
             appRef: params.appId,
@@ -626,12 +832,20 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // "couldn't load the staff" and "this App has no staff yet" are different
     // statements and the empty state must not tell the second lie
     // (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
-    fetchAllItems<Worker>(client, WORKERS_QUERY, 'workers', {
-      appRef: params.appId,
-      includeRetired: true,
-    }).catch((e) => {
-      console.warn(`[app-staff] workers fetch failed for ${params.appId}:`, e);
-      return null;
+    //
+    // portal#2240: the AI Team, Chats (author chips) and Settings tabs read it;
+    // on any other tab the frame's stop banner needs worker names only when a
+    // live stop targets a worker, so it waits for the stop read to say so.
+    (wants('staff') ? Promise.resolve(true) : liveStopsP.then(liveStopsNameAWorker)).then((go) => {
+      if (!go) return null;
+      staffLoaded = true;
+      return fetchAllItems<Worker>(client, WORKERS_QUERY, 'workers', {
+        appRef: params.appId,
+        includeRetired: true,
+      }).catch((e) => {
+        console.warn(`[app-staff] workers fetch failed for ${params.appId}:`, e);
+        return null;
+      });
     }),
     // #732: the App's TEAM CHAT transcript, read through the canonical
     // `teamChatMessages` operation. Deliberately NOT via appNodes — the chat
@@ -646,20 +860,24 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Coerced to null (never an empty page) on failure, for the same reason as
     // the staff fetch above: "couldn't load the team chat" and "the team chat
     // is empty" are different statements (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
-    loadTeamChatTail(client, params.appId).catch((e) => {
+    // #1137: an invalid `?team=` reads nothing at all — never the unfiltered
+    // thread under a filter the reader believes is on.
+    (wants('teamChat') && teamParam.ok ? loadTeamChatTail(client, params.appId, teamFilter) : Promise.resolve(null)).catch((e) => {
+      teamChatRefusal = teamFilter.kind === 'teams' ? teamChatRefusalOf(e) : null;
       console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
       return null;
     }),
     // #733: the App's WORKLOG — the authoritative artifact-to-session join
     // (hrn:node:hadronmemory.com:specs:cor:agt:020:05). Same routing discipline as the team chat above: the
     // canonical operation, never appNodes.
-    client
+    !wants('worklog') ? Promise.resolve(null) : client
       .request<{ teamWorkItems: { items: TeamWorkItem[]; total: number } }>(TEAM_WORK_ITEMS_QUERY, {
         appRef: params.appId,
         ref: worklogRef,
         kind: worklogKind,
         tool: worklogTool,
-        limit: WORKLOG_PAGE_SIZE,
+        limit: APP_DISPLAY_PAGE_SIZE,
+        offset: worklogOffset,
       })
       .then((r) => r.teamWorkItems)
       .catch((e) => {
@@ -671,12 +889,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // two chats. Coerced to null (never []) on failure, for the same reason as
     // the staff and team-chat fetches: "couldn't load the chat list" and "this
     // App has one chat" are different statements.
-    client
-      .request<{ appNodes: MemoryNode[] }>(APP_CHAT_ROOTS_QUERY, {
+    !wants('chatList') ? Promise.resolve(null) : client
+      .request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
         appRef: params.appId,
-        limit: 200,
+        limit: APP_DISPLAY_PAGE_SIZE,
+        offset: chatRootsOffset,
       })
-      .then((r) => r.appNodes)
+      .then((r) => r.appNodesPage)
       .catch((e) => {
         console.warn(`[app-chats] chat-root fetch failed for ${params.appId}:`, e);
         return null;
@@ -687,7 +906,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // org admins/owners and platform admins on an org-owned one). null means
     // UNKNOWN, never "no": the page then keeps the controls and the server,
     // which is the gate either way, answers the write.
-    userId && app.urn
+    userId && app.urn && wants('canManage')
       ? client
           .request<{ effectiveAccess: { canManage: boolean } }>(SELF_CAN_MANAGE_QUERY, { user: userId, resource: app.urn })
           .then((r) => r.effectiveAccess.canManage)
@@ -700,13 +919,45 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // classified (never throws): `AppKey.scopes` is manager-only and non-null,
     // so selecting it on the keys themselves would null the whole list for
     // everyone else.
-    loadAppKeyScopes(client, app.id),
+    wants('keyScopes') ? loadAppKeyScopes(client, app.id) : Promise.resolve(null),
     // portal#1068 — the key inventory, in its OWN classified request: App.keys is
     // manager-only and non-null (hadron-server#2080), so on the App fragment it
     // nulled the whole App (a false 404 here) for every non-manager.
-    loadAppKeys(client, app.id),
+    wants('appKeys') ? loadAppKeys(client, app.id) : Promise.resolve(null),
+    // portal#1153 — App.viewerManages in its own request (a server without the
+    // field answers with an error, which must not take the page): the key
+    // controls hide on a real `false` only.
+    // portal#2240: the frame's (the header's Grants link); Settings and Keys read it from the frame.
+    mode.frame ? loadViewerManages(client, app.id) : Promise.resolve(null),
+    // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
+    // bulk read in its own classified request so its failure cannot take the page.
+    //
+    // portal#2238 (ruling 0273): the roster is on the critical path for the
+    // AI Team tab's first screen ONLY. Every other open starts NO roster
+    // request — in prod teamRoster took 30-60 s or failed, and awaiting it
+    // here for every tab hung the whole page and piled a long read onto the
+    // exhausted DB pool on each open. A reader who switches to AI Team
+    // afterwards gets the roster from the page's own bounded first-show fetch
+    // (roster/+server.ts). Bounded here too: even a ?tab=staff open must not
+    // wait on teamRoster longer than the members fetch's 8 s optional-list
+    // bound; a hang maps to the same { kind: 'failed' } the grid already
+    // degrades to. Not a streamed promise: streaming would still START the
+    // call on every open, which is the defect.
+    wants('roster')
+      ? withTimeout(
+          loadAppTeamRoster(client, app.id),
+          OPTIONAL_LIST_TIMEOUT_MS,
+          { kind: 'failed' } satisfies TeamRosterRead,
+        )
+      : Promise.resolve(null),
+    // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
+    wants('bootPointers') ? readAppPointers(client, app.id) : Promise.resolve(undefined),
+    wants('installMarks') ? readAppInstallMarks(client, app.id) : Promise.resolve(null),
+    // portal#1139: the stops in effect, for the banner, in its OWN classified request
+    // (never throws): a stop read that fails must not take the App page with it.
+    liveStopsP,
   ]);
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
+  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
       {
         name: appData.app.name,
@@ -714,7 +965,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         appType: appData.app.appType,
         role: appData.app.role,
         description: appData.app.description ?? '',
-        systemPrompt: appData.app.systemPrompt ?? '',
+
         createUserPermission: appData.app.createUserPermission,
         identifyUserMethod: appData.app.identifyUserMethod,
         sessionTimeoutSeconds: String(appData.app.sessionTimeoutSeconds),
@@ -748,6 +999,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       revokeAppKeyFormAdapter,
       { errors: false },
     ),
+    // portal#1487 — the grant dialog opens per key from the row menu, so every
+    // field but the scope default is replaced at open time; seeded like the
+    // revoke form so the page never renders a validation error for it.
+    superValidate<GrantAppKeyScopeForm>(
+      { keyId: '', scope: 'attention:deliver', hostId: '' },
+      grantAppKeyScopeFormAdapter,
+      { errors: false },
+    ),
     superValidate<DeleteAppForm>(
       {},
       deleteAppFormAdapter,
@@ -772,23 +1031,23 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { errors: false },
     ),
     // #1005: userId is empty until the operator picks someone via the search
-    // modal; the role starts at the linked Agent's first member role.
+    // modal; the role starts at the first role the App offers (App.availableMemberRoles).
     superValidate(
-      { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
+      { userId: '', role: appData.app.availableMemberRoles?.[0] ?? '' },
       addAppMemberFormAdapter,
-      { errors: false },
+      { errors: false, id: 'addAppMember' },
     ),
     superValidate(
-      { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
+      { userId: '', role: appData.app.availableMemberRoles?.[0] ?? '' },
       ensureAppMemberFormAdapter,
-      { errors: false },
+      { errors: false, id: 'ensureAppMember' },
     ),
     superValidate({ userId: '' }, removeAppMemberFormAdapter, { errors: false }),
   ]);
   const postTeamChatMessageForm = await superValidate<PostTeamChatMessageForm>(
     {},
     postTeamChatMessageFormAdapter,
-    { errors: false },
+    { errors: false, id: `team:${params.appId}` },
   );
 
   // #744 — the App's chats as one browsable set.
@@ -796,40 +1055,109 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // The agent chat is offered only when the App actually has one, matching the
   // condition the retired `chat` tab used, so an App with no linked agent does
   // not gain an entry that cannot render.
-  const appChats = buildAppChatList(chatRoots ?? [], { hasAgentChat: !!app.agentId });
-  const { selected: selectedChat, requestedMissing: chatNotFound } = resolveSelectedChat(
-    appChats,
-    requestedChat,
+  // portal#2240: the chat list and the selected conversation are the Chats tab's.
+  const chatList = wants('chatList');
+  const registeredChannels = !chatList ? null : await fetchAllItems<import('$lib/types').Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId })
+    .catch(() => null);
+  let appChats = withRegisteredChannels(
+    buildAppChatList(chatRoots?.items ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
+    (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
   );
+  let chatSelection = resolveSelectedChat(appChats, requestedChat);
+  let requestedChatLookupFailed = false;
+  // A deep link addresses one root, not whichever 20-root window happens to be
+  // loaded. One targeted page handles arbitrary root locs without letting a
+  // pasted prefix trigger an unbounded sequential drain.
+  if (chatList && chatSelection.requestedMissing && requestedChat && requestedChat !== 'agent chat' && requestedChat !== 'chats:team' && registeredChannels !== null) {
+    const page = await client.request<{ appNodesPage: { items: MemoryNode[]; total: number; hasMore: boolean } }>(APP_CHAT_ROOTS_PAGE_QUERY, {
+      appRef: params.appId, limit: REQUESTED_CHAT_LOOKUP_LIMIT, offset: 0, locPrefix: requestedChat,
+    }).then((r) => r.appNodesPage).catch((e) => {
+      console.warn(`[app-chats] requested chat-root fetch failed for ${requestedChat}:`, e);
+      requestedChatLookupFailed = true;
+      return null;
+    });
+    const requestedRoot = page?.items.find((n) => n.loc === requestedChat) ?? null;
+    if (page?.hasMore && !requestedRoot) requestedChatLookupFailed = true;
+    if (requestedRoot) {
+      appChats = withRegisteredChannels(
+        buildAppChatList([...(chatRoots?.items ?? []), requestedRoot], { hasAgentChat: !!app.agentId }),
+        registeredChannels,
+        (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
+      );
+      chatSelection = resolveSelectedChat(appChats, requestedChat);
+    }
+  }
+  const { selected: selectedChat, requestedMissing: chatNotFound } = chatSelection;
 
-  // Only an `other` chat needs loading here: the team chat came through its own
-  // typed operation above (which returns the author envelope a node read
-  // cannot), and the agent chat is fetched by its own component.
-  //
-  // Read-only by necessity, not by choice: the write surfaces are
-  // `createTeamChatMessage` (team chat) and `sendChatMessage` (agent chat).
-  // There is no operation to post into an arbitrary App chat, so the tab says
-  // so rather than rendering a composer that cannot work.
+  // Registered Channels use the addressed operation and the same envelope as
+  // the default team chat. Unregistered old roots retain their node transcript;
+  // this read never creates a Channel or routes a post to the default thread.
+  const selectedChannelMessages = chatList && selectedChat?.channelId
+    ? await readChannelPage(client, params.appId, selectedChat.channelId, {}).catch(() => null) : null;
+  const postChannelMessageForm = selectedChat?.channelId
+    ? await superValidate({ channelRef: selectedChat.channelId }, postTeamChatMessageFormAdapter,
+      { errors: false, id: `channel:${selectedChat.channelId}` }) : null;
   const selectedChatMessages =
-    selectedChat?.kind === 'other' && selectedChat.memoryId
-      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key)
+    chatList && selectedChat?.kind === 'other' && selectedChat.memoryId
+      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key, {
+          messageNodeTypes: chatMessageNodeTypes(selectedChat),
+        })
           .catch((e) => {
             console.warn(`[app-chats] messages fetch failed for ${selectedChat.key}:`, e);
             return null;
           })
       : null;
 
-  return {
+  const [appMemoryScope, orgAppMemories, createMemoryForm] = await Promise.all([
+    wants('memoryScope') ? readAppMemoryScope(client, app.id) : null,
+    app.organizationId && wants('appMemories') ? readAppMemories(client, app.organizationId, app.id) : null,
+    superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
+  ]);
+
+  const [runsSection, runsExtras, flowGraph, flowsData] = wants('runs')
+    ? await Promise.all([
+        loadAppRunsPage(client, params.appId, url.searchParams),
+        loadAppRunsExtras(client, params.appId),
+        flowGraphPromise,
+        flowsPagePromise,
+      ])
+    : [null, null, null, null];
+  // #1936: the node-role templates tab's data, for that tab only.
+  const templatesPanel = await loadTemplatesPanel(wants('templates') ? TEMPLATES_TAB_ID : null, locals, setHeaders, params.appId);
+  // The frame's stop banner named a worker: its names travel with the frame.
+  if (staffLoaded) reads.add('staff');
+  const full = {
+    templatesPanel,
+    runsPanel: runsSection && runsExtras && flowsData ? {
+      ...runsSection,
+      app,
+      flows: flowPageSummaries(flowsData.items, flowGraph ?? []),
+      flowsPage: appListNavigation(url, 'flowsOffset', 'runs', flowsOffset, flowsData.items.length, flowsData.total, { hasMore: flowsData.hasMore }),
+      flowsError: 'failed' in flowsData,
+      ...runsExtras,
+    } : null,
+    appMemoryScope,
+    appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
+    createMemoryForm,
+    canCreateMemory: canCreateAppMemory(org, locals.user?.id ?? null, { userOwned: !app.organizationId, canManageApp: canManageApp as boolean | null }),
     app,
     org,
     availableAgents,
     availableAgentsError,
-    appNodes: nodesData.appNodes,
+    subscribedAgentsError,
+    appNodes: nodesData.items,
+    appNodesPage: appListNavigation(url, 'appNodesOffset', 'memory', appNodesOffset, nodesData.items.length, nodesData.total, { hasMore: nodesData.hasMore }),
     chatConfigs,
-    appConfigs: configsData ?? [],
+    aiChoices: await aiChoiceRowsP.then((rows) => (rows ? chatAiChoiceOptions(rows, chatConfigs) : null)),
+    chatbotAiConfig: await chatbotAiConfigP,
+    appConfigs: configsData?.items ?? [],
+    configsPage: appListNavigation(url, 'configOffset', 'ai-configs', configOffset, configsData?.items.length ?? 0, configsData?.total ?? 0),
     configsError: configsData === null,
     // #974: the App's staff. null = the fetch failed (distinct from []).
     staff,
+    teamRoster,
+    // portal#1492: one clock for the terminal ages, so server render and hydration agree.
+    terminalNow: new Date().toISOString(),
     staffError: staff === null,
     // #732: the team chat transcript. null = the fetch failed (distinct from
     // an empty chat), and `teamChatTotal` is the SERVER's count, so a
@@ -837,17 +1165,35 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     teamChatMessages: teamChat?.items ?? [],
     teamChatTotal: teamChat?.total ?? 0,
     teamChatError: teamChat === null,
+    // #1137: what the transcript was read UNDER, so the thread and its poll
+    // carry the same filter, plus why a filtered read produced nothing.
+    teamFilter,
+    teamFilterInvalid: !teamParam.ok,
+    teamChatRefusal,
     // #733: the worklog page, plus the filters that produced it so the tab can
     // render its own controls from the URL rather than keeping a second copy of
     // that state in the component.
     worklog: worklog?.items ?? [],
     worklogTotal: worklog?.total ?? 0,
+    worklogPage: appListNavigation(url, 'worklogOffset', 'worklog', worklogOffset, worklog?.items.length ?? 0, worklog?.total ?? 0),
     worklogError: worklog === null,
     // #744: the App's chats, the one selected, and its transcript when that
     // chat is neither the team chat nor the agent chat. `chatsError` is the
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
-    chatsError: chatRoots === null,
+    chatsError: chatRoots === null || registeredChannels === null,
+    // #2170 F6: the list loaded but a deep-linked chat could not be resolved
+    // for certain (the targeted lookup failed or was inconclusive). A distinct
+    // statement from the list failing, so the page words it differently.
+    chatDeepLinkUnresolved: requestedChatLookupFailed,
+    chatRootsError: chatRoots === null,
+    channelsError: registeredChannels === null,
+    chatRootsPage: appListNavigation(url, 'chatRootsOffset', 'chats', chatRootsOffset, chatRoots?.items.length ?? 0, chatRoots?.total ?? 0, { hasMore: chatRoots?.hasMore }),
+    selectedChannelId: selectedChat?.channelId ?? null,
+    selectedChannelMessages: selectedChannelMessages?.items ?? [],
+    selectedChannelTotal: selectedChannelMessages?.total ?? 0,
+    selectedChannelError: !!selectedChat?.channelId && selectedChannelMessages === null,
+    postChannelMessageForm,
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages?.messages ?? [],
     // #793 (@copilot on PR #797): gate on the KIND. `selectedChatMessages` is
@@ -876,14 +1222,21 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     },
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
+    bootPointers,
+    installMarks,
+    liveStops,
+    // The App half of a pointer result's key (the action's own params.appId).
+    bootPointerAppKey: params.appId,
     keyScopes,
     appKeys,
+    viewerManages,
     appSettingsForm,
     addAgentForm,
     createKeyForm,
     removeAgentForm,
     updateAgentToolsForm,
     revokeKeyForm,
+    grantKeyScopeForm,
     deleteAppForm,
     castWorkerForm,
     retireWorkerForm,
@@ -897,13 +1250,74 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     ensureMemberForm,
     removeMemberForm,
   };
-};
+  // portal#2240: only the frame (page load) and this load's own read groups.
+  // A key another tab owns is left out, never sent as "not loaded": the page
+  // merges each tab's payload over what it holds.
+  return pickPayload(full, reads, mode) as typeof full;
+}
 
 export const actions: Actions = {
+  run: runAppFlow,
+  createMemory,
+  createCustomisation: async ({ request, params, locals }) =>
+    writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
+  saveCustomisation: async ({ request, params, locals }) =>
+    writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), false),
   // #1005: the Human Team tab's actions (see member-actions.ts).
   addMember,
   ensureMember,
   removeMember,
+
+  // portal#1142 S8 (hadron-server#2219): set or clear one install's pointer.
+  // The App's manager, as themselves; the server decides. Keyed by agent id so
+  // the result shows on that row only.
+  setAppAgentBootPrompt: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const agentRef = String(fd.get('agentRef') ?? '');
+    return pointerAction(fd, 'app', appAgentPointerKey(params.appId, agentRef), (nodeRef) =>
+      gqlClient(locals.token).request(SET_APP_AGENT_BOOT_PROMPT_MUTATION, { appRef: params.appId, agentRef, nodeRef }));
+  },
+
+  // portal#1963 (hadron-server#3957): set or clear the App's chatbot AI config. The server's gate decides who
+  // may (whoever manages the App); a refusal is one fixed message per kind, never the server's text.
+  setChatbotAiConfig: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const raw = fd.get('configId');
+    const configId = typeof raw === 'string' && raw !== '' ? raw : null;
+    try {
+      await gqlClient(locals.token).request(SET_APP_CHATBOT_AI_CONFIG_MUTATION, { appRef: params.appId, configId });
+      return { chatbotAiConfig: { ok: true as const, configId } };
+    } catch (e: unknown) {
+      const code = chatbotErrorCode(e);
+      if (code === 'AiServiceConfigNotFoundError') {
+        return fail(409, { chatbotAiConfig: { ok: false as const, error: t('app.chatbot-ai-config.not-own', "That config isn't one of this App's AI configs any more. Reload and pick another.") } });
+      }
+      if (code === 'FORBIDDEN' || code === 'APP_NOT_FOUND') {
+        return fail(403, { chatbotAiConfig: { ok: false as const, error: t('app.chatbot-ai-config.forbidden', 'Only whoever manages this App can change its chatbot AI config.') } });
+      }
+      console.warn('[setChatbotAiConfig] failed:', code ?? 'error');
+      return fail(500, { chatbotAiConfig: { ok: false as const, error: t('app.chatbot-ai-config.failed', "The chatbot AI config couldn't be saved. Try again.") } });
+    }
+  },
+
+  // portal#2194 (hadron-server#4242): set the App's sweep mode. A person acts as
+  // themselves (no instruction). The server decides who may; its refusal is
+  // shown as it comes back.
+  setSweepMode: async ({ request, params, locals }) => {
+    const mode = (await request.formData()).get('mode');
+    if (mode !== 'OFF' && mode !== 'OBSERVE' && mode !== 'APPLY') {
+      return fail(400, { sweepModeError: t('app.sweep-mode.error.invalid', 'Choose a sweep mode.') });
+    }
+    try {
+      await gqlClient(locals.token).request(SET_APP_SWEEP_MODE_MUTATION, { appRef: params.appId, mode });
+      return { sweepModeSaved: mode };
+    } catch (e: unknown) {
+      if (!isDefiniteRefusal(e)) return fail(502, { sweepModeError: t('app.sweep-mode.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
+      const code = extractGqlErrorCode(e);
+      const text = extractGqlError(e, t('app.sweep-mode.error.failed', 'Not saved. Try again.'), ['APP_NOT_FOUND', 'BAD_USER_INPUT']);
+      return fail(code === 'FORBIDDEN' ? 403 : code === 'APP_NOT_FOUND' ? 404 : code === 'BAD_USER_INPUT' ? 400 : 500, { sweepModeError: text });
+    }
+  },
 
   update: async ({ request, params, locals }) => {
     const form = await superValidate<AppSettingsForm>(
@@ -920,7 +1334,7 @@ export const actions: Actions = {
         appType: form.data.appType,
         role: form.data.role,
         description: form.data.description || null,
-        systemPrompt: form.data.systemPrompt || null,
+
         createUserPermission: form.data.createUserPermission,
         identifyUserMethod: form.data.identifyUserMethod,
         sessionTimeoutSeconds: Number(form.data.sessionTimeoutSeconds),
@@ -928,9 +1342,10 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('app.settings.saved', 'Saved.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('update', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to update app') },
+        { type: 'error', text: extractGqlError(e, 'Failed to update app', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -961,9 +1376,10 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(INSTALL_AGENT_INTO_APP_MUTATION, variables);
       return message(form, { type: 'success', text: t('app.agent.linked', 'Agent linked.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('install_link', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to add agent') },
+        { type: 'error', text: lookupOwn(ADD_AGENT_ERRORS, extractGqlErrorCode(e))?.() ?? extractGqlError(e, 'Failed to add agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -983,9 +1399,10 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('app.agent.unlinked', 'Agent unlinked.') });
     } catch (e: unknown) {
+      logAppActionTransportFailure('unlink', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to remove agent') },
+        { type: 'error', text: extractGqlError(e, 'Failed to remove agent', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }
@@ -1020,9 +1437,7 @@ export const actions: Actions = {
   // register, so there is no "let the server choose" path left and the schema
   // rejects a blank one before we get here.
   //
-  // `role` is still optional and still must be sent as UNDEFINED when blank:
-  // an omitted role inherits the agent's personaRole, while '' would be an
-  // explicit (and invalid) role — a different request entirely.
+  // R222: role comes from the selected Agent, never from a posted override.
   castWorker: async ({ request, params, locals }) => {
     const form = await superValidate<CastWorkerForm>(
       await request.formData(),
@@ -1039,28 +1454,30 @@ export const actions: Actions = {
         // has nothing to express — and leaving it would quietly turn a
         // validation gap into a nameless cast the server refuses.
         name: form.data.name,
-        role: form.data.role || undefined,
-        promptOverride: form.data.promptOverride || undefined,
+        // hadron-portal#1149 — exactly ONE arm, the other ABSENT (not null, not
+        // false): the server reads presence, and both keys is a CONFLICT even
+        // when one is null. No team never forwards a head left in the form.
+        ...(castReportingArm(form.data) as { reportsTo: string; noTeam: boolean }),
       });
       return message(form, {
         type: 'success',
         text: t('app.staff.cast.success', 'Worker cast.'),
       });
     } catch (e: unknown) {
-      // Known refusals get copy that says what to do next; anything else —
-      // including a transport failure with no GraphQL payload — falls through
-      // to the server's own message rather than being relabelled as a user
-      // mistake (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+      logAppActionTransportFailure('cast', e);
+      // Known refusals keep actionable copy. Other GraphQL faults retain the
+      // shared envelope; transport failures use this action's fallback, not
+      // raw exception text (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
       // #835 — `lookupOwn`: the key is the server's `extensions.code`, so an
       // inherited one returns a callable that `known()` below would invoke,
       // putting `{}` into a user-facing error slot instead of the server's own
       // message. Same shape as the asset copy table fixed in #833.
-      const known = lookupOwn(CAST_WORKER_ERRORS, gqlErrorCode(e));
+      const known = lookupOwn(CAST_WORKER_ERRORS, extractGqlErrorCode(e));
       return message(
         form,
         {
           type: 'error',
-          text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.')),
+          text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1082,6 +1499,7 @@ export const actions: Actions = {
     const form = await superValidate<PostTeamChatMessageForm>(
       await request.formData(),
       postTeamChatMessageFormAdapter,
+      { id: `team:${params.appId}` },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -1106,18 +1524,111 @@ export const actions: Actions = {
         text: t('app.team-chat.post.success', 'Posted to the team chat.'),
       });
     } catch (e: unknown) {
+      logAppActionTransportFailure('team_chat_post', e);
       // #835 — as above: wire-supplied key, so guard the lookup.
-      const known = lookupOwn(TEAM_CHAT_POST_ERRORS, gqlErrorCode(e));
+      const known = lookupOwn(TEAM_CHAT_POST_ERRORS, extractGqlErrorCode(e));
       return message(
         form,
         {
           type: 'error',
           text: known
             ? known()
-            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.')),
+            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
+    }
+  },
+
+  postChannelMessage: async ({ request, params, locals }) => {
+    const input = await request.formData();
+    const channelRef = String(input.get('channelRef') ?? '');
+    const form = await superValidate(input, postTeamChatMessageFormAdapter, { id: `channel:${channelRef}` });
+    if (!form.valid) return fail(400, { form });
+    if (!form.data.channelRef) return message(form, { type: 'error', text: t('app.channel.choose', 'Choose a chat before posting.') }, { status: 400 });
+    const reply = Number(form.data.replyToSeq);
+    try {
+      await postToChannel(gqlClient(locals.token), params.appId, form.data.channelRef, form.data.body,
+        Number.isSafeInteger(reply) && reply > 0 ? reply : undefined);
+      return message(form, { type: 'success', text: t('app.channel.post.success', 'Posted to the chat.') });
+    } catch {
+      return message(form, { type: 'error', text: t('app.channel.post.failed', 'Could not post to this chat. Your message has been kept; check your access and try again.') }, { status: 500 });
+    }
+  },
+
+  // portal#1168 — Pause / Unpause a worker. PAUSE INTENT ONLY: an explicit
+  // user-selected end time, or clearPause. The portal invents no duration, never
+  // resends `mentions` or any other wake setting, and lets the server's gate
+  // (the worker, its holder or an App manager) decide. A refusal is a fixed
+  // message, never the provider payload, and never success; the page re-reads
+  // the authoritative roster after a success instead of flipping a badge.
+  setWorkerPause: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const workerId = String(fd.get('workerId') ?? '').trim();
+    const mode = String(fd.get('mode') ?? '');
+    const until = String(fd.get('until') ?? '').trim();
+    const bad = (text: string) => fail(400, { pauseResult: { ok: false as const, workerId, message: text } });
+    if (!workerId) return bad(t('app.staff.pause.error.worker', 'Choose a worker.'));
+    let input: { pausedUntil: string } | { clearPause: true };
+    if (mode === 'clear') {
+      input = { clearPause: true };
+    } else if (mode === 'pause') {
+      const ms = Date.parse(until);
+      if (!until || Number.isNaN(ms)) return bad(t('app.staff.pause.error.until', 'Choose when the pause ends.'));
+      if (ms <= Date.now()) return bad(t('app.staff.pause.error.past', 'The pause must end in the future.'));
+      input = { pausedUntil: new Date(ms).toISOString() };
+    } else {
+      return bad(t('app.staff.pause.error.mode', 'Choose Pause or Unpause.'));
+    }
+    try {
+      await gqlClient(locals.token).request(SET_WORKER_WAKE_SETTINGS_MUTATION, { workerRef: workerId, input });
+      return { pauseResult: { ok: true as const, workerId, message: mode === 'clear'
+        ? t('app.staff.unpause.success', 'Pause cleared.')
+        : t('app.staff.pause.success', 'Worker paused.') } };
+    } catch (e: unknown) {
+      // The server's real refusal for this write is WAKE_SETTINGS_FORBIDDEN
+      // (Riana, Charles on #1237); FORBIDDEN is the generic gate code.
+      const code = extractGqlErrorCode(e);
+      const forbidden = code === 'FORBIDDEN' || code === 'WAKE_SETTINGS_FORBIDDEN';
+      return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
+        ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
+        : t('app.staff.pause.error.failed', 'Could not confirm the change. Check the worker’s status and try again.') } });
+
+    }
+  },
+
+  // #1023: no local eligibility or App-based authority shortcut. The mutation
+  // resolves the supplied worker and checks its own staffing/reference gates.
+  // portal#2205: the consent guards and refusal mapping are shared with the
+  // worker page's delete action in $lib/workers/delete-worker.ts; this action
+  // keeps only what is genuinely the roster's (the posted ref, the staying
+  // success answer, the server's own refusal sentences).
+  deleteWorker: async ({ request, locals }) => {
+    const posted = await request.formData();
+    const guards = readDeleteWorkerPost(posted);
+    const workerRef = guards.ok ? guards.workerRef : guards.refusal.result.workerRef;
+    const refuse = (refusal: DeleteWorkerRefusal) =>
+      fail(refusal.status, { deleteWorkerResult: refusal.result satisfies DeleteWorkerResult });
+    if (!guards.ok) return refuse(guards.refusal);
+    try {
+      const result = await gqlClient(locals.token).request<{ deleteWorker: boolean }>(DELETE_WORKER_MUTATION, {
+        workerRef, confirmNoExternalAttribution: true,
+      });
+      if (result.deleteWorker !== true) return refuse({ status: 500, result: { ok: false, workerRef,
+        message: t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'), code: null } });
+      return { deleteWorkerResult: { ok: true, workerRef,
+        message: t('app.staff.delete.done', 'Worker deleted.') } satisfies DeleteWorkerResult };
+    } catch (e: unknown) {
+      // portal#2227 — the closed transport record for a lost delete (ruling
+      // 0247), same as the worker page's action: exactly three fields, never
+      // any part of the exception. The helper filters to transport failures.
+      logAppActionTransportFailure('delete', e);
+      // No sentence overrides here: the roster shows the server's own refusal
+      // text (redaction, the status table and the unknown-outcome answer live
+      // in the shared mapper).
+      return refuse(deleteWorkerFailureRefusal(e, workerRef, {
+        failed: t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.'),
+      }));
     }
   },
 
@@ -1139,15 +1650,16 @@ export const actions: Actions = {
         text: t('app.staff.retire.success', 'Worker retired. Its name stays reserved.'),
       });
     } catch (e: unknown) {
+      logAppActionTransportFailure('retire', e);
       // Same staffing gate as castWorker, so the same legible refusal.
-      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      const forbidden = extractGqlErrorCode(e) === 'FORBIDDEN';
       return message(
         form,
         {
           type: 'error',
           text: forbidden
             ? STAFFING_FORBIDDEN()
-            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.')),
+            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1177,6 +1689,7 @@ export const actions: Actions = {
       });
       return message(form, releaseOutcomeMessage(result.releaseWorker));
     } catch (e: unknown) {
+      logAppActionTransportFailure('release', e);
       // #825 — the guarded write refused because the hold is not what the
       // roster showed. Handled BEFORE the generic branches: it is not a server
       // fault and not a permission problem, and reporting it as either would
@@ -1186,14 +1699,14 @@ export const actions: Actions = {
 
       // Same staffing gate as castWorker/retireWorker, so the same legible
       // refusal rather than a raw GraphQL error.
-      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      const forbidden = extractGqlErrorCode(e) === 'FORBIDDEN';
       return message(
         form,
         {
           type: 'error',
           text: forbidden
             ? RELEASE_FORBIDDEN()
-            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.')),
+            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.'), [], { transport: 'fallback' }),
         },
         { status: 500 },
       );
@@ -1240,6 +1753,35 @@ export const actions: Actions = {
     }
   },
 
+  // portal#1487 — give a live key one scope of the closed list. The action
+  // NEVER gates on a viewer fact: the server is the gate
+  // (hrn:node:hadronmemory.com:specs:cor:aut:010:03), and a crafted POST from
+  // someone it refuses meets the server's own refusal through appKeyRefusal.
+  // hostId travels only for host:operate — the server refuses a host argument
+  // on any other scope (BAD_USER_INPUT), so attention:deliver sends none.
+  grantKeyScope: async ({ request, locals }) => {
+    const form = await superValidate<GrantAppKeyScopeForm>(
+      await request.formData(),
+      grantAppKeyScopeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(GRANT_APP_KEY_SCOPE_MUTATION, {
+        id: form.data.keyId,
+        scope: form.data.scope,
+        ...(form.data.scope === 'host:operate' ? { hostId: form.data.hostId } : {}),
+      });
+      // A success invalidates the page, so the Scopes column re-reads and the
+      // granted scope appears on the key (acceptance 1); a repeated grant is
+      // the server's own no-op success (acceptance 4).
+      return message(form, { type: 'success', text: t('app.key.scope.granted', 'Scope granted.') });
+    } catch (e: unknown) {
+      const { status, text } = appKeyRefusal(e, 'Failed to grant the scope');
+      return message(form, { type: 'error', text }, { status });
+    }
+  },
+
   deleteApp: async ({ request, params, locals }) => {
     const form = await superValidate<DeleteAppForm>(
       await request.formData(),
@@ -1266,9 +1808,10 @@ export const actions: Actions = {
     try {
       await client.request(DELETE_APP_MUTATION, { ref: params.appId });
     } catch (e: unknown) {
+      logAppActionTransportFailure('delete', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to delete app') },
+        { type: 'error', text: extractGqlError(e, 'Failed to delete app', [], { transport: 'fallback' }) },
         { status: 500 },
       );
     }

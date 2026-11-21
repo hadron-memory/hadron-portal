@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import type { Infer, SuperValidated } from 'sveltekit-superforms';
   import { superForm } from 'sveltekit-superforms';
@@ -131,14 +132,15 @@
           {promptError ?? promptIdentityError}
         </div>
       {/if}
-      {#if promptSaved}
-        <div
-          role="status"
-          class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
-        >
-          {promptSaved}
-        </div>
-      {/if}
+      <LiveRegion>
+        {#if promptSaved}
+          <div
+            class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+          >
+            {promptSaved}
+          </div>
+        {/if}
+      </LiveRegion>
       <textarea
         id="stagePrompt"
         name="content"
@@ -192,14 +194,15 @@
         {extractionError}
       </div>
     {/if}
-    {#if extractionSaved}
-      <div
-        role="status"
-        class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
-      >
-        {extractionSaved}
-      </div>
-    {/if}
+    <LiveRegion>
+      {#if extractionSaved}
+        <div
+          class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+        >
+          {extractionSaved}
+        </div>
+      {/if}
+    </LiveRegion>
     <textarea
       id="stageSpec"
       name="extractionSpec"

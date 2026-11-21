@@ -33,9 +33,17 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # #1285: Playwright 1.58.2 cannot install Chromium on Ubuntu 26.04.
+    runs-on: ubuntu-24.04
+    # portal#2283: a stalled apt fetch once held this job for 2 h 08 min. A whole green run takes
+    # 42-65 min including queueing, so 75 turns a hang red without cutting a slow day short.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
@@ -68,10 +76,40 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # portal#2283: make apt give up and retry instead of waiting forever on a stalled mirror.
+      - name: Bound apt network waits
+        run: echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts
+
       # #854: jsdom cannot measure flexbox or document overflow. This fixture
       # uses the compiled app CSS and actual Urn component, without an API/DB.
+      # #854 browser install. The step normally takes 1.9-8.5 min; 15 turns a hang red in a quarter of an hour.
       - name: Install Chromium
+        timeout-minutes: 15
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Check team chat chip target sizes
+        run: pnpm test:team-chat-chips-layout
+
+      # portal#2088: App agent chat panes at 320-1440px, Back control and focus.
+      - name: Check App agent chat phone layout
+        run: pnpm test:agent-chat-phone-layout
+
+      # portal#2201: short phone transcripts retain readable vertical space.
+      - name: Check App agent chat transcript height
+        run: pnpm test:agent-chat-transcript-height
+
+      # portal#2098: the chat list's Rename/Delete by keyboard, mouse and touch.
+      - name: Check App agent chat row actions
+        run: pnpm test:agent-chat-row-actions
+
+      # These native negative controls skip without Chromium in the early
+      # unit-test step; run them explicitly after the browser install too.
+      # REQUIRE_CHROMIUM_CONTROLS turns a missing browser into a failure here, so
+      # this step can never pass having skipped every control (portal#2185).
+      - name: Check Agent chat row oracle failure controls
+        env:
+          REQUIRE_CHROMIUM_CONTROLS: '1'
+        run: pnpm exec vitest run scripts/test-agent-chat-row-actions-controls.test.ts
 
       - name: Check node phone layout
         run: pnpm test:node-phone-layout
@@ -79,12 +117,124 @@ jobs:
       - name: Check memory Usage toolbar phone layout
         run: pnpm test:usage-toolbar-layout
 
+      # portal#1826: the Org Integrations Add/select/Configure row at 390px.
+      - name: Check Org Integrations add-row phone layout
+        run: pnpm test:org-integrations-row-layout
+
+      # portal#2092: all authoring actions and the lock stay reachable on phones.
+      - name: Check Conversation Editor toolbar layout
+        run: pnpm test:conversation-toolbar-layout
+
+      # portal#2082: the conversation panel's Save, Clear and Save goals controls.
+      - name: Check conversation panel button layout
+        run: pnpm test:conversation-panel-buttons-layout
+
       # portal#1099: the Tickers views at 390px and 1280px.
       - name: Check Tickers phone layout
         run: pnpm test:tickers-layout
 
+      # portal#1315 (#1058/#1307): the NodeList search filter in real Chromium.
+      - name: Check NodeList search
+        run: pnpm test:node-list-search
+
+      # portal#1675/#1745: the ApplyAgentTickers result region paints a focus ring after a
+      # real keyboard apply (Enter on the submit button, the real enhance round trip to a
+      # faked /__apply POST — keyboard modality survives the async round trip; a pointer-driven
+      # apply stays ring-free).
+      - name: Check ApplyAgentTickers focus ring
+        run: pnpm test:apply-agent-tickers-focus
+
+      # portal#1796: keyboard focus stays on the Cast button while casting and lands on the
+      # "Cast a worker" opener after a clean cast (a disabled submit button dropped it to <body>).
+      - name: Check Cast submit focus
+        run: pnpm test:cast-submit-focus
+
+      # portal#1756: real App/worker prompt components at 390px and 1280px;
+      # synthetic transport only, including a concealed ID that must never render.
+      - name: Check boot prompt layout and concealed provenance
+        run: pnpm test:boot-install-layout
+
+      # portal#1686: every compact Urn call-site configuration in real Chromium.
+      - name: Check compact URN keyboard and touch layout
+        run: pnpm test:urn-compact-layout
+
+      # portal#2367: DataTable fill sizing and document scroll ownership in real Chromium,
+      # inside the app shell's own classes, light and dark, phone and desktop.
+      - name: Check DataTable fill layout
+        run: pnpm test:data-table-fill-layout
+
+      # portal#1711: the TaskHistory link values — touch targets, wrapping and
+      # overflow at 390px and 1280px, in real Chromium with compiled CSS.
+      - name: Check TaskHistory link layout
+        run: pnpm test:task-history-links-layout
+
+      # portal#1643/#2121: the Findings section and its disposition form, mounted in
+      # real Chromium with compiled CSS at 390px and 1280px, light and dark.
+      - name: Check Findings dispositions layout
+        run: pnpm test:task-findings-dispositions-layout
+
+      # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
+      - name: Check Nodes tab lazy reads
+        run: pnpm test:nodes-tab-lazy
+
+      - name: Check shared tab-row overflow and keyboard layout
+        run: pnpm test:tab-row-layout
+
+      - name: Check opt-in table cell paint and interactive minima
+        run: pnpm test:table-cell-overflow-layout
+
+      - name: Check compact terminal containment
+        run: pnpm test:terminal-status-layout
+        env:
+          TERMINAL_SHOTS: test-results/terminal-status
+
+      - name: Upload terminal containment screenshots and geometry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-status-layout
+          path: test-results/terminal-status
+          if-no-files-found: ignore
+
+      - name: Check App Runs table layout
+        run: pnpm test:app-runs-layout
+
+      - name: Check App Keys tab layout (Generate Key centering, table width)
+        run: pnpm test:app-keys-layout
+
+      - name: Check disabled AI config row menu pointer access
+        run: pnpm test:ai-config-row-menu
+
+      - name: Check AI config sign-in recovery navigation
+        run: pnpm test:ai-config-signin-recovery
+
+      - name: Check invitation clipboard feedback
+        run: pnpm test:invite-copy
+
+      - name: Check App picker phone layout
+        run: node scripts/test-select-app-layout.mjs
+
+      # portal#1590: SelectMemory stacked over SelectNode stays clear of the node dialog's header.
+      - name: Check stacked memory picker layout
+        run: pnpm test:stacked-memory-layout
+
+      # #1932: full-graph Check exceeded the hosted ~2 GiB default. The
+      # measured 4 GiB bound is Check-only; its preload reports sampled heap
+      # and process peak RSS in the job summary; either warns above 75%
+      # of the heap budget (RSS is conservative and includes native memory).
+      # No files/diagnostics are excluded; failure still fails this step.
       - name: Check
         run: pnpm check
+
+      # portal#1985/#2035: configured keys become required in generated
+      # ambient types. Pin every key shipped in the documented setup, plus
+      # the no-.env control above. Check is static; nothing is contacted.
+      # Remove the synthetic env before the environment-free Build.
+      - name: Check with documented .env
+        run: |
+          cp .env.example .env
+          pnpm check
+          rm .env
 
       # adapter-node, and every `$env` import is `$env/dynamic/*` (resolved at
       # runtime), so the build needs no environment variables. Verified with

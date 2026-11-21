@@ -1,10 +1,11 @@
 import { error, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
-import { RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
 import { loadTicker } from '$lib/server/tickers';
 import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
+import { encodeUrnPathSegment } from '$lib/urn/encode-urn-segment';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -31,7 +32,7 @@ import type { PageServerLoad } from './$types';
  * re-apply the original to a redirect target that carries none.
  */
 type UrnResolution = {
-  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker';
+  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action';
   id: string;
   memoryId: string | null;
   organizationId: string | null;
@@ -50,22 +51,30 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
   // opposite of what a signature is for, and it made the platform look like it
   // was pointing at something that did not exist.
   'worker',
+  // #1360 / hadron-server#2610: `hrn:action:<root>:<agent-slug>:<code>` resolves
+  // to the register entry's node. Without a page for it a copied action link
+  // landed on this route's "No canonical portal page" 404.
+  'action',
 ]);
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+/**
+ * #1846 slice B — membership still wins through resolveUrn. Only when that
+ * member-only resolution is absent/denied may an org-shaped URN use the
+ * server's closed public projection. Other kinds never get this fallback.
+ * Select just the id: this route redirects and must not invoke profile lists.
+ */
+async function publicOrganizationPath(urn: string, token: string | null | undefined): Promise<string | null> {
+  if (!/^(?:hrn|urn):org:/i.test(urn)) return null;
+  const { publicOrganization } = await gqlClient(token).request<{
+    publicOrganization: { id: string } | null;
+  }>(PUBLIC_ORGANIZATION_ROUTE_QUERY, { ref: urn });
+  return publicOrganization ? `/app/org/${publicOrganization.id}` : null;
+}
+
+export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const urn = normalizeUrn(params.urn);
 
-  // portal#1099 — `resolveUrn` doesn't resolve ticker URNs yet (hrn:node:hadronmemory.com:specs:cor:agt:080:01
-  // lists that as partly built), but `ticker(ref:)` takes one and runs the
-  // ticker's own read gate, answering null for a missing ticker and an
-  // unreachable one alike. So a ticker link resolves here, with the same
-  // no-oracle 404 and the same temporary redirect as every other kind.
-  if (urn.startsWith('hrn:ticker:')) {
-    const ticker = await loadTicker(gqlClient(locals.token), urn);
-    if (!ticker) throw error(404, notFoundMessage(urn));
-    redirect(307, withQuery(`/app/apps/${ticker.app.id}/tickers/${ticker.id}`, url.search));
-  }
-
+  // #1213: ticker and generic resolution share this rejection boundary.
   // #567: a URN the server *rejects* (GraphQL error) must not surface as an
   // unhandled 500 — but only KNOWN rejection codes are mapped, and only when
   // the ClientError actually carries a GraphQL errors payload (graphql-request
@@ -77,6 +86,21 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // stays a distinguishable 500 (see hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   let resolveUrn: UrnResolution | null;
   try {
+    // portal#1099 — `resolveUrn` doesn't resolve ticker URNs yet (hrn:node:hadronmemory.com:specs:cor:agt:080:01
+    // lists that as partly built), but `ticker(ref:)` takes one and runs the
+    // ticker's own read gate, answering null for a missing ticker and an
+    // unreachable one alike — and null `app` when the reader can't read the
+    // App (#1209), which is the same ordinary not-found here. So a ticker link
+    // resolves here, with the same no-oracle 404 and the same temporary
+    // redirect as every other kind.
+    if (urn.startsWith('hrn:ticker:')) {
+      const ticker = await loadTicker(gqlClient(locals.token), urn);
+      if (!ticker?.app) throw error(404, notFoundMessage(urn));
+      // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+      await parent();
+      redirect(307, withQuery(`/app/apps/${ticker.app.id}/tickers/${ticker.id}`, url.search));
+    }
+
     ({ resolveUrn } = await gqlClient(locals.token).request<{
       resolveUrn: UrnResolution | null;
     }>(RESOLVE_URN_QUERY, { urn }));
@@ -95,7 +119,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         // what costs you the deep link's state.
         redirect(
           303,
-          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${params.urn}`, url.search))}`,
+          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${encodeUrnPathSegment(params.urn)}`, url.search))}`,
         );
       }
       if (
@@ -104,6 +128,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         code === 'FORBIDDEN' ||
         code === 'PERMISSION_DENIED'
       ) {
+        const publicTarget = await publicOrganizationPath(urn, locals.token);
+        if (publicTarget) {
+          // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+          await parent();
+          redirect(307, withQuery(publicTarget, url.search));
+        }
         throw error(404, notFoundMessage(urn));
       }
     }
@@ -111,6 +141,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   if (!resolveUrn) {
+    const publicTarget = await publicOrganizationPath(urn, locals.token);
+    if (publicTarget) {
+      // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+      await parent();
+      redirect(307, withQuery(publicTarget, url.search));
+    }
     throw error(404, notFoundMessage(urn));
   }
 
@@ -142,6 +178,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // gate every time. That second reason is why a link may safely be handed to
   // someone who cannot open it, and it is the half this comment used to state
   // only in passing. The extra round-trip is the accepted cost.
+  // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
+  await parent();
   redirect(307, withQuery(target, url.search));
 };
 
@@ -307,7 +345,11 @@ function canonicalPath(r: UrnResolution): string | null {
     case 'memory':
       return `/app/memories/${r.id}`;
     case 'node':
-      // memoryId is always set for nodes by the server resolver.
+    case 'action':
+      // memoryId is always set for nodes by the server resolver. An action's
+      // `id` is its `register:<code>` node and `memoryId` the Agent's system
+      // memory (hadron-server#2610), so it opens that node's page — the same
+      // page as a node, with no finer page of its own (#1360).
       return r.memoryId ? `/app/memories/${r.memoryId}/nodes/${r.id}` : null;
     case 'org':
       return `/app/orgs/${r.id}`;

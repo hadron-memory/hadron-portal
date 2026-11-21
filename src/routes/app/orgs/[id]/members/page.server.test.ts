@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   ADD_MEMBER_MUTATION,
   CREATE_USER_INVITATION_MUTATION,
@@ -119,6 +120,39 @@ describe('org members load()', () => {
     });
     expect((result as { inviteForm: { errors: Record<string, string[]> } }).inviteForm.errors).toEqual({});
   });
+
+  // #1297: Superforms keys a form's client store by its id, and an id defaults to a
+  // hash of the schema's SHAPE. Remove and Impersonate are both { _kind, userId }, so
+  // they got the same id, shared one store, and Impersonate submitted with the Remove
+  // form's `_kind` ("expected impersonateMember"; no request). Every form on this page
+  // needs an id of its own.
+  it('gives every form on the page its own Superforms id', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
+    const { load } = await importMod();
+
+    expectDistinctFormIds(await load(loadEv({ userId: 'user-1' })), 6);
+  });
+
+  // #1318 pinned impersonate only. Each action must answer under the id its form was
+  // loaded with, or the result reaches a different form's store (#1320).
+  it.each([
+    ['add', 'addForm'],
+    ['update', 'updateForm'],
+    ['remove', 'removeForm'],
+    ['invite', 'inviteForm'],
+    ['leave', 'leaveForm'],
+    ['impersonate', 'impersonateForm'],
+  ] as const)('the %s action answers under the same id its form was loaded with', async (action, formName) => {
+    mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
+    const { load, actions } = await importMod();
+    const loaded = (await load(loadEv({ userId: 'user-1' }))) as unknown as Record<string, { id: string }>;
+
+    // An empty post fails validation, so no mutation runs and the action returns its form.
+    const result = await actions[action](actionEv({ _kind: '' }));
+
+    expect(superFormFrom(result)).toBeDefined();
+    expect((superFormFrom(result) as { id: string }).id).toBe(loaded[formName].id);
+  });
 });
 
 describe('org members add/update/remove/leave actions', () => {
@@ -129,8 +163,8 @@ describe('org members add/update/remove/leave actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member added.' });
     expect(mockRequest).toHaveBeenCalledWith(ADD_MEMBER_MUTATION, {
-      orgId: 'org-id-123',
-      userId: 'user-2',
+      orgRef: 'org-id-123',
+      userRef: 'user-2',
       role: 'ADMIN',
     });
   });
@@ -167,8 +201,8 @@ describe('org members add/update/remove/leave actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member updated.' });
     expect(mockRequest).toHaveBeenCalledWith(UPDATE_MEMBER_MUTATION, {
-      orgId: 'org-id-123',
-      userId: 'user-2',
+      orgRef: 'org-id-123',
+      userRef: 'user-2',
       role: 'CONTRIBUTOR',
     });
   });
@@ -205,8 +239,8 @@ describe('org members add/update/remove/leave actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member removed.' });
     expect(mockRequest).toHaveBeenCalledWith(REMOVE_MEMBER_MUTATION, {
-      orgId: 'org-id-123',
-      userId: 'user-2',
+      orgRef: 'org-id-123',
+      userRef: 'user-2',
     });
   });
 
@@ -226,8 +260,8 @@ describe('org members add/update/remove/leave actions', () => {
       .rejects
       .toMatchObject({ status: 303, location: '/app/orgs' });
     expect(mockRequest).toHaveBeenCalledWith(REMOVE_MEMBER_MUTATION, {
-      orgId: 'org-id-123',
-      userId: 'user-self',
+      orgRef: 'org-id-123',
+      userRef: 'user-self',
     });
   });
 
@@ -297,12 +331,12 @@ describe('org members invite action', () => {
     });
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledWith(CREATE_USER_INVITATION_MUTATION, {
-      orgId: 'org-id-123',
+      orgRef: 'org-id-123',
       memberRole: 'ADMIN',
       name: 'Ada',
       email: 'ada@example.test',
-      maxActivations: 1,
-      expiresInDays: 30,
+      maxActivations: 2,
+      expiresInDays: 10,
     });
   });
 

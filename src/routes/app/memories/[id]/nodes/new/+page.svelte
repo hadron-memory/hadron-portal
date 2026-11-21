@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/t';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
+  import NodeRoleCreateInput from '$lib/components/NodeRoleCreateInput.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import { deriveDefaultLoc } from '$lib/create-node/derive-default-loc';
@@ -44,25 +46,21 @@
     },
   });
 
-  // #260: org-less memory route. The owning-org crumbs are only included when
-  // the user is a member of that org (org present); a non-member contributor
-  // gets a leaner trail that starts at the memory.
+  // Match the node detail trail, including memories without an org link.
   const breadcrumbItems = $derived([
-    { href: '/app/dashboard', label: 'Dashboard' },
-    ...(data.org
-      ? [
-          { href: `/app/orgs/${data.org.id}`, label: data.org.name },
-          { href: `/app/orgs/${data.org.id}/memories`, label: 'Memories' },
-        ]
-      : []),
+    { href: data.org ? `/app/orgs/${data.org.id}/memories` : undefined, label: t('node.new.memories', 'Memories') },
     { href: `/app/memories/${memory.id}`, label: memory.name },
-    { label: 'New node' },
+    { href: `/app/memories/${memory.id}/nodes`, label: t('node.new.nodes', 'Nodes') },
+    { label: t('node.new.title', 'New node') },
   ]);
 
   // #320: a command-bar deep-link prefills the full loc; treat it as
   // manually-edited so name-derivation doesn't clobber it. untrack snapshots
   // the seed once (data won't change without a reload).
   let locManuallyEdited = $state(untrack(() => !!data.prefillLoc || !!form?.form));
+  // portal#1656: the sibling page was capped or could not be read, so the
+  // suggested loc was not checked against every sibling.
+  const suggestionMayCollide = $derived(!!data.siblingsPartial && !locManuallyEdited && !!$formData.name);
 
   const ABSTRACT_MAX = 2000;
   let showAdvancedTypes = $state(untrack(() => initialForm.data.nodeType === 'system' || initialForm.data.nodeType === 'reference'));
@@ -96,6 +94,7 @@
   // button is held disabled (and we're not mid-submit, where the spinner speaks
   // for itself), surface the first unmet requirement next to it.
   const submitDisabledReason = $derived.by(() => {
+    if (data.canWriteMemory === false) return t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.');
     if (!$formData.name.trim()) return createNodeStrings.disabledReasonName();
     if (!$formData.loc.trim()) return createNodeStrings.disabledReasonLoc();
     if (propertiesBlockSubmit) return createNodeStrings.disabledReasonProperties();
@@ -134,8 +133,14 @@
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
-  function onLocInput(e: Event) {
+  // #1477: ONE handler sets the flag and stores the value, in that order. With
+  // `bind:value` the store write ran in bind's own listener, and a real
+  // keystroke drains microtasks before the root-delegated `oninput` fires — so
+  // the derive effect saw the cleared Loc with the flag still false and wrote
+  // the Name slug back over the user's edit.
+  function onLocInput(e: Event & { currentTarget: HTMLInputElement }) {
     locManuallyEdited = true;
+    $formData.loc = e.currentTarget.value;
   }
 
   // Toggling "advanced types" OFF while system/reference is selected
@@ -148,6 +153,8 @@
     }
   });
 </script>
+
+<svelte:head><title>{t('node.new.title', 'New node')} &middot; {memory.name} &middot; Hadron</title></svelte:head>
 
 <div class="mx-auto max-w-2xl space-y-4 p-4">
   <Breadcrumb items={breadcrumbItems} />
@@ -169,6 +176,7 @@
     </div>
   {/if}
 
+  <fieldset disabled={data.canWriteMemory === false}>
   <form method="POST" use:enhance class="space-y-4" novalidate>
     <div>
       <label for="name" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
@@ -200,10 +208,10 @@
         name="loc"
         type="text"
         required
-        bind:value={$formData.loc}
+        value={$formData.loc}
         oninput={onLocInput}
         aria-invalid={!!locError}
-        aria-describedby={locError ? 'locError locHint' : 'locHint'}
+        aria-describedby={[locError ? 'locError' : '', 'locHint', suggestionMayCollide ? 'locMayCollide' : ''].filter(Boolean).join(' ')}
         {...$constraints.loc}
         class="{inputClass} {locError ? 'border-red-500 focus:border-red-500' : ''}"
         placeholder="e.g. sort-imports"
@@ -211,6 +219,11 @@
       <p id="locHint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.locHint()}
       </p>
+      {#if suggestionMayCollide}
+        <p id="locMayCollide" data-testid="loc-may-collide" class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          {t('create-node.loc-may-collide', 'Not checked against every node at this level, so this loc may already exist. Creating the node checks it.')}
+        </p>
+      {/if}
       {#if locError}
         <p id="locError" class="mt-1 text-xs text-red-600 dark:text-red-400">{locError}</p>
       {/if}
@@ -282,6 +295,8 @@
         {/if}
       </div>
     {/if}
+
+    <NodeRoleCreateInput bind:value={$formData.role} rules={data.roleRules} {inputClass} />
 
     <div>
       <label for="description" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
@@ -359,4 +374,5 @@
       </button>
     </div>
   </form>
+  </fieldset>
 </div>

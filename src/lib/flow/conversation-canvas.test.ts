@@ -199,3 +199,70 @@ describe('buildConversationEdgeDetails', () => {
     expect(detour.data).toEqual({ timing: 'on_enter', behavior: 'detour' });
   });
 });
+
+describe('start order on the canvas (S7, Q13/Q14/Q14a)', () => {
+  const ns: ConversationGraphNodeInput[] = [
+    { id: 'c-b', loc: 'conversations:b', name: 'b', seq: 2 },
+    { id: 'c-a', loc: 'conversations:a', name: 'a', seq: 2 },
+    { id: 'c-z', loc: 'conversations:z', name: 'z', seq: 1 },
+    { id: 'c-n', loc: 'conversations:n', name: 'n', seq: null },
+    { id: 'c-up', loc: 'conversations:B', name: 'B' },
+    { id: 'c-s', loc: 'conversations:setup', name: 'setup', seq: 1, data: { isSetup: true } },
+    { id: 'c-f', loc: 'conversations:fallback', name: 'fallback', seq: 2, data: { isFallback: true } },
+  ];
+
+  it('numbers ordinary conversations by seq, nulls last, ties by code-unit loc', () => {
+    const model = buildConversationCanvas(ns, []);
+    const order = model.nodes
+      .filter((n) => n.kind === 'conversation' && n.startOrder != null)
+      .sort((x, y) => x.startOrder! - y.startOrder!)
+      .map((n) => n.loc);
+    expect(order).toEqual([
+      'conversations:z',
+      'conversations:a',
+      'conversations:b',
+      'conversations:B',
+      'conversations:n',
+    ]);
+  });
+
+  it('gives setup and fallback conversations no start number', () => {
+    const model = buildConversationCanvas(ns, []);
+    const byLoc = Object.fromEntries(model.nodes.map((n) => [n.loc, n]));
+    expect(byLoc['conversations:setup'].startOrder).toBeNull();
+    expect(byLoc['conversations:fallback'].startOrder).toBeNull();
+  });
+});
+
+describe('stage-target labels (S7, Q15)', () => {
+  const ns: ConversationGraphNodeInput[] = [
+    { id: 'c1', loc: 'conversations:intake', name: 'intake', description: 'Intake' },
+    { id: 'c2', loc: 'conversations:wrap', name: 'wrap', description: 'Wrap up' },
+    { id: 's2', loc: 'conversations:wrap:thanks', name: 'thanks', description: 'Say thanks' },
+  ];
+
+  it('labels a stage target "conversation / stage" and a conversation target with its own label', () => {
+    const edges: ConversationGraphEdgeInput[] = [
+      { id: 'e1', name: 'r1', sourceId: 'c1', targetId: 's2' },
+      { id: 'e2', name: 'r2', sourceId: 'c1', targetId: 'c2' },
+    ];
+    const details = buildConversationEdgeDetails(ns, edges);
+    expect(details.find((d) => d.id === 'e1')?.targetLabel).toBe('Wrap up / Say thanks');
+    expect(details.find((d) => d.id === 'e2')?.targetLabel).toBe('Wrap up');
+  });
+});
+
+describe('rule target URN (render-urn)', () => {
+  it('carries the target node URN, or null when the read had none', () => {
+    const ns: ConversationGraphNodeInput[] = [
+      { id: 'a', loc: 'conversations:a', name: 'a' },
+      { id: 'b', loc: 'conversations:b', name: 'b', urn: 'hrn:node:acme.com:mem:conversations:b' },
+    ];
+    const details = buildConversationEdgeDetails(ns, [
+      { id: 'e1', name: null, sourceId: 'b', targetId: 'a' },
+      { id: 'e2', name: null, sourceId: 'a', targetId: 'b' },
+    ]);
+    expect(details.find((d) => d.id === 'e1')?.targetUrn).toBeNull();
+    expect(details.find((d) => d.id === 'e2')?.targetUrn).toBe('hrn:node:acme.com:mem:conversations:b');
+  });
+});

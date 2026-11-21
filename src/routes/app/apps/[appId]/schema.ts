@@ -1,3 +1,5 @@
+import { t } from '$lib/i18n/t';
+import { APP_TYPES } from '$lib/app-type';
 import { z } from 'zod';
 
 const agentToolsField = z.preprocess(
@@ -11,10 +13,9 @@ export const appSettingsSchema = z.object({
   _kind: z.literal('updateApp').default('updateApp'),
   name: z.string().trim().min(1, 'Name is required').prefault(''),
   urn: z.string().trim().min(1, 'URN slug is required').prefault(''),
-  appType: z.enum(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']).prefault('WORKSTATION'),
+  appType: z.enum(APP_TYPES).prefault('WORKSTATION'),
   role: z.enum(['OWNER', 'ADMIN', 'CONTRIBUTOR', 'READER']).prefault('READER'),
   description: z.string().trim().default(''),
-  systemPrompt: z.string().trim().default(''),
   createUserPermission: z.enum(['DENY', 'EXPLICIT', 'IMPLICIT']).prefault('DENY'),
   identifyUserMethod: z.enum(['USER_ID', 'SECRET']).prefault('USER_ID'),
   sessionTimeoutSeconds: z.string()
@@ -67,6 +68,32 @@ export const revokeAppKeySchema = z.object({
   keyId: z.string().trim().min(1, 'Key is required').prefault(''),
 });
 
+// portal#1487 — giving a live key ONE scope of the closed list
+// (hrn:node:hadronmemory.com:specs:cor:aut:010:03): attention:deliver, or
+// host:operate for a single named host
+// (hrn:node:hadronmemory.com:specs:cor:agt:070:04). No free-text scope: an
+// unknown value fails the enum here, and the server would refuse it
+// BAD_USER_INPUT anyway.
+//
+// The host is refused LOCALLY only when empty, so the grant is never sent for
+// the server to invent a target (acceptance 2). Shape stays the server's
+// call: a malformed-but-present token meets the server's own BAD_USER_INPUT,
+// whose message the action shows as-is.
+export const grantAppKeyScopeSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('grantKeyScope').default('grantKeyScope'),
+  keyId: z.string().trim().min(1, 'Key is required').prefault(''),
+  // attention:deliver is the no-argument grant, so the dialog starts there;
+  // the choice is a visible select, never a guess.
+  scope: z.enum(['attention:deliver', 'host:operate']).prefault('attention:deliver'),
+  hostId: z.string().trim().prefault(''),
+}).superRefine((value, ctx) => {
+  if (value.scope === 'host:operate' && !value.hostId) {
+    ctx.addIssue({ code: 'custom', path: ['hostId'], message: 'Name the host this key may operate.' });
+  }
+});
+
 export const deleteAppSchema = z.object({
   // Defaulted _kind accepts omitted hidden inputs while still rejecting a
   // defined discriminator from the wrong action.
@@ -85,15 +112,34 @@ export const deleteAppSchema = z.object({
 // work — it makes the form recommend a request the server rejects, which is
 // exactly what #760 reports.
 //
-// `role` stays optional and must still reach the mutation as UNDEFINED rather
-// than '': an omitted role inherits the agent's personaRole, while an empty
-// string would be an explicit (invalid) role. That distinction is unchanged.
+// R222: the selected Agent determines the role; casting cannot override it.
 export const castWorkerSchema = z.object({
   _kind: z.literal('castWorker').default('castWorker'),
   agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
   name: z.string().trim().min(1, 'Give the worker a name — the platform no longer picks one.').prefault(''),
-  role: z.string().trim().optional(),
-  promptOverride: z.string().trim().optional(),
+  // hadron-portal#1149 (hadron-server#2028, S12) — the cast takes a DELIBERATE
+  // reporting choice: a head, or an explicit No team. Nothing is preselected,
+  // and a missing choice is refused here rather than sent: omission is never
+  // No team, and the coordinator is never guessed. `reporting` has no default
+  // for that reason; a blank or unknown value fails the enum.
+  //
+  // The WIRE is presence-based (the action sends exactly one of `reportsTo` /
+  // `noTeam: true` and omits the other), so this form carries the choice as a
+  // two-way switch plus a head, and the action turns it into one arm.
+  //
+  // The empty string is the form's "nothing chosen yet" state, NOT a third
+  // choice: Superforms seeds an enum field with its FIRST member, which would
+  // preselect "a head" on a form that must start with neither. The refine
+  // below refuses it.
+  reporting: z.enum(['', 'head', 'none']).prefault(''),
+  reportsTo: z.string().trim().default(''),
+}).superRefine((value, ctx) => {
+  if (value.reporting === '') {
+    ctx.addIssue({ code: 'custom', path: ['reporting'], message: 'Choose who this worker reports to, or choose No team.' });
+  }
+  if (value.reporting === 'head' && !value.reportsTo) {
+    ctx.addIssue({ code: 'custom', path: ['reportsTo'], message: 'Choose the worker this one reports to, or choose No team.' });
+  }
 });
 
 export const retireWorkerSchema = z.object({
@@ -189,3 +235,15 @@ export const removeAppMemberSchema = z.object({
   userId: z.string().trim().min(1, 'User is required.').prefault(''),
 });
 
+
+// #1023's deleteWorkerSchema moved to $lib/workers/delete-worker.ts (portal#2205):
+// the worker's own page runs the same delete through the same contract, so the
+// schema lives beside the attestation token neither route owns alone.
+
+// #487: only a NEW memory, born on this App. No caller-controlled App,
+// Agent, class, or existing-memory reference is part of this form.
+export const createAppMemorySchema = z.object({
+  _kind: z.literal('createAppMemory').default('createAppMemory'),
+  name: z.string().trim().min(1, t('app.memory.name-required', 'Give the memory a name.')).prefault(''),
+  description: z.string().trim().prefault(''),
+});

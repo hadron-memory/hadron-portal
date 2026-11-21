@@ -20,12 +20,18 @@ vi.mock('sveltekit-superforms/adapters', async (orig) => ({
 }));
 import { writable } from 'svelte/store';
 
-import ChatThread from './ChatThread.svelte';
+import ChatThread, { type ChatThreadMessage } from './ChatThread.svelte';
 
 function renderThread(memoryUrn: string | null) {
+  return renderThreadWith({ memoryUrn });
+}
+
+/** portal#1525: the full render, with per-test overrides over the same base. */
+function renderThreadWith(over: Record<string, unknown> = {}) {
+  const { messages: overMessages, ...rest } = over;
   return render(ChatThread, {
     props: {
-      messages: [
+      messages: (overMessages as ChatThreadMessage[] | undefined) ?? [
         {
           id: 'msg-pk',
           author: 'holger',
@@ -35,8 +41,9 @@ function renderThread(memoryUrn: string | null) {
         },
       ],
       basePath: '/app/memories/mem-1',
-      memoryUrn,
+      memoryUrn: null,
       sendForm: { data: { _kind: 'sendChatMessage', content: '' } } as never,
+      ...rest,
     },
   }).body;
 }
@@ -59,5 +66,73 @@ describe('ChatThread — message URN chip', () => {
     expect(body).toContain('holger');
     expect(body).not.toContain('Go to message node');
     expect(body).not.toContain('hrn:');
+  });
+});
+
+describe('ChatThread — per-message seq (portal#1525)', () => {
+  // The team-Channel full-screen view is the one surface that shows the
+  // server's seq. Everything else that shares this component — the node page's
+  // inline Chat tab, agent chats — must stay unchanged, so the renderer is
+  // opt-in and the seq is the SERVER's field, never a client-side count
+  // (Vera's FIT on #1525: seq has gaps by design; it is a watermark, not an index).
+  const withSeq = [
+    { id: 'm-0', author: 'ada', content: 'first', createdAt: '2026-11-01T07:00:00Z', seq: 0, nodeData: { loc: 'chats:team:messages:000-ada' } },
+    { id: 'm-7', author: 'iris', content: 'later', createdAt: '2026-11-01T07:01:00Z', seq: 7, nodeData: { loc: 'chats:team:messages:007-iris' } },
+  ];
+
+  it('showSeq renders the server seq per message, including 0', () => {
+    const body = renderThreadWith({ messages: withSeq, showSeq: true });
+
+    // `#0` is load-bearing: a renderer that treats 0 as "no seq" would hide
+    // the first message a thread ever got.
+    expect(body).toContain('#0');
+    expect(body).toContain('#7');
+  });
+
+  it('showSeq invents nothing for a message with null seq', () => {
+    const body = renderThreadWith({
+      messages: [
+        { id: 'm-null', author: 'ada', content: 'legacy', createdAt: '2026-11-01T07:00:00Z', seq: null, nodeData: { loc: 'team-chat:messages:001-ada' } },
+      ],
+      showSeq: true,
+    });
+
+    // The bubble body is empty under SSR (invariant P4), so the author is
+    // the rendered proof the message is there.
+    expect(body).toContain('ada');
+    expect(body).not.toContain('#');
+  });
+
+  it('without showSeq, a message carrying a seq renders none (other views unchanged)', () => {
+    const body = renderThreadWith({ messages: withSeq });
+
+    expect(body).toContain('ada');
+    expect(body).toContain('iris');
+    expect(body).not.toContain('#0');
+    expect(body).not.toContain('#7');
+  });
+});
+
+// portal#1828: a rejected chat read must not be announced as an empty thread.
+describe('ChatThread — failed load (#1828)', () => {
+  it('shows the failed-load text and Retry, never the empty-thread wording', () => {
+    const body = renderThreadWith({ messages: [], loadFailed: true, onRetry: () => {} });
+    expect(body).toContain('load this conversation.');
+    expect(body).toContain('Retry');
+    expect(body).not.toContain('No messages yet');
+    expect(body).not.toContain('Start the conversation!');
+  });
+
+  it('control: a genuinely empty thread on a successful load still shows the empty-thread wording', () => {
+    const body = renderThreadWith({ messages: [], loadFailed: false });
+    expect(body).toContain('No messages yet');
+    expect(body).not.toContain('load this conversation');
+    expect(body).not.toContain('Retry');
+  });
+
+  it('control: messages already on screen are not replaced by the failure state', () => {
+    const body = renderThreadWith({ loadFailed: true });
+    expect(body).toContain('holger');
+    expect(body).not.toContain('load this conversation');
   });
 });

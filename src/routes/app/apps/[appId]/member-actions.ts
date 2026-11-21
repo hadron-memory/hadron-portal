@@ -28,13 +28,13 @@ interface MemberActionEvent {
 }
 
 export async function addMember({ request, params, locals }: MemberActionEvent) {
-  const form = await superValidate(await request.formData(), addAppMemberFormAdapter);
+  const form = await superValidate(await request.formData(), addAppMemberFormAdapter, { id: 'addAppMember' });
   if (!form.valid) return fail(400, { form });
 
   try {
     await gqlClient(locals.token).request(ENSURE_APP_MEMBER_MUTATION, {
-      appId: params.appId,
-      userId: form.data.userId,
+      appRef: params.appId,
+      userRef: form.data.userId,
       role: form.data.role,
     });
     return message(form, { type: 'success', text: t('app-member.add.success', 'Member added.') });
@@ -48,13 +48,13 @@ export async function addMember({ request, params, locals }: MemberActionEvent) 
 }
 
 export async function ensureMember({ request, params, locals }: MemberActionEvent) {
-  const form = await superValidate(await request.formData(), ensureAppMemberFormAdapter);
+  const form = await superValidate(await request.formData(), ensureAppMemberFormAdapter, { id: 'ensureAppMember' });
   if (!form.valid) return fail(400, { form });
 
   try {
     await gqlClient(locals.token).request(ENSURE_APP_MEMBER_MUTATION, {
-      appId: params.appId,
-      userId: form.data.userId,
+      appRef: params.appId,
+      userRef: form.data.userId,
       role: form.data.role,
     });
     return message(form, { type: 'success', text: t('app-member.update.success', 'Member updated.') });
@@ -73,8 +73,8 @@ export async function removeMember({ request, params, locals }: MemberActionEven
 
   try {
     await gqlClient(locals.token).request(REMOVE_APP_MEMBER_MUTATION, {
-      appId: params.appId,
-      userId: form.data.userId,
+      appRef: params.appId,
+      userRef: form.data.userId,
     });
     return message(form, { type: 'success', text: t('app-member.remove.success', 'Member removed.') });
   } catch (e: unknown) {

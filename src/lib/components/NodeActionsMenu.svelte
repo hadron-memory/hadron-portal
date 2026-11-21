@@ -42,8 +42,12 @@
     compact = false,
   }: {
     actions: NodeMenuAction[];
-    /** Called for every action without an `href`. */
-    onselect?: (id: string) => void;
+    /** Called for every action without an `href`. The menu's own trigger
+     *  button is handed over too (#1487): a caller that opens something
+     *  modal from here owes focus RETURN to that trigger, and reading it
+     *  from `document.activeElement` only works while the menu's own
+     *  refocus order holds. Callers that take just `id` are unaffected. */
+    onselect?: (id: string, trigger?: HTMLButtonElement) => void;
     label?: string;
     disabled?: boolean;
     /** Position against the viewport so overflow containers do not clip it. */
@@ -115,7 +119,7 @@
   function pick(id: string) {
     closeMenu();
     triggerEl?.focus();
-    onselect?.(id);
+    onselect?.(id, triggerEl ?? undefined);
   }
 
   function handleKey(e: KeyboardEvent) {
@@ -156,7 +160,12 @@
 
 <svelte:window onkeydown={handleKey} onclick={handleOutside} />
 
-<div bind:this={rootEl} class="relative" data-node-actions>
+<!-- data-menu-open carries the open state to CSS without keying any caller's
+     stacking on this component's ARIA roles (#1954): a sticky table cell
+     promotes the row whose menu is open via :has([data-menu-open]), so the
+     menu can be re-rolled as role="listbox" or a custom widget without
+     silently changing paint order. -->
+<div bind:this={rootEl} class="relative" data-node-actions data-menu-open={open ? '' : undefined}>
   <button
     bind:this={triggerEl}
     type="button"

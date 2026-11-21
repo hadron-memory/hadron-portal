@@ -3,10 +3,10 @@ import {
   CREATE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
-  GRAPH_NODES_QUERY,
+  FIXTURE_NODES_QUERY,
   NODE_QUERY,
 } from '$lib/server/queries';
-import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
+import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import {
   newFixtureRecord,
   encodeFixture,
@@ -19,6 +19,7 @@ import {
 } from '$lib/server/agent-tester/fixture-codec';
 import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import type { RequestHandler } from './$types';
+import { drainFindNodes } from '$lib/server/paginate';
 
 /**
  * /api/agent-chat/fixtures
@@ -35,14 +36,6 @@ import type { RequestHandler } from './$types';
  * caller's organization scope or owned personal-agent scope.
  */
 
-async function resolveAgent(token: string, agentId: string): Promise<{
-  agentId: string;
-  systemMemoryId: string;
-} | null> {
-  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId);
-  return systemMemoryId ? { agentId, systemMemoryId } : null;
-}
-
 // ── GET ─────────────────────────────────────────────────────────────────────
 
 export const GET: RequestHandler = async ({ url, locals }) => {
@@ -50,21 +43,20 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const agentId = url.searchParams.get('agentId');
   if (!agentId) return json({ error: 'agentId is required' }, 400);
 
-  const resolved = await resolveAgent(locals.token, agentId);
-  if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
+  const systemMemoryId = (await requireTesterAgent(gqlClient(locals.token), locals.user?.id, agentId))?.agent.systemMemoryId;
+  if (!systemMemoryId) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);
-  // Scope to the agent's system memory. findNodes hides class:'system' memories
-  // on a broad (no-memoryIds) call, so naming the system memory is what makes
-  // its fixture nodes visible (and it also overrides the exclusion).
-  const result = await client.request<{ findNodes: { hits: Array<{ node: {
+  // hrn:node:hadronmemory.com:specs:cor:api:090:02: memory scope and system-node type are independent
+  // filters. Fixtures are system nodes, so name both (#1202).
+  const result = await drainFindNodes<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [resolved.systemMemoryId] });
+  } }>(client, FIXTURE_NODES_QUERY, { memoryIds: [systemMemoryId] });
 
   const fixtures: FixtureSummary[] = [];
   for (const h of result.findNodes?.hits ?? []) {
     const n = h.node;
-    if (n.memoryId !== resolved.systemMemoryId) continue;
+    if (n.memoryId !== systemMemoryId) continue;
     if (!n.loc.startsWith('fixtures:')) continue;
     const record = decodeFixture(n.data);
     if (!record) continue;
@@ -115,8 +107,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }, 400);
   }
 
-  const resolved = await resolveAgent(locals.token, body.agentId);
-  if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
+  const systemMemoryId = (await requireTesterAgent(gqlClient(locals.token), locals.user?.id, body.agentId))?.agent.systemMemoryId;
+  if (!systemMemoryId) return json({ error: 'Agent not found or no longer available' }, 404);
 
   let record;
   try {
@@ -153,7 +145,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         UPDATE_NODE_MUTATION,
         {
           input: {
-            memoryId: resolved.systemMemoryId,
+            memoryId: systemMemoryId,
             loc: body.fixtureLoc,
             name: record.label,
             description,
@@ -173,7 +165,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       CREATE_NODE_MUTATION,
       {
         input: {
-          memoryId: resolved.systemMemoryId,
+          memoryId: systemMemoryId,
           loc: `fixtures:${randomId()}`,
           name: record.label,
           nodeType: 'system',
@@ -202,8 +194,8 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
     return json({ error: 'fixtureLoc must start with "fixtures:"' }, 400);
   }
 
-  const resolved = await resolveAgent(locals.token, agentId);
-  if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
+  const systemMemoryId = (await requireTesterAgent(gqlClient(locals.token), locals.user?.id, agentId))?.agent.systemMemoryId;
+  if (!systemMemoryId) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);
   // #542: deleteNode takes a single nodeRef. Resolve the fixture node by loc
@@ -211,7 +203,7 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
   // no-op (idempotent DELETE).
   const found = await client.request<{ node: { id: string } | null }>(NODE_QUERY, {
     ref: fixtureLoc,
-    memoryRef: resolved.systemMemoryId,
+    memoryRef: systemMemoryId,
   });
   if (found.node) {
     await client.request(DELETE_NODE_MUTATION, { nodeRef: found.node.id });

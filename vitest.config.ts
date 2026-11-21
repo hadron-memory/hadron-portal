@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve } from 'path';
+import { testMaxWorkers } from './scripts/test-max-workers.mjs';
 
 const $lib = resolve(__dirname, 'src/lib');
 
@@ -35,6 +36,24 @@ const $lib = resolve(__dirname, 'src/lib');
 // impossible rather than merely unconfigured.
 export default defineConfig({
   test: {
+    // portal#2253 item 1: pin the suite's timezone before any module loads, so
+    // a date rendered anywhere in a test is the same date on every host. Set
+    // here rather than in a test file's module body: static imports hoist above
+    // such an assignment (a module-level `Intl.DateTimeFormat` keeps the host
+    // zone), it leaks into later files in the same worker, and it throws in
+    // browser-mode vitest where `process` may be unshimmed. Locales stay
+    // unpinned — every formatter under test passes an explicit locale
+    // (fmtRunTime pins 'en-US'). HADRON_TEST_TZ opts a run into a specific
+    // zone instead (same shape as HADRON_TEST_MAX_WORKERS): the NodeList
+    // midnight-boundary wrapper spawns its child with
+    // HADRON_TEST_TZ=America/Los_Angeles — config `env` would otherwise
+    // override the zone the child asks for.
+    env: {
+      TZ: process.env.HADRON_TEST_TZ ?? 'UTC',
+    },
+    // Hugo's #28704: a host can cap the worker pool with HADRON_TEST_MAX_WORKERS
+    // (a positive integer); unset, vitest's default is unchanged.
+    maxWorkers: testMaxWorkers(process.env.HADRON_TEST_MAX_WORKERS),
     projects: [
       {
         plugins: [svelte()],
@@ -47,13 +66,29 @@ export default defineConfig({
           exclude: ['**/node_modules/**', 'src/**/*.client.test.ts'],
           environment: 'node',
         },
-        resolve: { alias: { $lib } },
+        resolve: { alias: {
+          $lib,
+          // SSR task-page rendering now includes the native reload URL. Share
+          // the same page-store fixture as mounted tests, rather than per-test mocks.
+          '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+          // portal#1649: server-rendered pages whose children navigate or read the URL.
+          '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
+          '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
+          // Grants SSR includes the same enhanced form used by the mounted lane.
+          '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
+          // portal#1022: the account loader (node lane, via page.server tests)
+          // builds the passkey-registration link from the public server base.
+          // Same stub the client lane resolves it to — a plain record tests
+          // can set per case.
+          '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
+        } },
       },
       {
         plugins: [svelte()],
         test: {
           name: 'client',
           include: ['src/**/*.client.test.ts'],
+          setupFiles: ['src/lib/test/setup-write-recovery.ts'],
           environment: 'jsdom',
         },
         resolve: {
@@ -72,6 +107,7 @@ export default defineConfig({
             '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
             '$app/environment': resolve(__dirname, 'src/lib/test/stubs/app-environment.ts'),
             '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+            '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
             '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
             '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
           },

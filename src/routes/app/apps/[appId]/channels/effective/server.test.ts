@@ -35,12 +35,20 @@ describe('GET effective', () => {
     ]);
   });
 
-  it('returns only attendee facts: the caller’s canPost / disclosure never leave the server', async () => {
+  it('returns attendee-worded standing in the closed projection, never raw flags', async () => {
     mockRequest.mockResolvedValue({ attendeeRegister: VIEW });
     const { status, body } = await get('attendee=w-ada&kind=worker');
     expect(status).toBe(200);
-    expect(body.rows[0]).toMatchObject({ channel: 'team', because: 'Their agent’s row', readUpTo: 'Read up to #3 of #12' });
+    expect(body.rows[0]).toMatchObject({ channel: 'team', because: 'Their agent’s row', readUpTo: 'Read up to #3 of #12', note: 'Their driver is not a participant of the host App (watch only)' });
     expect(JSON.stringify(body)).not.toMatch(/canPost|canRead|disclosure|DRIVER_NOT_PARTICIPANT/);
+  });
+
+  it('redacts every standing detail when the viewer cannot see the host memory', async () => {
+    mockRequest.mockResolvedValue({ attendeeRegister: [{ ...VIEW[0], channel: { ...VIEW[0].channel, hostMemoryUrn: null } }] });
+    const { body } = await get('attendee=w-ada&kind=worker');
+    expect(body.rows[0].note).toBe('Its memory isn’t visible to you');
+    expect(body.rows[0].channelUrn).toBeNull();
+    expect(JSON.stringify(body)).not.toMatch(/driver|participant|canPost|canRead|disclosure/);
   });
 
   it('for an Agent, a namedBy AGENT row is their own row, not "their agent’s"', async () => {

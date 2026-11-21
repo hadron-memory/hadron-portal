@@ -151,7 +151,6 @@
       searchPlaceholder={t('org-apps.search.placeholder', 'Search apps...')}
       searchAriaLabel={t('org-apps.search.aria-label', 'Search apps')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 25rem))"
     >
       {#snippet cell(cell, app)}
         {#if cell.column.id === 'name'}
@@ -176,7 +175,7 @@
               { id: 'delete', label: t('org-apps.action.delete', 'Delete'), danger: true },
             ]}
             onselect={(id) => { if (id === 'delete') deleteApp(app); }}
-            label={`${t('org-apps.actions.label', 'Actions for')} ${app.name}`}
+            label={t('org-apps.actions.label', 'Actions for {name}', { name: app.name })}
             disabled={$deleteSubmitting}
             fixed
             compact

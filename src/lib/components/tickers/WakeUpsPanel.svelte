@@ -3,12 +3,17 @@
   The answer first: one sentence saying why this worker is or isn't woken
   (§4.1, `wakeStatus`), then its settings and subscriptions as they are.
   Mentions, Pause and Subscribe controls are S7b and not rendered; the line
-  under the settings says who can change them instead.
+  under the settings says who can change them instead, and (portal#1496) the
+  hadron CLI commands that change them.
 -->
 <script lang="ts">
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
+  import ApplyAgentTickers from '$lib/components/tickers/ApplyAgentTickers.svelte';
+  import CliCommand from '$lib/components/tickers/CliCommand.svelte';
+  import { cliRef, wakeCommands } from '$lib/cli-command';
+  import type { ApplyResult } from '$lib/tickers/apply';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -24,16 +29,32 @@
     worker,
     appId,
     loadedAt,
+    canManage = false,
+    applyKey,
+    applyAction = '?tab=wake&/applyTickerTemplates',
+    applyResult = null,
+    viewerId = null,
+    errorPageWorker,
   }: {
     wake: TickerRead<WorkerWakeSettings>;
     appSettings: TickerRead<AppTickerSettings> | null;
-    worker: { retiredAt: string | null };
+    worker: { retiredAt: string | null; id?: string; urn?: string | null; app?: { organizationId?: string | null } | null };
     appId: string | null;
     loadedAt: string;
+    /** portal#1462: may the viewer manage the worker's App (null = unknown; the server decides). */
+    canManage?: boolean | null;
+    /** The route's identity for this worker: what the apply action keys its result with. */
+    applyKey: string;
+    applyAction?: string;
+    applyResult?: ApplyResult | null;
+    viewerId?: string | null;
+    errorPageWorker: () => string | null;
   } = $props();
 
   const now = $derived(Date.parse(loadedAt));
   const status = $derived(wake.kind === 'ok' ? wakeStatus(wake.value, worker, now) : null);
+  const cliTarget = $derived(cliRef(worker));
+  const cli = $derived(cliTarget ? wakeCommands(cliTarget) : null);
   const minCadence = $derived(appSettings?.kind === 'ok' ? appSettings.value.minCadenceSeconds : null);
 
   interface Row {
@@ -81,11 +102,15 @@
 </script>
 
 <section class="space-y-4" data-testid="wake-panel">
+  <!-- portal#1462: independent of the reads below, so a failed read never hides it. -->
+  {#key applyKey}
+    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={applyKey} result={applyResult} floorSeconds={minCadence} {viewerId} workerIdentity={worker.id ? { id: worker.id, urn: worker.urn ?? null, appId, orgId: worker.app?.organizationId ?? null } : null} {errorPageWorker} />
+  {/key}
   {#if wake.kind === 'not-participant'}
     <TickersNotParticipant what="wake" />
   {:else if wake.kind === 'failed'}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-      {t('worker.wake.failed', 'Couldn’t load this worker’s wake-ups.')}
+      {t('worker.wake.failed', 'Couldn’t load this worker’s tickers.')}
       <a href="?tab=wake" data-sveltekit-reload class="ml-2 font-medium underline">{t('worker.wake.retry', 'Try again')}</a>
     </div>
   {:else if status}
@@ -109,7 +134,7 @@
       {#if minCadence != null}
         <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.floor', 'No worker is woken more often than every {every} in this App.', { every: cadenceText(minCadence) })}</p>
       {/if}
-      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.router', 'A router delivers the wake-ups. This page shows when the worker is due, not whether a wake-up was delivered.')}</p>
+      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.router', 'A router delivers the wakes. This page shows when the worker is due, not whether a wake was delivered.')}</p>
     </div>
 
     <dl class="grid gap-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm sm:grid-cols-3 dark:border-zinc-800 dark:bg-zinc-900" data-testid="wake-settings">
@@ -142,8 +167,16 @@
         </dd>
       </div>
     </dl>
-    <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.who', 'Only the worker itself, its holder, or whoever manages the App can change its mentions, pause or subscriptions. A pause covers every session and router of this worker.')}
-      {t('worker.wake.where', 'In the portal this is read-only for now; use the MCP tool hadron_worker_wake_settings to change it.')}</p>
+    <div class="min-w-0 space-y-2 text-xs text-zinc-500 dark:text-zinc-400" data-testid="wake-cli">
+      <p>{t('worker.wake.who-settings', 'Only the worker itself, its holder, or whoever manages the App can change its mentions or pause. A pause covers every session and router of this worker.')}</p>
+      {#if cli}
+        <p>{t('worker.wake.cli.where', 'In the portal this is read-only for now; use the hadron CLI to change it.')}</p>
+        <CliCommand label={t('worker.wake.cli.mentions-off', 'To stop waking it when mentioned:')} command={cli.mentionsOff} />
+        <CliCommand label={t('worker.wake.cli.mentions-immediate', 'To wake it at once when mentioned:')} command={cli.mentionsImmediate} />
+        <CliCommand label={t('worker.wake.cli.clear-pause', 'To end a pause:')} command={cli.clearPause} />
+        <CliCommand label={t('worker.wake.cli.pause-until', 'To pause it until a time (RFC 3339):')} command={cli.pauseUntil} />
+      {/if}
+    </div>
 
     <div class="space-y-2">
       <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('worker.wake.subscriptions', 'Subscriptions')}</h3>
@@ -158,7 +191,6 @@
           searchPlaceholder={t('worker.wake.search', 'Search subscriptions…')}
           searchAriaLabel={t('worker.wake.search', 'Search subscriptions…')}
           bind:globalFilter
-          maxHeight="max(200px, calc(100vh - 30rem))"
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'ticker'}

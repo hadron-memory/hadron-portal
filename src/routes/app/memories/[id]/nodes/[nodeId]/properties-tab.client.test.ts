@@ -14,7 +14,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { load } from './+page.server';
 import { NODE_STORAGE_FORM_ID, nodeStorageSchema } from './storage-schema';
@@ -32,6 +32,7 @@ const NODE = {
   outgoingEdges: [], incomingEdges: [],
 };
 const PARENT = {
+  canWriteMemory: true,
   graph: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a', name: 'Mem A', class: 'org', isEncrypted: false, schema: null },
   graphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'Foo', nodeType: 'info', tags: [] }],
   isConsumerMode: false,
@@ -57,7 +58,7 @@ afterEach(() => {
 async function loaded(node: typeof NODE) {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node };
-    if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+    if (doc === NODE_REVISIONS_PAGE_QUERY) return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
     return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
   });
   const data = (await load({
@@ -189,4 +190,89 @@ describe('Properties tab (#1031)', () => {
 
     expect(submittedBag(target)).toEqual({ color: 'green' });
   });
+});
+
+
+describe('reader memory editors (#646)', () => {
+  it('disables storage and source saves while retaining source and tab navigation', async () => {
+    const { target, props } = await mountPage();
+    flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: false }; });
+    await tick();
+    expect(storageForm(target)!.closest('fieldset')!.disabled).toBe(true);
+    expect(target.textContent).toContain('Read only');
+    buttonNamed(target, 'Source')!.click();
+    flushSync();
+    const source = target.querySelector<HTMLTextAreaElement>('textarea#node-properties-source');
+    const textareas = [...target.querySelectorAll<HTMLTextAreaElement>('textarea')];
+    expect(source ?? textareas.find(t => t.readOnly)).toBeTruthy();
+    expect(buttonNamed(target, 'Save')?.disabled).toBe(true);
+    tabNamed(target, 'Content')!.click();
+    flushSync();
+    buttonNamed(target, 'Source')!.click();
+    flushSync();
+    expect([...target.querySelectorAll<HTMLTextAreaElement>('textarea')].some(t => t.readOnly && t.value === 'body')).toBe(true);
+    // Restore the server write decision without replacing the page.
+    flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: true }; });
+    await tick();
+    expect(storageForm(target)!.closest('fieldset')!.disabled).toBe(false);
+  });
+});
+
+it('disables missing-parent creation for a reader and preserves it for a writer (#646 LOCAL P2)', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: false, ancestorsKnown: true, breadcrumb: [
+    { label: 'Missing', path: 'missing', nodeId: null },
+    { label: 'Foo', path: 'missing:foo', nodeId: NODE.id },
+  ] }; });
+  await tick();
+  const create = target.querySelector<HTMLButtonElement>('form[action="?/createParent"] button')!;
+  expect(create).not.toBeNull();
+  expect(create.disabled).toBe(true);
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: true }; });
+  await tick();
+  expect(create.disabled).toBe(false);
+});
+
+
+it('portal#1524: with the node list off, a crumb without a node id is NOT offered for creation (it was never looked up)', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: true, ancestorsKnown: false, breadcrumb: [
+    { label: 'Maybe', path: 'maybe', nodeId: null },
+    { label: 'Foo', path: 'maybe:foo', nodeId: NODE.id },
+  ] }; });
+  await tick();
+  expect(target.querySelector('form[action="?/createParent"]')).toBeNull();
+  expect(target.textContent).not.toContain('Create parent node');
+});
+
+it('portal#1524: children read unavailable says so; it never reads as "no children" or a 0 count', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), children: null, childrenUnavailable: true }; });
+  await tick();
+  expect(target.querySelector('[data-testid="children-unavailable"]')?.textContent).toContain('Children unavailable');
+  expect(target.textContent).not.toMatch(/No children|Children\s*0/);
+});
+
+it('portal#1524: a complete childless read shows no Children tab and no unavailable note', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), children: [], childrenUnavailable: false }; });
+  await tick();
+  expect(target.querySelector('[data-testid="children-unavailable"]')).toBeNull();
+});
+
+it('keeps reader Settings read-only and restores writer metadata and delete controls', async () => {
+  const { target, props } = await mountPage();
+  props.data = { ...props.data as Record<string, unknown>, canWriteMemory: false };
+  flushSync();
+  tabNamed(target, 'Settings')!.click();
+  flushSync();
+  expect(buttonNamed(target, 'Edit')).toBeUndefined();
+  expect(buttonNamed(target, 'Delete node')).toBeUndefined();
+  expect(target.querySelector('#editName')).toBeNull();
+  props.data = { ...props.data as Record<string, unknown>, canWriteMemory: true };
+  flushSync();
+  expect(buttonNamed(target, 'Delete node')?.disabled).toBe(false);
+  buttonNamed(target, 'Edit')!.click();
+  flushSync();
+  expect(target.querySelector('#editName')).not.toBeNull();
 });

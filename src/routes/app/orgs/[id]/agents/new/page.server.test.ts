@@ -58,16 +58,16 @@ describe('create agent action', () => {
       displayName: 'Research Assistant',
       slug: 'research-assistant',
       description: 'Helps with research',
-      systemPrompt: 'Be precise.',
+      systemPrompt: 'stale form text must not be forwarded',
       visibility: 'ORGANIZATION',
     });
 
     expect(result).toMatchObject({ status: 303, location: '/app/orgs/org-1/agents' });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_AGENT_MUTATION, {
-      orgId: 'org-1',
+      orgRef: 'org-1',
       name: 'research-assistant',
       description: 'Helps with research',
-      systemPrompt: 'Be precise.',
+
       visibility: 'ORGANIZATION',
     });
     expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, {

@@ -1,13 +1,13 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
-import { env as publicEnv } from '$env/dynamic/public';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { publicServerBaseUrl } from '$lib/public-server-base-url';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
@@ -58,6 +58,14 @@ function actionFailureStatus(status: number): ActionFailureStatus {
   return status >= 400 && status <= 599 ? status as ActionFailureStatus : 500;
 }
 
+// portal#1347: the server answers a missing, deleted or not-yours Exchange
+// connection with one refusal, FORBIDDEN (authorizationDenied()). Test and Delete
+// show it as 403, the same for every case so the two stay indistinguishable;
+// every other failure (another code, transport, a plain Error) stays 500.
+function exchangeConnectionFailureStatus(e: unknown): 403 | 500 {
+  return extractGqlErrorCode(e) === 'FORBIDDEN' ? 403 : 500;
+}
+
 function scrubPrivateKey<T extends { data: { privateKey: string } }>(form: T): T {
   form.data.privateKey = '';
   return form;
@@ -105,17 +113,17 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       githubInstallationFormAdapter,
       { errors: false },
     ),
-    superValidate<UnlinkGithubForm>({}, unlinkGithubFormAdapter, { errors: false }),
-    superValidate<ConnectExchangeForm>({}, connectExchangeFormAdapter, { errors: false }),
+    superValidate<UnlinkGithubForm>({}, unlinkGithubFormAdapter, { errors: false, id: 'unlinkGithub' }),
+    superValidate<ConnectExchangeForm>({}, connectExchangeFormAdapter, { errors: false, id: 'connectExchange' }),
     superValidate<TestExchangeConnectionForm>(
       { connectionId: '' },
       testExchangeConnectionFormAdapter,
-      { errors: false },
+      { errors: false, id: 'testExchangeConnection' },
     ),
     superValidate<DeleteExchangeConnectionForm>(
       { connectionId: '' },
       deleteExchangeConnectionFormAdapter,
-      { errors: false },
+      { errors: false, id: 'deleteExchangeConnection' },
     ),
   ]);
 
@@ -143,7 +151,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(LINK_GITHUB_APP_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         installationId: Number(form.data.installationId),
       });
       return message(form, { type: 'success', text: t('org.integrations.github.linked', 'GitHub App installation linked.') });
@@ -165,7 +173,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_ORG_GITHUB_APP_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
         appId: form.data.appId,
         privateKey: form.data.privateKey,
       });
@@ -189,12 +197,13 @@ export const actions: Actions = {
     const form = await superValidate<UnlinkGithubForm>(
       await request.formData(),
       unlinkGithubFormAdapter,
+      { id: 'unlinkGithub' },
     );
     if (!form.valid) return fail(400, { form });
 
     try {
       await gqlClient(locals.token).request(UNLINK_GITHUB_APP_MUTATION, {
-        orgId: params.id,
+        orgRef: params.id,
       });
       return message(form, { type: 'success', text: t('org.integrations.github.disconnected', 'GitHub App disconnected.') });
     } catch (e: unknown) {
@@ -210,6 +219,7 @@ export const actions: Actions = {
     const form = await superValidate<ConnectExchangeForm>(
       await request.formData(),
       connectExchangeFormAdapter,
+      { id: 'connectExchange' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -218,7 +228,7 @@ export const actions: Actions = {
     // browser (to PUBLIC_SERVER_URL) with only the nonce. The 30-day JWT never
     // rides in the browser URL / access logs.
     const localUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
-    const publicUrl = publicEnv.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+    const publicUrl = publicServerBaseUrl();
     const integrationsPath = `/app/orgs/${encodeURIComponent(params.id)}/integrations`;
 
     let nonce: string;
@@ -254,6 +264,7 @@ export const actions: Actions = {
     const form = await superValidate<DeleteExchangeConnectionForm>(
       await request.formData(),
       deleteExchangeConnectionFormAdapter,
+      { id: 'deleteExchangeConnection' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -264,7 +275,7 @@ export const actions: Actions = {
       return message(
         form,
         { type: 'error', text: extractGqlError(e, 'Failed to delete Exchange connection') },
-        { status: 500 },
+        { status: exchangeConnectionFailureStatus(e) },
       );
     }
   },
@@ -273,6 +284,7 @@ export const actions: Actions = {
     const form = await superValidate<TestExchangeConnectionForm>(
       await request.formData(),
       testExchangeConnectionFormAdapter,
+      { id: 'testExchangeConnection' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -283,7 +295,7 @@ export const actions: Actions = {
       return message(
         form,
         { type: 'error', text: extractGqlError(e, 'Exchange connection test failed') },
-        { status: 500 },
+        { status: exchangeConnectionFailureStatus(e) },
       );
     }
   },

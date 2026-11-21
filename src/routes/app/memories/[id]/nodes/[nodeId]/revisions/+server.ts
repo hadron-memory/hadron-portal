@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
+import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import {
   RESTORE_NODE_REVISION_MUTATION,
   DELETE_NODE_REVISION_MUTATION,
@@ -64,6 +65,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     }
     return json({ error: 'Unknown action.' }, { status: 400 });
   } catch (e: unknown) {
+    // portal#1142 S2b: a restore refused for an include tag restored nothing.
+    // 409 with the server's words, the tag and a restore-safe next step; the
+    // History dialog stays open and shows it.
+    const include = action === 'restore' ? includeRefusalOf(e) : null;
+    if (include) return json({ error: includeRefusalText(include, 'restore'), code: include.code }, { status: 409 });
     console.error('[node-revisions] action failed:', e);
     return json({ error: extractGqlError(e, 'Revision action failed') }, { status: 500 });
   }

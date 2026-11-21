@@ -2,14 +2,17 @@
   import { page } from '$app/stores';
   import { afterNavigate } from '$app/navigation';
   import CommandBar from './CommandBar.svelte';
+  import ThemeMenu from './ThemeMenu.svelte';
+  import type { ThemePreference } from '$lib/theme';
 
   interface Props {
     user?: { githubUsername: string | null; email: string | null; name: string | null; avatarUrl: string | null } | null;
     dark?: boolean;
-    onToggleTheme?: () => void;
+    theme?: ThemePreference;
+    onSetTheme?: (preference: ThemePreference) => void;
   }
 
-  let { user, dark = true, onToggleTheme }: Props = $props();
+  let { user, dark = true, theme = 'dark', onSetTheme }: Props = $props();
 
   // #320: the command bar only makes sense for a signed-in user inside the app
   // shell — every action targets an /app/* route. Hide it on the public
@@ -112,25 +115,7 @@
         </a>
       {/if}
 
-      <button
-        type="button"
-        onclick={() => onToggleTheme?.()}
-        class="rounded-md p-1.5 transition {dark ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'}"
-        title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-      >
-        {#if dark}
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-            <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-          </svg>
-        {:else}
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-        {/if}
-      </button>
+      <ThemeMenu preference={theme} {dark} onselect={(p) => onSetTheme?.(p)} />
 
       <!-- Mobile menu toggle: the inline links hide below sm, so surface them here. -->
       <button

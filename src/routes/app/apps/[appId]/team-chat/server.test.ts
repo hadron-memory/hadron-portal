@@ -192,3 +192,119 @@ describe('GET /app/apps/[appId]/team-chat — total is bounded by the cursor', (
     expect(status).toBe(200);
   });
 });
+
+// #1137. The team filter is a server-side read argument carried on EVERY path
+// (tail, older, newer), validated here like a cursor, and never applied to a
+// page the portal already holds.
+describe('GET /app/apps/[appId]/team-chat — team filter (#1137)', () => {
+  const ok = () => mockRequest.mockResolvedValue({ teamChatMessages: { items: [], total: 0 } });
+
+  it('passes ?team=<head> to the server on the tail, older and newer reads', async () => {
+    ok();
+    await get('app-1', '?team=h1');
+    await get('app-1', '?team=h1&beforeSeq=40');
+    await get('app-1', '?team=h1&sinceSeq=40');
+    expect(mockRequest.mock.calls.map((c) => c[1])).toEqual([
+      { appRef: 'app-1', beforeSeq: 2147483647, limit: 20, teamHeadRefs: ['h1'] },
+      { appRef: 'app-1', beforeSeq: 40, limit: 20, teamHeadRefs: ['h1'] },
+      { appRef: 'app-1', sinceSeq: 40, limit: 20, teamHeadRefs: ['h1'] },
+    ]);
+  });
+
+  it('passes a multi-select as ONE teamHeadRefs list, duplicates collapsed (#1482)', async () => {
+    ok();
+    await get('app-1', '?team=h1&team=h2');
+    await get('app-1', '?team=h2&team=h1&team=h2');
+    expect(mockRequest.mock.calls.map((c) => c[1])).toEqual([
+      { appRef: 'app-1', beforeSeq: 2147483647, limit: 20, teamHeadRefs: ['h1', 'h2'] },
+      { appRef: 'app-1', beforeSeq: 2147483647, limit: 20, teamHeadRefs: ['h2', 'h1'] },
+    ]);
+  });
+
+  it('passes ?team=untagged as the explicit untagged argument, never as a head', async () => {
+    ok();
+    await get('app-1', '?team=untagged');
+    expect(mockRequest.mock.calls[0][1]).toEqual({
+      appRef: 'app-1', beforeSeq: 2147483647, limit: 20, untagged: true,
+    });
+  });
+
+  it('sends no filter argument at all when the parameter is absent (a default-OFF server must not see one)', async () => {
+    ok();
+    await get();
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('teamHeadRefs');
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('untagged');
+  });
+
+  it('refuses a malformed ?team= with a 400, and reads nothing (no fallback to unfiltered)', async () => {
+    const { status, body } = await get('app-1', '?team=a%20b');
+    expect(status).toBe(400);
+    expect(body).toMatchObject({ items: [], total: 0, loadFailed: true, reason: 'bad-team' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses ?team=untagged mixed with heads with the same 400, never a one-sided read', async () => {
+    // The server would refuse the pair as mutually exclusive (server#3759);
+    // the endpoint must not drop either side and read the other.
+    const { status, body } = await get('app-1', '?team=untagged&team=h1');
+    expect(status).toBe(400);
+    expect(body).toMatchObject({ items: [], total: 0, loadFailed: true, reason: 'bad-team' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the server’s typed head refusal verbatim, with no items and no unfiltered retry', async () => {
+    const refusal = Object.assign(new Error('Team broadcast target is unavailable in this Channel.'), {
+      response: {
+        errors: [
+          { message: 'Team broadcast target is unavailable in this Channel.', extensions: { code: 'TEAM_CHAT_TEAM_HEAD_INVALID' } },
+        ],
+      },
+    });
+    mockRequest.mockRejectedValue(refusal);
+    const { status, body } = await get('app-1', '?team=gone&team=h1');
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      items: [],
+      loadFailed: true,
+      refusal: { code: 'TEAM_CHAT_TEAM_HEAD_INVALID', message: 'Team broadcast target is unavailable in this Channel.' },
+    });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an over-cap selection locally: 400 bad-team, no server read (#1482)', async () => {
+    // The schema caps teamHeadRefs at 20. A 21-value URL is invalid HERE —
+    // the invalid state names the filter and is left like any other bad URL,
+    // where the server’s cap refusal would wedge the thread on nothing-loaded.
+    ok();
+    const { status, body } = await get('app-1', `?${Array.from({ length: 21 }, (_, i) => `team=h${i}`).join('&')}`);
+    expect(status).toBe(400);
+    expect(body).toMatchObject({ items: [], total: 0, loadFailed: true, reason: 'bad-team' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('keeps BAD_USER_INPUT a degraded read, never a team-filter refusal (#1482)', async () => {
+    // BAD_USER_INPUT is not this call’s alone — the same request carries
+    // appRef, and a malformed ref is answered BAD_USER_INPUT before any
+    // lookup. Mapping it would sell that as a filter refusal and halt the
+    // poll over a filter the reader never chose
+    // (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+    const refusal = Object.assign(new Error('teamHeadRefs accepts at most 20 entries.'), {
+      response: {
+        errors: [
+          { message: 'teamHeadRefs accepts at most 20 entries.', extensions: { code: 'BAD_USER_INPUT' } },
+        ],
+      },
+    });
+    mockRequest.mockRejectedValue(refusal);
+    const { body } = await get('app-1', '?team=h1');
+    expect(body).toMatchObject({ items: [], loadFailed: true });
+    expect(body).not.toHaveProperty('refusal');
+  });
+
+  it('keeps an ordinary failure a degraded tick: no refusal is invented', async () => {
+    mockRequest.mockRejectedValue(new Error('boom'));
+    const { body } = await get('app-1', '?team=h1');
+    expect(body.loadFailed).toBe(true);
+    expect(body).not.toHaveProperty('refusal');
+  });
+});

@@ -22,8 +22,10 @@
     fmtRunTime,
     parseApiDate,
     runDuration,
+    runStatusLabel,
     statusChipClass,
     type AppRunStatus,
+    type ReceivedRunStatus,
   } from '$lib/flow/runs';
   import type { PageData } from './$types';
 
@@ -35,7 +37,7 @@
     appId: string;
     /** App name when the name lookup succeeded, else the raw id. */
     app: string;
-    status: AppRunStatus;
+    status: ReceivedRunStatus;
     trigger: string;
     entry: string;
     entryUrn: string;
@@ -92,9 +94,12 @@
       // pin "not finished yet" (PENDING + RUNNING). None of TanStack's built-in
       // filterFns fit — `arrIncludesSome` expects the ROW value to be the array,
       // and ours is a scalar — so match membership the other way round. An
-      // empty/absent selection means no filtering.
+      // empty/absent selection means no filtering. The selection is always the
+      // known set (the buttons above emit RUN_STATUSES only); the ROW value may
+      // be an unknown enum name a newer server sent (#1766), which simply
+      // matches no known filter.
       filterFn: (row, columnId, value: AppRunStatus[]) =>
-        !value?.length || value.includes(row.getValue(columnId) as AppRunStatus),
+        !value?.length || (value as readonly string[]).includes(row.getValue(columnId) as string),
     },
     { accessorKey: 'app', header: t('org-runs.column.app', 'App'), size: 160 },
     { accessorKey: 'trigger', header: t('org-runs.column.trigger', 'Trigger'), size: 170 },
@@ -251,13 +256,12 @@
       searchPlaceholder={t('org-runs.search-placeholder', 'Search runs by app, trigger, or entry node…')}
       searchAriaLabel={t('org-runs.search.aria-label', 'Search runs')}
       bind:globalFilter
-      maxHeight="max(200px, calc(100vh - 24rem))"
     >
       {#snippet cell(cell, run)}
         {#if cell.column.id === 'started'}
           <span class="whitespace-nowrap">{run.started}</span>
         {:else if cell.column.id === 'status'}
-          <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusChipClass(run.status)}">{run.status}</span>
+          <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusChipClass(run.status)}">{runStatusLabel(run.status)}</span>
         {:else if cell.column.id === 'app'}
           <a href="/app/apps/{run.appId}/runs" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{run.app}</a>
         {:else if cell.column.id === 'entry'}

@@ -24,7 +24,7 @@ const SAFE_INLINE_STYLES = new Set([
 
 // Markdown formatting plus inert HTML content. Interactive controls and form
 // actions must never be supplied by a writable node in the portal's origin.
-const NOTE_TAGS = [
+export const NOTE_TAGS = [
   'a', 'abbr', 'article', 'aside', 'b', 'blockquote', 'br', 'caption', 'cite',
   'code', 'dd', 'del', 'details', 'div', 'dl', 'dt', 'em', 'figcaption', 'figure',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'input', 'ins', 'kbd', 'li',
@@ -32,7 +32,7 @@ const NOTE_TAGS = [
   'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr',
   'u', 'ul', 'var',
 ];
-const NOTE_ATTRIBUTES = [
+export const NOTE_ATTRIBUTES = [
   'alt', 'checked', 'class', 'colspan', 'disabled', 'height', 'href',
   'open', 'rowspan', 'src', 'start', 'style', 'title', 'type', 'width',
 ];
@@ -68,9 +68,12 @@ function safeClassNames(raw: string): string {
 
 let nodePurifier: ReturnType<typeof DOMPurify> | null = null;
 
-function purifier(): ReturnType<typeof DOMPurify> {
-  if (nodePurifier) return nodePurifier;
-  const instance = DOMPurify(window);
+/**
+ * The style/class/input rules every portal Markdown path shares. One installer,
+ * so the dedicated spec-document sanitizer (#1720) cannot drift from the node
+ * path on what an authored style, class or input may do.
+ */
+export function installSharedMarkdownHooks(instance: ReturnType<typeof DOMPurify>): void {
   instance.addHook('uponSanitizeAttribute', (node, attribute) => {
     if (attribute.attrName === 'style') {
       attribute.attrValue = safeInlineStyle(attribute.attrValue, node.ownerDocument);
@@ -88,6 +91,12 @@ function purifier(): ReturnType<typeof DOMPurify> {
     node.setAttribute('disabled', '');
     node.removeAttribute('src');
   });
+}
+
+function purifier(): ReturnType<typeof DOMPurify> {
+  if (nodePurifier) return nodePurifier;
+  const instance = DOMPurify(window);
+  installSharedMarkdownHooks(instance);
   nodePurifier = instance;
   return instance;
 }
@@ -96,8 +105,9 @@ export function createNodeMarkdownRenderer(
   MarkedClass: typeof Marked,
   wikilinks: WikilinkMap,
   strings: WikilinkStrings,
+  options: { qualifiedOnly?: boolean } = {},
 ): Marked {
-  return new MarkedClass({ extensions: [wikilinkExtension(wikilinks, strings)] });
+  return new MarkedClass({ extensions: [wikilinkExtension(wikilinks, strings, options)] });
 }
 
 export function renderNodeMarkdown(renderer: Marked, source: string): string {

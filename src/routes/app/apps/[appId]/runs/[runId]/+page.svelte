@@ -1,9 +1,11 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { invalidateAll } from '$app/navigation';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import ServedPrompt from '$lib/components/ServedPrompt.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -14,8 +16,13 @@
     failureCode,
     failureMessage,
     fmtRunTime,
+    fmtHopDuration,
+    fmtHopTokens,
     isCancellable,
+    parseHops,
+    type RunTrail,
     runDuration,
+    runStatusLabel,
     statusChipClass,
     visibleEnvelope,
   } from '$lib/flow/runs';
@@ -36,6 +43,27 @@
   const live = $derived(isCancellable(run.status));
   const envelope = $derived(visibleEnvelope(data.envelope));
   const eventDataShown = $derived(visibleEnvelope(run.eventData));
+  // #482: the trail belongs to the run it was read for. A trail stamped for any
+  // other run (a poll answered after navigation) is never shown on this one.
+  const trail = $derived<RunTrail>(
+    data.trail.runId === run.id && data.trail.supported ? parseHops(data.trail.raw) : { state: 'unavailable' },
+  );
+  // The step in flight / the step that failed has NO hops element (only completed
+  // hops are recorded), so it is shown apart from the rows, never as one.
+  const stoppedLabel = $derived(
+    run.status === 'FAILED' ? t('run.timeline.failed-at', 'Failed at')
+      : run.status === 'TIMED_OUT' ? t('run.timeline.timed-out-at', 'Timed out at')
+      : run.status === 'CANCELLED' ? t('run.timeline.cancelled-at', 'Cancelled at')
+      : null,
+  );
+  // portal#2339 #11: a looping flow can record hundreds of hops; past the cap the middle is folded behind a control.
+  const HOP_CAP = 50;
+  let showAllHops = $state(false);
+  const hops = $derived(trail.state === 'ready' ? trail.hops : []);
+  const folded = $derived(!showAllHops && hops.length > HOP_CAP * 2);
+  const shownHops = $derived(
+    (folded ? [...hops.slice(0, HOP_CAP), ...hops.slice(-HOP_CAP)] : hops).map((hop, k) => ({ hop, n: folded && k >= HOP_CAP ? hops.length - 2 * HOP_CAP + k + 1 : k + 1, gapBefore: folded && k === HOP_CAP })),
+  );
   const recordUrn = $derived(run.status === 'COMPLETED' ? defaultRunRecordUrn(run) : null);
   const initialCancelForm = untrack(() => submittedForm<CancelAppRunForm>(form, 'cancelRun') as CancelAppRunSuperform | null ?? data.cancelForm);
   const {
@@ -75,7 +103,7 @@
   <Breadcrumb items={[
     { label: 'Apps', href: appsHref },
     { label: data.app.name, href: basePath },
-    { label: 'Runs', href: `${basePath}/runs` },
+    { label: 'Runs', href: `${basePath}?tab=runs` },
     { label: run.id.slice(0, 8) },
   ]} />
 
@@ -84,7 +112,7 @@
       <h1 class="flex items-center gap-3 text-xl font-bold text-zinc-900 dark:text-white">
         {t('run.title', 'Run')}
         <span class="rounded-full px-2.5 py-0.5 text-sm font-medium {statusChipClass(run.status)}">
-          {run.status}{#if live}<span class="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current align-middle"></span>{/if}
+          {runStatusLabel(run.status)}{#if live}<span class="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current align-middle"></span>{/if}
         </span>
       </h1>
       <p class="mt-1 font-mono text-xs text-zinc-500">{run.id}</p>
@@ -113,9 +141,12 @@
 
   {#if cancelActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{cancelActionError}</div>
-  {:else if cancelActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{cancelActionSuccess}</div>
   {/if}
+  <LiveRegion>
+  {#if !cancelActionError && cancelActionSuccess}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{cancelActionSuccess}</div>
+  {/if}
+  </LiveRegion>
 
   <!-- Provenance: who/what/why -->
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -184,6 +215,65 @@
       <pre class="mt-3 overflow-x-auto rounded-lg bg-white/60 p-3 font-mono text-xs text-red-900 dark:bg-black/30 dark:text-red-200">{JSON.stringify(run.failure, null, 2)}</pre>
     </section>
   {/if}
+
+  <!-- Step timeline: the completed hops (#482) -->
+  <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="run-timeline-heading">
+    <h2 id="run-timeline-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('run.timeline', 'Step timeline')}</h2>
+    <p class="mt-1 text-xs text-zinc-400">
+      {t('run.timeline.hint', 'Steps the run has completed, in order. The step in progress, or the one that failed, is shown below the list, not as a step.')}
+    </p>
+    {#if trail.state === 'unavailable'}
+      <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('run.timeline.unavailable', 'Step trail unavailable for this run.')}</p>
+    {:else if trail.hops.length === 0}
+      <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('run.timeline.empty', 'No completed steps recorded.')}</p>
+    {:else}
+      <ol class="mt-3 space-y-2">
+        {#each shownHops as { hop, n, gapBefore }}
+          {#if gapBefore}
+            <li class="text-center">
+              <button type="button" data-testid="hop-expand" class="text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400" onclick={() => (showAllHops = true)}>
+                {t('run.timeline.show-all', 'Show all {n} steps', { n: hops.length })}
+              </button>
+            </li>
+          {/if}
+          <li data-testid="hop-row" class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span class="text-xs font-semibold text-zinc-500">{n}</span>
+              <Urn value={hop.node} type="node" size={11} label={t('run.timeline.step', 'step')} />
+            </div>
+            <dl class="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+              <div>
+                <dt class={rowLabel}>{t('run.timeline.duration', 'Duration')}</dt>
+                <dd class={rowValue}>{fmtHopDuration(hop.startedAt, hop.finishedAt)}</dd>
+              </div>
+              <div>
+                <dt class={rowLabel}>{t('run.timeline.tokens', 'Tokens')}</dt>
+                <dd class={rowValue}>{fmtHopTokens(hop.tokensSpent)}</dd>
+              </div>
+              <div class="min-w-0">
+                <dt class={rowLabel}>{t('run.timeline.edge-out', 'Edge taken next')}</dt>
+                <dd class="{rowValue} min-w-0">
+                  {#if hop.edgeOut}<span data-testid="hop-edge" class="font-mono [overflow-wrap:anywhere]">{hop.edgeOut}</span>{:else}—{/if}
+                </dd>
+              </div>
+            </dl>
+          </li>
+        {/each}
+      </ol>
+    {/if}
+    {#if run.curNodeUrn && (live || stoppedLabel)}
+      <div data-testid="timeline-current" class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+        <p class={rowLabel}>{live ? t('run.timeline.in-progress-at', 'In progress at') : stoppedLabel}</p>
+        <div class="mt-0.5"><Urn value={run.curNodeUrn} type="node" size={11} /></div>
+      </div>
+    {/if}
+  </section>
+
+  <!-- portal#1665: what this run was served (hrn:node:hadronmemory.com:specs:cor:agt:040:03). Keyed by the run: a response for another
+       run never shows here, and an empty answer renders nothing (the provider's concealment). -->
+  {#key run.id}
+    <ServedPrompt collapsible source="run" refId={run.id} />
+  {/key}
 
   <!-- Envelope: what the flow extracted -->
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

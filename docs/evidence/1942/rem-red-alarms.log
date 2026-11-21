@@ -1,0 +1,73 @@
+
+> hadron-web@0.1.0 test:table-cell-overflow-layout /home/orca/orca/workspaces/hadron-portal/juliet
+> node scripts/test-table-cell-overflow-layout.mjs
+
+rem-control alarms 1280 false {
+  width: 84.890625,
+  height: 44,
+  left: 32,
+  right: 3.109375,
+  top: 516.5,
+  bottom: 20,
+  labelLines: 1
+}
+alarms/1280/light: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 573,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 408,
+    netOnChangedChannels: 0
+  }
+}
+rem-control alarms 1280 true {
+  width: 84.890625,
+  height: 44,
+  left: 32,
+  right: 3.109375,
+  top: 516.5,
+  bottom: 20,
+  labelLines: 1
+}
+alarms/1280/dark: completed8 sizing/text legs + native controls/menu/minimum {
+  paint: {
+    clean: 0,
+    negativeControlChangedChannels: 570,
+    netOnChangedChannels: 0
+  },
+  narrowPaint: {
+    clean: 0,
+    negativeControlChangedChannels: 408,
+    netOnChangedChannels: 0
+  }
+}
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   'alarms/1280/false: real-rem 200% focus margin {"width":84.890625,"height":44,"left":32,"right":3.109375,"top":516.5,"bottom":20,"labelLines":1}',
++   'alarms/1280/true: real-rem 200% focus margin {"width":84.890625,"height":44,"left":32,"right":3.109375,"top":516.5,"bottom":20,"labelLines":1}'
++ ]
+- []
+
+    at file:///home/orca/orca/workspaces/hadron-portal/juliet/scripts/test-table-cell-overflow-layout.mjs:196:9 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: [
+    'alarms/1280/false: real-rem 200% focus margin {"width":84.890625,"height":44,"left":32,"right":3.109375,"top":516.5,"bottom":20,"labelLines":1}',
+    'alarms/1280/true: real-rem 200% focus margin {"width":84.890625,"height":44,"left":32,"right":3.109375,"top":516.5,"bottom":20,"labelLines":1}'
+  ],
+  expected: [],
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.23.3
+ ELIFECYCLE  Command failed with exit code 1.
