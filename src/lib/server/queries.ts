@@ -6232,8 +6232,8 @@ export const ACKNOWLEDGE_ALARM_MUTATION = /* GraphQL */ `
 `;
 
 // portal#2234 (Questions P1, epic hadron-server#1641): the question card.
-// Needs a server serving the commit that contains hadron-server#4427 and
-// #4428 or later; the portal deploys only after production serves it.
+// Needs a server serving 2bc8d228 (hadron-server#4532 merge, with #4427 and
+// #4428) or later; the portal deploys only after production serves it.
 export const QUESTION_CARD_FIELDS = /* GraphQL */ `
   fragment QuestionCardFields on Question {
     id urn portalUrl code title background whyNow priority tier authorizes state answered revSeq
@@ -6266,7 +6266,7 @@ export const ANSWER_QUESTION_MUTATION = /* GraphQL */ `
 
 export const RETRACT_QUESTION_ANSWER_MUTATION = /* GraphQL */ `
   ${QUESTION_CARD_FIELDS}
-  mutation RetractQuestionAnswer($ref: ID!, $expectedRevision: Int!, $reason: String, $via: QuestionVia) {
+  mutation RetractQuestionAnswer($ref: ID!, $expectedRevision: Int!, $reason: String, $via: QuestionAnswerVia) {
     retractQuestionAnswer(ref: $ref, expectedRevision: $expectedRevision, reason: $reason, via: $via) { ...QuestionCardFields }
   }
 `;
