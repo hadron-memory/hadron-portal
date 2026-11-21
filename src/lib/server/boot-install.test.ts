@@ -89,6 +89,20 @@ describe('compile and approval outcomes', () => {
     expect(result.text).toContain('already has a source'); expect('status' in result && result.status).toBe(409);
     expect(request).toHaveBeenCalledTimes(2);
   });
+  it.each([
+    ['FORBIDDEN', 'This change was refused.'],
+    ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs an active grant to customise this Agent.'],
+    ['NODE_WRITE_CONFLICT', 'Another edit was saved. Reload before trying again.'],
+  ])('portal#1755: an empty-source start refused with %s never claims a kept draft', async (code, lead) => {
+    // No draft exists to keep, and the server's answer teaches nothing about a
+    // source, so the start refusal states the refusal and nothing more.
+    const request = vi.fn().mockResolvedValueOnce(worker).mockRejectedValueOnce(error(code));
+    const result = await writeInstallPrompt({ request } as never, owner, { intent: 'start' }, false);
+    expect(result.ok).toBe(false);
+    expect('status' in result && result.status).toBe(403);
+    expect(result.text).toBe(lead);
+    expect(result.text).not.toMatch(/draft/i);
+  });
   const install = { installMemory: { id: 'install', urn: 'hrn:mem:example.com:install' } };
   const node = { node: { id: 'c', urn: 'hrn:node:example.com:install:boot:compiled', revision: 3, content: 'compiled', approvalStatus: { state: 'NOT_APPROVED', approval: null }, lintWarnings: null } };
   function approvalClient() {

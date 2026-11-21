@@ -77,7 +77,9 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
       return { ok: true, key: compileOwnerKey(owner), text: t('boot.install.db31e98029', 'An empty source was started. Nothing served changed.') };
     } catch (e) {
       const code = extractGqlErrorCode(e);
-      return refused(code === 'NodeLocConflictError' ? t('boot.install.227d62de11', 'This worker already has a source. Reload to open it.') : customisationRefusalLead(code) ?? t('boot.install.a06a518a01', 'Could not confirm the source was started. Reload to check before trying again.'), code === 'NodeLocConflictError' ? 409 : customisationRefusalLead(code) ? 403 : 502);
+      // #1755: an empty-source start has no draft, so its lead must not claim one.
+      const lead = code === 'NodeLocConflictError' ? t('boot.install.227d62de11', 'This worker already has a source. Reload to open it.') : customisationRefusalLead(code, { draft: false });
+      return refused(lead ?? t('boot.install.a06a518a01', 'Could not confirm the source was started. Reload to check before trying again.'), code === 'NodeLocConflictError' ? 409 : lead ? 403 : 502);
     }
   }
   if (input.intent === 'approve') {
