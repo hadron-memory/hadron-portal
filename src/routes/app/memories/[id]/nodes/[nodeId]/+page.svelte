@@ -2418,10 +2418,9 @@
     historyMenuFor = r;
   }
 
-  // `current` lets a caller whose result can be outlived (the label popup)
-  // fence its own busy/error reporting: a stale request still returns false/true
-  // but touches no page state.
-  async function postRevisionAction(payload: Record<string, unknown>, current: () => boolean = () => true): Promise<boolean> {
+  // The label popup does not come through here: its save can outlive the popup
+  // and carries its own fence (confirmLabel).
+  async function postRevisionAction(payload: Record<string, unknown>): Promise<boolean> {
     historyBusy = true;
     historyError = null;
     try {
@@ -2432,16 +2431,16 @@
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (current()) historyError = d.error ?? 'Revision action failed';
+        historyError = d.error ?? 'Revision action failed';
         return false;
       }
       await invalidateAll(); // refresh the node + the streamed revision list
       return true;
     } catch (e) {
-      if (current()) historyError = e instanceof Error ? e.message : 'Revision action failed';
+      historyError = e instanceof Error ? e.message : 'Revision action failed';
       return false;
     } finally {
-      if (current()) historyBusy = false;
+      historyBusy = false;
     }
   }
 

@@ -56,6 +56,8 @@ const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.unstubAllGlobals();
+  // The console.warn spy from beforeEach must not outlive its test (portal#2457 D6).
+  vi.restoreAllMocks();
 });
 
 async function settle() {
@@ -109,44 +111,72 @@ describe('#534 — Edit label popup on the real node page', () => {
     expect(input(target)).toBeNull();
   });
 
-  it('a save for a cancelled popup neither closes nor wipes the popup opened after it', async () => {
-    let finish!: (r: Response) => void;
-    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((res) => { finish = res; })));
+  // portal#2457 D5 / hrn:node:hadronmemory.com:specs:cor:dmo:140:04: labels may be set on a question's
+  // revisions, so the node being a question never disables or hides Edit label.
+  it('offers an enabled Edit label on a question node’s revision', async () => {
+    const { target, props } = await mountPage();
+    served = { ...node('Q'), role: 'question' } as typeof served;
+    setStubPage('http://localhost/app/memories/mem-A/nodes/Q', { id: 'mem-A', nodeId: 'Q' });
+    props.data = {
+      ...PARENT,
+      ...((await load({
+        params: { id: 'mem-A', nodeId: 'Q' },
+        locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
+        url: new URL('http://localhost/app/memories/mem-A/nodes/Q?tab=history'),
+        parent: vi.fn().mockResolvedValue(PARENT),
+      } as never)) as Record<string, unknown>),
+    };
+    await settle();
+    await click(target.querySelector('button[aria-label="Revision actions"]'));
+    const item = byText(target, '[role="menuitem"]', 'Edit label') as HTMLButtonElement;
+    expect(item).toBeTruthy();
+    expect(item.disabled).toBe(false);
+    await click(item);
+    expect(input(target)).not.toBeNull();
+  });
+
+  // portal#2457 D1: a save in flight cannot be dismissed, so the only way a save
+  // outlives its popup is the page moving to another node.
+  it('a save still in flight cannot be dismissed from the popup', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
     const { target } = await mountPage();
     await openLabelDialog(target);
-
-    typeInto(input(target)!, 'first');
     await click(target.querySelector('[data-testid="revision-label-save"]'));
     await click(target.querySelector('[data-testid="revision-label-cancel"]'));
-    expect(input(target)).toBeNull();
+    await click(target.querySelector('button[tabindex="-1"][class*="bg-black"]'));
+    target.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    expect(input(target)).not.toBeNull();
+  });
 
-    await click(target.querySelector('button[aria-label="Revision actions"]'));
-    await click(byText(target, '[role="menuitem"]', 'Edit label'));
+  it('a refusal arrives in the open popup as an alert, and the popup is free again', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'revLabel exceeds the 500-character cap.' }), { status: 400 })));
+    const { target } = await mountPage();
+    await openLabelDialog(target);
+    typeInto(input(target)!, 'x'.repeat(600));
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    expect(target.querySelector('[data-testid="revision-label-error"]')?.getAttribute('role')).toBe('alert');
+    expect(target.querySelector('[data-testid="revision-label-error"]')?.textContent).toBe('revLabel exceeds the 500-character cap.');
+    expect(target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!.disabled).toBe(false);
+    expect(input(target)?.value).toBe('x'.repeat(600));
+  });
+
+  it('a save for a departed node neither closes nor wipes the popup opened on the next one', async () => {
+    let finish!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((res) => { finish = res; })));
+    const { target, props } = await mountPage();
+    await openLabelDialog(target);
+    typeInto(input(target)!, 'first');
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    props.data = await loaded('B');
+    await settle();
+    await openLabelDialog(target);
     typeInto(input(target)!, 'second draft');
 
     finish(new Response(JSON.stringify({ ok: true }), { status: 200 }));
     await settle();
 
     expect(input(target)?.value).toBe('second draft');
-  });
-
-  it('a cancelled save\'s late refusal does not render in the popup opened after it', async () => {
-    let fail!: (r: Response) => void;
-    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((res) => { fail = res; })));
-    const { target } = await mountPage();
-    await openLabelDialog(target);
-    await click(target.querySelector('[data-testid="revision-label-save"]'));
-    await click(target.querySelector('[data-testid="revision-label-cancel"]'));
-    await click(target.querySelector('button[aria-label="Revision actions"]'));
-    await click(byText(target, '[role="menuitem"]', 'Edit label'));
-    typeInto(input(target)!, 'new draft');
-
-    fail(new Response(JSON.stringify({ error: 'old refusal' }), { status: 403 }));
-    await settle();
-
-    expect(target.textContent).not.toContain('old refusal');
-    expect(input(target)?.value).toBe('new draft');
-    expect(target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!.disabled).toBe(false);
   });
 
   it('a late refusal from node A does not render on node B\'s popup', async () => {
@@ -169,14 +199,17 @@ describe('#534 — Edit label popup on the real node page', () => {
     const pending: Array<(r: Response) => void> = [];
     const fetchMock = vi.fn(() => new Promise<Response>((res) => { pending.push(res); }));
     vi.stubGlobal('fetch', fetchMock);
-    const { target } = await mountPage();
+    const { target, props } = await mountPage();
     const save = () => target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!;
     await openLabelDialog(target);
     typeInto(input(target)!, 'first');
     await click(save()); // write A, left pending
-    await click(target.querySelector('[data-testid="revision-label-cancel"]'));
-    await click(target.querySelector('button[aria-label="Revision actions"]'));
-    await click(byText(target, '[role="menuitem"]', 'Edit label'));
+    // The popup cannot be dismissed mid-save; the page moving away and back is the way it reopens.
+    props.data = await loaded('B');
+    await settle();
+    props.data = await loaded('A');
+    await settle();
+    await openLabelDialog(target);
     typeInto(input(target)!, 'second');
 
     expect(save().disabled).toBe(true); // same revision, write in flight
