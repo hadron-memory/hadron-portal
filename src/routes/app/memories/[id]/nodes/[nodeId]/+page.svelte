@@ -771,7 +771,12 @@
   // portal#2446: the first run must not rewrite flowFormData, which a
   // full-page updateFlow refusal hydrated with the reader's refused draft.
   // The dependencies are read BEFORE the early return so the effect still
-  // tracks them and later edits sync as before.
+  // tracks them and later edits sync as before. The visible editor above
+  // (flowRows, outputWriteTo, outputMode) is seeded from node.data, not from
+  // the refused form, so until the reader edits, the hidden inputs hold the
+  // draft and the editor shows the saved flow; Save stays disabled until
+  // flowDirty, so the unseen draft cannot be resubmitted. Seeding the editor
+  // from the draft is portal#2467.
   let flowSyncMounted = false;
   $effect(() => {
     const rowsJson = flowRowsJson;
@@ -2702,6 +2707,13 @@
       // runs on the FIRST mount too, erasing the draft the alert is about.
       // Same rule as the clearMetaRefusal() guard above: reset these only on
       // a real node change.
+      // `nodeChanged` is false only on the first run (lastNodeId starts
+      // undefined) and true on every later node-id change. Same-node re-runs
+      // never reach this block. $deleteFormData.hard needs no first-mount
+      // reset: its checkbox only renders inside the delete dialog, and both
+      // ways in (the 'delete' menu case and the Settings danger-zone button)
+      // set hard = false before opening it. The same goes for the move
+      // target ('move' menu case) and the testFlow org default (below).
       if (nodeChanged) {
         $testFlowFormData.appId = '';
         $testFlowFormData.agentRef = '';

@@ -211,6 +211,15 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     const actionData = await refusedAction('testFlow', { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', agentRef: '', payload: '{"keep":"me"}' });
     const { m, props } = await mountHydrated(actionData);
 
+    // Before the switch the refused draft IS there (hydration kept it), so the
+    // empty payload asserted after it can only come from the node-change reset.
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value, 'the refused payload before the node change').toBe('{"keep":"me"}');
+
     // The reader goes to another node and the page component stays mounted
     // (SvelteKit reuses it). `form` is left as is: the reset effect, not the
     // action data, is what must clear the draft.
