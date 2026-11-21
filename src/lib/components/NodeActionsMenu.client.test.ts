@@ -42,10 +42,13 @@ describe('NodeActionsMenu actions', () => {
     expect(onselect).not.toHaveBeenCalled();
     expect(target.querySelector('[role="menu"]')).not.toBeNull(); // the menu stays open
 
+    const trigger = target.querySelector<HTMLButtonElement>('button[aria-label="Row actions"]')!;
     [...target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((b) => b.textContent?.trim() === 'Delete')!.click();
-    // (#1487 review) the menu hands its own trigger to onselect beside the
-    // id; this test only cares about the id.
-    expect(onselect).toHaveBeenCalledWith('delete', expect.any(HTMLButtonElement));
+    // (#1487 review, #2356) the menu hands its own trigger to onselect beside
+    // the id: assert it is THE trigger, not just any button (a menu item is
+    // an HTMLButtonElement too).
+    expect(trigger.hasAttribute('aria-haspopup')).toBe(true);
+    expect(onselect).toHaveBeenCalledWith('delete', trigger);
   });
 
   it('exposes its open state as data-menu-open so stacking keys on state, not on role="menu"', () => {

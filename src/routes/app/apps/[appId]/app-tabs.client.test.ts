@@ -257,17 +257,23 @@ it('App memory filters do not infer read-only access from the primary agent', as
   expect(target.textContent).not.toContain('(read-only)');
 });
 
-// portal#2332: the Memories tabpanel carries a heading landmark for
-// heading-keyed screen-reader navigation, visually hidden because its text
+// portal#2332: the Memories tabpanel carries a heading (not an ARIA landmark)
+// for heading-keyed screen-reader navigation, visually hidden because its text
 // only echoes the tab label
 // (hrn:node:hadronmemory.com:hadron-portal:conventions:tabpanel-heading-landmark;
 // the tab keeps naming the panel via aria-labelledby).
 it('the Memories tabpanel holds an sr-only h2 echoing the tab label (#2332)', async () => {
   const target = await mountTab('memory');
-  const heading = target.querySelector('#panel-memory h2');
+  const panel = target.querySelector('#panel-memory');
+  expect(panel).not.toBeNull();
+  const heading = panel!.querySelector('h2');
   expect(heading).not.toBeNull();
-  expect(heading!.textContent?.trim()).toBe('Memories');
-  expect(heading!.className).toContain('sr-only');
+  // The tab names the panel; the heading must echo whatever label the tab
+  // renders, not a hard-coded English fallback.
+  const tab = target.querySelector(`#${panel!.getAttribute('aria-labelledby')}`);
+  expect(tab).not.toBeNull();
+  expect(heading!.textContent?.trim()).toBe(tab!.textContent?.trim());
+  expect(heading!.classList.contains('sr-only')).toBe(true);
 });
 
 // portal#1881: the formerly capped lists expose user-initiated pages instead.
