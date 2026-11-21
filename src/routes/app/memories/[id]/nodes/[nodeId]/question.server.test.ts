@@ -53,8 +53,17 @@ describe('question loader', () => {
     serve(NODE, () => ({ question: QUESTION }));
     const { load } = await import('./+page.server');
     const data = (await load(loadEvent())) as unknown as { question: unknown };
-    expect(data.question).toEqual({ kind: 'ok', value: QUESTION });
+    expect(data.question).toEqual({ kind: 'ok', value: { ...QUESTION, viewerId: null, impersonating: false } });
     expect(questionCalls()[0][1]).toEqual({ ref: 'leaf-pk' });
+  });
+  it('carries who is looking, and whether as someone else, onto the card (the badge and withdraw gates read it)', async () => {
+    serve(NODE, () => ({ question: QUESTION }));
+    const { load } = await import('./+page.server');
+    const ev = loadEvent() as unknown as { locals: Record<string, unknown> };
+    ev.locals = { token: 'tok', user: { id: 'u-1' }, impersonation: { by: 'admin' } };
+    const data = (await load(ev as never)) as unknown as { question: { value: { viewerId: string; impersonating: boolean } } };
+    expect(data.question.value.viewerId).toBe('u-1');
+    expect(data.question.value.impersonating).toBe(true);
   });
   it('makes no question request for any other role', async () => {
     serve({ ...NODE, role: 'spec' }, () => ({ question: QUESTION }));
