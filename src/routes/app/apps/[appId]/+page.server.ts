@@ -13,7 +13,7 @@ import { readDeleteWorkerPost, deleteWorkerFailureRefusal, type DeleteWorkerRefu
 
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
-import { message, superValidate } from 'sveltekit-superforms/server';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { appKeyRefusal } from '$lib/server/app-key-refusal';
@@ -1778,6 +1778,14 @@ export const actions: Actions = {
       return message(form, { type: 'success', text: t('app.key.scope.granted', 'Scope granted.') });
     } catch (e: unknown) {
       const { status, text } = appKeyRefusal(e, 'Failed to grant the scope');
+      // #2356: a refusal ABOUT THE HOST (a second host, a malformed host id)
+      // lands on the host field so the input can be marked invalid; every
+      // other refusal (permission, key gone, network) stays a form message
+      // and says nothing about what the reader typed.
+      const code = extractGqlErrorCode(e);
+      if (form.data.scope === 'host:operate' && (code === 'APP_KEY_SCOPE_HOST_CONFLICT' || code === 'BAD_USER_INPUT')) {
+        return setError(form, 'hostId', text, { status });
+      }
       return message(form, { type: 'error', text }, { status });
     }
   },
