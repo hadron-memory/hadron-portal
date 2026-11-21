@@ -175,6 +175,7 @@
     createAppKeySchema,
     deleteAppSchema,
     grantAppKeyScopeSchema,
+    revokeAppKeyScopeSchema,
     releaseWorkerSchema,
     removeAppAgentSchema,
     retireWorkerSchema,
@@ -193,6 +194,7 @@
   type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
   type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
   type GrantAppKeyScopeForm = Infer<typeof grantAppKeyScopeSchema, 'zod4'>;
+  type RevokeAppKeyScopeForm = Infer<typeof revokeAppKeyScopeSchema, 'zod4'>;
   type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
   type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
   type ReleaseWorkerForm = Infer<typeof releaseWorkerSchema, 'zod4'>;
@@ -204,6 +206,7 @@
   type CreateAppKeySuperform = SuperValidated<CreateAppKeyForm, App.Superforms.Message, CreateAppKeyForm>;
   type DeleteAppSuperform = SuperValidated<DeleteAppForm, App.Superforms.Message, DeleteAppForm>;
   type GrantAppKeyScopeSuperform = SuperValidated<GrantAppKeyScopeForm, App.Superforms.Message, GrantAppKeyScopeForm>;
+  type RevokeAppKeyScopeSuperform = SuperValidated<RevokeAppKeyScopeForm, App.Superforms.Message, RevokeAppKeyScopeForm>;
   type RemoveAppAgentSuperform = SuperValidated<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>;
   type RetireWorkerSuperform = SuperValidated<RetireWorkerForm, App.Superforms.Message, RetireWorkerForm>;
   type ReleaseWorkerSuperform = SuperValidated<ReleaseWorkerForm, ReleaseWorkerMessage, ReleaseWorkerForm>;
@@ -1039,7 +1042,7 @@
   // tab to Chats. Seeding from the result makes the server render, the effects
   // and the `enter` re-sync agree.
   function tabForActionResult(result: unknown, current: TabId | null): TabId | null {
-    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey') || submittedForm<GrantAppKeyScopeForm>(result, 'grantKeyScope')) {
+    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey') || submittedForm<GrantAppKeyScopeForm>(result, 'grantKeyScope') || submittedForm<RevokeAppKeyScopeForm>(result, 'revokeKeyScope')) {
       // The Client tab lists the same keys and shares the revoke action, so a
       // revoke made THERE stays there.
       return current === 'client' ? 'client' : 'keys';
@@ -1935,6 +1938,115 @@
     });
   });
 
+  // ── Revoke a scope (portal#2319) ─────────────────────────────────────
+  // The mirror of the grant above: one live key loses one scope it holds, from
+  // a dialog the row's ⋯ menu opens right after Grant scope. The picker lists
+  // only the scopes the key holds, never free text. The server is the gate;
+  // the dialog STAYS until it answers, and a refusal (the audience refusal, a
+  // key that is gone) shows beside the form that ran, never as a toast.
+  const initialRevokeKeyScopeForm = untrack(() => submittedForm<RevokeAppKeyScopeForm>(form, 'revokeKeyScope') as RevokeAppKeyScopeSuperform | null ?? data.revokeKeyScopeForm);
+  const {
+    form: revokeKeyScopeForm,
+    errors: revokeKeyScopeErrors,
+    message: revokeKeyScopeMessage,
+    submitting: revokeKeyScopeSubmitting,
+    enhance: revokeKeyScopeEnhance,
+  } = superForm<RevokeAppKeyScopeForm, App.Superforms.Message, RevokeAppKeyScopeForm>(initialRevokeKeyScopeForm, {
+    validators: zod4Client(revokeAppKeyScopeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    // Stamped with the App it began on, as the grant is, so an answer from a
+    // departed App never lands on this one.
+    onSubmit: () => {
+      revokeScopeAttemptGeneration = revokeScopeGeneration;
+    },
+    onResult: ({ result, cancel }) => {
+      if (revokeScopeAttemptGeneration !== revokeScopeGeneration) {
+        cancel();
+        return;
+      }
+      if (result.type === 'success') revokeScopeKey = null;
+    },
+    onError: () => {
+      if (revokeScopeAttemptGeneration !== revokeScopeGeneration) return;
+      revokeKeyScopeMessage.set({
+        type: 'error',
+        text: t('app.keys.revoke-scope.unconfirmed', 'The revoke could not be confirmed. Reload the page to check before trying again.'),
+      });
+    },
+  });
+
+  // The distinct scopes a key holds, in the order the Scopes column shows
+  // them. A host:operate grant is one scope however it is labelled, and the
+  // server's revoke takes the scope alone.
+  const heldScopesOf = (id: string): ('attention:deliver' | 'host:operate')[] => {
+    const out: ('attention:deliver' | 'host:operate')[] = [];
+    for (const s of keyScopesOf(id)) {
+      if ((s.scope === 'attention:deliver' || s.scope === 'host:operate') && !out.includes(s.scope)) out.push(s.scope);
+    }
+    return out;
+  };
+  const revokeScopeMenuItem = (key: AppKey) => {
+    const hint =
+      tabData.keyScopes?.kind !== 'ok'
+        ? t('app.keys.revoke-scope.menu-unknown', 'Couldn’t load what this key may do.')
+        : heldScopesOf(key.id).length === 0
+          ? t('app.keys.revoke-scope.menu-none', 'This key holds no scope to revoke.')
+          : null;
+    return hint ? { disabled: true, title: hint, hint } : {};
+  };
+
+  let revokeScopeKey = $state<AppKey | null>(null);
+  let revokeScopeTriggerEl: HTMLButtonElement | null = null;
+  let revokeScopeFenceFired = false;
+  function openRevokeScope(key: AppKey, trigger?: HTMLButtonElement) {
+    if ($revokeKeyScopeSubmitting) return;
+    const held = heldScopesOf(key.id);
+    if (held.length === 0) return;
+    revokeKeyScopeForm.update(() => ({ _kind: 'revokeKeyScope', keyId: key.id, scope: held[0] }), { taint: false });
+    revokeKeyScopeErrors.set({});
+    revokeKeyScopeMessage.set(undefined);
+    revokeScopeTriggerEl = trigger ?? null;
+    revokeScopeFenceFired = false;
+    revokeScopeKey = key;
+  }
+  function closeRevokeScope() {
+    if ($revokeKeyScopeSubmitting) return;
+    revokeScopeKey = null;
+  }
+  // Same focus contract as the grant dialog: focus lands on the picker, and
+  // closing returns it to the ⋯ trigger, else the Keys tab panel (never
+  // <body>), unless a cross-App fence tore it down.
+  function revokeScopeDialogAction(el: HTMLDialogElement) {
+    el.showModal();
+    el.querySelector<HTMLSelectElement>('select[name="scope"]')?.focus();
+    return {
+      destroy() {
+        if (el.open) el.close();
+        if (revokeScopeTriggerEl && revokeScopeTriggerEl.isConnected) revokeScopeTriggerEl.focus();
+        else if (!revokeScopeFenceFired) document.getElementById('panel-keys')?.focus({ preventScroll: true });
+      },
+    };
+  }
+  let revokeScopeContextApp = untrack(() => data.app.id);
+  let revokeScopeGeneration = 0;
+  let revokeScopeAttemptGeneration = -1;
+  $effect(() => {
+    if (app.id === revokeScopeContextApp) return;
+    revokeScopeContextApp = app.id;
+    revokeScopeGeneration += 1;
+    revokeScopeTriggerEl = null;
+    revokeScopeFenceFired = true;
+    untrack(() => {
+      revokeScopeKey = null;
+      revokeKeyScopeForm.update(() => ({ _kind: 'revokeKeyScope', keyId: '', scope: 'attention:deliver' as const }), { taint: false });
+      revokeKeyScopeErrors.set({});
+      revokeKeyScopeMessage.set(undefined);
+    });
+  });
+
   const initialDeleteAppForm = untrack(() => submittedForm<DeleteAppForm>(form, 'deleteApp') as DeleteAppSuperform | null ?? data.deleteAppForm);
   const {
     errors: deleteAppErrors,
@@ -2190,6 +2302,12 @@
       : $grantKeyScopeErrors.hostId?.[0] ?? $grantKeyScopeErrors.scope?.[0] ?? $grantKeyScopeErrors.keyId?.[0] ?? $grantKeyScopeErrors._kind?.[0] ?? null,
   );
   const grantKeyScopeActionSuccess = $derived($grantKeyScopeMessage?.type === 'success' ? $grantKeyScopeMessage.text : null);
+  const revokeKeyScopeActionError = $derived(
+    $revokeKeyScopeMessage?.type === 'error'
+      ? $revokeKeyScopeMessage.text
+      : $revokeKeyScopeErrors.scope?.[0] ?? $revokeKeyScopeErrors.keyId?.[0] ?? $revokeKeyScopeErrors._kind?.[0] ?? null,
+  );
+  const revokeKeyScopeActionSuccess = $derived($revokeKeyScopeMessage?.type === 'success' ? $revokeKeyScopeMessage.text : null);
   const deleteAppActionError = $derived($deleteAppMessage?.type === 'error' ? $deleteAppMessage.text : $deleteAppErrors._kind?.[0] ?? null);
   const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
   // #760: the name is required since hadron-server#1050 removed the register.
@@ -2705,9 +2823,9 @@
   {/if}
   <!-- #1777: keep the region mounted; only its content changes. -->
   <div role="status" data-testid="app-success-status" class="mb-0">
-    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess || grantKeyScopeActionSuccess}
+    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess || grantKeyScopeActionSuccess || revokeKeyScopeActionSuccess}
       <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess ?? grantKeyScopeActionSuccess}
+        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess ?? grantKeyScopeActionSuccess ?? revokeKeyScopeActionSuccess}
       </div>
     {/if}
   </div>
@@ -4211,10 +4329,11 @@
                     { id: 'copy-id', label: t('app.keys.copy-id', 'Copy ID') },
                     ...(keyControls !== 'withheld' ? [
                       { id: 'grantScope', label: t('app.keys.grant.menu', 'Grant scope…') },
+                      { id: 'revokeScope', label: t('app.keys.revoke-scope.menu', 'Revoke scope…'), ...revokeScopeMenuItem(key) },
                       { id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true },
                     ] : []),
                   ]}
-                  onselect={(id, trigger) => (id === 'copy-id' ? copyKeyId(key.id) : id === 'grantScope' ? openGrantScope(key, trigger) : id === 'revoke' ? revokeAppKey(key) : undefined)}
+                  onselect={(id, trigger) => (id === 'copy-id' ? copyKeyId(key.id) : id === 'grantScope' ? openGrantScope(key, trigger) : id === 'revokeScope' ? openRevokeScope(key, trigger) : id === 'revoke' ? revokeAppKey(key) : undefined)}
                   label={t('app.keys.actions.label', 'Actions for key {key}', { key: key.keyPreview })}
                   fixed
                   compact
@@ -4300,6 +4419,53 @@
                 <button type="button" onclick={closeGrantScope} disabled={$grantKeyScopeSubmitting} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.keys.grant.cancel', 'Cancel')}</button>
                 <button type="submit" disabled={$grantKeyScopeSubmitting} class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
                   {$grantKeyScopeSubmitting ? t('app.keys.grant.submitting', 'Granting…') : t('app.keys.grant.submit', 'Grant')}
+                </button>
+              </div>
+            </form>
+          </dialog>
+        {/if}
+
+        <!-- portal#2319 — Revoke scope. Same native-dialog contract as Grant
+             scope. Escape and Cancel are refused while the revoke is in
+             flight, and the dialog stays open until the server answers. The
+             refusal sits in one alert region the picker points at. -->
+        {#if revokeScopeKey}
+          <dialog
+            use:revokeScopeDialogAction
+            aria-labelledby="revoke-scope-title"
+            data-testid="revoke-scope-dialog"
+            oncancel={(event) => {
+              if ($revokeKeyScopeSubmitting) event.preventDefault();
+              else closeRevokeScope();
+            }}
+            class="m-auto w-[calc(100%-2rem)] max-w-md max-h-[85dvh] overflow-auto rounded-xl border border-zinc-200 bg-white p-5 text-zinc-900 shadow-xl backdrop:bg-black/60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+          >
+            <form method="POST" action="?/revokeKeyScope" use:revokeKeyScopeEnhance class="mt-1 space-y-4">
+              <input type="hidden" name="_kind" value={$revokeKeyScopeForm._kind} />
+              <input type="hidden" name="keyId" value={$revokeKeyScopeForm.keyId} />
+              <h3 id="revoke-scope-title" class="text-lg font-semibold">{t('app.keys.revoke-scope.heading', 'Revoke a scope')}</h3>
+              <p class="break-words text-sm text-zinc-500">
+                {revokeScopeKey.label || t('app.keys.grant.unlabeled-key', 'Key')}
+                <span class="mt-1 block break-all font-mono text-xs text-zinc-400">{revokeScopeKey.keyPreview}</span>
+              </p>
+              <div>
+                <label for="revoke-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.revoke-scope.scope', 'Scope')}</label>
+                <select id="revoke-scope" name="scope" bind:value={$revokeKeyScopeForm.scope}
+                  aria-describedby={revokeKeyScopeActionError ? 'revoke-scope-help revoke-scope-error' : 'revoke-scope-help'}
+                  class={inputClass}>
+                  {#each heldScopesOf(revokeScopeKey.id) as held (held)}
+                    <option value={held}>{held}</option>
+                  {/each}
+                </select>
+                <p id="revoke-scope-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.revoke-scope.help', 'Anything using this key stops being able to do this from the next request.')}</p>
+              </div>
+              {#if revokeKeyScopeActionError}
+                <p role="alert" id="revoke-scope-error" data-testid="revoke-scope-error" class="break-words text-sm text-red-700 dark:text-red-300">{revokeKeyScopeActionError}</p>
+              {/if}
+              <div class="flex flex-wrap justify-end gap-3">
+                <button type="button" onclick={closeRevokeScope} disabled={$revokeKeyScopeSubmitting} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.keys.revoke-scope.cancel', 'Cancel')}</button>
+                <button type="submit" disabled={$revokeKeyScopeSubmitting} class="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
+                  {$revokeKeyScopeSubmitting ? t('app.keys.revoke-scope.submitting', 'Revoking…') : t('app.keys.revoke-scope.submit', 'Revoke')}
                 </button>
               </div>
             </form>

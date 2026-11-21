@@ -26,6 +26,7 @@ import {
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   GRANT_APP_KEY_SCOPE_MUTATION,
+  REVOKE_APP_KEY_SCOPE_MUTATION,
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
@@ -87,7 +88,7 @@ beforeEach(() => {
 async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
-    | 'revokeKey' | 'grantKeyScope' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
+    | 'revokeKey' | 'grantKeyScope' | 'revokeKeyScope' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
     | 'postTeamChatMessage' | 'postChannelMessage',
   fields: Record<string, string | string[]>,
   // #825 — the signed-in user, for actions whose COPY depends on whether the
@@ -1064,6 +1065,79 @@ describe('revokeKey action', () => {
 // role guess. host:operate names its ONE host (hrn:node:hadronmemory.com:specs:cor:agt:070:04); a second host
 // is refused APP_KEY_SCOPE_HOST_CONFLICT and the SERVER's sentence is what the
 // reader sees.
+// portal#2319 — taking one scope off a live App key. Same posture as the
+// grant: the server is the gate, the action always sends the mutation, and the
+// reader sees the server's own refusal, never a portal-side guess.
+describe('revokeKeyScope action', () => {
+  it('revokes the one scope, sending the key id and the scope alone', async () => {
+    mockRequest.mockResolvedValueOnce({ revokeAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('revokeKeyScope', { keyId: ' key-1 ', scope: 'host:operate' });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'revokeKeyScope', keyId: 'key-1', scope: 'host:operate' },
+        message: { type: 'success', text: 'Scope revoked.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      REVOKE_APP_KEY_SCOPE_MUTATION,
+      { id: 'key-1', scope: 'host:operate' },
+    ]);
+  });
+
+  it('refuses a scope outside the closed list before any request', async () => {
+    const result = (await runAction('revokeKeyScope', { keyId: 'key-1', scope: 'admin:everything' })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses a missing key before any request', async () => {
+    const result = (await runAction('revokeKeyScope', { keyId: '  ', scope: 'host:operate' })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('revokeKeyScope', { _kind: 'grantKeyScope', keyId: 'key-1', scope: 'host:operate' })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('a FORBIDDEN refusal is a 403 naming who may manage keys, as a form message', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('revokeKeyScope', { keyId: 'key-1', scope: 'host:operate' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+    expect(result.data.form.message.text).not.toContain('key-1');
+  });
+
+  it('a key that is gone is the server’s own sentence as a 404', async () => {
+    const serverText = 'No such key.';
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: serverText, extensions: { code: 'APP_KEY_NOT_FOUND' } }] },
+    });
+    const result = (await runAction('revokeKeyScope', { keyId: 'key-1', scope: 'host:operate' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(404);
+    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+  });
+
+  it('an unknown failure stays a 500 with the server’s message', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
+    });
+    const result = (await runAction('revokeKeyScope', { keyId: 'key-1', scope: 'host:operate' })) as { status: number };
+    expect(result.status).toBe(500);
+  });
+});
+
 describe('grantKeyScope action', () => {
   it('grants attention:deliver with no host variable at all', async () => {
     mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });

@@ -2308,6 +2308,17 @@ export const GRANT_APP_KEY_SCOPE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// portal#2319 — revokeAppKeyScope(id, scope): takes one scope off a live key.
+// Nothing is read back: a success invalidates the page and the Scopes column
+// re-reads.
+export const REVOKE_APP_KEY_SCOPE_MUTATION = /* GraphQL */ `
+  mutation RevokeAppKeyScope($id: ID!, $scope: String!) {
+    revokeAppKeyScope(id: $id, scope: $scope) {
+      id
+    }
+  }
+`;
+
 export const DELETE_APP_MUTATION = /* GraphQL */ `
   mutation DeleteApp($ref: ID!) { deleteApp(ref: $ref) }
 `;
