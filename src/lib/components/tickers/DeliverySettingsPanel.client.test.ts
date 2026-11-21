@@ -6,11 +6,12 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { beginEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import DeliverySettingsPanel from './DeliverySettingsPanel.svelte';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 const stored = { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900 };
 const ok = (over: Record<string, unknown> = {}) => ({ kind: 'ok' as const, value: { ...stored, ...over } });
@@ -99,7 +100,7 @@ describe('DeliverySettingsPanel', () => {
     expect(alert?.textContent).toContain(`“${message}”`);
     expect(alert?.textContent).toContain('TICKER_SETTINGS_CONFLICT');
     expect(input(root, 'batchWindowSeconds').value).toBe('600');
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
   });
 
@@ -110,7 +111,7 @@ describe('DeliverySettingsPanel', () => {
     await submitEnhancedWithResult(form(root), { type: 'failure', status: 502, data: { action: 'delivery', refusal: { kind: 'uncertain' } } });
     await tick(3);
     expect(root.textContent).toContain('The change may or may not have gone through. Reload to check.');
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
   });
 
   it('typed text survives an unrelated re-render of the stored values', async () => {
@@ -139,7 +140,7 @@ describe('DeliverySettingsPanel', () => {
     flushSync();
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
     expect(input(m.target, 'busyDelaySeconds').value).toBe('301');
-    const status = m.target.querySelector('[role="status"]');
+    const status = announcedStatusRegion(m.target)?.firstElementChild ?? null;
     expect(status?.textContent).toContain('Saved');
     expect(document.activeElement).toBe(status);
   });
@@ -155,7 +156,7 @@ describe('DeliverySettingsPanel', () => {
     props.settings = ok({ busyDelaySeconds: 7 });
     await tick(3);
     expect(input(m.target, 'busyDelaySeconds').value).toBe('7');
-    expect(m.target.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(m.target)).toBeNull();
   });
 
   it('the submit is disabled while a save is in flight (no duplicate submit)', async () => {
@@ -199,7 +200,7 @@ describe('DeliverySettingsPanel', () => {
       await deliver({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
       await tick(3);
       expect(input(root, 'busyDelaySeconds').value).toBe('701');
-      expect(root.querySelector('[role="status"]')).toBeNull();
+      expect(firstPopulatedStatusText(root)).toBeNull();
       expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
     });
 
@@ -226,10 +227,11 @@ describe('DeliverySettingsPanel', () => {
       await tick(3);
       // A's late result changed nothing: B is still pending
       expect(root.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-      expect(root.querySelector('[role="status"]')).toBeNull();
+      expect(firstPopulatedStatusText(root)).toBeNull();
       await deliverB({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
       await tick(3);
-      expect(root.querySelector('[role="status"]')?.textContent).toContain('Saved');
+      expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+      expect(firstPopulatedStatusText(root)).toContain('Saved');
       expect(root.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     });
 
@@ -243,7 +245,7 @@ describe('DeliverySettingsPanel', () => {
       await delivered;
       await tick(3);
       expect(input(root, 'busyDelaySeconds').value).toBe('701');
-      expect(root.querySelector('[role="status"]')).toBeNull();
+      expect(firstPopulatedStatusText(root)).toBeNull();
     });
 
     it('A to B to A: A’s first late result does not land on the second visit to A', async () => {
@@ -257,7 +259,7 @@ describe('DeliverySettingsPanel', () => {
       await deliver({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
       await tick(3);
       expect(input(root, 'busyDelaySeconds').value).toBe('702');
-      expect(root.querySelector('[role="status"]')).toBeNull();
+      expect(firstPopulatedStatusText(root)).toBeNull();
     });
 
     it('same App: the result still applies (the fence is not a blanket ignore)', async () => {

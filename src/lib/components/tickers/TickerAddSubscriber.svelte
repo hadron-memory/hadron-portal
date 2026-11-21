@@ -17,6 +17,7 @@
   - hrn:node:hadronmemory.com:specs:cor:agt:080:20's sentence is rendered by the page beside these controls.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, tick as tickFn } from 'svelte';
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
@@ -304,7 +305,9 @@
             >{t('app.ticker.controls.add.cancel', 'Cancel')}</button>
           </div>
         {/if}
-        {#if ok}<p role="status" class="text-xs text-emerald-700 dark:text-emerald-300" data-testid="ticker-add-result">{subscribedText()}</p>{/if}
+        <LiveRegion>
+          {#if ok}<p class="text-xs text-emerald-700 dark:text-emerald-300" data-testid="ticker-add-result">{subscribedText()}</p>{/if}
+        </LiveRegion>
         {#if announcementFailed}<p role="status" class="text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-add-announcement">{announcementFailedText()}</p>{/if}
         {#if refreshFailed}<TickerRefreshFailedLine testid="ticker-add-refresh-failed" />{/if}
         {#if refusal}<WriteRefusalAlert {refusal} />{/if}

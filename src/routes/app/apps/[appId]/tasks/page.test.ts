@@ -323,7 +323,8 @@ describe('task page action bar (#1090)', () => {
   });
 
   it('a just-created task says so in a status line', () => {
-    expect(taskPage({ created: true })).toMatch(/role="status"[^>]*>[^<]*Task created\./);
+    // The status region is persistent (LiveRegion); the message is the box inside it.
+    expect(taskPage({ created: true })).toMatch(/role="status"[^>]*>(?:<!--[^>]*-->|<p[^>]*>)*[^<]*Task created\./);
   });
 });
 

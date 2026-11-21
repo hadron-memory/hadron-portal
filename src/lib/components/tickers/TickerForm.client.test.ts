@@ -4,12 +4,13 @@
  * nothing reports a write that did not land.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { beginEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TickerForm from './TickerForm.svelte';
 import TickerDelete from './TickerDelete.svelte';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 const stored = { id: 'tk-1', name: 'standup', cadenceSeconds: 600, reasons: ['READ_TEAM_CHANNEL'] };
 
@@ -74,7 +75,7 @@ describe('TickerForm (create)', () => {
     expect(root.querySelector('form [role="alert"]')?.textContent).toContain(`“${message}”`);
     expect(root.querySelector('form [role="alert"]')?.textContent).toContain('TICKER_LIMIT_REACHED');
     expect(field(root, 'name').value).toBe('standup');
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
   });
 
@@ -86,7 +87,7 @@ describe('TickerForm (create)', () => {
       type: 'success', status: 200, data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' } },
     });
     await tick(3);
-    const status = root.querySelector('[role="status"]')!;
+    const status = announcedStatusRegion(root)!.firstElementChild!;
     expect(status.textContent).toContain('Created standup.');
     expect(status.querySelector('a')?.getAttribute('href')).toBe('/app/apps/app-1/tickers/tk-9');
     expect(field(root, 'name').value).toBe('');
@@ -153,7 +154,8 @@ describe('TickerForm (create)', () => {
     });
     await tick(3);
     // The status line says warnings follow (for a screen reader), as a separate sentence.
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('Created standup. 1 warning below.');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+    expect(firstPopulatedStatusText(root)).toContain('Created standup. 1 warning below.');
     const box = root.querySelector('[data-testid="task-warnings"]')!;
     expect(box.textContent).toContain(unmappedWarning.text);
     expect(box.querySelector('[data-warning-code="ticker.code.unmapped"] code')?.textContent).toBe('ticker.code.unmapped');
@@ -167,7 +169,8 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' }, committedWithError: false, warnings: [], more: 0 },
     });
     await tick(3);
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('Created standup.');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+    expect(firstPopulatedStatusText(root)).toContain('Created standup.');
     expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
   });
 
@@ -178,7 +181,8 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: null, committedWithError: true, warnings: [unmappedWarning], more: 0 },
     });
     await tick(3);
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('also reported an error');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+    expect(firstPopulatedStatusText(root)).toContain('also reported an error');
     expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
     expect(root.querySelector('a[href*="/tickers/"]')).toBeNull();
   });
@@ -190,7 +194,8 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' }, committedWithError: true, warnings: [], more: 0 },
     });
     await tick(3);
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('also reported an error');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+    expect(firstPopulatedStatusText(root)).toContain('also reported an error');
     expect(root.querySelector('a[href="/app/apps/app-1/tickers/tk-9"]')).not.toBeNull();
   });
 
@@ -201,7 +206,8 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: null, committedWithError: false, warnings: [unmappedWarning], more: 0 },
     });
     await tick(3);
-    const text = root.querySelector('[role="status"]')?.textContent ?? '';
+    const text = firstPopulatedStatusText(root) ?? '';
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(text).toContain('Ticker created.');
     expect(text).not.toContain('Saved');
   });
@@ -221,7 +227,8 @@ describe('TickerForm (create)', () => {
     await finish({ type: 'success', status: 200, data: { action: 'create', ok: true, ticker: { id: 'tk-10', name: 'next' }, committedWithError: false, warnings: [], more: 0 } });
     await tick(3);
     expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('Created next.');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+    expect(firstPopulatedStatusText(root)).toContain('Created next.');
   });
 
   it('an uncertain outcome says so, never "failed", and shows no success', async () => {
@@ -229,7 +236,7 @@ describe('TickerForm (create)', () => {
     await submitEnhancedWithResult(formOf(root), { type: 'failure', status: 502, data: { action: 'create', refusal: { kind: 'uncertain' } } });
     await tick(3);
     expect(root.textContent).toContain('The change may or may not have gone through. Reload to check.');
-    expect(root.querySelector('[role="status"]')).toBeNull();
+    expect(firstPopulatedStatusText(root)).toBeNull();
   });
 
   it('the consent refusal renders the portal’s sentence, which names neither reason alone', async () => {
@@ -270,7 +277,8 @@ describe('TickerForm (edit)', () => {
     props.ticker = { ...stored, cadenceSeconds: 301 };
     await tick(3);
     expect(field(m.target, 'cadenceSeconds').value).toBe('301');
-    expect(m.target.querySelector('[role="status"]')?.textContent).toContain('Saved');
+    expect(idleStatusAtMount(m.target), 'the region existed, empty, before the result').toContain(announcedStatusRegion(m.target));
+    expect(firstPopulatedStatusText(m.target)).toContain('Saved');
   });
 
   // Gizelle's READ P2 on #1601: the draft typed during a pending update survives (the reader's newer
@@ -298,7 +306,8 @@ describe('TickerForm (edit)', () => {
   it('a success over a draft typed while it was pending keeps the draft and does NOT say the fields are the stored values', async () => {
     const root = await editWithDraftDuringRequest(true);
     expect(field(root, 'name').value).toBe('unsaved-next-draft');
-    const status = root.querySelector('[role="status"]')!.textContent ?? '';
+    const status = firstPopulatedStatusText(root) ?? '';
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(status).toContain('Saved');
     expect(status).not.toContain('stored values');
     expect(status).toContain('not saved yet');
@@ -307,7 +316,8 @@ describe('TickerForm (edit)', () => {
   it('with no newer draft the success still says these are the stored values (control)', async () => {
     const root = await editWithDraftDuringRequest(false);
     expect(field(root, 'name').value).toBe('saved-name');
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('Saved. These are the stored values.');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+    expect(firstPopulatedStatusText(root)).toContain('Saved. These are the stored values.');
   });
 
   it('another ticker reseeds: nothing typed for the first survives', async () => {

@@ -10,11 +10,12 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
-import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted, idleStatusAtMount } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { beginEnhanced, submitEnhanced } from '$lib/test/stubs/app-forms';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import Panel from './StopSignalsPanel.svelte';
+import { announcedStatusRegion, firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 // Node re-reads process.env.TZ on assignment (tzset), POSIX only — CI is Linux.
 // Restored in afterAll so a reused worker doesn't leak the zone to other files.
@@ -264,7 +265,8 @@ describe('after a submit', () => {
     await tick(3);
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
     expect(root.querySelector('dialog')).toBeNull();
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('Stop set');
+    expect(idleStatusAtMount(root), 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
+    expect(firstPopulatedStatusText(root)).toContain('Stop set');
     expect(root.querySelector<HTMLSelectElement>('#stop-worker')!.value).toBe('');
   });
 
@@ -396,7 +398,7 @@ describe('lifting', () => {
     const deliver = await beginEnhanced(liftForm(root));
     await deliver({ type: 'success', status: 200, data: { action: 'lift', ok: true, id: 's1', changed: false } });
     await tick(3);
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('already ended');
+    expect(firstPopulatedStatusText(root)).toContain('already ended');
   });
 
   it('changed:true never claims every overlapping stop ended', async () => {
@@ -405,7 +407,7 @@ describe('lifting', () => {
     const deliver = await beginEnhanced(liftForm(root));
     await deliver({ type: 'success', status: 200, data: { action: 'lift', ok: true, id: 's1', changed: true } });
     await tick(3);
-    const text = root.querySelector('[role="status"]')?.textContent ?? '';
+    const text = firstPopulatedStatusText(root) ?? '';
     expect(text).toContain('Other stops covering the same workers still apply');
     expect(text).not.toMatch(/all stops/i);
   });

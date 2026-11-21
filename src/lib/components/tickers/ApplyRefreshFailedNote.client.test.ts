@@ -39,7 +39,7 @@ describe('ApplyRefreshFailedNote', () => {
     setRefreshMarker(refreshScope('u-1', 'w-A'));
     const note = line(await mountNote())!;
     expect(note).not.toBeNull();
-    expect(note.getAttribute('role')).toBe('status');
+    expect(note.closest('[role="status"]')).not.toBeNull();
     expect(note.textContent).toMatch(/applied/i);
     expect(note.textContent).toMatch(/reload/i);
     expect(note.textContent).toMatch(/not needed|no need|don.t apply|do not apply/i);

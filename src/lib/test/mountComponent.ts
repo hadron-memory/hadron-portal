@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from 'svelte';
 import type { Component } from 'svelte';
+import { idleStatusRegions } from './firstPopulatedStatusText';
 
 /**
  * Mount a component into a real DOM for a `*.client.test.ts` (#795).
@@ -43,6 +44,28 @@ export interface Mounted<Props extends Record<string, unknown>> {
  * `isConnected` — and "the test passed because nothing was ever really in the
  * document" is exactly the false green this harness exists to remove.
  */
+/** Status regions that existed, empty, the moment each target finished mounting (portal#2344). */
+const idleByTarget = new WeakMap<HTMLElement, HTMLElement[]>();
+
+/**
+ * The `role="status"` regions that existed and were empty right after the mount
+ * that contains `scope`. A region that speaks later must be one of these: it was
+ * already in the DOM, and only its content changed. A conditionally mounted
+ * region is not, which is the defect `LiveRegion` exists to prevent.
+ *
+ *     expect(idleStatusAtMount(root)).toContain(announcedStatusRegion(root));
+ */
+export function idleStatusAtMount(scope: Element): HTMLElement[] {
+  for (let el: Element | null = scope; el; el = el.parentElement) {
+    const found = idleStatusAtMount_(el);
+    if (found) return found;
+  }
+  return [];
+}
+function idleStatusAtMount_(el: Element): HTMLElement[] | undefined {
+  return el instanceof HTMLElement ? idleByTarget.get(el) : undefined;
+}
+
 export function mountComponent<Props extends Record<string, unknown>>(
   component: Component<Props, Record<string, unknown>>,
   props: Props,
@@ -57,6 +80,7 @@ export function mountComponent<Props extends Record<string, unknown>>(
   try {
     instance = mount(component, { target, props }) as Record<string, unknown>;
     flushSync();
+    idleByTarget.set(target, idleStatusRegions(target));
   } catch (e) {
     target.remove();
     throw e;

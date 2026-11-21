@@ -12,6 +12,7 @@ import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/tes
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { HAND_BACK_TEXT_MAX, parseHandBack } from '$lib/agent-tasks/hand-back';
 import TaskActionBar from './TaskActionBar.svelte';
+import { firstPopulatedStatusText, announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 
 const dara = { id: 'w1', kind: 'WORKER' as const, name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' };
 const holger = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
@@ -34,12 +35,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** The status regions that existed, empty, right after mount: a result must be spoken by one of these. */
+let idleAtMount: HTMLElement[] = [];
 async function mountBar(over: Record<string, unknown> = {}, props: Record<string, unknown> = {}) {
   const m = mountComponent(TaskActionBar as never, {
     task: task(over), canWrite: true, impersonating: null, loadPickers: async () => ({ kind: 'ok' as const, value: { ...candidates, roles: [], families: [] } }), loadMemories: async () => ({ kind: 'ok' as const, value: [] }), openChildren: { count: 2, capped: false }, ...props,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
+  idleAtMount = idleStatusRegions(m.target);
   return m.target;
 }
 const button = (root: HTMLElement, text: string) =>
@@ -160,7 +164,7 @@ describe('TaskActionBar', () => {
   // Uma's P3-4: "Task created." gets focus, like every other result line.
   it('focuses "Task created." after a create', async () => {
     const root = await mountBar({}, { created: true });
-    const status = root.querySelector('[role="status"]');
+    const status = announcedStatusRegion(root)?.firstElementChild ?? null;
     expect(status?.textContent?.trim()).toBe('Task created.');
     expect(document.activeElement).toBe(status);
   });
@@ -188,7 +192,8 @@ describe('TaskActionBar', () => {
     flushSync();
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
     expect(root.querySelector('#task-panel-cancel')).toBeNull();
-    const status = root.querySelector('[role="status"]');
+    const status = announcedStatusRegion(root)?.firstElementChild ?? null;
+    expect(idleAtMount, 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
     expect(status?.textContent?.trim()).toBe('Cancelled.');
     expect(document.activeElement).toBe(status);
   });
@@ -254,7 +259,8 @@ describe('TaskActionBar', () => {
       await tick(3);
       flushSync();
       expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
-      const status = root.querySelector('[role="status"]');
+      const status = announcedStatusRegion(root)?.firstElementChild ?? null;
+      expect(idleAtMount, 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
       expect(status?.textContent?.trim()).toBe('Parked: it’s back in the backlog.');
       expect(document.activeElement).toBe(status);
     });
@@ -293,14 +299,15 @@ describe('TaskActionBar', () => {
       expect(list?.querySelector(`code [title="${URN}"]`)).not.toBeNull();
       expect(list?.querySelector('a')).toBeNull();
       // Uma's P2 on #1216: the focused line says the warnings follow.
-      const status = root.querySelector('[role="status"]');
+      const status = announcedStatusRegion(root)?.firstElementChild ?? null;
+      expect(idleAtMount, 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
       expect(status?.textContent?.trim()).toBe('Assigned. 1 warning below.');
       expect(document.activeElement).toBe(status);
     });
 
     it('counts what the cap left out in the focused line', async () => {
       const root = await reassign({ action: 'reassign', ok: true, committedWithError: false, more: 2, warnings: [{ code: 'c', text: 't' }] });
-      expect(root.querySelector('[role="status"]')?.textContent?.trim()).toBe('Assigned. 3 warnings below.');
+      expect(firstPopulatedStatusText(root)).toBe('Assigned. 3 warnings below.');
     });
 
     // Gene's P2 on #1216: the page reuses this bar across tasks. A result is
@@ -354,7 +361,8 @@ describe('TaskActionBar', () => {
 
     it('a committed write whose response errored says saved, with the fixed line, never “not changed”', async () => {
       const root = await reassign({ action: 'reassign', ok: true, committedWithError: true, more: 0, warnings: [{ code: 'c', text: 't' }] });
-      const status = root.querySelector('[role="status"]');
+      const status = announcedStatusRegion(root)?.firstElementChild ?? null;
+      expect(idleAtMount, 'the region existed, empty, before the result').toContain(announcedStatusRegion(root));
       expect(status?.textContent?.trim()).toBe('Saved, but the server’s response also reported an error. Reload to check the task. 1 warning below.');
       expect(status?.className).toContain('text-amber-800');
       expect(root.textContent).not.toContain('Not changed');
@@ -433,7 +441,7 @@ describe('TaskActionBar', () => {
       await tick(3);
       expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
       expect(root.querySelector('#task-panel-handBack')).toBeNull();
-      expect(root.querySelector('[role="status"]')?.textContent).toContain('Handed back: it’s back in the queue.');
+      expect(firstPopulatedStatusText(root)).toContain('Handed back: it’s back in the queue.');
     });
 
     it('after the reload (PENDING, no assignee) the bar no longer offers hand-back', async () => {
