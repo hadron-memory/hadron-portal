@@ -13,6 +13,7 @@
   import WorkerDeleteDialog from '$lib/components/WorkerDeleteDialog.svelte';
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
+  import SelectHost, { type HostsState } from '$lib/components/SelectHost.svelte';
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   // portal#2249: one source for the App type's labels — Profile row, Settings
   // read-only row and the Settings options render these so they cannot drift.
@@ -1872,6 +1873,44 @@
   // of a navigation, whose own focus/scroll reset owns where focus goes, so
   // the Keys-panel fallback stays out of its way. Cleared on the next open.
   let grantScopeFenceFired = false;
+  // portal#2311: the App's hosts, read when the dialog opens (never with the
+  // Keys tab's first screen) and again on every open: one App's answer for one
+  // reader, so nothing is kept between opens or carried across Apps. A late
+  // answer for a closed dialog, an earlier open or another App is dropped.
+  let grantHosts = $state.raw<{ appId: string; state: HostsState } | null>(null);
+  let grantHostsSeq = 0;
+  const hostsState = $derived<HostsState>(grantHosts && grantHosts.appId === app.id ? grantHosts.state : { kind: 'loading' });
+  const hostsBlocked = $derived(hostsState.kind === 'refused' || hostsState.kind === 'failed');
+  const hostsBlockedReason = $derived(
+    hostsState.kind === 'refused'
+      ? t('app.keys.grant.host-refused', "You can't see this App's hosts, so host:operate can't be granted here.")
+      : t('app.keys.grant.host-failed', 'The hosts could not be loaded, so host:operate is unavailable.'),
+  );
+  const heldHostId = $derived(
+    grantScopeKey ? (keyScopesOf(grantScopeKey.id).find((s) => s.scope === 'host:operate')?.hostId ?? null) : null,
+  );
+  async function loadGrantHosts() {
+    const appId = app.id;
+    const seq = ++grantHostsSeq;
+    grantHosts = { appId, state: { kind: 'loading' } };
+    let next: HostsState = { kind: 'failed' };
+    try {
+      const res = await fetch(`/app/apps/${encodeURIComponent(appId)}/hosts`, { cache: 'no-store' });
+      const body = res.ok ? await res.json() : null;
+      if (body?.kind === 'ok' && Array.isArray(body.hosts)) next = { kind: 'ok', hosts: body.hosts };
+      else if (body?.kind === 'refused') next = { kind: 'refused' };
+    } catch {
+      // stays failed
+    }
+    if (seq !== grantHostsSeq || !grantScopeKey || app.id !== appId) return;
+    grantHosts = { appId, state: next };
+  }
+  // A blocked read takes host:operate away; every other scope stays grantable.
+  $effect(() => {
+    if (hostsBlocked && $grantKeyScopeForm.scope === 'host:operate') {
+      untrack(() => grantKeyScopeForm.update((f) => ({ ...f, scope: 'attention:deliver' as const, hostId: '' }), { taint: false }));
+    }
+  });
   function openGrantScope(key: AppKey, trigger?: HTMLButtonElement) {
     if ($grantKeyScopeSubmitting) return;
     grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: key.id, scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
@@ -1880,6 +1919,7 @@
     grantScopeTriggerEl = trigger ?? null;
     grantScopeFenceFired = false;
     grantScopeKey = key;
+    void loadGrantHosts();
   }
   function closeGrantScope() {
     if ($grantKeyScopeSubmitting) return;
@@ -1927,6 +1967,8 @@
     // races the navigation's own focus/scroll reset.
     grantScopeTriggerEl = null;
     grantScopeFenceFired = true;
+    grantHostsSeq += 1;
+    grantHosts = null;
     untrack(() => {
       grantScopeKey = null;
       grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: '', scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
@@ -4267,30 +4309,36 @@
                 <label for="grant-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.scope', 'Scope')}</label>
                 <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} class={inputClass}>
                   <option value="attention:deliver">attention:deliver</option>
-                  <option value="host:operate">host:operate</option>
+                  <option value="host:operate" disabled={hostsBlocked}>host:operate</option>
                 </select>
+                {#if hostsBlocked}
+                  <p id="grant-scope-help" data-testid="grant-host-blocked" class="mt-1 text-xs text-zinc-500">
+                    {hostsBlockedReason}
+                    {#if hostsState.kind === 'failed'}
+                      <button type="button" data-testid="grant-host-retry" onclick={loadGrantHosts} class="ml-1 underline">{t('app.keys.grant.host-retry', 'Retry')}</button>
+                    {/if}
+                  </p>
+                {/if}
               </div>
               {#if $grantKeyScopeForm.scope === 'host:operate'}
                 <div>
-                  <label for="grant-host" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.host', 'Host')}</label>
                   <!-- The refusal text renders ONCE, in the alert region below
                        (grantKeyScopeActionError folds the field errors into
-                       it), and the input points AT it — naming the standing
+                       it), and the picker points AT it — naming the standing
                        help AND the live alert together when one shows, so the
                        reader never loses "what a valid host is" to the error.
                        The alert renders on exactly grantKeyScopeActionError,
                        the same expression describedby keys on, so the id
-                       always resolves. aria-invalid keys on the HOST field
-                       error alone (#2356): the server routes a host-specific
-                       refusal (a second host, a malformed host id) there, while
-                       a permission, key-gone or network refusal stays a form
-                       message and must not tell a screen-reader user that the
-                       host they typed is wrong. -->
-                  <input id="grant-host" type="text" name="hostId" bind:value={$grantKeyScopeForm.hostId}
-                    aria-invalid={!!$grantKeyScopeErrors.hostId}
-                    aria-describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
-                    class={inputClass} autocomplete="off" />
-                  <p id="grant-host-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The id of the one host this key may operate. A host key reaches one host.')}</p>
+                       always resolves. #2311: the host is picked from the
+                       App's registrations, never typed. -->
+                  <SelectHost
+                    state={hostsState}
+                    bind:value={$grantKeyScopeForm.hostId}
+                    held={heldHostId}
+                    describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
+                    onretry={loadGrantHosts}
+                  />
+                  <p id="grant-host-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The one host this key may operate. A host key reaches one host.')}</p>
                 </div>
               {/if}
               {#if grantKeyScopeActionError}

@@ -1,6 +1,6 @@
 /** Mounted App-page coverage for team chat roster reactivity (#979). */
 import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -1449,6 +1449,22 @@ describe('App key scope grant dialog (portal#1487)', () => {
       else Reflect.deleteProperty(HTMLDialogElement.prototype, k);
     }
   });
+  // portal#2311: the dialog reads the App's hosts when it opens. One stub per
+  // test; `hostsAnswer` is what GET /app/apps/a1/hosts says.
+  let hostsAnswer: { status: number; body: unknown };
+  const hostsRequests: string[] = [];
+  beforeEach(() => {
+    hostsRequests.length = 0;
+    hostsAnswer = {
+      status: 200,
+      body: { kind: 'ok', hosts: [{ hostId: 'h-1', label: 'Alpha', live: true }, { hostId: 'h-2', label: 'Beta', live: false }] },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      hostsRequests.push(String(url));
+      return new Response(JSON.stringify(hostsAnswer.body), { status: hostsAnswer.status });
+    }));
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
   async function mountKeys(keyScopes: unknown = { kind: 'ok', byKey: { k1: [] } }) {
     setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
     const data = await pageData();
@@ -1471,10 +1487,13 @@ describe('App key scope grant dialog (portal#1487)', () => {
     await tick(2);
     const dialog = document.querySelector('dialog[open]');
     if (!dialog) throw new Error('the grant dialog did not open');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
     return dialog;
   }
   const scopeSelect = (dialog: Element) => dialog.querySelector<HTMLSelectElement>('select[name="scope"]')!;
   const hostInput = (dialog: Element) => dialog.querySelector<HTMLInputElement>('input[name="hostId"]');
+  const hostGroup = (dialog: Element) => dialog.querySelector<HTMLFieldSetElement>('fieldset');
   const chooseScope = async (dialog: Element, value: string) => {
     const select = scopeSelect(dialog);
     select.value = value;
@@ -1483,14 +1502,10 @@ describe('App key scope grant dialog (portal#1487)', () => {
     await tick();
   };
   const grantForm = (dialog: Element) => dialog.querySelector('form')!;
-  // A user types into the host field: set the value AND fire the input event,
-  // so the bound store carries it. Setting .value alone leaves the store at
-  // its reset '' — the local empty-host refusal then cancels the submit and
-  // the server's answer below never arrives.
-  const typeHost = (dialog: Element, value: string) => {
-    const host = hostInput(dialog)!;
-    host.value = value;
-    host.dispatchEvent(new Event('input', { bubbles: true }));
+  // A user picks a host: click its radio, so the bound store carries it.
+  const pickHost = (dialog: Element, id: string) => {
+    const radio = dialog.querySelector<HTMLInputElement>(`input[type="radio"][name="hostId"][value="${id}"]`)!;
+    radio.click();
     flushSync();
   };
 
@@ -1503,7 +1518,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(dialog.textContent).toContain('router');
     expect(dialog.textContent).toContain('hk_ab…yz');
     expect(scopeSelect(dialog).value).toBe('attention:deliver');
-    expect(hostInput(dialog)).toBeNull();
+    expect(hostGroup(dialog)).toBeNull();
     expect(grantForm(dialog).getAttribute('action')).toBe('?/grantKeyScope');
     expect(new FormData(grantForm(dialog)).get('keyId')).toBe('k1');
   });
@@ -1511,50 +1526,47 @@ describe('App key scope grant dialog (portal#1487)', () => {
   it('host:operate asks for the host with helper text under the field, and only then', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
+    expect(hostsRequests).toEqual(['/app/apps/a1/hosts']);
     await chooseScope(dialog, 'host:operate');
-    const host = hostInput(dialog)!;
-    expect(host).toBeTruthy();
+    // #2311: the host is picked from the App's registrations, never typed.
+    expect(dialog.querySelector('input[type="text"][name="hostId"]')).toBeNull();
+    const radios = [...dialog.querySelectorAll<HTMLInputElement>('input[type="radio"][name="hostId"]')];
+    expect(radios.map((r) => r.value)).toEqual(['h-1', 'h-2']);
     // Plain label (no parenthesised instruction), helper text UNDER the field.
-    const label = dialog.querySelector('label[for="grant-host"]')!;
-    expect(label.textContent?.trim()).toBe('Host');
+    expect(dialog.querySelector('legend')?.textContent?.trim()).toBe('Host');
     const help = document.getElementById('grant-host-help')!;
     expect(help.textContent).toContain('A host key reaches one host.');
     // attention:deliver hides it again — no host argument travels for a
     // scope the server grants without one.
     await chooseScope(dialog, 'attention:deliver');
-    expect(hostInput(dialog)).toBeNull();
+    expect(hostGroup(dialog)).toBeNull();
   });
 
-  it('the host input names its help by id and goes invalid with the error (#1487 review: aria wiring)', async () => {
+  it('the host group names its help by id, and the alert too once a refusal shows (#1487 review: aria wiring)', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    const host = hostInput(dialog)!;
+    const group = hostGroup(dialog)!;
     // Standing state: described-by names the help (looked up by its id, not
-    // by DOM position), the input is not invalid, and no alert is showing.
-    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help');
+    // by DOM position), and no alert is showing.
+    expect(group.getAttribute('aria-describedby')).toBe('grant-host-help');
     expect(document.getElementById('grant-host-help')?.textContent).toContain('A host key reaches one host.');
-    expect(host.getAttribute('aria-invalid')).not.toBe('true');
     expect(document.getElementById('grant-scope-error')).toBeNull();
-    // An empty-host submit is refused client-side: the field error marks the
-    // input invalid, described-by KEEPS the help and ADDS the alert id, and
-    // every named id resolves to a live element in the document.
-    host.value = '';
+    // Nothing picked: the submit is refused client-side, described-by KEEPS
+    // the help and ADDS the alert id, and every named id resolves.
     await submitEnhanced(grantForm(dialog), true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     flushSync(); await tick(2);
-    expect(host.getAttribute('aria-invalid')).toBe('true');
-    const describedBy = host.getAttribute('aria-describedby')!.split(/\s+/);
+    const describedBy = group.getAttribute('aria-describedby')!.split(/\s+/);
     expect(describedBy).toContain('grant-host-help');
     expect(describedBy).toContain('grant-scope-error');
     for (const id of describedBy) expect(document.getElementById(id), `id ${id} does not resolve`).toBeTruthy();
   });
 
-  it('refuses an empty host in the dialog and sends nothing', async () => {
+  it('refuses an unpicked host in the dialog and sends nothing', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    hostInput(dialog)!.value = '';
     const { cancelled } = await submitEnhanced(grantForm(dialog), true);
     expect(cancelled).toBe(true);
     // The local refusal runs through superforms' own failure handling on a
@@ -1568,12 +1580,80 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(submit.textContent).toContain('Grant');
   });
 
+  // portal#2311 — the gate pin. A viewer whose registrations read is refused
+  // sees no host list and no free-text field, cannot pick host:operate, and
+  // can still grant another scope. On main the free-text field shows (red).
+  it('a refused hosts read: no list, no free text, host:operate disabled with the reason, another scope still grants', async () => {
+    hostsAnswer = { status: 200, body: { kind: 'refused' } };
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    const option = scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!;
+    expect(option.disabled).toBe(true);
+    expect(dialog.querySelector('[data-testid="grant-host-blocked"]')?.textContent).toContain("can't see this App's hosts");
+    // Even a forced selection shows no list and no free text.
+    await chooseScope(dialog, 'host:operate');
+    expect(dialog.querySelector('input[name="hostId"]')).toBeNull();
+    expect(scopeSelect(dialog).value).toBe('attention:deliver');
+    // attention:deliver still grants: the submit is not refused locally.
+    const { cancelled } = await submitEnhanced(grantForm(dialog), true);
+    expect(cancelled).toBe(false);
+  });
+
+  it('a failed hosts read shows Retry; retrying re-reads and restores the list', async () => {
+    hostsAnswer = { status: 500, body: {} };
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    expect(scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(true);
+    hostsAnswer = { status: 200, body: { kind: 'ok', hosts: [{ hostId: 'h-1', label: 'Alpha', live: true }] } };
+    expect(hostsRequests).toHaveLength(1);
+    dialog.querySelector<HTMLButtonElement>('[data-testid="grant-host-retry"]')!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(hostsRequests).toHaveLength(2);
+    expect(scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(false);
+    await chooseScope(dialog, 'host:operate');
+    expect(dialog.querySelector('input[type="radio"][value="h-1"]')).toBeTruthy();
+  });
+
+  it('a late answer from an earlier open never overwrites the current one', async () => {
+    let releaseFirst!: () => void;
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await new Promise<void>((resolve) => { releaseFirst = resolve; });
+        return new Response(JSON.stringify({ kind: 'refused' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ kind: 'ok', hosts: [{ hostId: 'h-1', label: 'Alpha', live: true }] }), { status: 200 });
+    }));
+    const panel = await mountKeys();
+    const first = await openGrant(panel);
+    (first.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const second = await openGrant(panel);
+    expect(scopeSelect(second).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(false);
+    // The first open's refusal lands now, after the second open's list.
+    releaseFirst();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(scopeSelect(second).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(false);
+  });
+
+  it('every open re-reads the hosts: nothing is kept between opens', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    await openGrant(panel);
+    expect(hostsRequests).toEqual(['/app/apps/a1/hosts', '/app/apps/a1/hosts']);
+  });
+
   it('a HOST_CONFLICT refusal keeps the dialog open with the server’s own sentence', async () => {
     const serverText = 'This key already operates as host h-1. A host key reaches one host: revoke host:operate first, or use another key.';
     const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    typeHost(dialog, 'h-2');
+    pickHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
     f.errors = { hostId: [serverText] };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
@@ -1582,11 +1662,9 @@ describe('App key scope grant dialog (portal#1487)', () => {
     // grant (host h-1) is untouched on the tab.
     expect(document.querySelector('dialog[open]')).toBeTruthy();
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
-    // The server routes a host-specific refusal to errors.hostId (#2356), so
-    // the host input is marked invalid and names help AND alert.
-    const host = hostInput(dialog)!;
-    expect(host.getAttribute('aria-invalid')).toBe('true');
-    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+    // The server routes a host-specific refusal to errors.hostId (#2356); the
+    // host group names help AND alert.
+    expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
     expect(panel.querySelector('[data-testid="key-scopes"]')?.textContent).toContain('host:operate · h-1');
   });
 
@@ -1595,17 +1673,14 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    typeHost(dialog, 'h-2');
+    pickHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
     f.message = { type: 'error', text: serverText };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
     flushSync(); await tick(2);
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
-    const host = hostInput(dialog)!;
-    // A screen-reader user is not told the host they typed is wrong.
-    expect(host.getAttribute('aria-invalid')).not.toBe('true');
     // The alert is still named, so the refusal is still reachable from the field.
-    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+    expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
   });
 
   it('a success closes the dialog and announces the granted scope', async () => {
@@ -1659,7 +1734,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    typeHost(dialog, 'h-2');
+    pickHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
     f.message = { type: 'error', text: 'This key already operates as host h-1.' };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
@@ -1672,7 +1747,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const reopened = await openGrant(panel);
     expect(reopened.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
     expect(scopeSelect(reopened).value).toBe('attention:deliver');
-    expect(hostInput(reopened)).toBeNull();
+    expect(hostGroup(reopened)).toBeNull();
   });
 
   // ── review on #1487: the dialog must not lock, and must not leak across Apps ──

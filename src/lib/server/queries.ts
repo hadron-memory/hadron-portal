@@ -6230,3 +6230,16 @@ export const ACKNOWLEDGE_ALARM_MUTATION = /* GraphQL */ `
     acknowledgeAlarm(eventId: $eventId) { id acknowledgedAt }
   }
 `;
+
+// portal#2311 — the App's host registrations for the Grant-scope dialog's host
+// picker. Read when the dialog opens, in its own request; the fields are the
+// picker's row (id, label, liveness) and nothing else.
+export const APP_HOST_REGISTRATIONS_QUERY = /* GraphQL */ `
+  query AppHostRegistrations($appRef: String!) {
+    hostRegistrations(appRef: $appRef) {
+      hostId
+      label
+      live
+    }
+  }
+`;
