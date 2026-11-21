@@ -14,7 +14,7 @@
  */
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // fileURLToPath, not .pathname: paths with spaces or a Windows host break on
@@ -87,6 +87,15 @@ const initial = {
   board: { kind: 'ok', value: { capped: false, tasks } },
 };
 
+// The shell is read from the root layout, not copied: the wrapper div's static
+// classes plus the dark/light ternary on its class attribute, so a change to the
+// layout changes the proof and an unreadable layout fails the script.
+const layoutSource = readFileSync(new URL('../src/routes/+layout.svelte', import.meta.url), 'utf8');
+// Anchored to the first <div> after the script block, which is the shell wrapper.
+const wrapper = layoutSource.match(/<\/script>[\s\S]*?<div class="([^"{]*)\{dark \? '([^']+)' : '([^']+)'\}"/);
+if (!wrapper) throw new Error('src/routes/+layout.svelte: could not find the shell wrapper (class="… {dark ? \'…\' : \'…\'}"); update the proof');
+const [, SHELL_STATIC, SHELL_DARK, SHELL_LIGHT] = wrapper;
+
 const browser = await chromium.launch({ headless: true });
 const results = [];
 
@@ -99,10 +108,14 @@ async function shoot(name, { dark, savedArrangement = null }) {
   }));
   await page.goto(new URL('/__board_fixture', origin).href);
   await page.addStyleTag({ content: css });
-  await page.evaluate((dark) => {
+  // This document has no app shell, so the body carries the shell's own
+  // classes: an element with no color class of its own inherits the shell's
+  // text color instead of falling to UA-initial black.
+  const shell = `${SHELL_STATIC.trim()} ${dark ? SHELL_DARK : SHELL_LIGHT}`;
+  await page.evaluate(({ dark, shell }) => {
     document.documentElement.classList.toggle('dark', dark);
-    document.body.className = 'bg-white dark:bg-zinc-950';
-  }, dark);
+    document.body.className = shell;
+  }, { dark, shell });
   // portal#2253 item 4: optionally seed a saved board arrangement (pre-PR
   // vintage, saved before the Finish by column existed) BEFORE the board
   // mounts, the way a real browser carries it in localStorage across a
@@ -119,6 +132,30 @@ async function shoot(name, { dark, savedArrangement = null }) {
   }, initial);
   // Not a fixed sleep loop (portal#2248 review P3): wait for the table.
   await page.waitForSelector('tbody tr');
+  // Shell assertion on rendered colors: a classless probe under the body must
+  // inherit exactly the shell's text color (a reference element given the pair's
+  // text class). UA-initial black differs from both zinc-100 and zinc-900, so
+  // this fails in either theme when the inherited color is missing.
+  // The text color utility, from the whole shell string: size and alignment
+  // utilities (text-sm, text-center, ...) are not colors.
+  const NOT_A_COLOR = /^text-(?:xs|sm|base|lg|\d*xl|left|right|center|justify|start|end|wrap|nowrap|balance|pretty|ellipsis|clip)$/;
+  const textClasses = shell.split(/\s+/).filter((c) => c.startsWith('text-') && !NOT_A_COLOR.test(c));
+  if (textClasses.length !== 1) throw new Error(`${name}: expected one text color class in the shell, found ${JSON.stringify(textClasses)}`);
+  const [textClass] = textClasses;
+  const colors = await page.evaluate((cls) => {
+    const probe = document.createElement('span');
+    const ref = document.createElement('span');
+    ref.className = cls;
+    document.body.append(probe, ref);
+    const out = { probe: getComputedStyle(probe).color, ref: getComputedStyle(ref).color };
+    probe.remove();
+    ref.remove();
+    return out;
+  }, textClass);
+  // A reference that is itself UA black means the text class was not emitted
+  // into the injected css, which would make the comparison vacuous.
+  if (colors.ref === 'rgb(0, 0, 0)') throw new Error(`${name}: ${textClass} resolved to UA black; the class is missing from the injected css`);
+  if (colors.probe !== colors.ref) throw new Error(`${name}: inherited text color ${colors.probe} is not the shell's ${textClass} (${colors.ref})`);
 
   // Scoped to the one header row (portal#2253 item 3): header indexes map onto
   // td indexes, and a second header row or a th in tbody would skew the mapping.
