@@ -79,7 +79,9 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
       const code = extractGqlErrorCode(e);
       // #1755: an empty-source start has no draft, so its lead must not claim one.
       const lead = code === 'NodeLocConflictError' ? t('boot.install.227d62de11', 'This worker already has a source. Reload to open it.') : customisationRefusalLead(code, { draft: false });
-      return refused(lead ?? t('boot.install.a06a518a01', 'Could not confirm the source was started. Reload to check before trying again.'), code === 'NodeLocConflictError' ? 409 : lead ? 403 : 502);
+      // A lost race is a conflict (409); a refusal the server named is 403; anything else is an unknown outcome (502).
+      const conflict = code === 'NodeLocConflictError' || code === 'NODE_WRITE_CONFLICT';
+      return refused(lead ?? t('boot.install.a06a518a01', 'Could not confirm the source was started. Reload to check before trying again.'), conflict ? 409 : lead ? 403 : 502);
     }
   }
   if (input.intent === 'approve') {

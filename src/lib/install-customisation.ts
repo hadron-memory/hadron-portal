@@ -73,10 +73,10 @@ export function customisationRefusalLead(
           );
     case 'NODE_WRITE_CONFLICT':
     case 'NodeLocConflictError':
-      // #2410 BLIND P2: on the start path this code is the server's "changed
-      // while the write waited" (an install-memory encryption flip, a moved
-      // tombstone), which names no edit and discloses no source — so the
-      // start arm states the refusal and nothing more.
+      // On the start path this code means the write changed while it waited
+      // (an install-memory encryption flip, a moved tombstone). That names no
+      // edit and discloses no source, so the start arm states the refusal and
+      // nothing more.
       return draft
         ? t(
             'customisation.conflict',
