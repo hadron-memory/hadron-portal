@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import type { BootSourceView, SourceLintItem } from '$lib/server/boot-source';
 import Page from './+page.svelte';
 import { pageData } from './page-fixture';
@@ -180,6 +180,37 @@ describe('source lint (portal#1667)', () => {
     button(root, 'Boot prompt').click();
     await settle();
     expect(calls).toEqual(['/app/agents/a/boot-source/lint']);
+  });
+});
+
+describe('read robustness (portal#1677)', () => {
+  it.each([null, 'not-an-envelope'] as unknown[])('a 200 whose body is %p is a failed read, not a stuck view or an unhandled rejection', async (body) => {
+    routes(ok(body));
+    let root: HTMLElement | null = null;
+    const rejections = await captureUnhandledRejections(async () => { root = await open(); });
+    expect(rejections).toEqual([]);
+    expect(lintBox(root)?.textContent).toBe('Couldn’t load warnings');
+  });
+  it('a failed read is read again when the tab is left and reopened', async () => {
+    const calls = routes(refused);
+    const root = await open();
+    expect(lintBox(root)?.textContent).toBe('Couldn’t load warnings');
+    await switchTo(root, 'Profile');
+    await switchTo(root, 'Boot prompt');
+    expect(calls.filter((u) => u.includes('/lint'))).toHaveLength(2);
+    expect(lintBox(root)?.textContent).toBe('Couldn’t load warnings');
+  });
+  it('a failed read can be retried in place with Try again', async () => {
+    const calls = routes(refused);
+    const root = await open();
+    button(root, 'Try again').click();
+    await settle();
+    expect(calls.filter((u) => u.includes('/lint'))).toHaveLength(2);
+  });
+  it('each warning row is a bulleted list item', async () => {
+    routes(page([warn('BROKEN_INCLUDE')]));
+    const root = await open();
+    expect(lintBox(root)?.querySelector('ul')?.classList.contains('list-disc')).toBe(true);
   });
 });
 
