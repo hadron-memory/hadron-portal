@@ -218,3 +218,20 @@ it('shows the retire banner only for a result keyed to this worker', () => {
     expect(urnSpelled.target.querySelector('[role="status"]')?.textContent).toContain('Worker retired. Its name stays reserved.');
   } finally { urnSpelled.unmount(); }
 });
+
+it('portal#2378: retiring a worker is announced by a region that was already there', async () => {
+  const props = reactiveProps<Record<string, unknown>>({ data: dataFor(worker()), form: null as never });
+  const mounted = mountComponent(Page, props as never);
+  try {
+    flushSync();
+    const region = () => mounted.target.querySelector<HTMLElement>('[data-testid="worker-retired-region"]');
+    const before = region();
+    expect(before, 'mounted while the worker is active').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent?.trim()).toBe('');
+    props.data = dataFor(worker({ retiredAt: '2026-11-17T00:00:00Z' }));
+    flushSync();
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('This worker is retired');
+  } finally { mounted.unmount(); }
+});

@@ -5,9 +5,11 @@ import { parse } from 'svelte/compiler';
 /**
  * portal#2378, slice 5 of #2344 — the sites that DROPPED `role="status"` instead of gaining a wrapper.
  *
- * Text that is present when the page loads (or is a state the loader decided) is not a status change:
- * a live region announces CHANGES inside a region that already exists, so a `role="status"` on content
- * that was always there announces nothing and only adds noise. Each entry below names one dropped site
+ * Text that is present when the page loads is not a status change: a live region announces CHANGES
+ * inside a region that already exists, so a `role="status"` on content that was always there announces
+ * nothing and only adds noise. Being loader-derived does NOT make a state static (#2383 BLIND P2): a
+ * bucket change, filter or action on the page can flip it in place, so those converted instead (the
+ * tasks board's dropped-filter notes, the worker page's retired notice). Each entry below names one dropped site
  * by a marker inside its element (an i18n key or a `data-testid`) and the reason it dropped.
  *
  * The pin: the element holding the marker EXISTS in the template and carries no `role="status"`. It
@@ -26,12 +28,9 @@ const DROPPED: Array<{ file: string; marker: string; why: string }> = [
   { file: 'src/routes/app/apps/[appId]/grants/+page.svelte', marker: 'grants.impersonating', why: 'a static note about the viewer, not a result' },
   { file: 'src/routes/app/apps/[appId]/register/+page.svelte', marker: 'action-register.no-agents', why: 'the options are loader data' },
   { file: 'src/routes/app/apps/[appId]/stops/+page.svelte', marker: 'stops-empty', why: 'the rows are loader data' },
-  { file: 'src/routes/app/apps/[appId]/tasks/+page.svelte', marker: 'overdue-dropped', why: 'the dropped-filter note is decided by the URL the page loaded' },
-  { file: 'src/routes/app/apps/[appId]/tasks/+page.svelte', marker: 'unresolved-dropped', why: 'the dropped-filter note is decided by the URL the page loaded' },
   { file: 'src/routes/app/apps/[appId]/tickers/+page.svelte', marker: 'tickers-empty', why: 'the rows are loader data' },
   { file: 'src/routes/app/apps/[appId]/tickers/[tickerId]/+page.svelte', marker: 'subscribers-empty', why: 'the rows are loader data' },
   { file: 'src/routes/app/memories/[id]/subscriptions/+page.svelte', marker: 'subscriptions.no-targets', why: 'the targets are loader data' },
-  { file: 'src/routes/app/workers/[id]/+page.svelte', marker: 'worker.retired.notice', why: 'a static notice about the worker, present at load' },
   { file: 'src/lib/components/action-register/ActionRegisterList.svelte', marker: 'register-empty', why: 'the page entries are loader data' },
   { file: 'src/lib/components/agent-tasks/TasksComposition.svelte', marker: 'app.tasks.roster.empty', why: 'the composition is loader data' },
   { file: 'src/lib/components/agent-tasks/TasksRoster.svelte', marker: 'app.tasks.roster.empty', why: 'the roster is loader data' },

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import { untrack } from 'svelte';
   import { TASK_SEARCH_MAX, taskBoardHref } from '$lib/agent-tasks/search';
@@ -319,24 +320,28 @@
       <p id="task-tags-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.narrow.tags.guidance', 'Separate tags with commas. A task must have every tag listed.')}</p>
       <!-- portal#1434: ONE Overdue note. When Overdue was dropped for the bucket, the
            dropped notice IS the guidance (same id, still a status), not a second line. -->
-      {#if data.overdueDropped}
-        <p id="task-overdue-guidance" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="overdue-dropped">{t('app.tasks.narrow.overdue.dropped', 'Overdue was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
-      {:else}
-        <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
-          {overdueOffered
-            ? t('app.tasks.narrow.overdue.guidance', 'Overdue: a pending task past its start-by, or a pending or started task past its finish-by. Backlog and ended tasks are never overdue.')
-            : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
-        </p>
-      {/if}
-      {#if data.unresolvedDropped}
-        <p id="task-unresolved-guidance" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="unresolved-dropped">{t('app.tasks.narrow.unresolved.dropped', 'Unresolved findings was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
-      {:else}
-        <p id="task-unresolved-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
-          {unresolvedOffered
-            ? t('app.tasks.narrow.unresolved.guidance', 'Unresolved findings: finished tasks, subtasks included, with a finding no one has recorded a disposition for.')
-            : t('app.tasks.narrow.unresolved.unavailable', 'Unresolved findings applies to Ended and All tasks.')}
-        </p>
-      {/if}
+      <LiveRegion class="w-full" data-testid="overdue-note-region">
+        {#if data.overdueDropped}
+          <p id="task-overdue-guidance" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="overdue-dropped">{t('app.tasks.narrow.overdue.dropped', 'Overdue was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
+        {:else}
+          <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
+            {overdueOffered
+              ? t('app.tasks.narrow.overdue.guidance', 'Overdue: a pending task past its start-by, or a pending or started task past its finish-by. Backlog and ended tasks are never overdue.')
+              : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
+          </p>
+        {/if}
+      </LiveRegion>
+      <LiveRegion class="w-full" data-testid="unresolved-note-region">
+        {#if data.unresolvedDropped}
+          <p id="task-unresolved-guidance" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="unresolved-dropped">{t('app.tasks.narrow.unresolved.dropped', 'Unresolved findings was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
+        {:else}
+          <p id="task-unresolved-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
+            {unresolvedOffered
+              ? t('app.tasks.narrow.unresolved.guidance', 'Unresolved findings: finished tasks, subtasks included, with a finding no one has recorded a disposition for.')
+              : t('app.tasks.narrow.unresolved.unavailable', 'Unresolved findings applies to Ended and All tasks.')}
+          </p>
+        {/if}
+      </LiveRegion>
     </form>
     <!-- portal#1349: the search reads titles and descriptions, so an EXACT handle
          (the only way to name a subtask like AT3.405 here) is a real link to that
