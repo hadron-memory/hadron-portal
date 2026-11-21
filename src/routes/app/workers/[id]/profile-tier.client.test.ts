@@ -27,6 +27,7 @@ it('#1334 renders Profile identity only, with no Agent placeholder or working-st
   expect(m.target.querySelector('[role="tablist"]')).toBeNull();
   expect(m.target.querySelector('form')).toBeNull();
 });
+
 it('#1334 Details shows Agent only when the server returns it, without working-state panels', () => {
   const m = mountComponent(Page as never, { data: { worker: { ...profile, agent: { id: 'agent-1', name: 'Visible Agent', urn: 'hrn:agent:example.test:agent' } } } } as never); cleanup = m.unmount;
   expect(m.target.textContent).toContain('Visible Agent');
@@ -40,6 +41,86 @@ it('#1334 unbound participants keep full panels even with masked App and Agent',
   expect(m.target.textContent).toContain('Working memory');
   expect(m.target.textContent).not.toContain('Backed by');
   expect(m.target.textContent).not.toContain('Agent no longer installed');
+});
+
+// portal#1491 — the Profile tier boundary, pinned against a payload the
+// full page renders in every part: a valid ok wake read, a session row,
+// management rights, the real signature form and every result key. Every
+// absence the pins below forbid is paired with a control mount of the SAME
+// payload under a participant on the tab that carries it, so no absence can
+// pass vacuously — the payload really does light the string up (BLIND F6).
+const fullOldPagePayload = async () => {
+  const signatureForm = await superValidate({}, zod4(updateSignatureSchema), { errors: false });
+  return {
+    worker: { ...profile },
+    initialTab: 'wake',
+    initialView: null,
+    leaveAloneByHandle: null,
+    terminalNow: NOW,
+    signatureForm,
+    wake: { kind: 'ok', value: { mentions: '@gil', pausedUntil: null, dormant: false, effectiveCadenceSeconds: 900, subscriptions: [] } },
+    wakeAppSettings: null,
+    wakeLoadedAt: NOW,
+    workerSessions: [{ id: 's-1', type: 'github', repo: 'acme/app', branch: 'main', tool: null, host: null, llmModel: null, plan: null, summary: 'Old-page session row', prNumber: null, turnCount: 1, errorCount: 0 }],
+    sessionsTruncated: false,
+    worklog: null,
+    worklogTotal: 0,
+    bootPointer: { ok: false as const },
+    canManageWorkerApp: true,
+    canChangeAgent: false,
+    changeAgentOptions: [],
+    changeAgentKey: 'w-profile',
+    retireKey: 'w-profile',
+    bootPointerKey: 'w-profile',
+    applyKey: 'w-profile',
+  };
+};
+it('#1491 renders Profile identity only from a payload the old page renders in full', async () => {
+  const m = mountComponent(Page as never, { data: await fullOldPagePayload() } as never); cleanup = m.unmount;
+  const text = m.target.textContent ?? '';
+  expect(text).toContain('Profile Worker');
+  // Each absence below is a surface the control mounts below prove this
+  // payload renders under a participant — so a page that opens the tier
+  // gate fails here on content, not on a fixture crash.
+  expect(m.target.querySelector('[role="tablist"]')).toBeNull();            // the tabs
+  expect(m.target.querySelector('form')).toBeNull();                        // management's (hidden) retire form
+  expect(m.target.querySelector('#panel-wake')).toBeNull();                 // the requested wake tabpanel
+  expect(m.target.querySelector('[data-testid="wake-panel"]')).toBeNull();  // the ok wake read
+  expect(text).not.toContain('NESTED APP');                                 // the breadcrumb from worker.app
+  expect(text).not.toContain('@gil');                                       // the wake settings content
+  expect(text).not.toContain('SECRET');
+});
+it('#1491 hides the payload\'s briefing and sessions content even when those tabs are requested', async () => {
+  const payload = await fullOldPagePayload();
+  let m = mountComponent(Page as never, { data: { ...payload, initialTab: 'briefing' } } as never);
+  // The briefing tab is where the raw boot prompt renders on the full page.
+  expect(m.target.textContent).not.toContain('SECRET');
+  m.unmount();
+  m = mountComponent(Page as never, { data: { ...payload, initialTab: 'sessions' } } as never);
+  cleanup = m.unmount;
+  expect(m.target.querySelector('[role="tablist"]')).toBeNull();            // no tab strip to switch with
+  expect(m.target.textContent).not.toContain('Old-page session row');       // the sessions tab's seeded row
+});
+it('#1491 control: the same payload under a participant renders every surface the Profile pin forbids', async () => {
+  const payload = await fullOldPagePayload();
+  const m = mountComponent(Page as never, { data: { ...payload, worker: { ...payload.worker, hasLiveSession: false } } } as never); cleanup = m.unmount;
+  const text = m.target.textContent ?? '';
+  expect(m.target.querySelector('[role="tablist"]')).not.toBeNull();
+  expect(m.target.querySelector('form')).not.toBeNull();
+  expect(m.target.querySelector('#panel-wake')).not.toBeNull();
+  expect(m.target.querySelector('[data-testid="wake-panel"]')).not.toBeNull();
+  expect(text).toContain('NESTED APP');
+  expect(text).toContain('@gil');
+});
+it('#1491 control: the payload\'s briefing prompt and session row render on the tabs that carry them', async () => {
+  const payload = await fullOldPagePayload();
+  const participant = { ...payload, worker: { ...payload.worker, hasLiveSession: false } };
+  let m = mountComponent(Page as never, { data: { ...participant, initialTab: 'briefing' } } as never);
+  expect(m.target.textContent).toContain('SECRET PROMPT');
+  m.unmount();
+  m = mountComponent(Page as never, { data: { ...participant, initialTab: 'sessions' } } as never);
+  cleanup = m.unmount;
+  expect(m.target.textContent).toContain('Old-page session row');
 });
 
 // portal#1492 (PT1) — the worker page's terminal status, internal tier only.
