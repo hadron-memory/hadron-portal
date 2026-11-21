@@ -535,6 +535,11 @@ describe('App tab navigation failure feedback (#2288)', () => {
   // portal#2302 item 1: a superseded choice's RESULT is not applied, whichever await it was parked on.
   describe('portal#2302: a superseded choice changes nothing when it finally resolves', () => {
     const gotos = () => navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]));
+    // The REJECTING half of a superseded goto is pinned by 'a superseded choice whose goto rejects shows no
+    // alert' above (#2288). The "nothing further happens" checks below use this file's own flush, wait(20)
+    // then tick(4), like every neighbour; each is paired with a call-count or selection assertion, and the
+    // guards under test are synchronous epoch comparisons, not timers, so the wait only lets a wrong
+    // implementation show itself.
     it('a held goto that resolves after a newer choice leaves the newer tab shown', async () => {
       const target = await mountTab('chats');
       const first = deferred();
@@ -548,6 +553,8 @@ describe('App tab navigation failure feedback (#2288)', () => {
       await tick(4);
       expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
       expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('false');
+      expect(alerts(target)).toHaveLength(0);
+      expect(gotos()).toEqual(['/app/apps/a1?tab=runs', '/app/apps/a1?tab=node-role-templates']); // the release adds none
     });
     it('a held preload that resolves after a newer choice starts no navigation of its own', async () => {
       const target = await mountTab('chats');
