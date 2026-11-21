@@ -1,4 +1,4 @@
-# Exported from hadron-server 2d1cd5c669be735eeeecf44941d86ad3f4f7688f (2d1cd5c6, 2026-11-19T08:18:37Z) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 4d82f4fa96c990076864f960ffbf296252f9c984 (4d82f4fa96c990076864f960ffbf296252f9c984, 2026-11-21T13:34:33+01:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -476,6 +476,16 @@ type Agent {
   personaRole: String
 
   """
+  #2309 — the portal link that opens this Agent: <FRONTEND_URL>/app/u/<the urn field above>, built from the SAME
+  rendered urn the field returns, so the two cannot diverge. It reads nothing of its own: it derives from a value the
+  caller already sees, so a caller who cannot read the Agent never reaches it. NULL when the deployment has no portal
+  origin (FRONTEND_URL unset or malformed), when the urn cannot be rendered (emission threw and the raw stored value
+  was served, which is not a canonical link), or when the urn holds a character a link cannot carry. Never a
+  guessed host.
+  """
+  portalUrl: String
+
+  """
   #1892 (hrn:node:hadronmemory.com:specs:cor:dmo:050:16) - the id of the index node whose incoming,
   trigger-labelled edges list the processes this Agent starts or owns, or
   null. Set or clear it with setAgentIndexRefs; read the Agent's processes
@@ -715,6 +725,28 @@ enum AgentProcessKind {
 
   """Listed in the Agent's processes index: a process it starts or owns."""
   STARTS
+}
+
+"""One revision in an Agent's list. #4488"""
+type AgentRevision {
+  createdAt: DateTime!
+  description: String
+  label: String!
+
+  """True for the revision the Agent is pinned to (publishRevision)."""
+  published: Boolean!
+  revisionLoc: String!
+}
+
+"""
+An Agent's revisions, newest first, with the slot facts. Slot numbers are never reused: the next save takes
+1 + the highest ever used, deleted revisions included, so a delete does not raise slotsRemaining. #4488
+"""
+type AgentRevisionList {
+  highestSlotUsed: Float!
+  revisions: [AgentRevision!]!
+  slotLimit: Float!
+  slotsRemaining: Float!
 }
 
 """Recurring trigger (cor:agt:010, D-2026-07-04-E)."""
@@ -1253,6 +1285,15 @@ enum AgentTaskMatchedBy {
 }
 
 """
+#2212 A3 — one page of an App's agent tasks, counted over the same filter and read gate.
+"""
+type AgentTaskPage {
+  hasMore: Boolean!
+  items: [AgentTask!]!
+  total: Int!
+}
+
+"""
 A task's owner, assignee or audit actor, as a sanitized projection: the
 Worker's name and URN, or the person's handle. Never the User object, so a
 task never exposes another person's account fields.
@@ -1710,7 +1751,7 @@ type AgentTeamEvent {
   taskId: ID
 
   """
-  e.g. task.created, task.assigned, task.reassigned, task.started, task.progress, task.finished, task.cancelled, task.handed-back (#2651: its payload is the reason code only, never the reason text); the alarms stall.not-started, stall.no-progress, stall.owner-unreactive, assignment.unassignable, stall.finish-by (#2648), alarm.dark-worker (#2755: task-less, subjectWorker is the worker gone dark), alarm.coordinator-cadence (#2763: task-less, subjectWorker is the coordinator that stopped assigning); alarm.stale-sweep (#4233: task-less and workerless: a host of an App in sweep mode OBSERVE or APPLY whose last run the server recorded more than five minutes ago (the server's clock, not the host's; a switch-on of the mode restarts the clock); payload.hostId names the host, the alarm goes to the App's managers and ends when the host records its next run); availability.changed; assignment.queued, assignment.matched (the platform's assignment, hrn:node:hadronmemory.com:specs:cor:agt:060:06); host.registered, host.lost; host.operation.succeeded, host.operation.failed (hrn:node:hadronmemory.com:specs:cor:agt:070:02).
+  e.g. task.created, task.assigned, task.reassigned, task.started, task.progress, task.finished, task.cancelled, task.handed-back (#2651: its payload is the reason code only, never the reason text); the alarms stall.not-started, stall.no-progress, stall.owner-unreactive, assignment.unassignable, stall.finish-by (#2648), alarm.dark-worker (#2755: task-less, subjectWorker is the worker gone dark), alarm.coordinator-cadence (#2763: task-less, subjectWorker is the coordinator that stopped assigning); alarm.stale-sweep (#4233: task-less and workerless: a host of an App in sweep mode OBSERVE or APPLY whose last run the server recorded more than five minutes ago (the server's clock, not the host's; a switch-on of the mode restarts the clock); payload.hostId names the host, the alarm goes to the App's managers and ends when the host records its next run); availability.changed; assignment.queued, assignment.matched (the platform's assignment, hrn:node:hadronmemory.com:specs:cor:agt:060:06); host.registered, host.lost; host.operation.succeeded, host.operation.failed (hrn:node:hadronmemory.com:specs:cor:agt:070:02); question.answered, question.answer-retracted (#4431: a question that blocks the task was answered, or its answer taken back; payload is questionId, code, revision and state only, never the answer; only question.answered wakes the task's assignee).
   """
   type: String!
 
@@ -2152,16 +2193,47 @@ type AiServiceConfigsPage {
   total: Int!
 }
 
+"""
+#4426 — a change to the question. An omitted field is unchanged; for background, whyNow, assignee, neededBy and defaultAction an explicit null clears it. Answers never change here.
+"""
 input AmendQuestionInput {
-  addParts: [QuestionPartInput!]
+  assignee: ID
+  background: String
   blocks: [QuestionRefInput!]
-  context: String
-  followUps: [QuestionRefInput!]
-  parts: [QuestionPartPatchInput!]
+  defaultAction: String
+  neededBy: DateTime
+  noRecommendation: QuestionNoRecommendationInput
+  options: [QuestionOptionInput!]
+  priority: QuestionPriority
+  recommendation: QuestionRecommendationInput
   sources: [QuestionRefInput!]
+  specsMustChange: [QuestionRefInput!]
+  specsTouched: [QuestionRefInput!]
   tier: QuestionTier
   title: String
-  urgency: QuestionUrgency
+  whyNow: String
+  yesno: Boolean
+}
+
+"""
+#4427 — an answer: an option, free text, or both. Never pre-selected; the caller names one.
+"""
+input AnswerQuestionInput {
+  """One of the question's option keys. Optional when text is given."""
+  optionKey: String
+
+  """
+  Why this answer replaces an earlier one. Always optional; blank counts as not given.
+  """
+  reason: String
+
+  """Free text: alone, or a note beside the chosen option."""
+  text: String
+
+  """
+  Where the answer was given, as the client states it (a claim). Default API.
+  """
+  via: QuestionAnswerVia
 }
 
 """
@@ -2313,12 +2385,21 @@ type App {
   policy: JSON
 
   """
+  #2309 — the portal link that opens this App: <FRONTEND_URL>/app/u/<the urn field above>, built from the SAME
+  rendered urn the field returns, so the two cannot diverge. It reads nothing of its own: it derives from a value the
+  caller already sees, so a caller who cannot read the App never reaches it. NULL when the deployment has no portal
+  origin (FRONTEND_URL unset or malformed), when the urn cannot be rendered (emission threw and the raw stored value
+  was served, which is not a canonical link), or when the urn holds a character a link cannot carry. Never a
+  guessed host.
+  """
+  portalUrl: String
+
+  """
   #3125 S1 (hrn:node:hadronmemory.com:specs:cor:dmo:050:02, hrn:node:hadronmemory.com:specs:cor:dmo:050:20): the App's
   own JSON object, written whole by whoever manages it (setAppProperties). Readable by whoever may read the App by
   app(ref:) (an org member, or the user-owner) and by whoever manages it; null for anyone else, an App key included,
-  whichever field reached the App. Never put a secret here. The platform reads only the taskIntegrations key
-  (hrn:node:hadronmemory.com:specs:cor:agt:120:01), where each team lead reads as its worker URN; every other key is
-  the team's, returned as written. Null = no properties.
+  whichever field reached the App. Never put a secret here. The platform reads no key of it: every key is
+  the team's, returned as stored. Null = no properties.
   """
   properties: JSON
 
@@ -2326,7 +2407,7 @@ type App {
   #3125 S1: the revision setAppProperties checks expectedRevision against. 0 until the first changing write; each changing write adds 1. Null for a caller who may not read properties.
   """
   propertiesRevision: Int
-  role: AppMembershipRole!
+  role: AppMembershipRole! @deprecated(reason: "Deprecated (#4464): App.role is a constant READER and the role input is accepted and ignored; the field and the input will be removed no earlier than 2026-12-21.")
 
   """
   Ruling DY-5: days without activity after which a lapsed worker session of
@@ -2617,6 +2698,22 @@ type AppKeyScope {
   #1709 — the one host a host:operate scope is bound to (hrn:node:hadronmemory.com:specs:cor:agt:070:04); null for every other scope.
   """
   hostId: String
+  scope: String!
+}
+
+"""
+#4489 — one scope of the closed App key scope list (Query.appKeyScopeCatalogue).
+"""
+type AppKeyScopeInfo {
+  """One line on what holding the scope permits."""
+  description: String!
+
+  """
+  True when granting it needs hostId (host:operate); false when hostId is refused.
+  """
+  requiresHostId: Boolean!
+
+  """The name grantAppKeyScope and revokeAppKeyScope take."""
   scope: String!
 }
 
@@ -3084,28 +3181,53 @@ type AppsPage {
   total: Int!
 }
 
+"""
+#4426 — one question per node. Give options or yesno (or neither, for a free-text question), and then a recommendation or noRecommendation.
+"""
 input AskQuestionInput {
+  """
+  Who the question is routed to; must be one of its deciders (QUESTION_ASSIGNEE_NOT_DECIDER).
+  """
+  assignee: ID
   authorizes: Boolean
+  background: String
   blocks: [QuestionRefInput!]
-  context: String
 
   """
   Narrows the log's default deciders; never widens past its eligible set.
   """
   deciders: [ID!]
-  followUps: [QuestionRefInput!]
+
+  """Needs neededBy."""
+  defaultAction: String
 
   """The authorization a grant question carries (authorizes: true only)."""
   grant: JSON
-  parts: [QuestionPartInput!]!
+  neededBy: DateTime
+  noRecommendation: QuestionNoRecommendationInput
+  options: [QuestionOptionInput!]
+
+  """Default NORMAL."""
+  priority: QuestionPriority
+  recommendation: QuestionRecommendationInput
   sources: [QuestionRefInput!]
+  specsMustChange: [QuestionRefInput!]
+  specsTouched: [QuestionRefInput!]
 
   """
-  Default APPROVED; SIGNED when authorizes is true (APPROVED is then refused: QUESTION_TIER_TOO_LOW).
+  #4431 — the agent task this question blocks, by id or handle (a bare handle is in the App of the log's memory). Only a worker may name one, and only its own open task (pending or started) in the App the log's memory belongs to; anything else is QUESTION_INVALID at /taskRef, with one message whatever the reason. An answer then records question.answered on the task and wakes its current assignee; a take-back records question.answer-retracted and wakes nobody (hrn:node:hadronmemory.com:specs:cor:agt:050:11).
+  """
+  taskRef: ID
+
+  """
+  Default ANSWERED; SIGNED when authorizes is true (a lower tier is then refused: QUESTION_TIER_TOO_LOW).
   """
   tier: QuestionTier
   title: String!
-  urgency: QuestionUrgency
+  whyNow: String
+
+  """Shorthand for the options yes and no. Not together with options."""
+  yesno: Boolean
 }
 
 type Asset {
@@ -4134,12 +4256,12 @@ type ChatResponseResult {
   onTrack: Boolean!
 
   """
-  The stage name the turn asked for that is not one of the conversation's stages (hrn:node:hadronmemory.com:specs:cor:cht:030:02). The chat did not move; the turn is recorded. Null when the name was accepted or none was given.
+  The stage name the turn asked for that is not one of the conversation's stages (hrn:node:hadronmemory.com:specs:cor:cht:030:02). The chat did not move; the turn is recorded. Null when the name was accepted or none was given, and null when routingSkipped: the rejection was judged against a stage list the chat has since left.
   """
   rejectedNextStage: String
 
   """
-  Routing edits were skipped because a concurrent turn moved the chat from the decision's origin. hrn:node:hadronmemory.com:specs:cor:cht:030:02
+  Routing edits were skipped because a concurrent turn moved the chat from the decision's origin (its conversation or its stage). The turn's routing claims are cleared with them: completion, handoff, stage transition, detour return and rejectedNextStage all read as unset. hrn:node:hadronmemory.com:specs:cor:cht:030:02
   """
   routingSkipped: Boolean!
   stageTransitioned: Boolean!
@@ -4189,18 +4311,6 @@ input ClaimContextResetInput {
   """
   process: ObservedProcessInput!
   resetId: ID!
-}
-
-"""#3125 S3: what claimUntrackedTaskItems created, in claim order."""
-type ClaimUntrackedTaskItemsResult {
-  complete: Boolean!
-  incompleteReason: String
-
-  """
-  The stable code of the refusal that stopped the walk; null unless incompleteReason is claim_refused.
-  """
-  refusalCode: String
-  tasks: [AgentTask!]!
 }
 
 """
@@ -5258,6 +5368,13 @@ input DashboardWidgetInput {
   type: DashboardWidgetType!
 }
 
+"""#2213 S3 — one page of the caller's placed dashboard widgets."""
+type DashboardWidgetPage {
+  hasMore: Boolean!
+  items: [DashboardWidget!]!
+  total: Int!
+}
+
 """
 #806 — a named, saved widget configuration. A palette entry: applying one
 COPIES its config into a placement, so later edits to the preset do not reach
@@ -5579,6 +5696,11 @@ type DueTaskReason {
 
   """The task's id (for CHILD_FINISHED and CHILD_CANCELLED, the child's)."""
   id: ID!
+
+  """
+  #4431 — for ANSWERED, the code of the question that was answered (e.g. QA3), for the nudge: a question this task asked was answered: <code>. Never the answer. Null for every other event (hrn:node:hadronmemory.com:specs:cor:agt:050:11).
+  """
+  questionCode: String
 
   """A stable label for the reason, e.g. TASK:<id>:assigned."""
   ref: String!
@@ -6319,6 +6441,11 @@ type GrantSigningRequest {
   """128 bits of randomness."""
   id: ID!
 
+  """
+  Latest verified ineligible signing-proof attempt while OPEN, if any. Visible only through the existing request read gate; contains no signer identity and does not end the request (#4546; hrn:node:hadronmemory.com:specs:cor:acl:140:07).
+  """
+  lastRefusedAt: DateTime
+
   """The payload version the signer signs: hadron-grant-signature-v1."""
   payloadVersion: String!
   requestedBy: SigningRequester!
@@ -6663,6 +6790,13 @@ type HostRegistration {
   refusedWorkers: [HostRegistrationRefusal!]!
   registeredAt: DateTime!
   workers: [HostRegistrationWorker!]!
+}
+
+"""#2213 S3 — one page of an App's host registrations."""
+type HostRegistrationPage {
+  hasMore: Boolean!
+  items: [HostRegistration!]!
+  total: Int!
 }
 
 """
@@ -7027,13 +7161,13 @@ secret keeps its values as versions: every store adds one
 """
 input IssueSecretReadClientInput {
   """
-  Delete the secret at the client's last read or when its window ends. Needs a window or a read budget. Refused (SECRET_AUTO_DELETE_NOT_AVAILABLE) until the deletion is built (#4001).
+  Delete the secret at the client's last read or when its window ends. Needs a window or a read budget. Refusals, in the order they are judged: holderKind APP (GRANT_HOLDER_NOT_ALLOWED); an unreadable startsAt or expiresAt (BAD_USER_INPUT); a marked request without a window or a read budget (SECRET_AUTO_DELETE_NEEDS_LIMIT); a caller who is neither an App manager nor the writer of the secret's current version (SECRET_AUTO_DELETE_NOT_ALLOWED, where an unmarked request would get FORBIDDEN or SECRET_READ_CLIENT_SUPERSEDED).
   """
   autoDelete: Boolean! = false
   expiresAt: DateTime
 
   """
-  WORKER: a live worker of the App (holderRef is its id). USER: the issuer themself (holderRef omitted).
+  WORKER: a live worker of the App (holderRef is its id). AGENT: an agent installed and licensed in the App (holderRef is its id); its live workers in the App read through the client (hrn:node:hadronmemory.com:specs:cor:sec:060:02). USER: the issuer themself (holderRef omitted). APP is refused (GRANT_HOLDER_NOT_ALLOWED): an App holds no reveal path.
   """
   holderKind: GrantHolderKind!
   holderRef: ID
@@ -7290,6 +7424,17 @@ type Memory {
   App-scoped or free-standing. Enforced by chk_memory_class_app_id.
   """
   appId: ID
+
+  """
+  #606 — whether the CALLER may write to this memory: true exactly when a write to it would be allowed for the request's own principal
+  (user, App key or run): not refused by the memory write gate, and never true in a read-only impersonation session,
+  where every mutation is refused. It says nothing about
+  other users, and a Memory is only reachable here when the caller may already read it. Lets a write-target
+  picker filter without one effectiveAccess call per memory (the server still runs the gate once per distinct
+  memory per request). Null means the answer could not be determined (an unexpected failure, logged
+  server-side), never "cannot write"; it is nullable so one failing memory cannot null a whole list.
+  """
+  canWrite: Boolean
   category0: String
   category1: String
   category2: String
@@ -7357,7 +7502,7 @@ type Memory {
   isEncrypted: Boolean!
 
   """
-  Versioned JSON outcome of the last sync (v1, or v2 when an attestation-refused entry requires it): partial, failed or unknown. Null after a completed clean sync; consult lastSyncedAt/syncStatus for a never-synced memory. Same Memory-record read gate applies. Git sync: hrn:node:hadronmemory.com:specs:cor:int:010:01.
+  Versioned JSON outcome of the last sync (v1, or v2 when an attestation-refused entry requires it): partial, failed or unknown. Invalid-loc skips may add invalidSources with a count, up to 50 ordinal/code items and an omitted count; the outcome remains unknown and no source path or file ID is exposed. Null after a completed clean sync; consult lastSyncedAt/syncStatus for a never-synced memory. Same Memory-record read gate applies. Git sync: hrn:node:hadronmemory.com:specs:cor:int:010:01.
   """
   lastSyncReport: String
   lastSyncedAt: DateTime
@@ -7398,6 +7543,16 @@ type Memory {
   organization: Organization
   organizationId: String
   pendingEdgeCount: Int!
+
+  """
+  #2309 — the portal link that opens this Memory: <FRONTEND_URL>/app/u/<the urn field above>, built from the SAME
+  rendered urn the field returns, so the two cannot diverge. It reads nothing of its own: it derives from a value the
+  caller already sees, so a caller who cannot read the Memory never reaches it. NULL when the deployment has no portal
+  origin (FRONTEND_URL unset or malformed), when the urn cannot be rendered (emission threw and the raw stored value
+  was served, which is not a canonical link), or when the urn holds a character a link cannot carry. Never a
+  guessed host.
+  """
+  portalUrl: String
   readBranch: String
 
   """
@@ -8307,7 +8462,7 @@ type Mutation {
   addMemoryToAgent(agentRef: ID!, memoryRef: ID!, role: String): Agent!
 
   """
-  Accepts the entity's ID or URN (orgRef). A user who is already a live member is refused with CONFLICT.
+  orgRef and userRef accept what their argument descriptions list: an id, a slug or URN, and for a user also an email or handle. A user who is already a live member is refused with CONFLICT.
   """
   addOrgMember(
     """#764 — the organization as an id / slug / hrn:org:<slug> URN."""
@@ -8340,11 +8495,22 @@ type Mutation {
   allocateSpecNode(after: Int, memoryRef: ID!, name: String, parentLoc: String!): Node!
 
   """
-  #1641 — amend a writable question. Memory write access is always required; before any answer, any writer; after one, a decider only. Urgency is a
+  #1641 — amend a writable question. Memory write access is always required; before any answer, any writer; after one, a decider only. Priority is a
   decider's to change; lowering the tier is a decider's, before an answer, never when it authorizes.
-  Refusals: NODE_WRITE_CONFLICT, QUESTION_PART_RENUMBER, QUESTION_ANSWER_IMMUTABLE, QUESTION_NOT_DECIDER.
+  Refusals: NODE_WRITE_CONFLICT, QUESTION_ANSWER_IMMUTABLE, QUESTION_NOT_DECIDER.
   """
   amendQuestion(expectedRevision: Int!, input: AmendQuestionInput!, reason: String!, ref: ID!): Question!
+
+  """
+  #4427 — answer a question, or answer it again. One of its deciders, acting as themselves: never a worker or agent
+  session, an App key, a run or an impersonated session (hrn:node:hadronmemory.com:specs:cor:dmo:140:05). Appends an answer
+  entry; earlier entries stay, and an answered, approved or signed question can always be answered again on the same node.
+  expectedRevision is required: the answer covers exactly the revision the decider saw (Question.revSeq). The identical
+  answer again with no reason writes nothing. Refusals: QUESTION_NOT_DECIDER, QUESTION_IMPERSONATION_REFUSED,
+  QUESTION_UNKNOWN_OPTION, QUESTION_WITHDRAWN, QUESTION_INVALID, QUESTION_NOT_FOUND, QUESTION_FORBIDDEN, QUESTION_LOG_NOT_FOUND,
+  NODE_WRITE_CONFLICT.
+  """
+  answerQuestion(expectedRevision: Int!, input: AnswerQuestionInput!, ref: ID!): Question!
 
   """
   #2096 — apply the Agent's current ticker templates to ONE existing worker (the repair for workers cast before the
@@ -8422,18 +8588,28 @@ type Mutation {
   approval hash of its title/abstract/content. Pass revision to approve only
   if it is still the one you read (REVISION_MISMATCH otherwise). A memory
   writer may approve ordinary nodes, the author included; placed boot prompts
-  also require their dedicated manager-as-self gate. Comments and
-  question-family nodes are refused. Idempotent: an approved
-  revision keeps its existing approval. Refuses NODE_IS_PLACEHOLDER, and
-  ENCRYPTED_MEMORY_NOT_APPLICABLE on any encrypted memory, even with a
-  cached session key.
+  also require their dedicated manager-as-self gate. Comments are refused. A
+  question (#4429, hrn:node:hadronmemory.com:specs:cor:dmo:140:05) is approved
+  one at a time, and only by one of its deciders acting as themselves (a person
+  in a session bound to no worker or agent, no App key or run, no impersonation,
+  still among the log's deciders and able to write the memory): otherwise
+  QUESTION_NOT_DECIDER or QUESTION_IMPERSONATION_REFUSED. It needs an answer to
+  approve (QUESTION_NOT_ANSWERED on an open one), and refuses QUESTION_WITHDRAWN
+  and, for a tampered or unverifiable one, QUESTION_INVALID. Any tier may be
+  approved; the approval writes no new revision, and the tier decides what it
+  counts for (the signed tier never reaches DECIDED on an approval). A question
+  log is never approved (QUESTION_LOG_NOT_APPROVABLE), and approveMemoryNodes
+  skips every question and log. Idempotent: an approved revision keeps its
+  existing approval, and a repeat still checks the caller. Refuses
+  NODE_IS_PLACEHOLDER, and ENCRYPTED_MEMORY_NOT_APPLICABLE on any encrypted
+  memory, even with a cached session key.
   """
   approveNode(nodeRef: ID!, revision: Int): NodeApprovalReceipt!
 
   """
-  #1641 — ask a question in a log: the server issues the next code using the log prefix (DA, DB, … with default D) and renders the
+  #1641 — ask a question in a log: the server issues the next code using the log prefix (QA, QB, … with default Q) and renders the
   content. Any writer of the log's memory, agents included, outside impersonation. Refusals: QUESTION_INVALID (with JSON
-  pointers), QUESTION_RECOMMENDATION_MISSING, QUESTION_TIER_TOO_LOW, QUESTION_DECIDER_NOT_ELIGIBLE.
+  pointers), QUESTION_RECOMMENDATION_MISSING, QUESTION_TIER_TOO_LOW, QUESTION_ASSIGNEE_NOT_DECIDER, QUESTION_DECIDER_NOT_ELIGIBLE.
   """
   askQuestion(input: AskQuestionInput!, logRef: ID!): Question!
 
@@ -8463,7 +8639,7 @@ type Mutation {
   assignHostWorker(input: AssignHostWorkerInput!, instruction: ActInstructionInput): HostWorkerAssignment!
 
   """
-  #3448 — seat owner-chain binds a direct child to a scheduled slot at the frozen head. A current seat's CHANGES_REQUESTED, FAIL or REFUSED at this head prevents replacement, with or without supersedes, and a negative seat cannot move slots (REVIEW_SEAT_NOT_SUPERSEDABLE). A seat task is assigned once (REVIEW_SEAT_ALREADY_ASSIGNED); a replacement must name the current sibling in supersedes (REVIEW_SEAT_SUPERSEDES_REQUIRED). Checks and write hold the build row FOR UPDATE.
+  #3448 — Order: schedule, freeze, seat, verdict, finish; a seat binds only while its own task is live. A native negative verdict at a head blocks every slot there; the head must move. TASK_ENDED and REVIEW_SEAT_UNASSIGNED name the remedy (a signed PR receipt at the exact head is the record); REVIEW_HEAD_MISMATCH says to bind at the frozen head. Seat owner-chain binds a direct child to a scheduled slot at the frozen head. A current seat's CHANGES_REQUESTED, FAIL or REFUSED at this head prevents replacement, with or without supersedes, and a negative seat cannot move slots (REVIEW_SEAT_NOT_SUPERSEDABLE). A seat task is assigned once (REVIEW_SEAT_ALREADY_ASSIGNED); a replacement must name the current sibling in supersedes (REVIEW_SEAT_SUPERSEDES_REQUIRED). Checks and write hold the build row FOR UPDATE.
   """
   assignReviewSeat(head: String!, slot: String!, supersedes: ID, taskRef: ID!): PrProtocolResult!
 
@@ -8692,27 +8868,6 @@ type Mutation {
   claimContextReset(input: ClaimContextResetInput!): ContextResetStep!
 
   """
-  #3125 S3 (hrn:node:hadronmemory.com:specs:cor:agt:120:03): claim up to limit (1 to 10, default 1) of the items
-  untrackedTaskItems would list with the same filters, in its order. Each claim is a root task owned by and assigned
-  to the caller, created STARTED with startedAt set, externalId and source the item's URL, an ISSUE reference to it,
-  and the item's title (control characters removed, clipped to the title cap); it records task.created,
-  task.assigned and task.started. Each claim commits on its own. An item another caller claimed first is skipped,
-  so concurrent callers get disjoint sets. A refusal mid-walk stops it and is returned with the claims already
-  made: incompleteReason claim_refused with its code in refusalCode (claim_failed, refusalCode null, for an
-  unexpected failure after a claim). A person or a worker claims for themselves and names no assignee or owner
-  (BAD_USER_INPUT if it does). #3132: the App's own key names the assignee (TASK_ASSIGNEE_REQUIRED) and the owner
-  (TASK_OWNER_REQUIRED), each a worker of the App or a person who participates in it (TASK_ASSIGNEE_INVALID /
-  TASK_OWNER_INVALID, as createAgentTask), all judged before any GitHub call; the task is started on the assignee's
-  behalf, and its events name the key as actorAppKeyId and the assignee as their subject. A claim is the only task
-  write an App key makes. A key request carrying a session is APP_KEY_SESSION_BOUND. Other refusals as
-  untrackedTaskItems.
-  #3422: noTeam as on untrackedTaskItems, applied before the claim walks the list: true claims only items carrying
-  none of the integration's team labels, false or omitted keeps the current behaviour, and with team it is refused
-  with BAD_USER_INPUT before GitHub is read and before any task is created.
-  """
-  claimUntrackedTaskItems(appRef: ID!, assignee: AgentTaskPartyInput, integration: String!, limit: Int, noTeam: Boolean, owner: AgentTaskPartyInput, ready: ReadyFilter, repository: String, team: ID): ClaimUntrackedTaskItemsResult!
-
-  """
   Clear an Agent's AI provider config without returning or decrypting keys.
   
   Clearing a user-owned Agent, by its owner or a platform ADMIN/OWNER,
@@ -8850,14 +9005,6 @@ type Mutation {
   """
   compileWorkerBootPrompt(setPointer: Boolean = true, workerRef: ID!): CompiledBootPrompt!
   completeAssetUpload(input: CompleteAssetUploadInput!): Asset!
-
-  """
-  Explicitly confirm a previously previewed #1353 switchover. The proof is
-  actor/App/scope-bound; any live-Worker, register or cursor drift rejects
-  the whole transaction. It advances only through the heads captured by the
-  preview, so messages arriving afterward remain unread.
-  """
-  confirmTeamAttentionSwitchover(appRef: ID!, proof: String!): TeamAttentionSwitchoverResult!
 
   """
   Create an agent. Provide orgRef to create an ORG-owned agent (requires org
@@ -9098,7 +9245,7 @@ type Mutation {
     App-layer action-policy link (hrn:node:hadronmemory.com:specs:cor:acl:040:02, #510). Null or omitted = no restriction.
     """
     policy: JSON
-    role: AppMembershipRole
+    role: AppMembershipRole @deprecated(reason: "Deprecated (#4464): App.role is a constant READER and the role input is accepted and ignored; the field and the input will be removed no earlier than 2026-12-21.")
     sessionTimeoutSeconds: Int
     surfaces: [String!]
     trainingMode: Boolean
@@ -9717,6 +9864,16 @@ type Mutation {
   Refusals: AGENT_NOT_FOUND, FORBIDDEN, BAD_USER_INPUT, MODEL_GROUP_NOT_FOUND, AGENT_OWNERSHIP_CHANGED.
   """
   deleteAgentModelGroup(agentRef: ID!, name: String!): Boolean!
+
+  """
+  Delete one of an Agent's revisions by loc (#4488). Same gate as restoreRevision: the Agent's manager.
+  Refuses, before any write, the published (pinned) revision (REVISION_PUBLISHED) and the Agent's only
+  revision (REVISION_ONLY). A deleted revision leaves the list and can no longer be restored; its slot
+  number is not reused, so a delete does not free a slot (see agentRevisions).
+  
+  Accepts the entity's ID or URN.
+  """
+  deleteAgentRevision(agentRef: ID!, revisionLoc: String!): RevisionResult!
   deleteAgentSchedule(id: ID!): Boolean!
 
   """
@@ -10070,6 +10227,18 @@ type Mutation {
   historical node fields are converted in bounded locked passes. One-way
   without the key: the server cannot recover the content.
   
+  A chat-engine state whose stored envelope fails authentication is never
+  treated as plaintext and is never repaired. The conversion still converts
+  everything healthy (including that chat root's own node fields), then
+  answers ENCRYPTION_INCOMPLETE and never a Memory: the message is fixed, and
+  the extensions carry operation ENCRYPT_MEMORY, phase CHAT_ENGINE_STATE,
+  reason UNAUTHENTICATED_ENVELOPE, blockedEngineStateCount (exact, or null
+  when the scan did not finish), blockedEngineStateRootIds (the chat roots'
+  node ids, ascending, at most 100), progressCommitted (whether this call
+  converted anything) and retryable false. A retry with the same key repeats
+  the refusal while the envelope remains. No name, content, path or key
+  material is ever in the error.
+  
   The secret travels beside the operation, never in it (hrn:node:hadronmemory.com:specs:cor:sec:040:04, #1796).
   The strict owner sends exactly one of dataKey or passphrase in an x-hadron-memory-keys entry
   naming this memory; on a first encryption that entry establishes the verifier, and it counts only
@@ -10079,6 +10248,15 @@ type Mutation {
   Accepts the entity's ID or URN.
   """
   encryptMemory(dataKey: String @deprecated(reason: "Send the key in x-hadron-memory-keys, or x-hadron-operation-key for an owning App's completion."), memoryRef: ID!, passphrase: String @deprecated(reason: "Send the passphrase in x-hadron-memory-keys.")): Memory!
+
+  """
+  App Key callers only: end one of this App's agent sessions. Re-ending an
+  already-ended session returns true. Typed refusals: FORBIDDEN without an
+  App Key; SESSION_NOT_FOUND, with one message, for an unknown id, a deleted
+  session and another App's session alike, so the answer reveals nothing
+  about sessions outside the App
+  (hrn:node:hadronmemory.com:specs:cor:api:140:01, #4537).
+  """
   endAgentSession(sessionId: ID!): Boolean!
 
   """
@@ -10452,6 +10630,11 @@ type Mutation {
   interrupted completion allows the strict owner or owning App key to call
   encryptMemory with the existing key. A registered holding cannot be linked again.
   
+  An encrypted promotion refuses WHOLE when a chat-engine state's envelope
+  fails authentication: ENCRYPTION_INCOMPLETE with operation
+  PROMOTE_ANONYMOUS_MEMORY, progressCommitted false and the same extensions
+  as encryptMemory, and nothing is committed.
+  
   Accepts the entity's ID or URN.
   """
   linkMemoryToUser(externalUserId: String!, memoryRef: ID!): Memory!
@@ -10659,7 +10842,7 @@ type Mutation {
   publishRevision(agentRef: ID!, revisionLoc: String!, versionLabel: String): RevisionResult!
 
   """
-  #1641 — a platform admin hard-deletes a question that was never answered, recorded on its log (QUESTION_ANSWERED otherwise). The code stays consumed.
+  #1641 — a platform admin hard-deletes a question that was never answered (or one stranded in the pre-#4426 format), recorded on its log (QUESTION_ANSWERED otherwise). The code stays consumed.
   """
   purgeUnansweredQuestion(reason: String!, ref: ID!): Boolean!
 
@@ -10734,7 +10917,7 @@ type Mutation {
   recordReadyCall(head: String!, taskRef: ID!): PrProtocolResult!
 
   """
-  #3448 — STARTED seat's assignee records a verdict at its assigned head, without finishing it (hrn:node:hadronmemory.com:specs:cor:agt:050:08). REVIEW_SEAT_UNASSIGNED or REVIEW_HEAD_MISMATCH writes nothing. A different actor cannot overwrite a same-head negative verdict (REVIEW_SEAT_NOT_SUPERSEDABLE); its original actor may re-rate. #4235: the review.verdict event also carries reviewerFamily, reviewerModel and modelReportedAt, copied from the recording worker's session (its self-report, not verified), null where none is recorded or a person records it; no argument sets them and readiness never reads them (hrn:node:hadronmemory.com:specs:cor:agt:130:02).
+  #3448 — Order: schedule, freeze, seat, verdict, finish; a verdict is recorded only on a live, bound seat. TASK_ENDED and REVIEW_SEAT_UNASSIGNED name the remedy (a signed PR receipt at the exact head is the record); REVIEW_HEAD_MISMATCH says to use the assigned head. STARTED seat's assignee records a verdict at its assigned head, without finishing it (hrn:node:hadronmemory.com:specs:cor:agt:050:08). REVIEW_SEAT_UNASSIGNED or REVIEW_HEAD_MISMATCH writes nothing. A different actor cannot overwrite a same-head negative verdict (REVIEW_SEAT_NOT_SUPERSEDABLE); its original actor may re-rate. #4235: the review.verdict event also carries reviewerFamily, reviewerModel and modelReportedAt, copied from the recording worker's session (its self-report, not verified), null where none is recorded or a person records it; no argument sets them and readiness never reads them (hrn:node:hadronmemory.com:specs:cor:agt:130:02).
   """
   recordReviewVerdict(head: String!, node: String, receipt: String, taskRef: ID!, verdict: ReviewVerdict!): PrProtocolResult!
 
@@ -10997,7 +11180,7 @@ type Mutation {
   ): RemoveMemoryMemberPayload!
 
   """
-  Accepts the entity's ID or URN (orgRef). Refused with NOT_FOUND when the user never held a membership, and with CONFLICT when it would remove the last live owner; removing an already-revoked member succeeds again.
+  orgRef and userRef accept what their argument descriptions list: an id, a slug or URN, and for a user also an email or handle. Refused with NOT_FOUND when the user never held a membership, and with CONFLICT when it would remove the last live owner; removing an already-revoked member succeeds again.
   """
   removeOrgMember(
     """#764 — the organization as an id / slug / hrn:org:<slug> URN."""
@@ -11089,7 +11272,7 @@ type Mutation {
   reportHostOperation(input: ReportHostOperationInput!): HostOperation!
 
   """
-  #3649 slice B (hrn:node:hadronmemory.com:specs:cor:acl:140:07) — ask for one pending grant to be signed. Two callers may ask: a bound worker session in its own App, or a person acting as themselves who manages the grant's live, installed App (as appGrants reads it); workers never sign. No signer is named: whoever signs must be able to issue it. The request pins the grant's version and terms hash. Refusals: FORBIDDEN while impersonating; GRANT_NOT_FOUND (unknown and unreadable alike); GRANT_NOT_PENDING (activated, revoked, or its holder gone; no state is named); GRANT_EXPIRED (past its expiry, so it can never be signed); GRANT_TERMS_UNREPRESENTABLE (extensions.reason). No call takes an assertion: the signer signs on the server-hosted ceremony page.
+  #3649 slice B (hrn:node:hadronmemory.com:specs:cor:acl:140:07) — ask for one pending grant to be signed. Three callers may ask: a bound worker session in its own App, a person acting as themselves who manages the grant's live, installed App (as appGrants reads it), or (#4544, hrn:node:hadronmemory.com:specs:cor:sec:060:01) the person who issued the secret read client the grant backs, while an App participant, so a writer who does not manage the App can finish the hand-off; workers never sign. No signer is named: whoever signs must be able to issue it. The request pins the grant's version and terms hash. Refusals: FORBIDDEN while impersonating; GRANT_NOT_FOUND (unknown and unreadable alike); GRANT_NOT_PENDING (activated, revoked, or its holder gone; no state is named); GRANT_EXPIRED (past its expiry, so it can never be signed); GRANT_TERMS_UNREPRESENTABLE (extensions.reason). No call takes an assertion: the signer signs on the server-hosted ceremony page.
   """
   requestGrantSignature(grantRef: ID!): GrantSigningRequest!
 
@@ -11166,6 +11349,23 @@ type Mutation {
   resumeSession(input: ResumeSessionInput): ResumeSessionResult!
 
   """
+  #3429 (hrn:node:hadronmemory.com:specs:cor:spc:010:02, rulings 0212-0214, 0218-0220) - retire a spec in ONE transaction: either RESCIND it (no
+  successor) or SUPERSEDE it by a successor that already exists in the SAME memory. Under the spec memory's channel
+  key, the spec's loc key and its row lock, it refuses a spec that is already retired or already has a
+  superseded-by* link (live edge or non-deleted pending edge), and for a supersede an unreadable, missing, deleted,
+  self, other-memory, retired or already-linked successor. Then it writes the superseded tag, the banner under the
+  title and the retirement abstract (composed by the server, so the text is the same on every surface), through the
+  same writer updateSpecNode uses (same authority, authoring check and one revision), and for a supersede inserts
+  the one superseded-by edge. Nothing is written on any refusal. expectedRevision is REQUIRED: a stale read is
+  NODE_WRITE_CONFLICT. A refused spec or successor you cannot read answers NODE_NOT_FOUND; an unusable readable
+  successor and every state conflict answer NODE_WRITE_CONFLICT with no edge identity. A composed abstract over the
+  2000-character cap is NodeAbstractTooLongError. The door adds no authority. A raw createEdge or updateEdge of a
+  superseded-by* edge outside the door is not a lifecycle verb, and a snapshot restore that commits after a
+  retirement can un-retire the spec (hadron-server#3587).
+  """
+  retireSpec(input: RetireSpecInput!): RetireSpecResult!
+
+  """
   #974 — retire a Worker (cor:agt:020:02): end the casting while reserving
   its name FOREVER. A retired worker stops authoring team chat at once (the
   worker-App pin checks retirement at post time), takes no new work records,
@@ -11176,6 +11376,12 @@ type Mutation {
   workers that report to it keep theirs and read reportsToRetired.
   """
   retireWorker(instruction: ActInstructionInput, workerRef: ID!): Worker!
+
+  """
+  #4427 — take the standing answer back: the question is OPEN again and the answer stays in its history. Same callers
+  and refusals as answerQuestion, plus QUESTION_NOT_ANSWERED when no answer stands.
+  """
+  retractQuestionAnswer(expectedRevision: Int!, reason: String, ref: ID!, via: QuestionAnswerVia): Question!
 
   """
   #882 — re-drive every FAILED embed in a memory (the operator recovery
@@ -11211,7 +11417,7 @@ type Mutation {
   org. Side effect: empty personal Memory of (user, agent) is hard-
   deleted; non-empty is retained with userMemoryOfAgentId preserved.
   
-  Accepts the entity's ID or URN (agentId).
+  userRef and agentRef accept what their argument descriptions list (the user as an id, email, handle or URN; the Agent as an id or URN).
   """
   revokeAgentSubscription(
     """#764 — the Agent as an id / URN."""
@@ -11457,12 +11663,9 @@ type Mutation {
   session on an instruction (a worker with none, an App key, a run and an impersonation are refused). Never put a secret here. When expectedRevision is sent it must equal
   App.propertiesRevision. A write that changes nothing changes no revision and records no event; a changing write
   records app.properties-changed naming the changed top-level keys, never values. Bounds: 16 KiB of JSON, 64 levels.
-  The taskIntegrations key (hrn:node:hadronmemory.com:specs:cor:agt:120:01) is validated: a list of
-  { name, provider: "github", repositories: ["owner/name"], readyLabel?, excludeLabels?, teams?: [{ lead, label }] },
-  where lead is a worker of this App (URN, id or name). Refusals: FORBIDDEN, PROPERTIES_NOT_AN_OBJECT,
+  No key is validated or read by the platform (#4085 retired the taskIntegrations key's validation, hrn:node:hadronmemory.com:specs:cor:agt:120:01). Refusals: FORBIDDEN, PROPERTIES_NOT_AN_OBJECT,
   PROPERTIES_TOO_LARGE, PROPERTIES_KEY_RESERVED (a key named __proto__ at any depth, which cannot be stored; names the
-  path), TASK_INTEGRATION_INVALID (names the JSON path,
-  never the value), APP_PROPERTIES_CONFLICT.
+  path), APP_PROPERTIES_CONFLICT.
   #3323: the App-manager arm also admits the manager's held worker on an instruction (hrn:node:hadronmemory.com:specs:cor:dmo:050:12), recorded as one app.manager-act event, ids only.
   """
   setAppProperties(appRef: String!, expectedRevision: Int, instruction: ActInstructionInput, properties: JSON): App!
@@ -12033,7 +12236,7 @@ type Mutation {
     """
     policy: JSON
     ref: ID!
-    role: AppMembershipRole
+    role: AppMembershipRole @deprecated(reason: "Deprecated (#4464): App.role is a constant READER and the role input is accepted and ignored; the field and the input will be removed no earlier than 2026-12-21.")
 
     """
     Ruling DY-5: the dormancy threshold in days (a positive integer). See App.sessionDormancyDays.
@@ -12089,6 +12292,17 @@ type Mutation {
   Update a Memory.
   
   Accepts the entity's ID or URN.
+  
+  `orgRef` takes an organization's ID or fully-qualified URN and is compared on
+  the RESOLVED organization id, not on the text passed. Naming the memory's own
+  organization (by ID or URN) is a no-op. Naming any other organization answers
+  USE_TRANSFER_MEMORY_OWNERSHIP: use `transferMemoryOwnership` to change a
+  memory's owner. For a caller who may manage the memory, an organization that
+  does not exist answers ORGANIZATION_NOT_FOUND. A caller who cannot read the
+  memory gets its concealed MEMORY_NOT_FOUND first, and a caller who can read
+  it but may not manage it gets the ordinary authorization denial; neither
+  reaches the organization lookup. An empty string `orgRef: ""` also
+  answers USE_TRANSFER_MEMORY_OWNERSHIP.
   
   Spec 033 FR-026: enabling `vectorIndexEnabled` on an `isEncrypted` memory
   requires `acknowledgeVectorInversionRisk: true` in the same call. Without
@@ -12287,7 +12501,7 @@ type Mutation {
   updateOrgGithubApp(appId: String!, orgRef: ID!, privateKey: String!): Organization!
 
   """
-  Accepts the entity's ID or URN (orgRef). Refused with NOT_FOUND when the user is not a live member, and with CONFLICT when it would demote the organization's last live owner.
+  orgRef and userRef accept what their argument descriptions list: an id, a slug or URN, and for a user also an email or handle. Refused with NOT_FOUND when the user is not a live member, and with CONFLICT when it would demote the organization's last live owner.
   """
   updateOrgMember(
     """#764 — the organization as an id / slug / hrn:org:<slug> URN."""
@@ -12390,8 +12604,25 @@ type Mutation {
   
   Identical to updateNode otherwise, selectors included ('id' XOR 'memoryId' +
   'loc'); it never creates and never moves.
+  
+  #1291 — 'mergeExports: true' makes the WHOLE 'input.properties' bag a PATCH
+  (not only 'exports') instead of a replacement: named top-level keys are replaced whole, except 'exports', which
+  merges per host and per field ('null' removes a host); unnamed keys stay.
+  It is the merge 'updateNodeProperties' applies, run under the node's lock on
+  the row read after it, so two concurrent patches to different hosts both
+  land. The gate, task and schema validation judge the MERGED result;
+  'expectedRevision' still applies; who may write is unchanged. 'properties'
+  must then be an object (anything else is BAD_USER_INPUT). Omit or pass false
+  for today's whole-bag replace. Only this door has it.
   """
-  updateTaskNode(input: UpdateNodeInput!): Node!
+  updateTaskNode(
+    input: UpdateNodeInput!
+
+    """
+    Treat the whole 'input.properties' as a patch (unnamed keys kept; 'exports' merged per host and field) instead of replacing the bag. Default false.
+    """
+    mergeExports: Boolean
+  ): Node!
 
   """
   (Re)declare the server-owned team collections on the team App's shared
@@ -12486,7 +12717,7 @@ type Mutation {
   withdrawGrantSigningRequest(id: ID!): GrantSigningRequest!
 
   """
-  #1641 — withdraw a question (terminal; the code stays consumed): the asker or a decider, a decider once answered. DECIDED ones are superseded instead (QUESTION_ANSWERED_DECIDED).
+  #1641 — withdraw a question (terminal; the code stays consumed): the asker or a decider, a decider once answered, whatever its state.
   """
   withdrawQuestion(expectedRevision: Int!, reason: String!, ref: ID!): Question!
 
@@ -13047,10 +13278,14 @@ enum NodeExportFormat {
 }
 
 type NodeExportResult {
-  """Byte length of the rendered payload (UTF-8)."""
+  """
+  Byte length of the payload: for TEXT, the UTF-8 byte length of `data`; for BASE64, the PDF size in bytes as the renderer reports it (the decoded length of the base64 payload when the renderer omits it), not the length of the base64 string.
+  """
   bytes: Int!
 
-  """The rendered file contents (TEXT)."""
+  """
+  The rendered file contents, encoded per `encoding`: UTF-8 text for TEXT, base64 for BASE64 (a PDF).
+  """
   data: String!
   encoding: NodeExportEncoding!
 
@@ -13676,7 +13911,8 @@ enum NodeRoleWriters {
   ALL
 
   """
-  NOT BUILT yet (#1333): any write touching this role is refused (ROLE_WRITERS_UNSUPPORTED). Never read as ALL.
+  #1333 — the owning party: the owning user, the owning organization's contributors, ADMINs and OWNERs, a platform admin, and an App that CARRIES an Agent of the owner. That last condition is a relationship read on live rows at write time, not a recorded publisher: the App is active (not uninstalled, not deleted) and has an installed Agent that is not deleted and belongs to the owning organization (or, for a user-owned memory, to the owning user). The App may be owned by another organization, and any one such Agent is enough. The App still needs write access to the memory, which the owner controls. A share grantee, a subscriber organization and an App that only carries other organizations' Agents are not in it. A headless run is judged as its App, never as the user who triggered it. ROLE_WRITER_LEVEL_REQUIRED otherwise. Never read as ALL.
+  hrn:node:hadronmemory.com:specs:cor:acl:010:03
   """
   OWNER
 }
@@ -14307,6 +14543,14 @@ type Query {
   hadron_agent_processes returns the same list. Accepts the Agent's ID or URN.
   """
   agentProcessList(ref: ID!): [AgentListedProcess!]!
+
+  """
+  An Agent's revisions, newest first, with the slot limit, the highest slot used and the saves left (#4488).
+  Read by whoever may restore a revision: the Agent's manager.
+  
+  Accepts the entity's ID or URN.
+  """
+  agentRevisions(agentRef: ID!): AgentRevisionList!
   agentSchedules(appRef: String!, limit: Int, offset: Int): AgentSchedulesPage!
 
   """
@@ -14505,6 +14749,103 @@ type Query {
   ): [AgentTask!]!
 
   """
+  #2212 A3 (hrn:node:hadronmemory.com:specs:cor:api:120:04): agentTasks as a page. The filters are agentTasks' own (one
+  shared filter), and the order is the same (newest first, then id); only the paging differs, as below. total counts the tasks the same filter matches,
+  never a task the caller cannot read: the App read gate (hrn:node:hadronmemory.com:specs:cor:agt:050:21) runs first, and
+  an App you do not participate in answers APP_NOT_FOUND exactly like an absent one, never an empty page. hasMore is
+  whether tasks remain past this page; pass offset + items length to continue. limit defaults to 20, 0 returns only total,
+  and over 200 is served as 200. Unlike agentTasks, an externalIds batch with no limit is not widened to 200: it pages at
+  20 like any filter, and hasMore says whether more of the batch remains.
+  items and total are read in one snapshot, so total and hasMore always describe the rows served.
+  """
+  agentTasksPage(
+    appRef: ID!
+    assignee: AgentTaskPartyInput
+
+    """Inclusive creation-time lower bound."""
+    createdAfter: DateTime
+
+    """Inclusive creation-time upper bound."""
+    createdBefore: DateTime
+    creator: AgentTaskPartyInput
+
+    """
+    #3125 S2, #4217: the tasks with exactly this externalId (compared as written, 1 to 512 characters, else BAD_USER_INPUT): at most one ACTIVE task (backlog, pending or started) holds it, and any number of finished or cancelled tasks that held it before it. Newest first, so a caller that wants the live one picks the active one. Runs inside the App read gate, so it only finds this App's tasks.
+    """
+    externalId: String
+
+    """
+    #4084 (hrn:node:hadronmemory.com:specs:cor:agt:120:02): the tasks holding any of these external ids, each compared
+    exactly as written, with agentTasks' checks (1 to 100 ids, each 1 to 512 characters; one bad entry refuses the whole
+    list with BAD_USER_INPUT naming its position, never its text; an empty list is BAD_USER_INPUT). Paged like every other
+    filter here: an omitted limit is 20, never widened to the batch; hasMore says whether more of the batch remains.
+    """
+    externalIds: [String!]
+
+    """
+    Inclusive finish-time lower bound; tasks with no finish time never match.
+    """
+    finishedAfter: DateTime
+
+    """
+    Inclusive finish-time upper bound; tasks with no finish time never match.
+    """
+    finishedBefore: DateTime
+    limit: Int
+
+    """
+    True: only single-shot match failures; false: unmarked tasks. Does not change who may read.
+    """
+    matchFailed: Boolean
+    offset: Int
+
+    """
+    True: overdue on the server clock (the database clock). Two arms: a pending task, not started, whose start-by has passed; or a pending or started task whose finish-by has passed and which has not ended. An ended (finished or cancelled) task and a backlog task are never overdue, and neither is a task with neither time. Blocking is ignored. False: all other tasks. Not an alarm: listing raises nothing.
+    """
+    overdue: Boolean
+    owner: AgentTaskPartyInput
+    parentTaskId: ID
+    queued: Boolean
+
+    """
+    #2649: tasks carrying a reference with exactly this target, and this kind when given; the label is ignored. Runs inside the App read gate.
+    """
+    reference: AgentTaskReferenceFilter
+    rootsOnly: Boolean
+
+    """Exact opaque source value, without interpretation or prefix matching."""
+    source: String
+
+    """
+    Inclusive start-time lower bound; tasks with no start time never match.
+    """
+    startedAfter: DateTime
+
+    """
+    Inclusive start-time upper bound; tasks with no start time never match.
+    """
+    startedBefore: DateTime
+    status: [AgentTaskStatus!]
+    tag: String
+
+    """Match every tag. Empty arrays do not narrow the list."""
+    tagsAll: [String!]
+
+    """Match at least one tag. Empty arrays do not narrow the list."""
+    tagsAny: [String!]
+
+    """
+    Case-insensitive substring of the title or description, 1 to 200 characters after trimming (else BAD_USER_INPUT). Percent, underscore and backslash match literally. ANDed with every other filter.
+    """
+    text: String
+
+    """
+    #2663: true narrows to finished tasks with at least one undisposed finding; false/omitted do not narrow. Existing App read scope, before paging (hrn:node:hadronmemory.com:specs:cor:agt:050:30).
+    """
+    unresolvedFindings: Boolean
+  ): AgentTaskPage!
+
+  """
   #1705 — a team App's event stream (hrn:node:hadronmemory.com:specs:cor:agt:050:11).
   #4098: oldest-first follows the writing transaction, then (createdAt, id) within it. Only transactions below
   the snapshot xmin are served: a poll can lag while an older transaction is open, but late commits and later
@@ -14669,6 +15010,14 @@ type Query {
   #3711 (hrn:node:hadronmemory.com:specs:cor:acl:140:05, ruling 0253 item 4): every grant of one App, in every state (pending, active, expired, spent, revoked, holder departed), newest first, for whoever manages the App as a person. It shows the whole record, including who revoked a grant, when its holder went and each signature's signer and passkey label, never a credential id or public key. Anyone else (a member who does not manage, an outsider, a worker session, an App key, a run, an impersonated session) and an unknown App get an empty page, never an error. limit 0 returns the count only.
   """
   appGrants(appRef: String!, limit: Int, offset: Int): GrantsPage!
+
+  """
+  #4489 — the closed list of App key scopes a client may grant, as data: name, one line on what it permits, and
+  whether granting it needs a hostId (hrn:node:hadronmemory.com:specs:cor:aut:010:03). Static platform metadata, no
+  tenant data: any signed-in caller (a person or an App key) may read it; anonymous is UNAUTHENTICATED. Adding a scope
+  stays a spec change.
+  """
+  appKeyScopeCatalogue: [AppKeyScopeInfo!]!
 
   """
   List keys for an App, only for whoever manages the App
@@ -15176,6 +15525,14 @@ type Query {
   dashboardWidgets: [DashboardWidget!]!
 
   """
+  #2213 S3 — `dashboardWidgets` as a page: the same owner scope and `position` order (id breaks ties), with the
+  real total (hrn:node:hadronmemory.com:specs:cor:api:120:04). Empty for a non-user or impersonated caller. A consumer
+  that decides on the set follows the pages to the end; `dashboardWidgets` remains the complete set. Sizes as
+  `tickersPage`.
+  """
+  dashboardWidgetsPage(limit: Int, offset: Int): DashboardWidgetPage!
+
+  """
   #3599: preview deleteWorker without deleting anything: the same act gate and typed refusals
   (WORKER_NOT_FOUND, FORBIDDEN, WORKER_IN_USE), nothing reserved. The real delete still requires
   confirmNoExternalAttribution and may refuse if anything changed
@@ -15475,7 +15832,7 @@ type Query {
   grantActions(appRef: String!, limit: Int, offset: Int): GrantActionsPage!
 
   """
-  #3649 slice B (hrn:node:hadronmemory.com:specs:cor:acl:140:07) — one grant signing request; null when unknown or when its grant is not readable to the caller: a bound worker session in its own App, or a person acting as themselves who manages the grant's live, installed App (as appGrants reads it).
+  #3649 slice B (hrn:node:hadronmemory.com:specs:cor:acl:140:07) — one grant signing request; null when unknown or when its grant is not readable to the caller: a bound worker session in its own App, a person acting as themselves who manages the grant's live, installed App (as appGrants reads it), or (#4544, hrn:node:hadronmemory.com:specs:cor:sec:060:01) the person who issued the secret read client the grant backs, while an App participant.
   """
   grantSigningRequest(id: ID!): GrantSigningRequest
 
@@ -15533,8 +15890,23 @@ type Query {
   that holds or ever held host:operate reads its own live host only (hrn:node:hadronmemory.com:specs:cor:agt:070:04); any other hostId
   answers HOST_NOT_FOUND, exactly as a host the App does not have. A host key's read is a recorded use
   (hrn:node:hadronmemory.com:specs:cor:agt:070:07). Reads only: nothing is started, stopped or changed.
+  #4260: the optional worker selector (a worker id or an exact name) narrows the rows this answer returns to the
+  workers of this host it names, for a host's per-worker re-reads — AT MOST ONE ROW: the id form is exactly one
+  (ids are unique), and the name form is at most one because a worker's name is unique per App,
+  case-insensitively (workers_app_name_uniq, a functional unique on (app_id, lower(name)) that Prisma's schema
+  cannot express — prisma/post-push.sql and migration 20260814130000); the name match itself is exact-case, so
+  a differently-cased selector selects nothing. Worker names are stored trimmed (the cast path trims a name
+  before storing it; there is no rename) and a non-empty selector is trimmed the same way, so an exact name
+  comparison always reaches a stored name. A null, empty or whitespace-only worker is treated as omitted — the
+  full host list returns. An exact id match takes precedence over a name match, so a worker whose name equals
+  another listed worker's id selects the id's row alone. A worker this host does not run — another host's, a
+  retired worker not on this host, an unknown id or name — answers the same empty workers list as an unknown
+  worker (hrn:node:hadronmemory.com:specs:cor:agt:020:08: denial and absence indistinguishable), so the
+  selector never probes the App's roster; a retired worker this host still lists keeps its row. The gates,
+  refusals, key-use recording, row semantics and sweepMode are exactly the host-wide read's; omit it and the
+  full list returns.
   """
-  hostDesiredState(appRef: String!, hostId: String!): HostDesiredState!
+  hostDesiredState(appRef: String!, hostId: String!, worker: String): HostDesiredState!
 
   """
   #1709 — the App's host operations, newest first (hrn:node:hadronmemory.com:specs:cor:agt:070:02). Whoever reads the App's tasks and events. A host key (one ever granted host:operate, revoked or not) is refused with FORBIDDEN, whatever it passes: it sees its own host's operations only by collecting them (hrn:node:hadronmemory.com:specs:cor:agt:070:04 S5, Holger's ruling 0). after: the endCursor of the previous page.
@@ -15545,6 +15917,15 @@ type Query {
   #1709 — the App's host registrations, liveness derived now (hrn:node:hadronmemory.com:specs:cor:agt:070:01). Whoever reads the App's tasks and events, the App's own key included.
   """
   hostRegistrations(appRef: String!): [HostRegistration!]!
+
+  """
+  #2213 S3 — `hostRegistrations` as a page: the same App gate and refusals, the same rows in `hostId` order with
+  their workers in `workerId` order, and the real total (hrn:node:hadronmemory.com:specs:cor:api:120:04). A consumer
+  that decides on the set follows the pages to the end; `hostRegistrations` remains the complete set. A host key's
+  read is recorded as one use counting the items returned. `limit` defaults to 20, 0 returns the count only, a
+  negative limit is 0 and a limit over 200 is served as 200 (never refused). `offset` below 0 is 0.
+  """
+  hostRegistrationsPage(appRef: String!, limit: Int, offset: Int): HostRegistrationPage!
 
   """
   #4222 — what the platform says the App's hosts run (hrn:node:hadronmemory.com:specs:cor:agt:070:01, the change Proposed):
@@ -16105,7 +16486,7 @@ type Query {
   pullRequestReadiness(head: String!, taskRef: ID!): PullRequestReadiness
 
   """
-  #1641 — one question by ref (ID or URN), or by code (DU, or a citation DU-1) within logRef. Null when missing or unreadable.
+  #1641 — one question by ref (ID or URN), or by code (QA) within logRef. Null when missing or unreadable.
   """
   question(code: String, logRef: ID, ref: ID): Question
 
@@ -16115,11 +16496,55 @@ type Query {
   questionLog(ref: ID!): QuestionLog
 
   """
+  #4428 — the question logs in the memories of this App the caller can read, or in this memory. Give exactly one of appRef and memoryRef; an unknown or unreadable one is an empty list. At most 200 logs: more refuses with QUESTION_LOG_TOO_LARGE_FOR_FILTER, never truncates.
+  """
+  questionLogs(appRef: ID, memoryRef: ID): [QuestionLog!]!
+
+  """
   #1641 — the questions of one log (logRef), or with awaitingMe the OPEN questions the caller
   decides across every memory they can read. State is derived for every candidate BEFORE the
   filters, sort and paging; a list above 5000 candidates refuses (QUESTION_LOG_TOO_LARGE_FOR_FILTER).
   """
-  questions(authorizes: Boolean, awaitingMe: Boolean, limit: Int = 20, logRef: ID, offset: Int = 0, sort: QuestionSort = PORTAL_DEFAULT, state: [QuestionState!], tier: QuestionTier, urgency: [QuestionUrgency!]): QuestionPage!
+  questions(
+    """
+    #4428 — true: answered (ANSWERED_UNCONFIRMED, DECIDED or STALE); false: OPEN.
+    """
+    answered: Boolean
+
+    """#4428 — has a standing answer given at or after this instant."""
+    answeredSince: DateTime
+
+    """
+    #4428 — every question in the memories of this App that the caller can read. Not with logRef.
+    """
+    appRef: ID
+    askedByAppId: ID
+
+    """
+    #4428 — the caller asked it (same worker with a person behind it, same user, or same bare App key).
+    """
+    askedByMe: Boolean
+    askedByWorkerId: ID
+
+    """
+    #4428 — the question's effective assignee is this user (an account merged into theirs matches).
+    """
+    assigneeId: ID
+    authorizes: Boolean
+    awaitingMe: Boolean
+    limit: Int = 20
+    logRef: ID
+    offset: Int = 0
+    priority: [QuestionPriority!]
+    sort: QuestionSort = PORTAL_DEFAULT
+    state: [QuestionState!]
+    tier: QuestionTier
+
+    """
+    #4428 — true: no effective assignee. With assigneeId, either match is kept; false alone: has one.
+    """
+    unassigned: Boolean
+  ): QuestionPage!
 
   """
   Usage-vs-limit counters for an org (+ one app when appRef given). Org-ADMIN. Rows materialize on first view, seeded with platform defaults (#510).
@@ -16508,42 +16933,6 @@ type Query {
   specUnresolvedReferencesPage(limit: Int, memoryRef: ID!, offset: Int): SpecReferencePage!
 
   """
-  #1353 v1 attention query, retired by #1384. This field always returns
-  UPGRADE_REQUIRED; use teamAttentionPage for bounded polling. Pass an
-  existing v1 since token to teamAttentionPage to carry its watermark
-  forward. Neither operation changes read state.
-  """
-  teamAttention(appRef: ID!, since: String): TeamAttentionResult!
-
-  """
-  #1384 paged (v2) attention poll — the bounded successor to teamAttention
-  (v1 answers UPGRADE_REQUIRED). Each call decrypts at most scanLimit rows
-  (encrypted Channels), counts plaintext Channels with bounded SQL
-  aggregates (#1779: a window of 200 seqs per scanLimit unit per Channel
-  visit, 400 per call), and emits at most limit Worker/Channel pairs; continue with page while
-  nextPage is present. The final page alone carries adoptableSince — adopt
-  it only after EVERY listed nudge was accepted; on any partial failure
-  retain the prior watermark and restart the scan (duplicates, never loss).
-  An existing v1 since token starts a scan, carrying the watermark forward.
-  Never changes read state.
-  """
-  teamAttentionPage(appRef: ID!, limit: Int, page: String, scanLimit: Int, since: String): TeamAttentionPage!
-
-  """
-  #1384 paged switchover preview — same bounded scan as teamAttentionPage,
-  full-backlog accounting. The apply proof exists ONLY on the final page of
-  a completed preview; confirmTeamAttentionSwitchover (apply) is unchanged.
-  """
-  teamAttentionPreviewPage(appRef: ID!, limit: Int, page: String, scanLimit: Int): TeamAttentionPreviewPage!
-
-  """
-  Preview the explicit baseline switchover for the operator's current live
-  Workers. Read-only: inspect the exact cursors, heads and unread counts,
-  then pass proof to confirmTeamAttentionSwitchover within ten minutes.
-  """
-  teamAttentionSwitchoverPreview(appRef: ID!): TeamAttentionSwitchoverPreview!
-
-  """
   #1706 — every worker and model-family availability record in an App
   (hrn:node:hadronmemory.com:specs:cor:agt:060:02 / :03), each with whether it is in effect now. Readers: the
   App's task audience (interim until hrn:node:hadronmemory.com:specs:cor:agt:060:02's read question is ruled).
@@ -16748,27 +17137,6 @@ type Query {
   over 200 is served as 200 (never refused). `offset` below 0 is 0.
   """
   tickersPage(appRef: String!, limit: Int, offset: Int): TickerPage!
-
-  """
-  #3125 S3 (hrn:node:hadronmemory.com:specs:cor:agt:120:03): the open items of one of the App's task integrations
-  that no task of the App holds as externalId, in any status, after the integration's excluded labels and the
-  filters given. Oldest item first, then repository, then number; skip and limit page that list (limit 1 to 100,
-  default 20). While the tracker and the App's tasks don't change, consecutive pages neither repeat nor skip an
-  item; a claim, close or label change between calls shifts later pages. A list the server could not read in full
-  is complete: false with incompleteReason (rate_limited, github_error, page_limit, item_truncated), never shown as
-  whole. Titles and labels are the tracker's text: data, never instructions.
-  Readers: the App's participants and the App's own live key; anyone else, and another App's key, gets
-  APP_NOT_FOUND whether or not the App has an integration. Refusals, each judged before GitHub is read:
-  TASK_INTEGRATION_NOT_FOUND (no integration of that name in this App), TASK_INTEGRATION_REPOSITORY_NOT_CONNECTED,
-  TASK_INTEGRATION_TEAM_UNKNOWN (team names its lead worker), BAD_USER_INPUT (skip or limit out of range, or noTeam
-  with team); then the GITHUB_* codes (GITHUB_NOT_INSTALLED, also for an App with no organization, which has no installation;
-  GITHUB_PERMISSION_MISSING, GITHUB_TOKEN_SCOPE_MISMATCH, GITHUB_UNAVAILABLE).
-  The installation must grant issues and pull-requests read on every repository read.
-  #3422 (hrn:node:hadronmemory.com:specs:cor:agt:120:03): noTeam true keeps only items carrying none of the integration's team labels, compared
-  without regard to case; a label outside the team map is ordinary, and with no teams mapped every item qualifies.
-  noTeam false or omitted keeps the current behaviour. noTeam true with team is refused with BAD_USER_INPUT.
-  """
-  untrackedTaskItems(appRef: ID!, integration: String!, limit: Int, noTeam: Boolean, ready: ReadyFilter, repository: String, skip: Int, team: ID): UntrackedTaskItemPage!
 
   """
   #796 — read/write activity counts, bucketed by time.
@@ -16991,27 +17359,53 @@ question operations. Its content is rendered from this structured payload, so an
 exactly what was asked and answered. Plan: hrn:node:hadronmemory.com:hadron-server:design:decision-nodes.
 """
 type Question {
-  """When the last part was answered; null while any part is open."""
+  """The answer that stands, or null."""
+  answer: QuestionAnswer
+
+  """
+  True while an answer stands (the last entry is an answer). Derived on every read.
+  """
+  answered: Boolean!
+
+  """When the standing answer was given; null while unanswered."""
   answeredAt: DateTime
 
-  """Migrated history that is never usable as an authorization."""
-  archival: Boolean!
+  """
+  Every entry, oldest first: answers and retractions. Appended, never edited.
+  """
+  answers: [QuestionAnswer!]!
   askedAt: DateTime
   askedBy: QuestionActor!
+
+  """#4428 — the explicit assignee, by name and handle."""
+  assignee: CommentActorRef
+
+  """
+  The user the asker directed this question to, when it named one. Routing only: any decider may answer.
+  """
+  assigneeId: ID
   authorizes: Boolean!
+
+  """The explanation, in markdown."""
+  background: String
 
   """What is waiting on this question."""
   blocks: [QuestionRef!]!
 
-  """Permanent: DA, DB, … issued in sequence by its log, never reused."""
+  """Permanent: QA, QB, … issued in sequence by its log, never reused."""
   code: String!
-  context: String
   deciderIds: [ID!]!
   deciders: [CommentActorRef!]!
-  evidence: QuestionEvidence!
 
-  """Spec citations the ruling must reach."""
-  followUps: [QuestionRef!]!
+  """What happens if it is unanswered by neededBy."""
+  defaultAction: String
+  effectiveAssignee: CommentActorRef
+
+  """
+  #4428 — who this question is routed to: the explicit assignee, else the holder of the worker that asked, else null. Worked out at read, never stored. Routing only: any decider may answer.
+  """
+  effectiveAssigneeId: ID
+  evidence: QuestionEvidence!
   id: ID!
 
   """
@@ -17020,29 +17414,62 @@ type Question {
   identityMerges: [QuestionIdentityMerge!]!
   logId: ID
   n: Int!
+  neededBy: DateTime
+  noRecommendationReason: String
   node: Node
-  parts: [QuestionPart!]!
+  options: [QuestionOption!]!
 
   """
   The question's own page, where its card renders. Copy it; never build it.
   """
   portalUrl: String
+  priority: QuestionPriority!
+
+  """
+  Null when the asker deliberately gave none (see noRecommendationReason), and for a free-text question. Never pre-selected.
+  """
+  recommendation: QuestionRecommendation
 
   """The node's current revision: the expectedRevision of the next change."""
   revSeq: Int!
   sources: [QuestionRef!]!
 
+  """Specs that must change once it is answered."""
+  specsMustChange: [QuestionRef!]!
+
+  """Specs this question touches."""
+  specsTouched: [QuestionRef!]!
+
   """DERIVED on every read. Rely on a ruling only while it is DECIDED."""
   state: QuestionState!
+
+  """
+  #4431 — the asker's agent task this question blocks (askQuestion's taskRef), or null. An answer to it records question.answered on that task and wakes the task's current assignee (hrn:node:hadronmemory.com:specs:cor:agt:050:11). amendQuestion never changes it.
+  """
+  taskId: ID
   tier: QuestionTier!
+
+  """The question itself, one line."""
   title: String!
-  urgency: QuestionUrgency!
   urn: String!
 
   """
   True when the caller is a decider, including through an account merged into theirs (#1715).
   """
   viewerIsDecider: Boolean!
+
+  """
+  #4427 — true when the caller may answer or take back an answer right now: one of the question's deciders, acting as
+  themselves (a person in a session bound to no worker or agent, no App key or run, no impersonation), still among the
+  log's deciders and able to write its memory, on a question that is not withdrawn, tampered or unverifiable
+  (hrn:node:hadronmemory.com:specs:cor:dmo:140:05). It is the capability to submit a new answer: it is false once the
+  answer history is full (the last entry is kept for taking an answer back), and it does not say that an answer stands to
+  take back (retractQuestionAnswer refuses QUESTION_NOT_ANSWERED otherwise).
+  """
+  viewerMayAnswer: Boolean!
+
+  """Why it is being asked now."""
+  whyNow: String
   withdrawn: QuestionWithdrawal
 }
 
@@ -17058,36 +17485,40 @@ type QuestionActor {
   workerId: ID
 }
 
+"""
+#4426 — one entry of the answer list: an answer or a retraction. Appended, never edited.
+"""
 type QuestionAnswer {
   at: DateTime!
+  by: CommentActorRef
 
   """The decider whose credential recorded it."""
   byUserId: ID!
 
-  """
-  An imported answer's recorded speaker (a claim, never rendered as the authenticated answerer).
-  """
-  claimedBy: String
-  freeform: Boolean!
-
-  """The chosen option; null for a free-text answer."""
+  """The chosen option; null for a free-text answer and for a retraction."""
   key: String
+  kind: QuestionAnswerKind!
   reason: String
-  recordedByUserId: ID
 
-  """Where the answer was given (a claim)."""
-  source: QuestionRef
+  """Free text; null for a retraction."""
   text: String
   via: QuestionAnswerVia!
+}
+
+"""#4426 — one entry of a question's answer list."""
+enum QuestionAnswerKind {
+  ANSWER
+
+  """Takes the standing answer back: the question is OPEN again."""
+  RETRACTION
 }
 
 """
 #1641 — where an answer was given, as the answering caller states it (a claim).
 """
 enum QuestionAnswerVia {
-  CHAT_RECORDED
+  API
   CLI
-  IMPORT
   MCP
   PORTAL
 }
@@ -17152,10 +17583,13 @@ type QuestionLog {
   """How many codes have been issued (withdrawn and purged ones included)."""
   lastCode: Int!
   loc: String!
+
+  """#4428 — the memory this log is in."""
+  memoryId: ID!
   name: String!
   portalUrl: String
 
-  """Codes are this prefix plus letters: D → DA, DB, …"""
+  """Codes are this prefix plus letters: Q → QA, QB, …"""
   prefix: String!
   purges: [QuestionPurge!]!
   revSeq: Int!
@@ -17167,19 +17601,24 @@ input QuestionNoRecommendationInput {
 }
 
 type QuestionOption {
-  cost: String
-
   """The option id an answer names."""
   key: String!
   label: String!
-  meaning: String
+  risks: String
+
+  """Why choose it."""
+  whyChoose: String
+
+  """Why not."""
+  whyNot: String
 }
 
 input QuestionOptionInput {
-  cost: String
   key: String!
   label: String!
-  meaning: String
+  risks: String
+  whyChoose: String
+  whyNot: String
 }
 
 type QuestionPage {
@@ -17189,50 +17628,12 @@ type QuestionPage {
   total: Int!
 }
 
-type QuestionPart {
-  answer: QuestionAnswer
-
-  """
-  Earlier answers to this part, oldest first: a re-answer appends, never replaces quietly.
-  """
-  answerHistory: [QuestionAnswer!]!
-
-  """The citation of this part, e.g. DU-1."""
-  citation: String!
-
-  """Permanent within the question; amendments add parts, never renumber."""
-  n: Int!
-  noRecommendationReason: String
-  options: [QuestionOption!]!
-  question: String!
-
-  """
-  Null when the asker deliberately gave none (see noRecommendationReason). Never pre-selected.
-  """
-  recommendation: QuestionRecommendation
-}
-
-"""
-#1641 — one part of a question. Give options or yesno, and a recommendation or noRecommendation.
-"""
-input QuestionPartInput {
-  noRecommendation: QuestionNoRecommendationInput
-  options: [QuestionOptionInput!]
-  question: String!
-  recommendation: QuestionRecommendationInput
-  yesno: Boolean
-}
-
-"""
-#1641 — a change to an existing part (by its permanent number). Omitted fields are unchanged; answers never change here.
-"""
-input QuestionPartPatchInput {
-  n: Int!
-  noRecommendation: QuestionNoRecommendationInput
-  options: [QuestionOptionInput!]
-  question: String
-  recommendation: QuestionRecommendationInput
-  yesno: Boolean
+"""#4426 — one ranked priority, lowest to highest."""
+enum QuestionPriority {
+  HIGH
+  LOW
+  NORMAL
+  URGENT
 }
 
 type QuestionPurge {
@@ -17247,20 +17648,15 @@ type QuestionPurge {
 }
 
 type QuestionRecommendation {
-  """A relayed recommendation's original author, as a claim."""
-  attributedTo: String
-
   """Who recorded the recommendation (authenticated)."""
   by: QuestionActor!
   key: String!
-  reason: String
+  reason: String!
 }
 
 input QuestionRecommendationInput {
-  """Relaying someone else's recommendation: who (recorded as a claim)."""
-  attributedTo: String
   key: String!
-  reason: String
+  reason: String!
 }
 
 """
@@ -17279,35 +17675,49 @@ input QuestionRefInput {
 }
 
 """
-#1641 — list order. PORTAL_DEFAULT: urgent first, then open before answered, then newest ask. CODE: code order.
+#1641 — list order. PORTAL_DEFAULT: priority (urgent first), then open before answered, then newest ask. CODE: code order.
 """
 enum QuestionSort {
+  """#4428 — most recently answered first; unanswered last."""
+  ANSWERED_AT_DESC
+
+  """#4428 — oldest ask first."""
+  ASKED_AT_ASC
+
+  """#4428 — newest ask first."""
+  ASKED_AT_DESC
   CODE
   PORTAL_DEFAULT
+
+  """
+  #4428 — urgent, high, normal, low; within a priority, newest ask first.
+  """
+  PRIORITY_DESC
 }
 
 """
-#1641 — a question's derived state (hrn:node:hadronmemory.com:hadron-server:design:decision-nodes §6.3). Computed by the one evaluation on every read, never stored. Precedence: TAMPERED, UNVERIFIABLE, WITHDRAWN, SUPERSEDED, STALE, DECIDED, ANSWERED_UNCONFIRMED, OPEN.
+#1641, #4426 — a question's derived state (hrn:node:hadronmemory.com:specs:cor:dmo:140:07). Computed by the one evaluation on every read, never stored. Precedence: TAMPERED, UNVERIFIABLE, WITHDRAWN, OPEN (no standing answer), DECIDED, STALE, ANSWERED_UNCONFIRMED.
 """
 enum QuestionState {
   """
-  Every part is answered; the tier's evidence (a decider's approval, or later a signature) is missing at the current revision.
+  Answered, but the tier's evidence (a decider's approval, or later a signature) is missing at the current revision.
   """
   ANSWERED_UNCONFIRMED
 
   """
-  Answered, and the tier's evidence by a decider is intact at the current revision. The only state a ruling may be relied on in.
+  Answered, and the tier's evidence is in: nothing more for the default tier, an intact decider's approval for the approved tier. The only state a ruling may be relied on in.
   """
   DECIDED
 
-  """Not every part is answered."""
+  """
+  No answer stands: never answered, or the last entry takes the answer back.
+  """
   OPEN
 
   """
   Evidence exists, but for an earlier revision: the question changed after it was approved.
   """
   STALE
-  SUPERSEDED
 
   """
   The rendered content, the structured payload and the approval hash disagree: changed outside the question operations.
@@ -17315,23 +17725,19 @@ enum QuestionState {
   TAMPERED
 
   """
-  Written by a codec or renderer this server does not know, so it cannot be verified (fail closed).
+  Written by a codec or renderer this server does not know (the pre-#4426 decision format included), so it cannot be verified (fail closed).
   """
   UNVERIFIABLE
   WITHDRAWN
 }
 
 """
-#1641 — the assurance a question's answer needs. APPROVED: a decider's approval. SIGNED: a decider's passkey signature (#1614; not available yet, so a SIGNED question stays ANSWERED_UNCONFIRMED).
+#4426 — the assurance a question's answer needs. ANSWERED (the default): a decider's answer alone settles it. APPROVED: a decider's approval too. SIGNED: a decider's passkey signature (#1614; not available yet, so a SIGNED question stays ANSWERED_UNCONFIRMED); a question that authorizes something is always SIGNED.
 """
 enum QuestionTier {
+  ANSWERED
   APPROVED
   SIGNED
-}
-
-enum QuestionUrgency {
-  NORMAL
-  URGENT
 }
 
 """#1641 — verifyQuestion: the one evaluation's findings."""
@@ -17406,15 +17812,6 @@ type RateLimitPolicy {
   updatedAt: DateTime!
   version: Int!
   windowSeconds: Int!
-}
-
-"""
-#3125 S3: the caller's ready filter against the integration's readyLabel (ANY by default). ONLY on an integration with no readyLabel lists nothing.
-"""
-enum ReadyFilter {
-  ANY
-  EXCLUDE
-  ONLY
 }
 
 """
@@ -18063,6 +18460,58 @@ enum ResumeSource {
   LIVE_SESSION
 }
 
+"""#3429 - the two ways to retire a spec."""
+enum RetireSpecForm {
+  """Retire a spec that has no successor."""
+  RESCIND
+
+  """
+  Retire a spec in favour of a successor that already exists, in the same memory.
+  """
+  SUPERSEDE
+}
+
+"""#3429 - the input of retireSpec."""
+input RetireSpecInput {
+  authoredWith: AuthoredWithInput
+
+  """
+  Required: the spec's revision as the caller read it. A mismatch is NODE_WRITE_CONFLICT and nothing is written.
+  """
+  expectedRevision: Int!
+  form: RetireSpecForm!
+
+  """Required (not blank) with RESCIND, optional with SUPERSEDE."""
+  reason: String
+
+  """The spec: its node id or URN."""
+  ref: ID!
+
+  """
+  SUPERSEDE only, required: the existing successor's node id or URN. Given with RESCIND is BAD_USER_INPUT.
+  """
+  successorRef: ID
+
+  """
+  Required (not blank) with RESCIND; with SUPERSEDE it defaults to the spec's stored abstract.
+  """
+  summary: String
+
+  """
+  RESCIND only (default false): word it as a draft that never took effect. A SUPERSEDE with true is BAD_USER_INPUT.
+  """
+  withdrawn: Boolean
+}
+
+"""#3429 - what retireSpec did."""
+type RetireSpecResult {
+  """The retired spec, at its new revision."""
+  node: Node!
+
+  """The superseded-by edge a SUPERSEDE inserted; null for a RESCIND."""
+  successorEdge: Edge
+}
+
 """#4281 — an App's review quality measures for one UTC calendar month."""
 type ReviewQualityReport {
   """
@@ -18544,6 +18993,11 @@ type Secret {
   Whether changes need a person's change request. App secrets only; always false for org and user secrets.
   """
   protected: Boolean!
+
+  """
+  Client metadata for current issuers and App managers; never a secret value.
+  """
+  readClients(activeOnly: Boolean = false, limit: Int, offset: Int): SecretReadClientsPage!
   updatedAt: DateTime!
   updatedBy: String
 
@@ -18561,7 +19015,9 @@ type SecretEvent {
   at: DateTime!
   id: ID!
 
-  """STORE | VERSION | METADATA | DELETE."""
+  """
+  STORE | VERSION | METADATA | DELETE | PURGE (a superseded version removed by retention or the kept-versions cap).
+  """
   kind: String!
   outcome: String!
   ownerId: ID!
@@ -18579,15 +19035,31 @@ type SecretEventsPage {
 }
 
 type SecretReadClient {
-  clientId: ID!
+  """
+  Full id only for the current issuer or holder; managers otherwise see a prefix.
+  """
+  clientId: ID
+  clientPrefix: String!
   createdAt: DateTime!
+  destroyOnEnd: Boolean!
 
-  """SECRET_DELETED | PROTECTED once the client has ended, else null."""
+  """
+  Null while live, else one of SECRET_DELETED, PROTECTED, REVOKED, PENDING, SPENT, EXPIRED, NOT_STARTED, ISSUER_GONE (nothing else ended it) or ENDED. A stored end wins; otherwise the grant's own state, in the order the reveal door answers.
+  """
   endReason: String
+  expiresAt: DateTime
   grantId: ID!
+  maxReads: Int
+  readCount: Int!
+
+  """
+  #4545 (hrn:node:hadronmemory.com:specs:cor:sec:060:02): the server-hosted page where the person who holds this client reveals the value with a passkey: the server origin plus /secret-reveal/<clientId>, with no token. Copy it verbatim; never compose it. Returned only to that person holder in their own session. Null for a client a worker holds, and for a worker session, an App key or anyone viewing a client they do not hold.
+  """
+  revealUrl: String
   secretId: ID!
   secretName: String!
   selfIssued: Boolean!
+  startsAt: DateTime
 }
 
 type SecretReadClientIssued {
@@ -18595,6 +19067,12 @@ type SecretReadClientIssued {
   grantId: ID!
   secretName: String!
   selfIssued: Boolean!
+}
+
+type SecretReadClientsPage {
+  hasMore: Boolean!
+  items: [SecretReadClient!]!
+  total: Int!
 }
 
 type SecretRevealed {
@@ -20171,6 +20649,11 @@ enum TaskWakeEvent {
   An unacknowledged alarm's currently-woken chain position (hrn:node:hadronmemory.com:specs:cor:agt:050:19). Delivering it never acknowledges the alarm.
   """
   ALARM
+
+  """
+  #4431 — a question that blocks the task was answered (a question.answered event on the task); the nudge names the task, never the answer. Due to the task's current assignee until delivered or that worker acts on the task (hrn:node:hadronmemory.com:specs:cor:agt:050:11). A take-back wakes nobody.
+  """
+  ANSWERED
   ASSIGNED
 
   """
@@ -20193,121 +20676,6 @@ enum TaskWakeEvent {
   """
   MATCHED
   REASSIGNED
-}
-
-"""
-#1353 — compact unread metadata for one Worker/Channel pair. No message body is returned.
-"""
-type TeamAttentionChannel {
-  channel: ID!
-  firstUnreadSeq: Int
-  lastSeq: Int!
-  name: String!
-  unread: Int!
-  unreadMentions: Int!
-}
-
-type TeamAttentionPage {
-  """
-  FINAL PAGE ONLY: a since-watermark token (same shape v1 issued) to adopt
-  after every listed nudge was accepted. Never present while scanComplete
-  is false.
-  """
-  adoptableSince: String
-  items: [TeamAttentionPageItem!]!
-
-  """Continuation for the next pull; null on the final page."""
-  nextPage: String
-
-  """
-  False while any Channel is unfinished or queued items remain undelivered.
-  """
-  scanComplete: Boolean!
-}
-
-"""
-#1384 paged (v2): one bounded slice of an attention scan. Counts are exact
-for the captured (seen, head] range of the issuing scan only, and items are
-emitted solely from Channels that scan has exhausted.
-"""
-type TeamAttentionPageItem {
-  channel: ID!
-  channelName: String!
-  firstUnreadSeq: Int
-  lastRelevantSeq: Int
-
-  """The frozen Channel head this item's counts are exact for."""
-  lastSeq: Int!
-  unread: Int!
-  unreadMentions: Int!
-  worker: ID!
-  workerName: String!
-  workerUrn: String
-}
-
-type TeamAttentionPreviewPage {
-  expiresAt: DateTime
-  items: [TeamAttentionPageItem!]!
-  nextPage: String
-
-  """
-  FINAL PAGE ONLY: the short-lived switchover proof (frozen heads). An
-  incomplete preview never carries one, so a partial preview can never
-  silently discard an unscanned backlog.
-  """
-  proof: String
-  scanComplete: Boolean!
-}
-
-type TeamAttentionResult {
-  """
-  Opaque signed snapshot. Adopt it only after every listed nudge is accepted.
-  """
-  token: String!
-  workers: [TeamAttentionWorker!]!
-}
-
-type TeamAttentionSwitchoverChannel {
-  channel: ID!
-  fromSeq: Int!
-  name: String!
-  throughSeq: Int!
-  unread: Int!
-  unreadMentions: Int!
-}
-
-type TeamAttentionSwitchoverPreview {
-  expiresAt: DateTime!
-
-  """
-  Short-lived proof binding the exact operator, App, Workers, registers, cursors and heads shown here.
-  """
-  proof: String!
-  workers: [TeamAttentionSwitchoverWorker!]!
-}
-
-type TeamAttentionSwitchoverResult {
-  applied: Boolean!
-  channelsAdvanced: Int!
-  workersAdvanced: Int!
-}
-
-type TeamAttentionSwitchoverWorker {
-  channels: [TeamAttentionSwitchoverChannel!]!
-  name: String!
-  urn: String
-  worker: ID!
-}
-
-"""
-#1353 — one live Worker that has relevant unread attention after the supplied token.
-"""
-type TeamAttentionWorker {
-  channels: [TeamAttentionChannel!]!
-  live: Boolean!
-  name: String!
-  urn: String
-  worker: ID!
 }
 
 """#1706 — every availability record in one App."""
@@ -21116,39 +21484,6 @@ type UnresolvedFeedback {
   nodeId: ID!
   openThreads: Int!
   urn: String!
-}
-
-"""
-#3125 S3: one open, untracked item of a task integration. title and labels are the tracker's text.
-"""
-type UntrackedTaskItem {
-  createdAt: DateTime!
-
-  """The item's canonical URL: the externalId a claim records."""
-  externalId: String!
-  labels: [String!]!
-
-  """
-  True when a pull request that closes the item has merged: listed for a close check, not dropped.
-  """
-  linkedPullRequestMerged: Boolean!
-  number: Int!
-
-  """The connected repository, lower-cased."""
-  repository: String!
-  title: String!
-  updatedAt: DateTime!
-  url: String!
-}
-
-"""
-#3125 S3: one page of untrackedTaskItems. total counts the whole filtered list as read: when complete is false, only what the read reached.
-"""
-type UntrackedTaskItemPage {
-  complete: Boolean!
-  incompleteReason: String
-  items: [UntrackedTaskItem!]!
-  total: Int!
 }
 
 input UpdateAgentScheduleInput {
@@ -22508,7 +22843,17 @@ enum WorkerTerminalReason {
   guardrail_triggered
   menu_or_question
   model_at_capacity
+
+  """
+  #4558 (hadron-cli#2677): more than one agent terminal is bound to the worker. The CLI reports it with status locked, as it does unrecognized; like every reason, it is accepted with locked or dark.
+  """
+  multiple_terminals
   no_agent
+
+  """
+  #4558 (hadron-cli#2677): Orca gives no rendered screen for the terminal (screen-unavailable). The CLI reports it with status locked, as it does unrecognized; like every reason, it is accepted with locked or dark.
+  """
+  no_screen
   no_terminal
   no_turn_for_due_ticker
   rate_limited
