@@ -14,6 +14,7 @@ import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
+import { AI_CONFIG_TIMEOUT_MS } from '$lib/components/ai-config-readback';
 import Page from './+page.svelte';
 import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recovery';
 import { message, pageData, runsPanel } from './app-page.fixture';
@@ -2025,7 +2026,10 @@ describe('App AI configuration readback lifecycle', () => {
     await tick(30);
     expect(relatedSignal?.aborted).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    // The related read's timer is armed a few ticks after mount (form fill,
+    // one await hop), so its window ends slightly past mount + the constant;
+    // advance beyond it rather than exactly to it.
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS + 1_000);
     expect(relatedSignal?.aborted).toBe(true);
   });
 

@@ -3,6 +3,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { APICallError, RetryError, generateText, tool, jsonSchema } from 'ai';
 import type { AIProvider } from '$lib/types';
+import { AI_CONFIG_TEST_DEADLINE_MS } from '$lib/ai-config-deadline';
 import { ChatError } from './chatError.js';
 import type { ChatToolChoice } from './chatToolChoice.js';
 
@@ -315,7 +316,9 @@ async function callAgentChatLlmUnsafe(args: {
     messages: effectiveMessages.map((m) => ({ role: m.role, content: m.content })),
     tools: { respond: respondVercelTool },
     // #2032's inline probe is one bounded request, with no SDK retry spend.
-    ...(args.respondTest ? { maxRetries: 0, abortSignal: AbortSignal.timeout(20_000) } : {}),
+    // The deadline is shared with the client's respond-test window (#2054):
+    // the client outlasts it, so this abort is the one the user sees.
+    ...(args.respondTest ? { maxRetries: 0, abortSignal: AbortSignal.timeout(AI_CONFIG_TEST_DEADLINE_MS) } : {}),
     // Force the LLM to call the respond tool on every turn. This is the
     // contract of the Chat API: one tool call per turn, no free-form text.
     // A server AUTO decision gets
