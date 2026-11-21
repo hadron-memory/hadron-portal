@@ -86,13 +86,18 @@ export function rowsFromNodeData(data: unknown): ExtractionRow[] {
     }));
 }
 
-/** Editor rows from a refused draft's JSON text (the `extractionRows` form field), tolerating anything malformed. */
-export function rowsFromRefusedJson(json: unknown): ExtractionRow[] {
-  if (typeof json !== 'string') return [];
+/**
+ * Editor rows from a refused draft's JSON text (the `extractionRows` form field), or null when the text is
+ * not a parseable array. Null is not "no rows": an empty array is a draft where the reader removed every
+ * row, null is a draft the page cannot read, and only the first may override the saved rows.
+ */
+export function rowsFromDraftJson(text: unknown): ExtractionRow[] | null {
+  if (typeof text !== 'string') return null;
   try {
-    return rowsFromNodeData({ extractionSpec: JSON.parse(json) });
+    const parsed: unknown = JSON.parse(text);
+    return Array.isArray(parsed) ? rowsFromNodeData({ extractionSpec: parsed }) : null;
   } catch {
-    return [];
+    return null;
   }
 }
 

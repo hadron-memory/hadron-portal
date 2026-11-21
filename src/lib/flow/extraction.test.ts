@@ -4,7 +4,7 @@ import {
   extractionRowsError,
   outputFromNodeData,
   rowsFromNodeData,
-  rowsFromRefusedJson,
+  rowsFromDraftJson,
   rowsToSpec,
 } from './extraction';
 
@@ -69,12 +69,25 @@ describe('node-data round trip', () => {
   });
 });
 
-describe('rowsFromRefusedJson (portal#2467)', () => {
-  it('reads the refused draft’s rows, defaulting a bad shape', () => {
-    expect(rowsFromRefusedJson(JSON.stringify([{ field: 'a', shape: 'number', description: 'd' }, { field: 'b', shape: 'nope' }])))
-      .toEqual([{ field: 'a', shape: 'number', description: 'd' }, { field: 'b', shape: 'string', description: '' }]);
+describe('rowsFromDraftJson (portal#2467)', () => {
+  it('reads the refused draft’s rows, defaulting a bad shape and a non-string description', () => {
+    const json = JSON.stringify([
+      { field: 'a', shape: 'number', description: 'd' },
+      { field: 'b', shape: 'nope', description: 7 },
+    ]);
+    expect(rowsFromDraftJson(json)).toEqual([
+      { field: 'a', shape: 'number', description: 'd' },
+      { field: 'b', shape: 'string', description: '' },
+    ]);
   });
-  it.each([['not json'], [undefined], [null], [42], ['{"field":"a"}'], ['[null, 3]']])('reads %j as no rows, never throws', (input) => {
-    expect(rowsFromRefusedJson(input)).toEqual([]);
+  it('an empty array is a draft with every row removed, not an unreadable one', () => {
+    expect(rowsFromDraftJson('[]')).toEqual([]);
+  });
+  it('drops an entry with no usable field name', () => {
+    expect(rowsFromDraftJson(JSON.stringify([{ shape: 'number' }, { field: 5 }, { field: 'ok' }])))
+      .toEqual([{ field: 'ok', shape: 'string', description: '' }]);
+  });
+  it.each([['not json'], [undefined], [null], [42], ['{"field":"a"}'], ['"x"']])('reads %j as unreadable (null), never throws', (input) => {
+    expect(rowsFromDraftJson(input)).toBeNull();
   });
 });
