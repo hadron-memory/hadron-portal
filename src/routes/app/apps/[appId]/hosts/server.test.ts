@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => {
   const requests: { document: string; variables: Record<string, unknown>; token: string }[] = [];
-  const read: { mode: 'ok' | 'forbidden' | 'notfound' | 'throw' } = { mode: 'ok' };
+  const read: { mode: 'ok' | 'forbidden' | 'notfound' | 'appnotfound' | 'throw' } = { mode: 'ok' };
   return { requests, read };
 });
 
@@ -25,6 +25,9 @@ vi.mock('$lib/server/api', () => ({
       }
       if (h.read.mode === 'notfound') {
         return Promise.reject({ response: { errors: [{ message: 'no', extensions: { code: 'NOT_FOUND' } }] } });
+      }
+      if (h.read.mode === 'appnotfound') {
+        return Promise.reject({ response: { errors: [{ message: 'no', extensions: { code: 'APP_NOT_FOUND' } }] } });
       }
       if (h.read.mode === 'throw') return Promise.reject(new Error('INTERNAL_SERVER_ERROR: production text'));
       return Promise.resolve({
@@ -80,6 +83,12 @@ describe('GET /app/apps/[appId]/hosts (portal#2311)', () => {
 
   it('answers refused for NOT_FOUND too: denied and missing read the same to an outsider, and Retry would never help', async () => {
     h.read.mode = 'notfound';
+    const { body } = await get({ token: 'tok', user: { id: 'u1' } });
+    expect(body).toEqual({ kind: 'refused' });
+  });
+
+  it('answers refused for APP_NOT_FOUND, the code the server actually raises for a reader outside the App (SEC10 F1)', async () => {
+    h.read.mode = 'appnotfound';
     const { body } = await get({ token: 'tok', user: { id: 'u1' } });
     expect(body).toEqual({ kind: 'refused' });
   });

@@ -24,7 +24,7 @@ export async function loadAppHosts(client: GraphQLClient, appRef: string): Promi
   } catch (e) {
     // Denied and missing are indistinguishable to a reader outside the App: both are a refusal, not an outage to retry.
     const code = extractGqlErrorCode(e);
-    if (code === 'FORBIDDEN' || code === 'NOT_FOUND') return { kind: 'refused' };
+    if (code === 'FORBIDDEN' || code === 'NOT_FOUND' || code === 'APP_NOT_FOUND') return { kind: 'refused' };
     console.warn(`[app-hosts] host read for ${appRef} failed:`, e);
     return { kind: 'failed' };
   }
