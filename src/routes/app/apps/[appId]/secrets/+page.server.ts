@@ -20,7 +20,7 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
   const [secrets, signing, pending] = await Promise.all([
     loadAppSecrets(client, app.id),
     probeSigning(client),
-    loadPending(client, cookies, (tr) => tr.secretId.startsWith(`${CREATE_PREFIX}${app.id}:`)),
+    loadPending(client, cookies, (tr) => tr.secretId.startsWith(`${CREATE_PREFIX}${app.id}:`), !!locals.impersonation),
   ]);
   return {
     app,

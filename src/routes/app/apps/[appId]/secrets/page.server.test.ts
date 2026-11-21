@@ -111,6 +111,21 @@ describe('the secret page load', () => {
     expect(((await load(ev(c2))) as { pending: unknown[] }).pending).toEqual([]);
     expect(c2.store.has(TRACKED_COOKIE)).toBe(false);
   });
+  it('an impersonated visit never erases the admin\'s tracked requests (the server answers null to a non-requester)', async () => {
+    const { load } = await import('./[secretId]/+page.server');
+    const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: URL_ }]));
+    request.mockImplementation(base('on', null));
+    const d = (await load(ev(c, { locals: { token: 'tok', user: { id: 'u2' }, impersonation: { by: 'admin' } } }))) as { pending: unknown[] };
+    expect(d.pending).toEqual([]);
+    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)).toHaveLength(1);
+  });
+  it('a staged create reads as a create, not as a new value', async () => {
+    const { load } = await import('./+page.server');
+    const c = jar(JSON.stringify([{ secretId: 'create:app-1:new-key', requestId: 'r1', ceremonyUrl: URL_ }]));
+    request.mockImplementation(base('on', open));
+    const d = (await load(ev(c))) as { pending: Array<{ operation: string }> };
+    expect(d.pending[0].operation).toBe('CREATE');
+  });
   it('a server without signing: the probe reads off, so the toggle is hidden (acceptance 3)', async () => {
     const { load } = await import('./[secretId]/+page.server');
     request.mockImplementation(base('off', null));

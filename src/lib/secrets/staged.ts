@@ -45,7 +45,6 @@ export function requestStateText(state: string): string {
   switch (state.toLowerCase()) {
     case 'open': return t('secrets.request.state.open', 'Waiting for your passkey signature');
     case 'completed': return t('secrets.request.state.completed', 'Signed and applied');
-    case 'declined': return t('secrets.request.state.declined', 'Declined');
     case 'expired': return t('secrets.request.state.expired', 'Expired before it was signed');
     case 'withdrawn': return t('secrets.request.state.withdrawn', 'Withdrawn');
     case 'stale': return t('secrets.request.state.stale', 'The secret changed first, so this request can no longer be applied');

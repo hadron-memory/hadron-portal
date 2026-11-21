@@ -24,11 +24,18 @@ describe('secretWrite (portal#2380)', () => {
 describe('inputs', () => {
   it('names follow the server rule', () => {
     expect(validSecretName('stripe-key')).toBe(true);
-    for (const n of ['', 'Stripe', 'a_b', 'x'.repeat(65)]) expect(validSecretName(n)).toBe(false);
+    for (const n of ['', 'Stripe', 'a_b', '-foo', 'x'.repeat(65)]) expect(validSecretName(n)).toBe(false);
   });
   it('text stays text, JSON stays JSON, blank is absent', () => {
     expect(parseSecretValue('sk_live_abc')).toBe('sk_live_abc');
     expect(parseSecretValue('{"a":1}')).toEqual({ a: 1 });
     expect(parseSecretValue('  ')).toBeUndefined();
+    expect(parseSecretValue('42')).toBe(42);
+    expect(parseSecretValue('{"s":"12345678901234567890"}')).toEqual({ s: '12345678901234567890' });
+  });
+  it('a number JSON would round is stored as the text typed, never as a different number', () => {
+    expect(parseSecretValue('9007199254740993')).toBe('9007199254740993');
+    expect(parseSecretValue('{"id":12345678901234567890}')).toBe('{"id":12345678901234567890}');
+    expect(parseSecretValue('1e999')).toBe('1e999');
   });
 });

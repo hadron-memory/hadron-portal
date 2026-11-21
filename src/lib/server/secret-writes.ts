@@ -34,15 +34,32 @@ export async function secretWrite<D>(
 export const PLAIN_PROTECTED_TEXT = () =>
   t('secrets.write.protected', 'This secret is protected, and only a person acting as themselves can change it. Nothing was changed.');
 
-const NAME = /^[a-z0-9-]{1,64}$/;
+/** The server's rule: starts with a letter or digit, then letters, digits and hyphens, 64 at most. */
+const NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const validSecretName = (n: string) => NAME.test(n);
 
-/** Plain text is stored as text; text that parses as JSON is stored as JSON. */
+/**
+ * A number JSON.parse would round (an integer past 2^53, a value beyond float64) is not stored as a
+ * number: the person typed one value and a different one would be saved, and a secret is write-only
+ * so it would never show. The input is stored as text then.
+ */
+function losesNumbers(s: string): boolean {
+  const bare = s.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  for (const tok of bare.match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g) ?? []) {
+    const n = Number(tok);
+    if (!Number.isFinite(n)) return true;
+    if (/^-?\d+$/.test(tok) && !Number.isSafeInteger(n)) return true;
+  }
+  return false;
+}
+
+/** Plain text is stored as text; text that parses as JSON, without losing a number, is stored as JSON. */
 export function parseSecretValue(raw: string): unknown {
   const s = raw.trim();
   if (s === '') return undefined;
   try {
-    return JSON.parse(s);
+    const v = JSON.parse(s);
+    return losesNumbers(s) ? raw : v;
   } catch {
     return raw;
   }

@@ -33,6 +33,8 @@ export async function loadPending(
   client: Pick<GraphQLClient, 'request'>,
   cookies: Cookies,
   match: (t: Tracked) => boolean,
+  /** An impersonated visit reads as someone else, so the server answers null for the admin's own requests: never write the cookie then. */
+  readOnly = false,
 ): Promise<PendingRow[]> {
   const all = readTracked(cookies);
   const mine = all.filter(match);
@@ -41,11 +43,13 @@ export async function loadPending(
   for (const tr of mine) {
     const r = await loadChangeRequest(client, tr.requestId);
     if (r === 'failed') continue;
-    if (r === null) { kept = removeTracked(kept, tr.requestId); continue; }
-    rows.push({ requestId: r.id, secretId: tr.secretId ?? null, ceremonyUrl: tr.ceremonyUrl, state: r.state, operation: r.operation, expiresAt: r.expiresAt });
-    if (!isOpenState(r.state)) kept = removeTracked(kept, tr.requestId);
+    if (r === null) { if (!readOnly) kept = removeTracked(kept, tr.requestId); continue; }
+    // The server stages a protected create as a STORE; the create: tracking prefix says which it was.
+    const operation = r.operation.toUpperCase() === 'STORE' && tr.secretId.startsWith('create:') ? 'CREATE' : r.operation;
+    rows.push({ requestId: r.id, secretId: tr.secretId ?? null, ceremonyUrl: tr.ceremonyUrl, state: r.state, operation, expiresAt: r.expiresAt });
+    if (!readOnly && !isOpenState(r.state)) kept = removeTracked(kept, tr.requestId);
   }
-  if (kept.length !== all.length) writeTracked(cookies, kept);
+  if (!readOnly && kept.length !== all.length) writeTracked(cookies, kept);
   return rows;
 }
 

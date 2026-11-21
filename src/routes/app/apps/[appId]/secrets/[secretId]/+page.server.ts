@@ -18,7 +18,7 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
   if (read.kind === 'missing') throw error(404, 'Secret not found');
   const [signing, pending] = await Promise.all([
     probeSigning(client),
-    loadPending(client, cookies, (tr) => tr.secretId === params.secretId),
+    loadPending(client, cookies, (tr) => tr.secretId === params.secretId, !!locals.impersonation),
   ]);
   return {
     app,

@@ -35,8 +35,8 @@ describe('readStagedChange (portal#2380)', () => {
 describe('request state', () => {
   it('only open is actionable; every state has plain copy', () => {
     expect(isOpenState('open')).toBe(true);
-    for (const s of ['completed', 'declined', 'expired', 'withdrawn', 'stale']) expect(isOpenState(s)).toBe(false);
-    for (const s of ['open', 'completed', 'declined', 'expired', 'withdrawn', 'stale']) expect(requestStateText(s)).not.toBe('');
+    for (const s of ['completed', 'expired', 'withdrawn', 'stale']) expect(isOpenState(s)).toBe(false);
+    for (const s of ['open', 'completed', 'expired', 'withdrawn', 'stale']) expect(requestStateText(s)).not.toBe('');
     expect(requestStateText('weird')).toBe('weird');
   });
 });
