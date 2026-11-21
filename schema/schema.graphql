@@ -1,4 +1,4 @@
-# Exported from hadron-server 70a0f125cff3b75f78dd122655de48022f3200a4 (70a0f125cff3b75f78dd122655de48022f3200a4, 2026-11-21T16:13:47Z) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 2c1d878842aaabfbc83cfc088ce180f4e7e4abff (2c1d87884, 2026-11-21T17:26:30Z) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -2410,6 +2410,15 @@ type App {
   role: AppMembershipRole! @deprecated(reason: "Deprecated (#4464): App.role is a constant READER and the role input is accepted and ignored; the field and the input will be removed no earlier than 2026-12-21.")
 
   """
+  #4490 (hrn:node:hadronmemory.com:specs:cor:api:140:02, no existence oracle): whether the caller could join this App
+  themselves, computed by the SAME check joinApp makes. Null for a caller who cannot read the App by app(ref:) (whichever
+  route reached it), for an App key, an impersonated session or a run, and for a request with no user: an App the caller
+  cannot see answers exactly as before. A caller who is already a member reads MEMBER with no role, so an open and a closed
+  App read identically to them.
+  """
+  selfJoin: AppSelfJoin
+
+  """
   Ruling DY-5: days without activity after which a lapsed worker session of
   this App is DORMANT. No agent act (post, read, mark-read) resumes a dormant
   session; only an explicit rebind by its human holder brings the worker
@@ -3077,6 +3086,29 @@ type AppScopedMemoryPage {
   Size of the caller's whole scope, so a client knows when it has every page.
   """
   total: Int!
+}
+
+"""
+#4490: the answer to "would joinApp accept me", and nothing else. Never the App's maxMembers or member count, and never any
+other field of the Agent's installation policy.
+"""
+type AppSelfJoin {
+  """
+  The role a joiner would get: set only when state is OPEN, null otherwise.
+  """
+  role: String
+  state: AppSelfJoinState!
+}
+
+"""
+#4490: where an App stands for the caller on joining it themselves (joinApp). OPEN: joinApp would accept the caller as the
+role in AppSelfJoin.role. CLOSED: it would refuse (the App has not opted in, is uninstalled, or has nothing installed).
+MEMBER: the caller is already a member, whatever the App's policy says.
+"""
+enum AppSelfJoinState {
+  CLOSED
+  MEMBER
+  OPEN
 }
 
 """#4224: the App's sweep mode after setAppSweepMode."""
@@ -6362,6 +6394,11 @@ enum GrantHolderDepartureReason {
   AGENT_IMPORT_REMOVED
 
   """
+  The organization's licence to the agent expired, which ended its installation in the grant's App (recorded by the lapse sweep, #4178).
+  """
+  AGENT_LICENSE_EXPIRED
+
+  """
   The organization's licence to the agent was revoked, which ended its installation in the grant's App.
   """
   AGENT_LICENSE_REVOKED
@@ -6371,6 +6408,11 @@ enum GrantHolderDepartureReason {
 
   """The grantee App was deleted."""
   APP_DELETED
+
+  """
+  An organization the agent's installation in the grant's App depended on (the App's or the agent's own) was deleted (recorded by the lapse sweep, #4178).
+  """
+  ORG_DELETED
 
   """
   The person removed themselves from the organization that owns the grant's App.
