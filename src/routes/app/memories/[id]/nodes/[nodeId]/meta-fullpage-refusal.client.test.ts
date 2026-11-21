@@ -259,4 +259,63 @@ describe('full-page updateMeta refusal (portal#2057)', () => {
     await settle();
     expect(hydrated.target.querySelector('[data-testid="node-meta-error"]')).toBeNull();
   });
+  it('a refusal hydrated on one node does not follow the reader to the next node (the real node change still clears it)', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const first = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({
+      data: { ...PARENT, ...(await runLoad()) },
+      form: null,
+    }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(first);
+    if (!first.target.isConnected) document.body.appendChild(first.target);
+    await settle();
+    buttonNamed(first.target, 'Edit')!.click();
+    flushSync();
+    const nameInput = first.target.querySelector<HTMLInputElement>('#editName')!;
+    nameInput.value = 'My unsent draft';
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const formEl = first.target.querySelector<HTMLFormElement>('form[action="?/updateMeta"]')!;
+    stored = RENAMED;
+    const refused = await actions.updateMeta({
+      request: { formData: async () => new FormData(formEl) },
+      params: { id: 'mem-A', nodeId: 'leaf-pk' },
+      locals: { token: 'tok' },
+    } as never) as Record<string, unknown>;
+    const actionData = (refused as unknown as { status: number; data: Record<string, unknown> }).data;
+
+    mounted.pop()!.unmount();
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...(await runLoad()) }, form: actionData });
+    const hydrated = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(hydrated);
+    if (!hydrated.target.isConnected) document.body.appendChild(hydrated.target);
+    await settle();
+    buttonNamed(hydrated.target, 'Edit')!.click();
+    flushSync();
+    await settle();
+    expect(hydrated.target.querySelector('[data-testid="node-meta-error"]')?.textContent, 'the refusal shows on the node it was for')
+      .toContain('changed since you opened the editor');
+
+    // The reader goes to another node and the page component stays mounted. `form` is deliberately NOT
+    // cleared here: with it cleared, the page's own `scopedActionError` and superforms' form sync already
+    // hide the alert, so the test would pass without the node effect's clearMetaRefusal() (mutant checked:
+    // deleting that call fails only with the superform's refusal still held, as below).
+    const OTHER = { ...NODE, id: 'leaf-2', loc: 'bar', name: 'Bar' };
+    stored = OTHER;
+    setStubPage('http://localhost/app/memories/mem-A/nodes/leaf-2?tab=settings', { id: 'mem-A', nodeId: 'leaf-2' });
+    const otherParent = { ...PARENT, graphNodes: [...PARENT.graphNodes, { id: 'leaf-2', memoryId: 'mem-A', loc: 'bar', name: 'Bar', nodeType: 'info', tags: [] }] };
+    const otherData = { ...otherParent, ...((await load({
+      params: { id: 'mem-A', nodeId: 'leaf-2' },
+      locals: { token: 'tok' },
+      url: new URL('http://localhost/app/memories/mem-A/nodes/leaf-2?tab=settings'),
+      parent: vi.fn().mockResolvedValue(otherParent),
+    } as never)) as Record<string, unknown>) };
+    props.data = otherData;
+    await settle();
+    // Open the editor on the new node, whichever state the previous one left it in.
+    const edit = buttonNamed(hydrated.target, 'Edit');
+    if (edit) { edit.click(); flushSync(); await settle(); }
+    expect(hydrated.target.querySelector('[data-testid="node-meta-error"]')?.textContent ?? '', 'node A\'s refusal must not follow the reader to node B')
+      .not.toContain('changed since you opened the editor');
+  });
 });
