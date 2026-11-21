@@ -49,7 +49,7 @@ function route(opts: {
   planThrows?: boolean;
   otherEntries?: unknown[];
   otherThrows?: boolean;
-  system?: Array<{ id: string; appId?: string | null }>;
+  system?: Array<{ id: string; appId: string | null }>;
   systemThrow?: boolean;
   unrecognized?: unknown[];
   scopeThrows?: boolean;
