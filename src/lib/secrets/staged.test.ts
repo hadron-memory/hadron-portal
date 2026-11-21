@@ -16,7 +16,7 @@ describe('readStagedChange (portal#2380)', () => {
     });
   });
 
-  it('a refusal with neither id nor link is a plain refusal, never an open request (cor:sec:070)', () => {
+  it('a refusal with neither id nor link is a plain refusal, never an open request (hrn:node:hadronmemory.com:specs:cor:sec:070)', () => {
     expect(readStagedChange(wire({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY' }))).toEqual({ kind: 'plain-protected' });
   });
 

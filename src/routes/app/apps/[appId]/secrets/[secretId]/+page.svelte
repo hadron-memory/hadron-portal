@@ -9,7 +9,7 @@
   /**
    * portal#2380 — one App secret. A change to a PROTECTED secret is staged: it waits for the
    * person's passkey signature on the server's page, which the portal links to and never runs
-   * (cor:sec:070:02). A staged change is never reported as saved.
+   * (hrn:node:hadronmemory.com:specs:cor:sec:070:02). A staged change is never reported as saved.
    */
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const secret = $derived(data.secret);

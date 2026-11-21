@@ -3,7 +3,7 @@ import { safeCeremonyUrl } from './staged';
  * portal#2380 — the server has no "list my change requests" read, only
  * `secretChangeRequest(id)`. So the portal remembers the ids of requests the viewer opened,
  * in a short-lived httpOnly cookie, and re-reads each one on revisit (no polling loop).
- * The cookie holds ids and the server's ceremony link (a link alone reveals nothing, cor:sec:070:02): never a value. The server answers null to anyone
+ * The cookie holds ids and the server's ceremony link (a link alone reveals nothing, hrn:node:hadronmemory.com:specs:cor:sec:070:02): never a value. The server answers null to anyone
  * who is not the requester, so a copied cookie discloses nothing.
  */
 export const TRACKED_COOKIE = 'hadron_secret_requests';

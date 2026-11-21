@@ -8,7 +8,7 @@ import { readStagedChange } from '$lib/secrets/staged';
  *
  * A staged change is NOT a success and NOT a generic error: the value was not saved, a
  * request waits for the person's passkey signature on the server's page. The portal never
- * completes that ceremony (cor:sec:070:02).
+ * completes that ceremony (hrn:node:hadronmemory.com:specs:cor:sec:070:02).
  */
 export type SecretWrite<D> =
   | { kind: 'ok'; data: D }

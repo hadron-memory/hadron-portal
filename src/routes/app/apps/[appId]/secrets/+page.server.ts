@@ -8,7 +8,7 @@ import { t } from '$lib/i18n/t';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
- * portal#2380 — an App's secrets. Protection exists on App secrets only (cor:sec:070), and a
+ * portal#2380 — an App's secrets. Protection exists on App secrets only (hrn:node:hadronmemory.com:specs:cor:sec:070), and a
  * value is write-only: no read here returns one.
  */
 const CREATE_PREFIX = 'create:';
