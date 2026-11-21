@@ -47,7 +47,6 @@ import {
 } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { actions, load } from './+page.server';
-import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -501,7 +500,13 @@ describe('#1882: a failed location move in Settings says so', () => {
     expect(target.querySelector('#editLoc')).toBeNull();
     expect(target.querySelector('#editName')).toBeNull();
     expect(buttonNamed(target, 'Edit')).toBeTruthy();
-    expect(firstPopulatedStatusText(target) ?? '').not.toBe('');
+    // The status that renders is THIS edit's result text (read off the action's own return, so it is not
+    // coupled to the i18n copy), not merely some populated status elsewhere on the page.
+    const expected = (r as { form: { message: { type: string; text: string } } }).form.message;
+    expect(expected.type).toBe('success');
+    expect(expected.text).not.toBe('');
+    const statuses = [...target.querySelectorAll('[role="status"]')].map((el) => el.textContent?.trim());
+    expect(statuses).toContain(expected.text);
   });
 });
 

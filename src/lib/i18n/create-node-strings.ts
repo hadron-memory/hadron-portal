@@ -14,7 +14,7 @@ import { t } from './t';
 interface GqlErrorLike {
   message?: string;
   response?: {
-    errors?: Array<{ message?: string; extensions?: { code?: string } }>;
+    errors?: Array<{ message?: string; extensions?: { code?: string; reason?: string } }>;
   };
 }
 
@@ -131,6 +131,30 @@ export function createNodeErrorCode(e: unknown): string | null {
 }
 
 /**
+ * portal#2323 (hadron-server#4461): a bad loc is `BAD_USER_INPUT` carrying
+ * `extensions.reason` from this set. A `BAD_USER_INPUT` without one is a
+ * memory-schema violation (#588) and is not a loc error.
+ */
+export const BAD_LOC_REASONS = ['empty', 'invalid-charset', 'too-long'] as const;
+export type BadLocReason = (typeof BAD_LOC_REASONS)[number];
+
+/** The bad-loc reason on a thrown error, or null when it is not a bad loc. */
+export function badLocReason(e: unknown): BadLocReason | null {
+  if (!e || typeof e !== 'object') return null;
+  const ext = (e as GqlErrorLike).response?.errors?.[0]?.extensions;
+  if (ext?.code !== 'BAD_USER_INPUT') return null;
+  return (BAD_LOC_REASONS as readonly string[]).includes(ext.reason ?? '') ? (ext.reason as BadLocReason) : null;
+}
+
+/** A bad loc in either shape: the new reason shape, or the old `InvalidLocError` (kept until the server change is deployed). */
+export function isBadLocError(e: unknown): boolean {
+  return badLocReason(e) !== null || createNodeErrorCode(e) === 'InvalidLocError';
+}
+
+const INVALID_LOC_COPY = (): string =>
+  t('create-node.error.invalid-loc', 'Loc segments may only contain letters, digits, hyphens, and underscores.');
+
+/**
  * Translate a thrown create-node error to a friendly user-facing string.
  * Unknown GraphQL faults use the shared safe envelope. BAD_USER_INPUT is
  * the existing schema-verdict contract; its intentional field text is kept.
@@ -146,6 +170,10 @@ export function createNodeErrorCode(e: unknown): string | null {
  *    a defense-in-depth mapping.)
  */
 export function translateCreateNodeError(e: unknown): string {
+  const reason = badLocReason(e);
+  if (reason === 'empty') return t('create-node.error.loc-empty', 'Loc is required.');
+  if (reason === 'too-long') return t('create-node.error.loc-too-long', 'This loc is too long. Shorten it.');
+  if (reason === 'invalid-charset') return INVALID_LOC_COPY();
   const code = createNodeErrorCode(e);
   switch (code) {
     case 'NodeLocConflictError':
@@ -154,10 +182,7 @@ export function translateCreateNodeError(e: unknown): string {
         'A node with this loc already exists. Try a different name or loc.',
       );
     case 'InvalidLocError':
-      return t(
-        'create-node.error.invalid-loc',
-        'Loc segments may only contain letters, digits, hyphens, and underscores.',
-      );
+      return INVALID_LOC_COPY();
     case 'MemoryNotFoundError':
       // An unreadable memory answers exactly like a missing one
       // (hrn:node:hadronmemory.com:specs:cor:api:140:03), so don't claim which.
@@ -178,6 +203,7 @@ export function translateCreateNodeError(e: unknown): string {
  * HTTP status for a SvelteKit `fail(...)` based on the typed error.
  */
 export function createNodeErrorStatus(e: unknown): CreateNodeErrorStatus {
+  if (badLocReason(e)) return 400;
   switch (createNodeErrorCode(e)) {
     case 'NodeLocConflictError':
       return 409;

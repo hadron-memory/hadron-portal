@@ -2172,6 +2172,29 @@ describe('#1898 follow-ups', () => {
     expect(status.textContent).not.toContain('Checking your sign-in…');
   });
 
+  it('reserves the feedback line, so an identity check starting or ending cannot move the Delete confirmation (#2059)', async () => {
+    // jsdom has no layout engine, so the pin is the reservation itself: the
+    // live region holds a one-line minimum (min-h-8 = 20px line + 12px margin)
+    // before, during and after the check, and the same element stays mounted.
+    const m = await open({ configs: [config()] });
+    menuDelete(m.target);
+    await settle();
+    const status = $<HTMLElement>(m.target, '[data-testid="ai-config-manager-feedback"]')!;
+    const reserved = () => status.classList.contains('min-h-8');
+    expect(reserved()).toBe(true);
+    expect(button(m.target, 'Cancel')).toBeTruthy();
+    let release!: (r: Reply) => void;
+    principalReadHandler = () => new Promise<Reply>(r => { release = r; });
+    window.dispatchEvent(new Event('focus')); await settle();
+    expect(status.textContent).toContain('Checking your sign-in…');
+    expect(reserved()).toBe(true);
+    expect($(m.target, '[data-testid="ai-config-manager-feedback"]')).toBe(status);
+    release(principalReply); await settle();
+    expect(status.textContent).not.toContain('Checking your sign-in…');
+    expect(reserved()).toBe(true);
+    expect(button(m.target, 'Cancel')).toBeTruthy();
+  });
+
   it('provider Test takes a fresh identity read and sends nothing until it answers (#1986 Ralion P3-1)', async () => {
     const m = await open(); await startCreate(m.target);
     const before = principalReads;

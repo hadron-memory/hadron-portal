@@ -477,14 +477,17 @@ describe('stale save target is not malformed input (#1370)', () => {
     expect(hidden).toEqual(gone);
   });
 
-  it('guides to Reload, keeps the draft, and does not blame the input', async () => {
+  it('names the Reload and discard draft control, keeps the draft, and does not blame the input (#1507)', async () => {
     const r = (await writeCustomisation(
       client([{ installMemory: null }]) as never, 'app-a', valid(), false,
     )) as { data: { customisationFailed: { detail: string } } };
     const detail = r.data.customisationFailed.detail;
     expect(detail).toMatch(/no longer available/i);
     expect(detail).toMatch(/draft is kept/i);
-    expect(detail).toMatch(/reload/i);
+    // #1507: the guidance names the control (not a generic 'reload') and says
+    // what it does — the button replaces the draft the sentence just kept.
+    expect(detail).toMatch(/use Reload and discard draft/);
+    expect(detail).toMatch(/replaces your draft/);
     expect(detail).not.toMatch(/bare loc|revision you opened/i);
   });
 

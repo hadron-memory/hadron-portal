@@ -55,6 +55,12 @@ const codexResponse = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const accessibleName = (target: HTMLElement, table: HTMLTableElement): string => {
+  const ids = (table.getAttribute('aria-labelledby') ?? '').split(/\s+/).filter(Boolean);
+  return ids.map((id) => target.querySelector(`#${CSS.escape(id)}`)?.textContent?.trim() ?? '').join(' ').trim();
+};
+
+
 const downloadButtons = (t: HTMLElement) =>
   [...t.querySelectorAll<HTMLButtonElement>('button')].filter((b) => /Download/.test(b.textContent ?? ''));
 
@@ -99,6 +105,23 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     // portal#2344: the searchable tables stay OUT of the live region, so filtering is never announced.
     expect(target.querySelector('[role="status"] table')).toBeNull();
     expect(target.querySelectorAll('[role="status"] [role="status"]')).toHaveLength(0);
+  });
+
+  // portal#2381: each report grid is named by its own count summary, so the count and the grid it
+  // describes are one thing to a screen reader, not two labels read before either table.
+  it('names the left-out grid by its count summary (portal#2381)', async () => {
+    stubEndpoint(codexResponse());
+    const { target } = panel({ orgId: 'org-1', checkedCount: 3 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+
+    const tables = [...target.querySelectorAll<HTMLTableElement>('table')];
+    expect(tables).toHaveLength(1);
+    expect(accessibleName(target, tables[0])).toBe('Left out of the download (2):');
+    // the name is the SAME element the status region announces, never a second copy of the count
+    const summary = target.querySelector('[data-testid="bundle-left-out-summary"]')!;
+    expect(tables[0].getAttribute('aria-labelledby')).toBe(summary.id);
+    expect(summary.id).not.toBe('');
   });
 
   it('finds a row by its URN — rendered as a chip, not the accessor — and nothing by text no row renders', async () => {
@@ -196,6 +219,40 @@ describe('SkillBundleDownload — export keys no host reads (server#1296)', () =
     // The left-out grid is untouched: still its own two rows and heading.
     expect(target.textContent).toContain('Left out of the download (2)');
     expect(rows).toHaveLength(4);
+  });
+
+  it('names each grid by its own summary when both are present, and the ids differ (portal#2381)', async () => {
+    stubEndpoint(withUnrecognized());
+    const { target } = panel({ orgId: 'org-1', checkedCount: 3 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+
+    const tables = [...target.querySelectorAll<HTMLTableElement>('table')];
+    expect(tables).toHaveLength(2);
+    expect(accessibleName(target, tables[0])).toBe('Left out of the download (2):');
+    expect(accessibleName(target, tables[1])).toBe('Export keys no host reads (2):');
+    expect(tables[0].getAttribute('aria-labelledby')).not.toBe(tables[1].getAttribute('aria-labelledby'));
+  });
+
+  it('two panels on one page never share a summary id, and each grid resolves inside its own panel (portal#2381)', async () => {
+    stubEndpoint(withUnrecognized());
+    const a = panel({ orgId: 'org-1', checkedCount: 3 });
+    const b = panel({ orgId: 'org-2', checkedCount: 3 });
+    for (const m of [a, b]) {
+      downloadButtons(m.target).find((x) => x.textContent?.includes('Codex'))!.click();
+      await reportRendered(m.target);
+    }
+    const ids = [...document.querySelectorAll('[data-testid$="-summary"]')].map((e) => e.id);
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size, 'no summary id repeats across panels').toBe(4);
+    for (const m of [a, b]) {
+      const tables = [...m.target.querySelectorAll<HTMLTableElement>('table')];
+      expect(tables).toHaveLength(2);
+      for (const t of tables) {
+        const id = t.getAttribute('aria-labelledby')!;
+        expect(m.target.querySelector(`#${CSS.escape(id)}`), 'the grid is named by a line in its own panel').not.toBeNull();
+      }
+    }
   });
 
   it('renders no such grid when nothing is unrecognised — and it did reach the report', async () => {

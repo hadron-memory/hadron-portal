@@ -151,9 +151,12 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
       await tick(4);
       expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=runs']);
     });
-    it('does not supersede a tab navigation already in flight', async () => {
+    // portal#2313 (Petra BUILD, #131879): the rule is "the tab you are on is not a request to leave it",
+    // so a click on it while a DIFFERENT tab's navigation is in flight cancels that departure.
+    it('supersedes a different-tab navigation already in flight and stays on Runs', async () => {
       const target = await mountAt('runs', { search: runsSearch });
       let release!: () => void;
+      resetNavigationCalls(); // clears the hooks too, so it goes before the hold
       navigationHooks.onGoto = () => new Promise<void>((r) => { release = r; });
       target.querySelector<HTMLElement>('#tab-node-role-templates')!.click();
       await tick(4);
@@ -162,8 +165,12 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
       await tick(4);
       release();
       await tick(6);
-      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
+      expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
+      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('false');
+      // The second goto returns to the reader's own place, not a clean ?tab=runs.
+      expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0])).at(-1)).toBe(`/app/apps/a1${runsSearch}`);
     });
+
   });
 
   // QA on #2146: runs -> AI Team (replaceState, so SvelteKit keeps the Runs load URL) -> Templates -> Back.

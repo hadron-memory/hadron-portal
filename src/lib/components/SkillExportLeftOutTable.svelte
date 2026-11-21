@@ -43,12 +43,15 @@
     reasonHeader = t('tasks.bundle.column.reason', 'Why it was left out'),
     searchPlaceholder = t('tasks.bundle.search', 'Search left-out tasks…'),
     searchAriaLabel = t('tasks.bundle.search.aria', 'Search the tasks left out of the download'),
+    labelledBy,
   }: {
     rows: LeftOutRow[];
     listKey?: string;
     reasonHeader?: string;
     searchPlaceholder?: string;
     searchAriaLabel?: string;
+    /** The id of the line that counts and names this grid (portal#2381). */
+    labelledBy?: string;
   } = $props();
 
   let globalFilter = $state('');
@@ -90,6 +93,7 @@
   bounded
   {searchPlaceholder}
   {searchAriaLabel}
+  {labelledBy}
 >
   {#snippet cell(c, row)}
     {#if c.column.id === 'name'}
