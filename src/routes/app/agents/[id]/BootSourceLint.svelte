@@ -16,7 +16,9 @@
   let loadedFor = -1;
 
   const url = (after: string | null) => `/app/agents/${encodeURIComponent(agentId)}/boot-source/lint${after ? `?after=${encodeURIComponent(after)}` : ''}`;
-  const usable = (body: SourceLintRead) => body.id === nodeId;
+  // A 200 can carry anything (a proxy, a rewritten body): anything but the expected
+  // envelope is a failed read, never a crash at field access (#1677).
+  const usable = (body: unknown): body is SourceLintRead => typeof body === 'object' && body !== null && (body as SourceLintRead).id === nodeId;
 
   async function load() {
     loadedFor = refresh;
@@ -37,7 +39,14 @@
     else lint = { ...lint, items: [...lint.items, ...result.body.page.items], total: result.body.page.total, nextCursor: result.body.page.nextCursor, moreFailed: false };
   }
   $effect(() => {
-    if (shown && refresh !== loadedFor) untrack(load);
+    // Hidden forgets which refresh was consumed, so reopening reads again even after a
+    // failed read (#1677): this view's one caller never changes `refresh`, so without
+    // the reset a first failure could never be retried without a page reload.
+    if (!shown) {
+      loadedFor = -1;
+      return;
+    }
+    if (refresh !== loadedFor) untrack(load);
   });
 
   // `position` is an offset into the saved text of the revision the page was read at. Lines
@@ -67,12 +76,13 @@
 
 {#if lint.kind === 'failed'}
   <p role="alert" data-boot-source-lint class="mt-3 text-sm text-red-600 dark:text-red-400">{t('boot.source-lint.failed', 'Couldn’t load warnings')}</p>
+  <button type="button" onclick={() => void load()} class="mt-1 text-xs text-indigo-600 hover:underline dark:text-indigo-400">{t('boot.source-lint.retry', 'Try again')}</button>
 {:else if lint.kind === 'unavailable'}
   <p data-boot-source-lint class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('boot.source-lint.unavailable', 'Warnings unavailable')}</p>
 {:else if lint.kind === 'ready' && lint.items.length > 0}
   <section data-boot-source-lint class="mt-3">
     <h3 class="text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('boot.source-lint.title', 'Warnings for the saved source')}</h3>
-    <ul class="mt-1 space-y-1 text-xs text-zinc-700 dark:text-zinc-300">
+    <ul class="mt-1 list-disc space-y-1 pl-5 text-xs text-zinc-700 dark:text-zinc-300">
       {#each lint.items as w, i (`${w.position}:${w.kind}:${i}`)}
         <li data-lint-kind={w.kind}>
           {wording(w.kind)}

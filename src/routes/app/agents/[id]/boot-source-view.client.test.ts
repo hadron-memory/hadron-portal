@@ -189,7 +189,7 @@ describe('read robustness (portal#1677)', () => {
     let root: HTMLElement | null = null;
     const rejections = await captureUnhandledRejections(async () => { root = await open(); });
     expect(rejections).toEqual([]);
-    expect(lintBox(root)?.textContent).toBe('Couldn’t load warnings');
+    expect(lintBox(root!)?.textContent).toBe('Couldn’t load warnings');
   });
   it('a failed read is read again when the tab is left and reopened', async () => {
     const calls = routes(refused);
