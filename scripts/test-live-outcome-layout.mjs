@@ -45,7 +45,10 @@ try {
   //   - LiveOutcome matches LiveRegion exactly for idle/status (it adds no gap of its own: the `:has` rule),
   //     and matches the old conditional box exactly when an alert shows or a control follows it;
   //   - the message box and the control after it sit where the old box put them, at every step.
-  const near = (a, b, why) => assert.ok((a === null && b === null) || Math.abs(a - b) <= 0.5, `${why}: ${a} vs ${b}`);
+  // A missing element is never a match: `null` must meet `null`, and only a number meets a number (subtraction would
+  // coerce null to 0 and let an absent element equal one at 0px).
+  const near = (a, b, why) => assert.ok(a === null || b === null ? a === b : Math.abs(a - b) <= 0.5, `${why}: ${a} vs ${b}`);
+  const present = (step, key, expected, why) => assert.equal(step[key] !== null, expected, `${why}: ${key} ${expected ? 'missing' : 'unexpectedly present'}`);
   const rows = [];
   for (const trailing of [false, true]) {
     const plain = await sequence({ mode: 'plain', trailing });
@@ -53,6 +56,10 @@ try {
     const outcome = await sequence({ mode: 'outcome', trailing });
     STEPS.forEach(([label, note], i) => {
       const at = `${label} / trailing=${trailing}`;
+      for (const [shape, seq] of [['plain', plain], ['region', region], ['outcome', outcome]]) {
+        present(seq[i], 'msgTop', !!note, `${shape} / ${at}`);
+        present(seq[i], 'afterTop', trailing, `${shape} / ${at}`);
+      }
       rows.push({ at, plain: plain[i].height, region: region[i].height, outcome: outcome[i].height });
       // Positions: where the message and the control sit, against the old box, in every shape.
       for (const key of ['msgTop', 'afterTop']) {

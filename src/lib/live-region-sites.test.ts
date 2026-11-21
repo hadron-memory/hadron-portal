@@ -44,7 +44,7 @@ function svelteFiles(dir: string, out: string[] = []): string[] {
 }
 
 type Node = { type: string; start?: number; data?: string; attributes?: Attr[]; fragment?: Fragment; consequent?: Fragment; alternate?: Fragment | null; body?: Fragment; fallback?: Fragment; pending?: Fragment; then?: Fragment; catch?: Fragment; children?: Node[]; nodes?: Node[] };
-type Expr = { type: string; value?: unknown; name?: string; consequent?: Expr; alternate?: Expr; left?: Expr; right?: Expr; operator?: string; expressions?: Expr[]; start: number; end: number };
+type Expr = { type: string; value?: unknown; name?: string; quasis?: Array<{ value: { cooked?: string | null } }>; consequent?: Expr; alternate?: Expr; left?: Expr; right?: Expr; operator?: string; expressions?: Expr[]; start: number; end: number };
 type Attr = { type: string; name?: string; value?: true | { type: string; data?: string }[] | { type: string; expression?: Expr } };
 type Fragment = { nodes: Node[] };
 
@@ -61,7 +61,8 @@ function canBeStatus(e: Expr | undefined): boolean {
     // `a && b` is a falsy `a` or `b`; `a || b` and `a ?? b` can be either side.
     case 'LogicalExpression': return e.operator === '&&' ? canBeStatus(e.right) : canBeStatus(e.left) || canBeStatus(e.right);
     case 'Literal': return e.value === 'status';
-    case 'TemplateLiteral': return !e.expressions?.length ? false : true;
+    // A static template is its cooked text; one with substitutions is unknown, so it counts.
+    case 'TemplateLiteral': return e.expressions?.length ? true : e.quasis?.[0]?.value.cooked === 'status';
     case 'Identifier': return e.name !== 'undefined';
     default: return true;
   }
@@ -179,6 +180,12 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
     expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
     expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'dialog' : 'alert'}>x</p>{/if}")).toBe(0);
     expect(conditionalStatusRegions("{#if a}<p role={a && 'alert'}>x</p>{/if}")).toBe(0);
+    // Templates: static ones are judged by their text, interpolated ones are unknown.
+    expect(conditionalStatusRegions('{#if a}<p role={`status`}>x</p>{/if}')).toBe(1);
+    expect(conditionalStatusRegions('{#if a}<p role={`dialog`}>x</p>{/if}')).toBe(0);
+    expect(conditionalStatusRegions("{#if a}<p role={a ? `alert` : `status`}>x</p>{/if}")).toBe(1);
+    expect(conditionalStatusRegions("{#if a}<p role={a ? `alert` : `dialog`}>x</p>{/if}")).toBe(0);
+    expect(conditionalStatusRegions('{#if a}<p role={`${kind}`}>x</p>{/if}')).toBe(1);
     expect(conditionalStatusRegions('{#if a}<p role="alert">x</p>{/if}')).toBe(0);
     expect(conditionalStatusRegions('<LiveOutcome failed={f}>{#if m}<p>{m}</p>{/if}</LiveOutcome>')).toBe(0);
     expect(conditionalStatusRegions('<p role="status">{#if a}x{/if}</p>')).toBe(0);
