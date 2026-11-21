@@ -25,7 +25,8 @@
     "No production or signed-in route",
     "Screenshots after assertions except *-default.png taken at initial mount",
     "Source hashes bind working-tree production/harness content to the eventual committed tree; no invented screenshot commit SHA",
-    "CSS cell text and bounded actual root-rem scaling; not OS/browser zoom. Cell-hosted native select remains independent QA scope."
+    "CSS cell text and bounded actual root-rem scaling; not OS/browser zoom. Cell-hosted native select remains independent QA scope.",
+    "sourceSHA256 covers only the listed files; the scripts/lib helper modules, the CI step and the compiled app CSS are not hashed (portal#1957 P3-8/9)."
   ],
   "sourceSHA256": {
     "scripts/test-table-cell-overflow-layout.mjs": "d3044dca72eb460662d4ef50259170b6d0bb2967497d93e1945b8fc7c072a673",

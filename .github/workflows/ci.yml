@@ -187,6 +187,17 @@ jobs:
 
       - name: Check opt-in table cell paint and interactive minima
         run: pnpm test:table-cell-overflow-layout
+        env:
+          CELL_SHOTS: test-results/table-cell-overflow
+
+      # portal#1957 P3-13: keep the screenshots of a failed run (and of a passing one) for whoever reads the log.
+      - name: Upload table cell containment screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: table-cell-overflow-layout
+          path: test-results/table-cell-overflow
+          if-no-files-found: ignore
 
       - name: Check compact terminal containment
         run: pnpm test:terminal-status-layout

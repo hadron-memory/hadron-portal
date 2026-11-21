@@ -9,15 +9,43 @@ import { messages } from './lib/cell-harness-messages.mjs';
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
 for (const line of injectionEcho(env)) console.log(line);
+// portal#1957 P3-2: each source patch must match, or the fixture would silently run unpatched components.
+// A file that is patched but lacks the string it needs aborts the run with the file named.
+const patchSource = (code, id, from, to, required = true) => {
+ if (!code.includes(from)) {
+  if (required) throw new Error(`table-cell-fixture: source patch no longer matches in ${id}: ${from}`);
+  return code;
+ }
+ return code.replace(from, to);
+};
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
  name: 'table-cell-fixture', enforce: 'pre', transform(code, id) {
-  if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) return code.replace("from '$app/navigation'", "from '$lib/test/stubs/app-navigation'").replace("from '$app/stores'", "from '$lib/test/stubs/app-stores'");
+  if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) {
+   // Every one of the three imports $app/navigation; only TasksAlarms also imports $app/stores.
+   const navigated = patchSource(code, id, "from '$app/navigation'", "from '$lib/test/stubs/app-navigation'");
+   return patchSource(navigated, id, "from '$app/stores'", "from '$lib/test/stubs/app-stores'", id.endsWith('/TasksAlarms.svelte'));
+  }
   // Expose only the fixture's actual table objects, no production test API.
-  if (id.endsWith('/createSvelteTable.svelte.ts')) return code.replace('return createTable(withFeatures(options));', 'const fixtureTable = createTable(withFeatures(options)); globalThis.__fixtureTables ??= []; globalThis.__fixtureTables.push(fixtureTable); return fixtureTable;');
+  if (id.endsWith('/createSvelteTable.svelte.ts')) return patchSource(code, id, 'return createTable(withFeatures(options));', 'const fixtureTable = createTable(withFeatures(options)); globalThis.__fixtureTables ??= []; globalThis.__fixtureTables.push(fixtureTable); return fixtureTable;');
  }
 }] });
+// portal#1957 P3-4: a browser console error fails the run like a pageerror, unless it is a classified,
+// expected message. The fixture has no favicon, so that one failed-resource line is the only known entry.
+const EXPECTED_CONSOLE_ERRORS = [/Failed to load resource.*(404|favicon)/i];
+const watchErrors = page => {
+ const errors = [];
+ page.on('pageerror', e => errors.push(e.message));
+ page.on('console', m => { if (m.type() === 'error' && !EXPECTED_CONSOLE_ERRORS.some(re => re.test(m.text()))) errors.push(`console: ${m.text()}`); });
+ return errors;
+};
+// portal#1957 P3-5: unmount the fixture through its own teardown before the page closes, so a teardown
+// error is a failure of the run, not a thing the closing page hides.
+const unmountFixture = page => page.evaluate(() => { window.stopFixture?.(); window.stopFixture = undefined; });
 // Pixel-strip oracle compares the SAME neighboring strip with source text
 // visible/hidden; backgrounds, borders and neighboring content are identical.
+// CONSUMES `net`: the caller-owned stylesheet that lets text paint outside its cell is removed here, because
+// the final check is that the production containment stops the deliberate escape once it is gone. The caller
+// must not remove it again and must add a fresh one before the next call.
 async function pixelStrip(page, kind, net) {
  const column = kind === 'runs' ? 5 : 0;
  const cell = page.locator('tbody tr').first().locator('td').nth(column);
@@ -72,7 +100,7 @@ try {
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
  for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings')) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const errors = watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   await page.route('**/api/ai-configs', r => r.fulfill({ contentType: 'application/json', body: '{"endpoints":[]}' }));
   try {
@@ -104,8 +132,8 @@ try {
       } else t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, sizing === 'double' ? (c.columnDef.size ?? 150) * 2 : sizing === 'minimum' ? Math.max(120, c.columnDef.minSize ?? 40) : (c.columnDef.size ?? 150)])));
      }, sizing);
      await settlePage(page);
-     // At40px, noninteractive text is intentionally recoverable by widening.
-     // The120px and wider oracle is strict: no clipping may mask a repair.
+     // At 40px, noninteractive text is intentionally recoverable by widening.
+     // The 120px and wider oracle is strict: no clipping may mask a repair.
      const geometry = await page.locator('tbody td').evaluateAll(cells => cells.map(td => {
       const rect = td.getBoundingClientRect();
       const badGlyphs = [];
@@ -130,7 +158,7 @@ try {
     }
     await textZoom?.evaluate(el => el.remove());
    }
-   const narrowPaint = await pixelStrip(page,kind,net); // actual restored40px text-only columns
+   const narrowPaint = await pixelStrip(page,kind,net); // actual restored 40px text-only columns
    net = await page.addStyleTag({content:'td {overflow:visible !important}'});
    await page.evaluate(() => { const t=window.__fixtureTables.at(-1); t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c=>[c.id,Math.max(120,c.columnDef.minSize??40)]))); });
    await settlePage(page);
@@ -161,7 +189,7 @@ try {
    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down(); await page.mouse.move(box.x - 200, box.y + box.height / 2, { steps: 5 }); await page.mouse.up(); await settlePage(page);
    assert.equal(Number(await separator.getAttribute('aria-valuenow')), minimum, 'native drag cannot cross declared minimum');
    }
-   await net.evaluate(el => el.remove()); // net ON: controls must still work.
+   // net ON: pixelStrip above consumed (removed) the net-off stylesheet, so the controls below run contained.
    const target = kind === 'config' ? page.getByRole('button', { name: /Actions for LongConfigName/ }).nth(1) : kind === 'runs' ? page.locator('tbody').getByRole('link', { name: 'Open', exact: true }) : page.locator('tbody').getByRole('button', { name: 'Copy the command that acknowledges this alarm' });
    await target.scrollIntoViewIfNeeded(); await target.focus();
    const control = await target.evaluate(el => {
@@ -226,8 +254,9 @@ try {
     if (width===390) {const reveal=page.getByRole('button',{name:/Show full URN/}); await reveal.click(); assert.equal(await reveal.getAttribute('aria-expanded'),'true');}
    }
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${kind}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
+   await unmountFixture(page);
    assert.deepEqual(errors, [], 'no browser errors');
-   console.log(`${kind}/${width}/${dark ? 'dark' : 'light'}: completed8 sizing/text legs + native controls/menu/minimum`,{paint,narrowPaint});
+   console.log(`${kind}/${width}/${dark ? 'dark' : 'light'}: completed 8 sizing/text legs + native controls/menu/minimum`,{paint,narrowPaint});
 
   } finally { await page.close(); }
  }
@@ -236,7 +265,7 @@ try {
  // (#2115 QA F1, #2119). The control strips severity's wrap and must see the overflow.
  if (!env.cellKind || env.cellKind === 'findings') for (const width of widths) for (const dark of [false, true]) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const errors = watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   const leg = `findings/${width}/${dark ? 'dark' : 'light'}`;
   try {
@@ -298,6 +327,7 @@ try {
    // Independent of the severity triggers, so it still runs when one is missing.
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   await unmountFixture(page);
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
    // The success line only prints for a leg that queued nothing.
    if (failures.length === legFailuresBefore) console.log(`${leg}: severity and text inside their cells (both axes); negative control detected`, clean);

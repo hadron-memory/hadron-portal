@@ -6,7 +6,7 @@ let cleanup: (() => void) | undefined;
 afterEach(() => cleanup?.());
 it('declared column minimum controls restored sizing, keyboard resize and ARIA; legacy keyboard floor stays40', () => {
  const m = mountComponent(Harness, {}); cleanup = m.unmount; flushSync();
- (m.target.querySelector('button') as HTMLButtonElement).click(); flushSync();
+ ([...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Restore undersized view') as HTMLButtonElement).click(); flushSync();
  const [action, legacy] = [...m.target.querySelectorAll('[role="separator"]')];
  expect(action.getAttribute('aria-valuenow')).toBe('120');
  expect(action.getAttribute('aria-valuemin')).toBe('120');
