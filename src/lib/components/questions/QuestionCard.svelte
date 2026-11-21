@@ -29,6 +29,18 @@
   const withdrawn = $derived(question.state === 'WITHDRAWN');
   const controls = $derived(canAct && ANSWERABLE.includes(question.state));
   const viewerIsAsker = $derived(!!question.viewerId && question.askedBy?.user?.id === question.viewerId);
+  // Who is offered what is a courtesy, never the gate: the server decides every write and the
+  // actions map its refusals by code (src/lib/questions/refusal.ts).
+  //  - Withdraw: schema `withdrawQuestion` says "the asker or a decider, a decider once answered,
+  //    whatever its state", so no state check beyond withdrawn/tampered/unverifiable is wanted here.
+  //    The asker is matched by `askedBy.user.id` against the session user; that id is the JWT `sub`
+  //    (src/hooks.server.ts, `const sub`), the same user id the server returns in actor refs, and
+  //    under impersonation the hook sets `locals.user` to the impersonated user.
+  //  - Undo follows `viewerIsDecider`, not `viewerMayAnswer`: the schema says `viewerMayAnswer` is
+  //    false once the history is full while the last entry stays takeable. A decider without write
+  //    access is refused by `retractQuestionAnswer` (QUESTION_NOT_DECIDER / QUESTION_FORBIDDEN).
+  //  - The question title is the node page's `<h1>` (nodes/[nodeId]/+page.svelte), so the card
+  //    heading names the section by code only.
   const mayWithdraw = $derived((question.viewerIsDecider || viewerIsAsker) && !question.impersonating);
   const standingByViewer = $derived(!!question.viewerId && question.answer?.by?.id === question.viewerId);
   const standingKey = $derived(question.answer && question.answer.kind === 'ANSWER' ? question.answer.key : null);

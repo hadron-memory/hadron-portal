@@ -6234,6 +6234,9 @@ export const ACKNOWLEDGE_ALARM_MUTATION = /* GraphQL */ `
 // portal#2234 (Questions P1, epic hadron-server#1641): the question card.
 // Needs a server serving 2bc8d228 (hadron-server#4532 merge, with #4427 and
 // #4428) or later; the portal deploys only after production serves it.
+// Every document is validated against schema/schema.graphql by `pnpm gql:validate` (the
+// `graphql-validate` CI check), so a document that still selects a field the snapshot refresh
+// removed fails there; there is no separate caller audit to keep (portal#2234).
 export const QUESTION_CARD_FIELDS = /* GraphQL */ `
   fragment QuestionCardFields on Question {
     id urn portalUrl code title background whyNow priority tier authorizes state answered revSeq

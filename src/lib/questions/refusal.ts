@@ -6,6 +6,13 @@ import { t } from '$lib/i18n/t';
  * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only):
  * the text is the portal's own, never the server's message. `null` for an
  * unknown code, so the caller falls back to the generic text with the request id.
+ *
+ * Mapped: every code schema/schema.graphql documents on the three mutations. `answerQuestion`
+ * lists NODE_WRITE_CONFLICT, QUESTION_FORBIDDEN, QUESTION_IMPERSONATION_REFUSED, QUESTION_INVALID,
+ * QUESTION_LOG_NOT_FOUND, QUESTION_NOT_DECIDER, QUESTION_NOT_FOUND, QUESTION_UNKNOWN_OPTION and
+ * QUESTION_WITHDRAWN; `retractQuestionAnswer` adds QUESTION_NOT_ANSWERED; `withdrawQuestion`
+ * documents no code of its own. Plain FORBIDDEN is mapped too (the platform's own refusal, not
+ * documented on these mutations), and an unlisted code takes the generic text with the request id.
  */
 export type QuestionRefusal = { text: string; status: number };
 

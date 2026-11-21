@@ -40,6 +40,10 @@ type Ctx = { request: Request; params: { nodeId: string }; locals: App.Locals; u
  * sign-in, impersonation, then the form, then one mutation, then a known-codes-only
  * refusal map. `build` turns the parsed form into the mutation and its variables,
  * or an early refusal that makes no request.
+ *
+ * None of the three actions checks `canAct`, `viewerMayAnswer` or the asker: those only decide what
+ * the card offers (QuestionCard.svelte). The server judges every write, so an asker's Withdraw and a
+ * full-history Undo reach it and are refused or accepted there by typed code.
  */
 async function run(
   kind: QuestionActionKind,
