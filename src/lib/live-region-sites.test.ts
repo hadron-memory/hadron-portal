@@ -29,8 +29,9 @@ import baseline from './live-region-sites.baseline.json';
  * The baseline is derived from the scan, never merged by hand: run
  * `UPDATE_LIVE_REGION_BASELINE=1 pnpm vitest run --project node live-region-sites`
  * after merging main (it only lowers, and lists any addition it did not accept), then run
- * the suite again. Counts are per file: a new site cannot hide behind a fixed one in a
- * file whose count differs, but a swap within one file keeps its count; review the diff.
+ * the suite again. Counts are per file, as the ratchet was designed (#2374): a swap within
+ * one file keeps its count, so a new site can inherit a fixed site's slot. That gap is
+ * disclosed and tracked as hadron-portal#2391 (a per-site-identity ratchet).
  */
 const SRC = join(process.cwd(), 'src');
 
