@@ -3112,7 +3112,11 @@ describe('Cast reporting choice (#1149)', () => {
     return { m, form };
   }
   // portal#1893: one checkbox replaces the two radios.
-  const reportsBox = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('input[type="checkbox"]#castReportsToWorker')!;
+  const reportsBox = (form: HTMLFormElement) => {
+    const box = form.querySelector<HTMLInputElement>('input[type="checkbox"]#castReportsToWorker');
+    expect(box, 'the Reports to checkbox').not.toBeNull();
+    return box!;
+  };
   // The id the server would echo back: the one this form instance posts.
   const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
 
@@ -3126,8 +3130,27 @@ describe('Cast reporting choice (#1149)', () => {
     expect(form.textContent).not.toContain('Choose deliberately');
     // Unchecked is the No team arm, exactly as the radio sent it.
     const data = new FormData(form);
-    expect(data.get('reporting')).toBe('none');
+    expect(data.getAll('reporting')).toEqual(['none']);
     expect(data.has('reportsTo')).toBe(false);
+  });
+
+  it('checking posts exactly one reporting value, head, from the checkbox itself (no script needed)', async () => {
+    const { form } = await openCast();
+    reportsBox(form).click();
+    await tick(2);
+    expect(new FormData(form).getAll('reporting')).toEqual(['head']);
+  });
+
+  it('a refused result that echoes a blank reporting comes back unchecked and still posts none', async () => {
+    const { form } = await openCast();
+    (form.querySelector('[name="agentId"]') as HTMLSelectElement).value = 'agent-a';
+    form.querySelector('[name="agentId"]')!.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    const result = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: '', reportsTo: '' }, zod4(castWorkerSchema), { errors: true, id: idOf(form) });
+    await submitEnhancedWithResult(form, { type: 'failure', status: 400, data: { form: result } });
+    await tick(3);
+    expect(reportsBox(form).checked).toBe(false);
+    expect(new FormData(form).getAll('reporting')).toEqual(['none']);
   });
 
   it('choosing a worker reveals the picker of ACTIVE workers only, with the URN under the name', async () => {

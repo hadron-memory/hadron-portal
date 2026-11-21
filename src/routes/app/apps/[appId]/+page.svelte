@@ -2184,6 +2184,7 @@
   const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
   // #760: the name is required since hadron-server#1050 removed the register.
   const castWorkerNameError = $derived($castWorkerErrors.name?.[0] ?? null);
+  const castWorkerReportingError = $derived($castWorkerErrors.reporting?.[0] ?? null);
   const castWorkerHeadError = $derived($castWorkerErrors.reportsTo?.[0] ?? null);
   const castWorkerActionError = $derived(
     $castWorkerMessage?.type === 'error'
@@ -3458,11 +3459,17 @@
                submit never carries both arms. Supersedes the two-radio design
                of hadron-portal#1149. -->
           <div class="space-y-2">
-            <input type="hidden" name="reporting" value={$castWorkerForm.reporting} />
+            <!-- Exactly one `reporting` value posts, with or without script: the checkbox sends
+                 `head` when on, the hidden input sends `none` when off. -->
+            {#if $castWorkerForm.reporting !== 'head'}
+              <input type="hidden" name="reporting" value="none" />
+            {/if}
             <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
               <input
                 id="castReportsToWorker"
                 type="checkbox"
+                name="reporting"
+                value="head"
                 checked={$castWorkerForm.reporting === 'head'}
                 onchange={(e) =>
                   castWorkerForm.update(
@@ -3498,6 +3505,9 @@
                   <p id="castReportsToError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{castWorkerHeadError}</p>
                 {/if}
               </div>
+            {/if}
+            {#if castWorkerReportingError}
+              <p id="castReportingError" role="alert" class="text-xs text-red-600 dark:text-red-400">{castWorkerReportingError}</p>
             {/if}
           </div>
           <div>
