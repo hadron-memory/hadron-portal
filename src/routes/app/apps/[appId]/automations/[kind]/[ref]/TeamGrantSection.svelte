@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { enhance } from '$app/forms';
   import { onDestroy, tick, untrack } from 'svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
@@ -137,12 +138,17 @@
 
 {#snippet outcomeRegion()}
   <div bind:this={outcome} tabindex="-1" data-testid="team-grant-outcome" class="space-y-2 outline-none">
+    <LiveRegion>
+      {#if !form?.teamGrantRefused}
+        {#if form?.teamGrant === 'given'}
+          <p class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.team.given-done', 'Given.')}</p>
+        {:else if form?.teamGrant === 'stopped'}
+          <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.team.stopped-done', 'Stopped.')}</p>
+        {/if}
+      {/if}
+    </LiveRegion>
     {#if form?.teamGrantRefused}
       <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.teamGrantMessage || t('app.automations.refused', 'The server refused this action.')}</p>
-    {:else if form?.teamGrant === 'given'}
-      <p role="status" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.team.given-done', 'Given.')}</p>
-    {:else if form?.teamGrant === 'stopped'}
-      <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.team.stopped-done', 'Stopped.')}</p>
     {/if}
     {#if unread}
       <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unread', "This page couldn't be refreshed, so what it shows may be out of date. Reload the page to check.")}</p>

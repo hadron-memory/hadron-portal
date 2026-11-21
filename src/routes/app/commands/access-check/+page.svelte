@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #375 — "Check access": declares its two fields and renders the
   // effectiveAccess result (capability matrix + grants), mirroring the CLI's
   // `hadron access check` output. Form chrome + submit live in CommandForm.
@@ -108,8 +109,9 @@
   </div>
 {/if}
 
+<LiveRegion>
 {#if result}
-  <section role="status" class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+  <section class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
     <!-- Subject + resource -->
     <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
       <span class="font-medium text-zinc-900 dark:text-white">{subjectName}</span>
@@ -166,3 +168,4 @@
     </div>
   </section>
 {/if}
+</LiveRegion>

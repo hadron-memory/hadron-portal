@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onDestroy, onMount, untrack } from "svelte";
   import { enhance } from "$app/forms";
   import { beforeNavigate } from "$app/navigation";
@@ -710,9 +711,11 @@
               {#if reading}<p role="status">
                   {t("grants.refreshing", "Refreshing grants…")}
                 </p>{/if}
-              {#if rowWrites}<p role="status">
-                  {t("grants.wait-revoke", "Finishing the revoke request…")}
-                </p>{/if}
+              <LiveRegion>
+                {#if rowWrites}<p>
+                    {t("grants.wait-revoke", "Finishing the revoke request…")}
+                  </p>{/if}
+              </LiveRegion>
               {#if refreshFailed && refreshPurpose === "create"}<p role="alert">
                   {t(
                     "grants.refresh-failed",

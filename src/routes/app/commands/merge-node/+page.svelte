@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #395 — "Merge node": folds a source node into a target. Second consumer of
   // the command-page framework, exercising the multiselect (include) + checkbox
   // (deleteSource) field kinds. Renders a link to the surviving target node.
@@ -125,8 +126,9 @@
   </div>
 {/if}
 
+<LiveRegion>
 {#if result}
-  <section role="status" class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
+  <section class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
     <p class="text-sm text-green-800 dark:text-green-300">
       {t('commands.merge-node.result.merged-into', 'Merged into')} <span class="font-medium">{result.name || result.loc}</span>.
     </p>
@@ -139,3 +141,4 @@
     </a>
   </section>
 {/if}
+</LiveRegion>

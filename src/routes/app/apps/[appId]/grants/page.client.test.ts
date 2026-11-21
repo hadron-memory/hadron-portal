@@ -11,6 +11,10 @@ import {
   resetNavigationCalls,
 } from "$lib/test/stubs/app-navigation";
 import { grantsFixture, fixtureGrant } from "./grants.fixture";
+import {
+  announcedStatusRegion,
+  idleStatusRegions,
+} from "$lib/test/firstPopulatedStatusText";
 let mounted: ReturnType<typeof mountComponent> | undefined;
 beforeEach(() => {
   setStubPage("http://localhost/app/apps/app-example/grants", {
@@ -280,4 +284,58 @@ it("reports the unchanged holder-departure end without claiming a new revocation
     "No change. Holder departed at 2026-11-12T12:00:00Z.",
   );
   expect(row.textContent).not.toContain("Revoked at");
+});
+
+describe("grant results are announced in persistent live regions (portal#2375)", () => {
+  it("the revoked note lands in the status region the row already had, empty", async () => {
+    setup();
+    const row = mounted!.target.querySelector("tbody tr")!;
+    const idle = idleStatusRegions(row);
+    expect(idle.length).toBeGreaterThan(0);
+    await (
+      await beginEnhanced(row.querySelector("form")!)
+    )({
+      type: "success",
+      status: 200,
+      data: { grant: { ...fixtureGrant, revokedAt: "2026-11-12T12:00:00Z" } },
+    });
+    flushSync();
+    const region = announcedStatusRegion(row);
+    expect(region?.textContent).toContain("Revoked at 2026-11-12T12:00:00Z");
+    expect(idle).toContain(region);
+  });
+
+  it("the holder-departed note lands in the same kind of region", async () => {
+    setup();
+    const row = mounted!.target.querySelector("tbody tr")!;
+    const idle = idleStatusRegions(row);
+    expect(idle.length).toBeGreaterThan(0);
+    await (
+      await beginEnhanced(row.querySelector("form")!)
+    )({
+      type: "success",
+      status: 200,
+      data: {
+        grant: { ...fixtureGrant, revokedAt: null, holderDepartedAt: "2026-11-12T12:00:00Z" },
+        alreadyRevoked: false,
+      },
+    });
+    flushSync();
+    const region = announcedStatusRegion(row);
+    expect(region?.textContent).toContain("Holder departed at 2026-11-12T12:00:00Z");
+    expect(idle).toContain(region);
+  });
+
+  it("\"Finishing the revoke request…\" fills the status region that was empty before the write", async () => {
+    setup();
+    const root = mounted!.target;
+    const idle = idleStatusRegions(root);
+    expect(idle.length).toBeGreaterThan(0);
+    const row = root.querySelector("tbody tr")!;
+    await beginEnhanced(row.querySelector("form")!);
+    flushSync();
+    const region = announcedStatusRegion(root);
+    expect(region?.textContent).toContain("Finishing the revoke request");
+    expect(idle).toContain(region);
+  });
 });

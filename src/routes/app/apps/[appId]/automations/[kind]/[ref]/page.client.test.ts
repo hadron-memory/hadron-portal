@@ -9,6 +9,7 @@ import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { beginEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import Page from './+page.svelte';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
@@ -148,6 +149,40 @@ describe('malformed server data (BLIND P3)', () => {
   });
 });
 
+describe('outcomes are announced in a persistent live region (portal#2375)', () => {
+  const sched = { id: 'sch-1', name: 'Digest', entryNodeUrn: 'hrn:node:acme.com:m:e', cron: '0 9 * * *', runAt: null, timezone: 'UTC', enabled: true, nextRunAt: '2026-11-05T08:00:00.000Z', lastRunAt: null, userId: 'u1', createdBy: 'u1' };
+  const outcomeOf = (t: HTMLElement) => t.querySelector<HTMLElement>('[data-testid="automation-outcome"]')!;
+  it.each([
+    ['stale', { code: 'stale' }, 'This automation changed while you were reviewing it'],
+    ['approved', { approved: true }, 'Approved.'],
+    ['declined', { declined: true }, 'Declined.'],
+  ])('%s lands in the status region that was already mounted and empty', async (_n, result, text) => {
+    const { t, props } = open('UNADOPTED');
+    const idle = idleStatusRegions(outcomeOf(t));
+    expect(idle.length).toBeGreaterThan(0);
+    await submitEnhancedWithResult(approveForm(t)!, { type: 'success', status: 200, data: result }, {
+      update: async () => { props.form = result; },
+    });
+    await settle();
+    const region = announcedStatusRegion(outcomeOf(t));
+    expect(region?.textContent).toContain(text);
+    expect(idle).toContain(region);
+  });
+
+  it('"Created." lands in the status region that was already mounted and empty', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...data('UNADOPTED'), schedule: sched, created: false }, form: null });
+    const m = mountComponent(Page as never, props); mounted.push(m as never);
+    const t = m.target as HTMLElement;
+    const when = t.querySelector('[data-testid="schedule-when"]')!.parentElement as HTMLElement;
+    const idle = idleStatusRegions(when);
+    expect(idle.length).toBeGreaterThan(0);
+    props.data = { ...data('UNADOPTED'), schedule: sched, created: true }; await settle();
+    const region = announcedStatusRegion(when);
+    expect(region?.querySelector('[data-testid="schedule-created"]')).not.toBeNull();
+    expect(idle).toContain(region);
+  });
+});
+
 describe('the enhanced submit (BLIND P3)', () => {
   it('a stale hash re-reads the page once, with the form kept, and submits nothing more', async () => {
     const { t, props } = open('UNADOPTED');
@@ -223,6 +258,36 @@ describe('team roster and tasks', () => {
     }));
   });
   afterEach(() => { vi.unstubAllGlobals(); });
+
+  describe('the result is announced in a persistent live region (portal#2375)', () => {
+    const inOutcome = (t: HTMLElement) => announcedStatusRegion(t)?.closest('[data-testid="team-grant-outcome"]');
+
+    it('Given. lands in the status region that was already mounted and empty', async () => {
+      const { t, props } = openGrant(none);
+      const idle = idleStatusRegions(outcomeBox(t) as HTMLElement);
+      expect(idle.length).toBeGreaterThan(0);
+      answer = { body: { status: 'ready', live, ended: null } };
+      await submitEnhancedWithResult(form(t, 'give')!, given, applying(props, given));
+      await settle();
+      const region = announcedStatusRegion(t);
+      expect(inOutcome(t)).not.toBeNull();
+      expect(region?.textContent).toContain('Given.');
+      expect(idle).toContain(region);
+    });
+
+    it('Stopped. lands in the status region that was already mounted and empty', async () => {
+      const { t, props } = openGrant({ status: 'ready', live, ended: null });
+      const idle = idleStatusRegions(outcomeBox(t) as HTMLElement);
+      expect(idle.length).toBeGreaterThan(0);
+      answer = { body: { status: 'ready', live: null, ended: null } };
+      await submitEnhancedWithResult(form(t, 'stop')!, stopped, applying(props, stopped));
+      await settle();
+      const region = announcedStatusRegion(t);
+      expect(inOutcome(t)).not.toBeNull();
+      expect(region?.textContent).toContain('Stopped.');
+      expect(idle).toContain(region);
+    });
+  });
 
   describe('after a write the section reads its own state again', () => {
     it('a Give asks kit only to apply the answer, then reads the stored state and shows it', async () => {

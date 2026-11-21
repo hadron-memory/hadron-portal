@@ -1,5 +1,6 @@
 <script lang="ts">
   import LiveOutcome from '$lib/components/LiveOutcome.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
@@ -2859,8 +2860,10 @@
   {/if}
 
   {#if activeTab === 'chats' && tabShown('chats')}
-    {#if chatSwitchBusy}<p role="status">{t('app.chats.opening', 'Opening chat…')}</p>{/if}
-    {#if chatSwitchFailed}<p role="status">{t('app.chats.open-failed', 'Could not open that chat. Your current conversation is still here.')}</p>{/if}
+    <LiveRegion>
+      {#if chatSwitchBusy}<p>{t('app.chats.opening', 'Opening chat…')}</p>{/if}
+      {#if chatSwitchFailed}<p>{t('app.chats.open-failed', 'Could not open that chat. Your current conversation is still here.')}</p>{/if}
+    </LiveRegion>
     <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
       {#if tabData.chatsError}
@@ -3296,11 +3299,13 @@
           {retireWorkerActionError}
         </div>
       {/if}
-      {#if retireWorkerActionSuccess}
-        <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-          {retireWorkerActionSuccess}
-        </div>
-      {/if}
+      <LiveRegion>
+        {#if retireWorkerActionSuccess}
+          <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+            {retireWorkerActionSuccess}
+          </div>
+        {/if}
+      </LiveRegion>
       {#if releaseWorkerActionError}
         <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {releaseWorkerActionError}
