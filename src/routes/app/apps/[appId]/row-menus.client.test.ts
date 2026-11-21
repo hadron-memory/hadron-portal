@@ -216,7 +216,7 @@ describe('A derived agent on the Agents tab (#1684)', () => {
 describe('App Keys tab row ⋯ menu (#1020)', () => {
   it('offers Copy ID, Grant scope, Revoke scope then Revoke, with no inline Revoke button', async () => {
     const target = await mountTab('keys', { keyScopes: { kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } } });
-    expect(target.textContent).not.toContain('Revoke key');
+    expect(target.textContent).not.toContain('Revoke');
     const items = openMenu(target, 'Actions for key abc123');
     expect(items.map((i) => [i.tagName, i.textContent?.trim(), i.getAttribute('aria-disabled')])).toEqual([
       ['BUTTON', 'Copy ID', null],
@@ -235,6 +235,14 @@ describe('App Keys tab row ⋯ menu (#1020)', () => {
     expect(item.textContent).toContain('This key holds no scope to revoke.');
     const hint = document.getElementById(item.getAttribute('aria-describedby')!)!;
     expect(hint.textContent).toBe('This key holds no scope to revoke.');
+  });
+
+  it('Revoke scope does not claim a failure while the scopes are still loading', async () => {
+    const target = await mountTab('keys', { keyScopes: null });
+    const item = openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.includes('Revoke scope'))!;
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+    expect(item.textContent).toContain('isn’t available yet');
+    expect(item.textContent).not.toContain('Couldn’t load');
   });
 
   it('Revoke scope is disabled, saying so, when the scopes could not be read', async () => {

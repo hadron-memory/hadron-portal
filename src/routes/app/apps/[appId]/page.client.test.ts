@@ -1919,6 +1919,47 @@ describe('App key scope revoke dialog (portal#2319)', () => {
     expect(reopened.querySelector('[data-testid="revoke-scope-error"]')).toBeNull();
   });
 
+  // BLIND P2-1: the held list can change under an open dialog (a refresh).
+  it('a refresh that drops the chosen scope moves the picker and the sent value to one still held', async () => {
+    const { target, props } = await mountKeys();
+    const dialog = await openRevoke(target);
+    expect(picker(dialog).value).toBe('attention:deliver');
+    props.data = { ...props.data, keyScopes: { kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } } };
+    flushSync(); await tick(3);
+    expect([...picker(dialog).options].map((o) => o.value)).toEqual(['host:operate']);
+    expect(picker(dialog).value).toBe('host:operate');
+    expect(new FormData(revokeForm(dialog)).get('scope')).toBe('host:operate');
+  });
+
+  it('a refresh that leaves nothing held disables Revoke rather than sending a scope the key lost', async () => {
+    const { target, props } = await mountKeys();
+    const dialog = await openRevoke(target);
+    props.data = { ...props.data, keyScopes: { kind: 'ok', byKey: { k1: [] } } };
+    flushSync(); await tick(3);
+    expect(picker(dialog).options.length).toBe(0);
+    expect([...dialog.querySelectorAll('button')].find((b) => b.type === 'submit')!.disabled).toBe(true);
+  });
+
+  // BLIND P2-2: one line above the tabs answers the LATEST scope action.
+  it('a revoke success is not shadowed by an earlier grant success', async () => {
+    const { target } = await mountKeys();
+    trigger(target).click();
+    await tick(2);
+    ([...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.includes('Grant scope')) as HTMLButtonElement).click();
+    await tick(2);
+    const grant = document.querySelector('dialog[open]')!;
+    const g = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+    g.message = { type: 'success', text: 'Scope granted.' };
+    await submitEnhancedWithResult(grant.querySelector('form')!, { type: 'success', status: 200, data: { form: g } });
+    flushSync(); await tick(2);
+    expect(target.textContent).toContain('Scope granted.');
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(2);
+    expect(target.textContent).toContain('Scope revoked.');
+    expect(target.textContent).not.toContain('Scope granted.');
+  });
+
   it('is fenced to one App: a late answer from the departed App says nothing here', async () => {
     const { target, props } = await mountKeys();
     const dialog = await openRevoke(target);

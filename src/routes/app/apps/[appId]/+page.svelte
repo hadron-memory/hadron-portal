@@ -1880,6 +1880,8 @@
     grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: key.id, scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
     grantKeyScopeErrors.set({});
     grantKeyScopeMessage.set(undefined);
+    // One line above the tabs answers the latest action, never a stale one.
+    revokeKeyScopeMessage.set(undefined);
     grantScopeTriggerEl = trigger ?? null;
     grantScopeFenceFired = false;
     grantScopeKey = key;
@@ -1989,16 +1991,29 @@
     return out;
   };
   const revokeScopeMenuItem = (key: AppKey) => {
+    const kind = tabData.keyScopes?.kind;
     const hint =
-      tabData.keyScopes?.kind !== 'ok'
+      kind === 'failed'
         ? t('app.keys.revoke-scope.menu-unknown', 'Couldn’t load what this key may do.')
-        : heldScopesOf(key.id).length === 0
-          ? t('app.keys.revoke-scope.menu-none', 'This key holds no scope to revoke.')
-          : null;
+        : kind !== 'ok'
+          ? t('app.keys.revoke-scope.menu-pending', 'What this key may do isn’t available yet.')
+          : heldScopesOf(key.id).length === 0
+            ? t('app.keys.revoke-scope.menu-none', 'This key holds no scope to revoke.')
+            : null;
     return hint ? { disabled: true, title: hint, hint } : {};
   };
 
   let revokeScopeKey = $state<AppKey | null>(null);
+  // The scopes the open dialog's key holds NOW. A refresh while the dialog is
+  // open can change them, so the picker, the submitted value and the Revoke
+  // button all read this one list: a value no longer held is never sent.
+  const revokeHeld = $derived(revokeScopeKey ? heldScopesOf(revokeScopeKey.id) : []);
+  $effect(() => {
+    if (!revokeScopeKey || revokeHeld.length === 0) return;
+    if (!revokeHeld.includes($revokeKeyScopeForm.scope)) {
+      untrack(() => revokeKeyScopeForm.update(($f) => ({ ...$f, scope: revokeHeld[0] }), { taint: false }));
+    }
+  });
   let revokeScopeTriggerEl: HTMLButtonElement | null = null;
   let revokeScopeFenceFired = false;
   function openRevokeScope(key: AppKey, trigger?: HTMLButtonElement) {
@@ -2008,6 +2023,8 @@
     revokeKeyScopeForm.update(() => ({ _kind: 'revokeKeyScope', keyId: key.id, scope: held[0] }), { taint: false });
     revokeKeyScopeErrors.set({});
     revokeKeyScopeMessage.set(undefined);
+    // One line above the tabs answers the latest action, never a stale one.
+    grantKeyScopeMessage.set(undefined);
     revokeScopeTriggerEl = trigger ?? null;
     revokeScopeFenceFired = false;
     revokeScopeKey = key;
@@ -4453,7 +4470,7 @@
                 <select id="revoke-scope" name="scope" bind:value={$revokeKeyScopeForm.scope}
                   aria-describedby={revokeKeyScopeActionError ? 'revoke-scope-help revoke-scope-error' : 'revoke-scope-help'}
                   class={inputClass}>
-                  {#each heldScopesOf(revokeScopeKey.id) as held (held)}
+                  {#each revokeHeld as held (held)}
                     <option value={held}>{held}</option>
                   {/each}
                 </select>
@@ -4464,7 +4481,7 @@
               {/if}
               <div class="flex flex-wrap justify-end gap-3">
                 <button type="button" onclick={closeRevokeScope} disabled={$revokeKeyScopeSubmitting} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.keys.revoke-scope.cancel', 'Cancel')}</button>
-                <button type="submit" disabled={$revokeKeyScopeSubmitting} class="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
+                <button type="submit" disabled={$revokeKeyScopeSubmitting || !revokeHeld.includes($revokeKeyScopeForm.scope)} class="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
                   {$revokeKeyScopeSubmitting ? t('app.keys.revoke-scope.submitting', 'Revoking…') : t('app.keys.revoke-scope.submit', 'Revoke')}
                 </button>
               </div>
