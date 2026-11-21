@@ -32,18 +32,19 @@ it('keeps real empty success distinct from a failed runs read', async () => {
 // portal#1767 row 5 (`shape`): the loader's isRunsSection guard. Mutant: no-op
 // the throw — each malformed reply below would then be served as an empty or
 // garbage SUCCESS; the pin holds the failed shape instead. Every reply is
-// answered, so the pin never dies on an unanswered mock.
-it('serves a malformed appRuns reply as a failed page, never an empty success (row 5: no-op the shape guard)', async () => {
+// answered, so the pin never dies on an unanswered mock. Each case violates
+// EXACTLY ONE rule (blind P3 on #1767: the old non-enum row also carried a
+// malformed createdAt, so a guard checking only createdAt passed it), and
+// it.each names the failing reply instead of dying anonymously in a loop.
+const malformedReplies = [
+  ['missing items', { appRuns: { total: 0 } }],
+  ['a row with a non-enum status', { appRuns: { items: [{ id: 'bad', status: 42, triggerKind: 'MANUAL', entryNodeUrn: 'urn', createdAt: '2026-10-01T10:00:00.000Z' }], total: 1 } }],
+  ['negative total', { appRuns: { items: [], total: -5 } }],
+] as const;
+it.each(malformedReplies)('serves a malformed appRuns reply as a failed page, never an empty success: %s (row 5: no-op the shape guard)', async (_label, reply) => {
   const { loadAppRunsPage } = await import('$lib/server/app-runs-page');
-  const malformed = [
-    { appRuns: { total: 0 } }, // missing items
-    { appRuns: { items: [{ id: 'bad', status: 42, triggerKind: 'MANUAL', entryNodeUrn: 'urn', createdAt: 'x' }], total: 1 } }, // a row with a non-enum status
-    { appRuns: { items: [], total: -5 } }, // negative total
-  ];
-  for (const reply of malformed) {
-    request.mockImplementation(async q => q === APP_RUNS_QUERY ? reply : { app: { id: 'a' } });
-    await expect(loadAppRunsPage({ request } as never, 'a', new URLSearchParams())).resolves.toMatchObject({ failed: true, runs: [], total: 0 });
-  }
+  request.mockImplementation(async q => q === APP_RUNS_QUERY ? reply : { app: { id: 'a' } });
+  await expect(loadAppRunsPage({ request } as never, 'a', new URLSearchParams())).resolves.toMatchObject({ failed: true, runs: [], total: 0 });
 });
 it('retains App concealment before issuing any runs read', async () => {
   request.mockResolvedValue({ app: null });

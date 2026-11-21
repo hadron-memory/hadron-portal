@@ -10,11 +10,18 @@ import {
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
-// portal#1767 row 7: record every token gqlClient receives, so a pin can hold
-// the caller-credential contract (the run action must pass locals.token).
-const gqlTokens: (string | undefined)[] = [];
+// portal#1767 row 7: every gqlClient call gets its OWN request recorder, so a
+// pin can say WHICH credential a given query ran on — not merely which client
+// was created last (blind P3 on #1767: `gqlTokens.at(-1)` survives a tokenless
+// client created after the mutation).
+const gqlCalls: { token: string | undefined; query: unknown }[] = [];
 vi.mock('$lib/server/api', () => ({
-  gqlClient: (token?: string) => { gqlTokens.push(token); return { request: mockRequest }; },
+  gqlClient: (token?: string) => ({
+    request: (query: unknown, ...args: unknown[]) => {
+      gqlCalls.push({ token, query });
+      return mockRequest(query, ...args);
+    },
+  }),
 }));
 
 vi.mock('$lib/server/guards', () => ({
@@ -48,7 +55,7 @@ vi.mock('$app/stores', async () => {
 
 beforeEach(() => {
   mockRequest.mockReset();
-  gqlTokens.length = 0;
+  gqlCalls.length = 0;
 });
 
 const app = { id: 'app-1', name: 'Digest', organizationId: 'org-1' };
@@ -268,17 +275,23 @@ describe('app runs run action', () => {
 
   // portal#1767 row 7 (`run_token`): the mutation runs on the caller's own
   // credential. Mutant: gqlClient() with no argument — the recording mock then
-  // holds undefined and this pin fails on the assertion, not on a crash.
-  it('starts the flow as the signed-in caller, an impersonation token included (row 7: gqlClient())', async () => {
+  // holds undefined and this pin fails on the assertion, not on a crash. The
+  // assertion names the credential the RUN_TASK query itself ran on, so other
+  // clients created around it cannot mask the mutant (blind P3 on #1767). The
+  // second half re-runs with a different token in locals: an impersonation
+  // session differs from a normal one only in WHICH token locals holds, and
+  // the run must carry it through unchanged.
+  it('runs the mutation on the credential locals holds, an impersonation token included (row 7: gqlClient())', async () => {
     mockRequest.mockResolvedValueOnce({ runTask: 'run-1' });
     const { actions } = await importServer();
     await expect(actions.run(actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' }) as never)).rejects.toMatchObject({ status: 303 });
-    expect(gqlTokens.at(-1)).toBe('tok');
+    expect(gqlCalls.filter((c) => c.query === RUN_TASK_APP_MUTATION).map((c) => c.token)).toEqual(['tok']);
 
     mockRequest.mockResolvedValueOnce({ runTask: 'run-2' });
-    const impersonated = { ...actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' }), locals: { token: 'imp-personation-tok' } };
+    const base = actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' });
+    const impersonated = { ...base, locals: { ...base.locals, token: 'impersonation-token' } };
     await expect(actions.run(impersonated as never)).rejects.toMatchObject({ status: 303 });
-    expect(gqlTokens.at(-1)).toBe('imp-personation-tok');
+    expect(gqlCalls.filter((c) => c.query === RUN_TASK_APP_MUTATION).map((c) => c.token)).toEqual(['tok', 'impersonation-token']);
   });
 
   it('rejects run POSTs with the wrong form discriminator', async () => {
