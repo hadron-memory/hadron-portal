@@ -27,6 +27,66 @@ it('#1334 renders Profile identity only, with no Agent placeholder or working-st
   expect(m.target.querySelector('[role="tablist"]')).toBeNull();
   expect(m.target.querySelector('form')).toBeNull();
 });
+
+// portal#1491 — this page's tier boundary used to be pinned red only by a
+// fixture crash: a pre-fix page asked for its wake tab with NO wake data and
+// died in WakeUpsPanel, which proves nothing about exposure. The payload
+// below seeds everything the OLD page needed — a valid ok wake read, a
+// session row, management rights, the real signature form and every result
+// key — so a page with the Profile branch removed RENDERS and fails the
+// assertions on exposed tabs, forms and content instead.
+const fullOldPagePayload = async () => {
+  const signatureForm = await superValidate({}, zod4(updateSignatureSchema), { errors: false });
+  return {
+    worker: { ...profile },
+    initialTab: 'wake',
+    initialView: null,
+    leaveAloneByHandle: null,
+    terminalNow: NOW,
+    signatureForm,
+    wake: { kind: 'ok', value: { mentions: '@gil', pausedUntil: null, dormant: false, effectiveCadenceSeconds: 900, subscriptions: [] } },
+    wakeAppSettings: null,
+    wakeLoadedAt: NOW,
+    workerSessions: [{ id: 's-1', type: 'github', repo: 'acme/app', branch: 'main', tool: null, host: null, llmModel: null, plan: null, summary: 'Old-page session row', prNumber: null, turnCount: 1, errorCount: 0 }],
+    sessionsTruncated: false,
+    worklog: null,
+    worklogTotal: 0,
+    bootPointer: { ok: false as const },
+    canManageWorkerApp: true,
+    canChangeAgent: false,
+    changeAgentOptions: [],
+    changeAgentKey: 'w-profile',
+    retireKey: 'w-profile',
+    bootPointerKey: 'w-profile',
+    applyKey: 'w-profile',
+  };
+};
+it('#1491 renders Profile identity only from a payload the old page renders in full', async () => {
+  const m = mountComponent(Page as never, { data: await fullOldPagePayload() } as never); cleanup = m.unmount;
+  const text = m.target.textContent ?? '';
+  expect(text).toContain('Profile Worker');
+  // Each absence below is a surface the pre-fix page rendered FROM THIS
+  // PAYLOAD — so removing the Profile branch fails here on content, not on a
+  // WakeUpsPanel exception (the crash the old fixture proved instead).
+  expect(m.target.querySelector('[role="tablist"]')).toBeNull();            // the tabs
+  expect(m.target.querySelector('form')).toBeNull();                        // management's (hidden) retire form
+  expect(m.target.querySelector('#panel-wake')).toBeNull();                 // the requested wake tabpanel
+  expect(m.target.querySelector('[data-testid="wake-panel"]')).toBeNull();  // the ok wake read
+  expect(text).not.toContain('NESTED APP');                                 // the breadcrumb from worker.app
+  expect(text).not.toContain('@gil');                                       // the wake settings content
+  expect(text).not.toContain('SECRET');
+});
+it('#1491 control: the same payload under a participant renders every surface the Profile pin forbids', async () => {
+  const payload = await fullOldPagePayload();
+  const m = mountComponent(Page as never, { data: { ...payload, worker: { ...payload.worker, hasLiveSession: false } } } as never); cleanup = m.unmount;
+  const text = m.target.textContent ?? '';
+  expect(m.target.querySelector('[role="tablist"]')).not.toBeNull();
+  expect(m.target.querySelector('form')).not.toBeNull();
+  expect(m.target.querySelector('#panel-wake')).not.toBeNull();
+  expect(m.target.querySelector('[data-testid="wake-panel"]')).not.toBeNull();
+  expect(text).toContain('NESTED APP');
+  expect(text).toContain('@gil');
+});
 it('#1334 Details shows Agent only when the server returns it, without working-state panels', () => {
   const m = mountComponent(Page as never, { data: { worker: { ...profile, agent: { id: 'agent-1', name: 'Visible Agent', urn: 'hrn:agent:example.test:agent' } } } } as never); cleanup = m.unmount;
   expect(m.target.textContent).toContain('Visible Agent');
