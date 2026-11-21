@@ -250,11 +250,20 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
 
   // A same-node re-run (invalidateAll after a save elsewhere, a revision bump)
   // does not enter the node-change reset block, so a kept draft survives it.
-  it('testFlow: a refused draft survives a same-node re-run of the page data', async () => {
+  it('testFlow: a refused draft and the open Run dialog survive a same-node re-run of the page data', async () => {
     setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
     serve();
     const actionData = await refusedAction('testFlow', { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', agentRef: '', payload: '{"keep":"me"}' });
     const { m, props } = await mountHydrated(actionData);
+
+    // Open the Run dialog BEFORE the re-run: an open flag (testFlowOpen) must
+    // not be closed by a same-node re-run, only by a real node change.
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value, 'the draft before the re-run').toBe('{"keep":"me"}');
 
     // Same node id, new data (renamed elsewhere, revision bumped): the page
     // re-renders with it, which is what makes this a re-run that took effect.
@@ -262,12 +271,7 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     props.data = { ...PARENT, ...(await runLoad()) };
     await settle();
     expect(m.target.querySelector('button[aria-label="Actions for Foo renamed"]'), 'the re-run reached the page').not.toBeNull();
-
-    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo renamed"]')!.click();
-    flushSync();
-    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
-    flushSync();
-    await settle();
+    expect(field(m.target, '#testFlowPayload'), 'the Run dialog is still open after a same-node re-run').not.toBeNull();
     expect(field(m.target, '#testFlowPayload')!.value, 'the draft after a same-node re-run').toBe('{"keep":"me"}');
   });
 
@@ -334,10 +338,16 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     // disabled state above comes from flowDirty and not from a button that
     // never enables.
     const writeTo = m.target.querySelector<HTMLInputElement>('#flow-writeto')!;
+    // Empty is a valid write-to value and so is the URN typed below, so the
+    // field's validity (outputWriteToValid, one of Save's other disjuncts) is the
+    // same before and after: only flowDirty changes.
+    expect(writeTo.value, 'the field starts empty, which is valid').toBe('');
+    expect(writeTo.className, 'and is not marked invalid before the edit').not.toContain('border-red-400');
     writeTo.value = 'hrn:node:acme.com:mem-a:target';
     writeTo.dispatchEvent(new Event('input', { bubbles: true }));
     flushSync();
     await settle();
+    expect(writeTo.className, 'and is not marked invalid after the edit either').not.toContain('border-red-400');
     expect(save.disabled, 'Save enables once the editor is dirty').toBe(false);
   });
 });
