@@ -276,7 +276,10 @@ try {
   }
 } catch (e) {
   if (!process.env.TH_EXTRA_ANCHOR) throw e;
-  const wanted = /unclassified in-app anchor/.test(String(e?.message));
+  // The diagnostic must name THE INJECTED link: a fixture anchor that was already unclassified would
+  // produce the same text, and that is not this mutant being killed (portal#1925).
+  const message = String(e?.message);
+  const wanted = /unclassified in-app anchor/.test(message) && message.includes(`"href":${JSON.stringify(process.env.TH_EXTRA_ANCHOR)}`);
   console.error(wanted ? `killed as expected: ${String(e.message).split('\n')[0]}` : `failed for another reason, no verdict: ${e?.stack ?? e}`);
   process.exitCode = wanted ? 1 : 3;
 } finally {
