@@ -674,8 +674,7 @@ describe('a late save response must not replace the replacement editor’s basel
     // editor. The pending mutation belongs to the old visit, so the same row
     // may be reopened now.
     (m.props as { ownerId: string }).ownerId = 'o2';
-    await tick(3);
-    expect($(m.target, '#ac-endpoint')).toBe(null); // the editor really closed
+    await vi.waitFor(() => expect($(m.target, '#ac-endpoint')).toBe(null)); // the editor really closed, observed rather than guessed
     editRow(m.target); // the replacement editor, seeded from the list row
     await settle();
 
@@ -712,8 +711,7 @@ describe('a late save response must not replace the replacement editor’s basel
     // create editor. The pending mutation is scoped to the old visit, so rows
     // are openable again.
     (m.props as { ownerId: string }).ownerId = 'o2';
-    await tick(3);
-    expect($(m.target, '#ac-endpoint')).toBe(null); // the editor really closed
+    await vi.waitFor(() => expect($(m.target, '#ac-endpoint')).toBe(null)); // the editor really closed, observed rather than guessed
     // The committed readback delivers the new row into the visible list — as
     // a LATER write left it (fresh endpoint), not as the delayed response's copy.
     (m.props as { configs: AiServiceConfig[] }).configs = [config({ id: 'c9', name: 'made', endpoint: 'https://fresh.example/v1' })];

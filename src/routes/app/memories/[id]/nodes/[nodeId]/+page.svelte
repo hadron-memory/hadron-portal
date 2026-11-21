@@ -3,6 +3,7 @@
   import TabRow from '$lib/components/TabRow.svelte';
   import RefreshNodeLoc from './RefreshNodeLoc.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
+  import { COMPILED_BOOT_PROMPT_TYPE, COMPILED_PROMPT_HINT_ID } from '$lib/compiled-boot-prompt';
   import { Expand } from 'lucide-svelte';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
   import CappedNotice from '$lib/components/CappedNotice.svelte';
@@ -169,7 +170,7 @@
   let copied = $state(false);
   // portal#1899: a compiled boot prompt is written only by a compile (hrn:node:hadronmemory.com:specs:cor:agt:040:11, :12);
   // a save is always refused, so its text and abstract are shown read-only with a pointer to the source.
-  const isCompiledPrompt = $derived(node.nodeType === 'compiled-boot-prompt');
+  const isCompiledPrompt = $derived(node.nodeType === COMPILED_BOOT_PROMPT_TYPE);
   const readOnly = $derived(data.canWriteMemory === false);
   // portal#1901: a compiled node has no write door at all on this page (content, abstract, name/meta, data,
   // properties, storage, flow, edges, move, restore, node delete). Approve, verify, signatures, duplicate and the
@@ -251,8 +252,8 @@
             );
       case 'compiled-prompt':
         return t('node.text.save.compiled-prompt', 'A compiled boot prompt is never edited directly. Edit the boot source and compile again. Nothing was saved.');
-      case 'boot-prompt-governed':
-        return t('node.text.save.boot-prompt-governed', 'A worker session cannot edit a boot prompt; its manager does that. Nothing was saved.');
+      case 'boot-prompt-worker-session-refused':
+        return t('node.text.save.boot-prompt-worker-session-refused', 'A worker session cannot edit a boot prompt; its manager does that. Nothing was saved.');
       case 'no-baseline':
         return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
       case 'not-found':
@@ -3536,6 +3537,7 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
+            aria-describedby={isCompiledPrompt ? COMPILED_PROMPT_HINT_ID : undefined}
             readonly={writeLocked}
             bind:value={contentDraft.text}
           ></textarea>
@@ -3591,7 +3593,7 @@
     <!-- ═══ ABSTRACT TAB ═══ -->
     {#if activeTab === 'abstract'}
       {#if isCompiledPrompt}
-        <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
+        <p id={COMPILED_PROMPT_HINT_ID} class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
       {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
@@ -3624,7 +3626,7 @@
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
-            aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
+            aria-describedby={[isCompiledPrompt ? COMPILED_PROMPT_HINT_ID : null, abstractHint ? 'node-abstract-search-hint' : null].filter(Boolean).join(' ') || undefined}
             readonly={writeLocked}
             bind:value={abstractDraft.text}
           ></textarea>

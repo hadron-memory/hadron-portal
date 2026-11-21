@@ -238,7 +238,7 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
       .toEqual([[REQUEST_SIGNATURE_MUTATION, { nodeRef: 'leaf-pk', expectedRevision: 4 }]]);
   });
 
-  it('#1896: a library-generated non-GraphQL503 keeps the action fallback', async () => {
+  it('#1896: a library-generated non-GraphQL 503 keeps the action fallback, never its private body', async () => {
     const client = new GraphQLClient('http://synthetic.invalid/graphql', {
       fetch: async () => new Response('synthetic private body /private/key', { status: 503, headers: { 'content-type': 'text/plain' } }),
     });
@@ -248,7 +248,12 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
     expect(fault).toBeInstanceOf(ClientError);
     expect((fault as ClientError).response).toMatchObject({ status: 503, body: 'synthetic private body /private/key' });
     serve(() => ({}), () => { throw fault; });
-    expect(await requestSignature()).toEqual({status:400,data:{requestSignatureError:'Could not start a signing request.'}});
+    const result = await requestSignature();
+    expect(result).toEqual({
+      status: 400,
+      data: { requestSignatureError: 'Could not start a signing request.' },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/synthetic private body|private\/key/);
   });
 
   it('an unknown code keeps the generic line — never a borrowed reason', async () => {
