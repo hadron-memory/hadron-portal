@@ -5,6 +5,7 @@
  * carries no report.
  */
 import { describe, expect, it } from 'vitest';
+import { formatPortalDateTime } from '$lib/format-portal-date';
 import {
   authorshipSearchText,
   authorshipText,
@@ -141,13 +142,19 @@ describe('validationView / validationText', () => {
 
   it('a History row says when, which task revision and the author check; no report says nothing', () => {
     const v = ok({ state: 'PASS', latestReport: report({ authorCheck: 'CHECKED' }) });
-    const detail = validationHistoryDetail(v);
-    expect(detail).toContain('task revision 2');
-    expect(detail).toContain('Author compared and differs');
-    expect(detail).toContain(new Date(AT).toLocaleString());
+    expect(validationHistoryDetail(v)).toBe(`${formatPortalDateTime(AT)} · task revision 2 · Author compared and differs`);
+    // no task revision, no author check: only the time
+    const bare = ok({ state: 'PASS', latestReport: report({ validationTaskRevision: null, validationTaskRef: null }) });
+    expect(validationHistoryDetail(bare)).toBe(formatPortalDateTime(AT));
     expect(validationHistoryDetail(ok({ state: 'UNVALIDATED', latestReport: null }))).toBe('');
-    // A late report for an older revision is that revision's own state, not the current one.
-    expect(validationHistoryDetail(ok({ state: 'STALE', latestReport: report({ nodeRevision: 3 }) }))).not.toBe('');
+    // an unparseable time is a dash, never "Invalid Date"
+    expect(validationHistoryDetail(ok({ state: 'PASS', latestReport: report({ reportedAt: 'nope' }) }))).toBe('— · task revision 2');
+  });
+
+  it('a late report for an older revision is that revision\'s own state and reads as a report', () => {
+    const v = ok({ state: 'FAIL', latestReport: report({ nodeRevision: 3, outcome: 'FAIL' }) });
+    expect(v).toMatchObject({ state: 'FAIL', checkedRevision: null });
+    expect(validationHistoryDetail(v)).not.toBe('');
   });
 
   it('a failed read, a missing value or an unknown state is "Couldn\'t load", never a verdict', () => {

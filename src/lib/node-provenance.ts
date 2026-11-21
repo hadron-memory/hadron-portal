@@ -23,6 +23,7 @@
  */
 
 import { t } from '$lib/i18n/t';
+import { formatPortalDateTime } from '$lib/format-portal-date';
 
 export type NodeAuthorshipKind = 'TASK' | 'HUMAN';
 
@@ -249,7 +250,7 @@ export function authorCheckText(v: ValidationView): string {
  */
 export function validationHistoryDetail(v: ValidationView): string {
   if (!v.report) return '';
-  const parts = [new Date(v.report.reportedAt).toLocaleString()];
+  const parts = [formatPortalDateTime(v.report.reportedAt)];
   if (v.task?.revision != null) parts.push(t('node.validation.history-task-rev', 'task revision {rev}', { rev: v.task.revision }));
   const author = authorCheckText(v);
   if (author) parts.push(author);

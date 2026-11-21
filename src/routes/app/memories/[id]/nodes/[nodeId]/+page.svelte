@@ -43,7 +43,7 @@
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
   import RevisionEditedBy from '$lib/components/RevisionEditedBy.svelte';
   import { revisionEditorView } from '$lib/revision-editor';
-  import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
+  import HistoryValidationCell from '$lib/components/HistoryValidationCell.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
@@ -4440,12 +4440,7 @@
               {/if}
             {:else if cell.column.id === 'validation'}
               {@const v = historyValidation(r)}
-              {#if v}
-                <NodeValidationBadge view={v} compact />
-                {#if v.report}
-                  <div data-testid="history-validation-detail" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{validationHistoryDetail(v)}</div>
-                {/if}
-              {/if}
+              {#if v}<HistoryValidationCell view={v} />{/if}
             {:else if cell.column.id === 'actions'}
               <button type="button" data-revision-id={r.id} onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
                 aria-label={t('node.history.row-actions', 'Revision actions')}
