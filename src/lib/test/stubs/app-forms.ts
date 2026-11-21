@@ -38,6 +38,11 @@ export function enhance(form: HTMLFormElement, submit?: unknown): { destroy: () 
   return { destroy: () => enhanced.delete(form) };
 }
 
+/** True when `use:enhance` was applied to `form` WITH a submit callback (portal#2398). */
+export function isEnhanced(form: HTMLFormElement): boolean {
+  return enhanced.has(form);
+}
+
 /**
  * Run superforms' submit callback for `form` as kit would on submit, and
  * report whether it cancelled. Pass `true` to also receive the FormData after
