@@ -243,12 +243,12 @@
           </p>
         {/if}
         {#if report.leftOut.length > 0}
-          <p data-testid="bundle-left-out-summary" class="text-xs text-amber-700 dark:text-amber-400">
+          <p id="skill-bundle-left-out-summary" data-testid="bundle-left-out-summary" class="text-xs text-amber-700 dark:text-amber-400">
             {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
           </p>
         {/if}
         {#if report.unrecognized.length > 0}
-          <p data-testid="bundle-unrecognized-summary" class="text-xs text-amber-700 dark:text-amber-400">
+          <p id="skill-bundle-unrecognized-summary" data-testid="bundle-unrecognized-summary" class="text-xs text-amber-700 dark:text-amber-400">
             {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
           </p>
         {/if}
@@ -266,7 +266,7 @@
         </p>
       {/if}
       {#if report.leftOut.length > 0}
-        <SkillExportLeftOutTable rows={report.leftOut} />
+        <SkillExportLeftOutTable rows={report.leftOut} labelledBy="skill-bundle-left-out-summary" />
       {/if}
       {#if report.unrecognized.length > 0}
         <p class="text-xs text-zinc-500">
@@ -278,6 +278,7 @@
         </p>
         <SkillExportLeftOutTable
           rows={report.unrecognized}
+          labelledBy="skill-bundle-unrecognized-summary"
           listKey="orgs:tasks:export-unrecognized"
           reasonHeader={t('tasks.bundle.unrecognized.column', 'What happened')}
           searchPlaceholder={t('tasks.bundle.unrecognized.search', 'Search tasks with unused export keys…')}
