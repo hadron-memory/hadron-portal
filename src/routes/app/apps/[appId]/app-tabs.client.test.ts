@@ -16,7 +16,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { navigationGuards, navigationHooks, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationGuards, navigationHooks, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import Page from './+page.svelte';
 import { everyTabRead } from './app-page.fixture';
@@ -530,6 +530,93 @@ describe('App tab navigation failure feedback (#2288)', () => {
     navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
     await pick(fresh, 'runs');
     expect(alerts(fresh)).toHaveLength(1);
+  });
+
+  // portal#2302 item 1: a superseded choice's RESULT is not applied, whichever await it was parked on.
+  describe('portal#2302: a superseded choice changes nothing when it finally resolves', () => {
+    const gotos = () => navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]));
+    it('a held goto that resolves after a newer choice leaves the newer tab shown', async () => {
+      const target = await mountTab('chats');
+      const first = deferred();
+      let calls = 0;
+      navigationHooks.onGoto = () => (++calls === 1 ? first.promise : undefined);
+      await pick(target, 'runs');
+      await pick(target, 'node-role-templates');
+      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
+      first.resolve();
+      await wait(20);
+      await tick(4);
+      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
+      expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('false');
+    });
+    it('a held preload that resolves after a newer choice starts no navigation of its own', async () => {
+      const target = await mountTab('chats');
+      const held = deferred();
+      navigationHooks.onPreloadData = () => held.promise.then(() => ({ type: 'loaded', data: {} }));
+      await pick(target, 'runs'); // parked inside preloadData
+      navigationHooks.onPreloadData = undefined;
+      await pick(target, 'node-role-templates');
+      held.resolve();
+      await wait(20);
+      await tick(4);
+      expect(gotos()).toEqual(['/app/apps/a1?tab=node-role-templates']);
+      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
+    });
+    it('a held preload that resolves after teardown starts no navigation and throws nothing', async () => {
+      const target = await mountTab('chats');
+      const held = deferred();
+      navigationHooks.onPreloadData = () => held.promise.then(() => ({ type: 'loaded', data: {} }));
+      await pick(target, 'runs');
+      const first = mounted.pop()!;
+      const rejections = await captureUnhandledRejections(async () => {
+        first.unmount();
+        held.resolve();
+        await wait(20);
+        await tick(4);
+      });
+      expect(rejections).toEqual([]);
+      expect(gotos()).toEqual([]);
+    });
+    it('a goto that resolves after teardown throws nothing and writes no address', async () => {
+      const target = await mountTab('chats');
+      const held = deferred();
+      navigationHooks.onGoto = () => held.promise;
+      await pick(target, 'runs');
+      const first = mounted.pop()!;
+      const rejections = await captureUnhandledRejections(async () => {
+        first.unmount();
+        held.resolve();
+        await wait(20);
+        await tick(4);
+      });
+      expect(rejections).toEqual([]);
+      expect(navigationCalls.filter((c) => c.fn === 'replaceState')).toEqual([]);
+    });
+  });
+
+  // portal#2302 item 4: the tab navigation keeps the reader's focus and scroll.
+  it('portal#2302: the Runs and Templates navigations pass keepFocus and noScroll', async () => {
+    const target = await mountTab('chats');
+    await pick(target, 'runs');
+    await pick(target, 'node-role-templates');
+    const options = navigationCalls.filter((c) => c.fn === 'goto').map((c) => c.args[1]);
+    expect(options).toEqual([{ keepFocus: true, noScroll: true }, { keepFocus: true, noScroll: true }]);
+  });
+
+  // portal#2302 item 3: a local tab chosen while a navigation is in flight still goes by its own
+  // loader URL, so the address and the loader agree (the tabNavigationPending clause in focusTab).
+  it('portal#2302: a local tab chosen over a held Runs navigation navigates to its own ?tab=', async () => {
+    const target = await mountTab('chats');
+    const first = deferred();
+    let calls = 0;
+    navigationHooks.onGoto = () => (++calls === 1 ? first.promise : undefined);
+    await pick(target, 'runs');
+    await pick(target, 'settings');
+    expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=runs', '/app/apps/a1?tab=settings']);
+    first.resolve();
+    await wait(20);
+    await tick(4);
+    expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
   });
 
   it('a failure on one App is gone when the page is reused for another, and stays gone on return', async () => {
