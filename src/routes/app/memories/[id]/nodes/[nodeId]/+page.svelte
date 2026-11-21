@@ -85,6 +85,7 @@
     extractionRowsError,
     outputFromNodeData,
     rowsFromNodeData,
+    rowsFromRefusedJson,
     rowsToSpec,
     type ExtractionRow,
   } from '$lib/flow/extraction';
@@ -702,9 +703,22 @@
 
   // Re-seed from the node whenever its data changes (navigation and post-
   // save invalidateAll) — same pattern as the Content/Abstract/Data editors.
+  // portal#2467: on the FIRST run only, a full-page updateFlow refusal seeds the editor with the
+  // reader's refused draft, so the alert and what they typed appear together. Any later run (a real
+  // node change, a post-save reload) re-seeds from node.data as before.
+  let refusedFlowDraft = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow')?.data ?? null);
   $effect(() => {
-    flowRows = rowsFromNodeData(node.data);
-    const output = outputFromNodeData(node.data);
+    const stored = node.data;
+    const draft = refusedFlowDraft;
+    refusedFlowDraft = null;
+    if (draft) {
+      flowRows = rowsFromRefusedJson(draft.extractionRows);
+      outputWriteTo = typeof draft.outputWriteTo === 'string' ? draft.outputWriteTo : '';
+      outputMode = draft.outputMode === 'append' ? 'append' : 'replace';
+      return;
+    }
+    flowRows = rowsFromNodeData(stored);
+    const output = outputFromNodeData(stored);
     outputWriteTo = output?.writeTo ?? '';
     outputMode = output?.mode ?? 'replace';
   });
@@ -774,13 +788,9 @@
   // tracks them and later edits sync as before.
   //
   // The visible editor above (flowRows, outputWriteTo, outputMode) is seeded
-  // from node.data, not from the refused form. Until the reader edits, the
-  // hidden inputs therefore hold the draft while the editor shows the saved
-  // flow. That draft cannot be resubmitted unseen: the Save button of form
-  // ?/updateFlow is
-  //   disabled={$flowSubmitting || !flowDirty || flowRowsError !== null || !outputWriteToValid}
-  // and flowDirty is false until the editor differs from node.data. Seeding the
-  // editor from the draft is portal#2467.
+  // from the same refused draft on the first run (portal#2467), so what the
+  // hidden inputs hold is what the reader sees, and Save (enabled once the
+  // editor differs from node.data) can resubmit it.
   let flowSyncMounted = false;
   $effect(() => {
     const rowsJson = flowRowsJson;

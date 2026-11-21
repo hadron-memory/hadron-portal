@@ -86,6 +86,16 @@ export function rowsFromNodeData(data: unknown): ExtractionRow[] {
     }));
 }
 
+/** Editor rows from a refused draft's JSON text (the `extractionRows` form field), tolerating anything malformed. */
+export function rowsFromRefusedJson(json: unknown): ExtractionRow[] {
+  if (typeof json !== 'string') return [];
+  try {
+    return rowsFromNodeData({ extractionSpec: JSON.parse(json) });
+  } catch {
+    return [];
+  }
+}
+
 /** Stored spec entries from editor rows — omit empty descriptions and default shape. */
 export function rowsToSpec(rows: ReadonlyArray<ExtractionRow>): Array<Record<string, string>> {
   return rows.map((r) => ({

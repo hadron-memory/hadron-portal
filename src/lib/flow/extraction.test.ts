@@ -4,6 +4,7 @@ import {
   extractionRowsError,
   outputFromNodeData,
   rowsFromNodeData,
+  rowsFromRefusedJson,
   rowsToSpec,
 } from './extraction';
 
@@ -65,5 +66,15 @@ describe('node-data round trip', () => {
     expect(
       outputFromNodeData({ output: { writeTo: 'acme.com::m::log', mode: 'append' } }),
     ).toEqual({ writeTo: 'acme.com::m::log', mode: 'append' });
+  });
+});
+
+describe('rowsFromRefusedJson (portal#2467)', () => {
+  it('reads the refused draft’s rows, defaulting a bad shape', () => {
+    expect(rowsFromRefusedJson(JSON.stringify([{ field: 'a', shape: 'number', description: 'd' }, { field: 'b', shape: 'nope' }])))
+      .toEqual([{ field: 'a', shape: 'number', description: 'd' }, { field: 'b', shape: 'string', description: '' }]);
+  });
+  it.each([['not json'], [undefined], [null], [42], ['{"field":"a"}'], ['[null, 3]']])('reads %j as no rows, never throws', (input) => {
+    expect(rowsFromRefusedJson(input)).toEqual([]);
   });
 });
