@@ -36,7 +36,7 @@
   let confirmingLink = $state(false);
   // Plain let: read only inside handlers.
   let linkBase: AssetSummary | null = null;
-  let linkNote = $state<string | null>(null);
+  let linkNote = $state<{ text: string; warn: boolean } | null>(null);
   let linkTrigger = $state<HTMLButtonElement | null>(null);
 
   function closeLinkConfirm() {
@@ -52,11 +52,15 @@
     linkBase = null;
     if (!base || base !== listed || updated.id !== listed.id) return;
     answer = { base, asset: updated };
-    linkNote = !updated.publicLinkEnabled
-      ? t('assets.public-link.note.off', 'Public link turned off.')
-      : updated.publicUrl
-        ? t('assets.public-link.note.on', 'Public link turned on.')
-        : t('assets.public-link.note.on-no-url', 'Public link turned on, but the server has no link to show for it yet.');
+    linkNote = {
+      text: !updated.publicLinkEnabled
+        ? t('assets.public-link.note.off', 'Public link turned off.')
+        : updated.publicUrl
+          ? t('assets.public-link.note.on', 'Public link turned on.')
+          : t('assets.public-link.note.on-no-url', 'Public link turned on, but the server has no link to show for it yet. Reload this page to get it.'),
+      // On with no URL is not a clean success: it needs the reader's next step.
+      warn: updated.publicLinkEnabled && !updated.publicUrl,
+    };
   }
 
   // #707: null unless this is a BLOCKED row the scanner actually named.
@@ -184,7 +188,7 @@
 
   <LiveRegion>
     {#if linkNote}
-      <p class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">{linkNote}</p>
+      <p class="mt-2 text-xs {linkNote.warn ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-600 dark:text-emerald-400'}">{linkNote.text}</p>
     {/if}
   </LiveRegion>
 

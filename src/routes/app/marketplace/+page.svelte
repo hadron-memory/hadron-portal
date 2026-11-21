@@ -2,7 +2,9 @@
   import { t } from '$lib/i18n/t';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
-  import { untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
+  import { enhance } from '$app/forms';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import type { Infer } from 'sveltekit-superforms';
   import { addMarketplaceMemoryToAgentSchema } from './schema';
   import type { ActionData, PageData } from './$types';
@@ -44,6 +46,21 @@
   // That costs the client-side Superforms enhancement, and the page is better
   // for it: the action works with no JavaScript at all, which is the right
   // default for a catalogue. The server still validates through `superValidate`.
+  //
+  // portal#2398: kit's own `use:enhance` is added on top of that. It is progressive, so the plain
+  // POST above still works with no JavaScript, and it is NOT Superforms' client store, so the
+  // click-time hazard does not come back. With JavaScript the result lands in this document, in
+  // the success region the card already rendered empty (a region inserted already populated is not
+  // announced). Without JavaScript the result page is a fresh document, so the success box is
+  // marked to take focus on load instead.
+  let hydrated = $state(false);
+  onMount(() => {
+    hydrated = true;
+  });
+  // Keep the picker: `reset` would put every hidden `agentId` back to its first-render value.
+  const keepForm = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => {
+    await update({ reset: false });
+  };
   const submitted = $derived(submittedForm<AddToAgentForm>(form, 'addToAgent'));
   const submittedMemoryId = $derived(submitted?.data.memoryId ?? null);
   const addToAgentError = $derived(
@@ -202,32 +219,39 @@
             {@render card(memory)}
 
             {#if canAdopt}
-              <form method="POST" action="?/addToAgent" class="space-y-2">
-                <input type="hidden" name="_kind" value="addToAgent" />
-                <!-- Static. Never written during the click that submits it. -->
-                <input type="hidden" name="memoryId" value={memory.id} />
-                <input type="hidden" name="agentId" value={selectedAgentId} />
-                <!-- @copilot: every card's button read "Add to agent", so a
-                     screen-reader user navigating by control could not tell
-                     which memory they were attaching — the surrounding card
-                     text is not part of the button's accessible name. The
-                     visible label stays short; the accessible one names the
-                     memory. -->
-                <button
-                  type="submit"
-                  aria-label={t('marketplace.adopt.submit.named', 'Add {memory} to agent', { memory: memory.name })}
-                  class="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500"
-                >
-                  {t('marketplace.adopt.submit', 'Add to agent')}
-                </button>
+              <div>
+                <form method="POST" action="?/addToAgent" use:enhance={keepForm} class="space-y-2">
+                  <input type="hidden" name="_kind" value="addToAgent" />
+                  <!-- Static. Never written during the click that submits it. -->
+                  <input type="hidden" name="memoryId" value={memory.id} />
+                  <input type="hidden" name="agentId" value={selectedAgentId} />
+                  <!-- @copilot: every card's button read "Add to agent", so a
+                       screen-reader user navigating by control could not tell
+                       which memory they were attaching — the surrounding card
+                       text is not part of the button's accessible name. The
+                       visible label stays short; the accessible one names the
+                       memory. -->
+                  <button
+                    type="submit"
+                    aria-label={t('marketplace.adopt.submit.named', 'Add {memory} to agent', { memory: memory.name })}
+                    class="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+                  >
+                    {t('marketplace.adopt.submit', 'Add to agent')}
+                  </button>
 
-                {#if submittedMemoryId === memory.id && addToAgentError}
-                  <p id="adopt-error-{memory.id}" role="alert" class="text-xs text-red-600 dark:text-red-400">{addToAgentError}</p>
-                {/if}
-                {#if submittedMemoryId === memory.id && addToAgentSuccess}
-                  <p role="status" class="text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>
-                {/if}
-              </form>
+                  {#if submittedMemoryId === memory.id && addToAgentError}
+                    <p id="adopt-error-{memory.id}" role="alert" class="text-xs text-red-600 dark:text-red-400">{addToAgentError}</p>
+                  {/if}
+                </form>
+                <!-- Outside the form and outside the card's flex gap: a plain div keeps the idle region
+                     from becoming a gap item (portal#2375 placement rule). -->
+                <LiveRegion>
+                  {#if submittedMemoryId === memory.id && addToAgentSuccess}
+                    <!-- svelte-ignore a11y_autofocus -->
+                    <p tabindex="-1" autofocus={!hydrated} class="mt-2 text-xs text-green-700 outline-none dark:text-green-400">{addToAgentSuccess}</p>
+                  {/if}
+                </LiveRegion>
+              </div>
             {/if}
           </div>
         {/each}

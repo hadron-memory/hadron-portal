@@ -48,6 +48,8 @@
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
   import NodeDiscussion from '$lib/components/NodeDiscussion.svelte';
+  import QuestionCard from '$lib/components/questions/QuestionCard.svelte';
+  import { questionResultOf } from '$lib/questions/action-kinds';
   import { COMMENT_NODE_TYPE, discussionCount, isCommentableClass, openFeedbackCue, type CommentSummary, type Discussion } from '$lib/comments';
   import { mintView, type NodeMintStatus } from '$lib/node-mint';
   import { approvalView, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
@@ -191,7 +193,9 @@
   // that duplicate raw banner cannot outlive the form's helpful notice.
   // Compare the error instance, never its text: other actions still own theirs.
   let handledMetaError = $state.raw<unknown>(null);
-  const pageActionError = $derived(form?.error === handledMetaError ? null : form?.error);
+  const pageActionError = $derived(
+    form?.error === handledMetaError || questionResultOf(form) ? null : form?.error,
+  );
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts
@@ -2210,6 +2214,9 @@
     });
   });
   const isComment = $derived(node.nodeType === COMMENT_NODE_TYPE);
+  // portal#2234: a node whose role is `question` gets the question card.
+  const isQuestion = $derived(node.role === 'question');
+  const questionResult = $derived(questionResultOf(form));
   // portal#1175: what the server says about this comment (`Node.asComment`).
   // Null when it was not returned; then the viewer is not treated as the author
   // and there is no target to link, never a guess. The server stays the
@@ -2791,8 +2798,9 @@
       <Urn value={fullUrn} type="node" />
       <NodeEmbeddingBadges enabled={data.graph.vectorIndexEnabled === true}
         pendingAt={node.embeddingPendingAt} failedAt={node.embeddingFailedAt} error={node.embeddingError} />
-      {#if isComment}
-        <!-- portal#1014: a comment is feedback, never approved or minted (hrn:node:hadronmemory.com:specs:cor:dmo:110:06),
+      {#if isComment || isQuestion}
+        <!-- portal#2234: a question is approved one question at a time by a decider (portal slice P3), never by the generic row; the server refuses it until then.
+             portal#1014: a comment is feedback, never approved or minted (hrn:node:hadronmemory.com:specs:cor:dmo:110:06),
              so its page offers no approval row at all. portal#1175: and needs no note saying so. -->
       {:else}
       <!-- #1129: content approval, bound to the revision on screen, with Approve / Verify. -->
@@ -2887,6 +2895,16 @@
       {/if}
       {#if node.description}
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
+      {/if}
+      {#if isQuestion}
+        <!-- portal#2234: the question card, above the node's content. A failed read is said so, never an empty card. -->
+        <div class="mt-3">
+          {#if data.question?.kind === 'ok'}
+            <QuestionCard question={data.question.value} canAct={data.question.value.viewerMayAnswer} result={questionResult} />
+          {:else}
+            <p role="alert" data-testid="question-read-failed" class="rounded border border-red-300 p-2 text-sm text-red-800 dark:border-red-800 dark:text-red-200">{t('question.card.read-failed', 'This question could not be loaded. Reload the page to try again.')}</p>
+          {/if}
+        </div>
       {/if}
       <!--
         #489 part 4: the App a chat belongs to. A reader arriving from a shared
@@ -3657,11 +3675,7 @@
         {/if}
       </div>
       {#if showDataSource}
-        {#if dataDraft.unavailable}
-          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
-            {t('node.data.source.unavailable', 'This node’s data is nested too deeply to show or edit as text here.')}
-          </p>
-        {:else}
+        {#if !dataDraft.unavailable}
         <div class="mt-3">
           <!-- Source editor: monospace, auto-growing to fit its content
                (min-h floor, max-h cap then scrolls). The border turns red
@@ -3704,9 +3718,7 @@
         </div>
         {/if}
       {:else if dataUnavailable}
-        <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
-          {t('node.data.unavailable', 'This node’s data is nested too deeply to show here.')}
-        </p>
+        <!-- the note is in the region below -->
       {:else if renderedJson != null}
         <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedData as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
       {:else}
@@ -3719,6 +3731,17 @@
         </div>
       {/if}
     {/if}
+    <!-- portal#2376: both "nested too deeply" notes of this tab (Source and Rendered view) share one
+         region that stays mounted across tab switches; the note was the only thing either view showed. -->
+    <LiveRegion>
+      {#if activeTab === 'data' && (showDataSource ? dataDraft.unavailable : dataUnavailable)}
+        <p class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+          {showDataSource
+            ? t('node.data.source.unavailable', 'This node’s data is nested too deeply to show or edit as text here.')
+            : t('node.data.unavailable', 'This node’s data is nested too deeply to show here.')}
+        </p>
+      {/if}
+    </LiveRegion>
 
     <!-- ═══ PROPERTIES TAB (#518, typed table #588, storage form #1031) ═══ -->
     {#if activeTab === 'properties'}
@@ -3759,14 +3782,7 @@
       {#if showPropertiesSource}
         <!-- #886: the whole bag as JSON — typed fields, undeclared keys and the
              skill export alike. Saving replaces the bag with exactly this. -->
-        {#if propertiesDraft.unavailable}
-          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
-            {t(
-              'node.properties.source.unavailable',
-              'This node’s properties are nested too deeply to show or edit as text here.',
-            )}
-          </p>
-        {:else}
+        {#if !propertiesDraft.unavailable}
         <div class="mt-3">
           <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
             {t(
@@ -3850,9 +3866,7 @@
           </div>
         {/if}
         {#if propertiesUnavailable}
-          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
-            {t('node.properties.unavailable', 'This node’s properties are nested too deeply to show here.')}
-          </p>
+          <!-- the note is in the region below -->
         {:else if hasProperties}
           <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
         {:else if typedPropertyRows.length === 0}
@@ -3866,6 +3880,17 @@
         {/if}
       {/if}
     {/if}
+    <!-- portal#2376: both "nested too deeply" notes of this tab (Source and Rendered view) share one
+         region that stays mounted across tab switches, after the view that would have held the bag. -->
+    <LiveRegion>
+      {#if activeTab === 'properties' && (showPropertiesSource ? propertiesDraft.unavailable : propertiesUnavailable)}
+        <p class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+          {showPropertiesSource
+            ? t('node.properties.source.unavailable', 'This node’s properties are nested too deeply to show or edit as text here.')
+            : t('node.properties.unavailable', 'This node’s properties are nested too deeply to show here.')}
+        </p>
+      {/if}
+    </LiveRegion>
     <!-- #1031: the storage form (object type, typed properties, skill export),
          which was the separate `/edit` page behind an "Edit" button here.
          Shown under the Rendered view; the Source view is the other editor of

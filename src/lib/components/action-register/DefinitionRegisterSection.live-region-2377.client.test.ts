@@ -28,7 +28,10 @@ it('the loading region is empty before, holds the text during, and is the same e
   mounted.push(m);
   await tick(3);
 
-  const region = m.target.querySelector<HTMLElement>('[role="status"]');
+  // The section has two persistent regions (the Agent-unavailable note, then this loading/not-available one):
+  // the loading line lives in the last.
+  const loadingRegion = () => [...m.target.querySelectorAll<HTMLElement>('[role="status"]')].at(-1) ?? null;
+  const region = loadingRegion();
   expect(region, 'the region exists while the answer matches').not.toBeNull();
   expect(region!.textContent?.trim()).toBe(''); // BEFORE
   expect(m.target.textContent).toContain('build.ready');
@@ -40,7 +43,18 @@ it('the loading region is empty before, holds the text during, and is the same e
 
   props.register = ready('app-1|20|0');
   await tick(3);
-  expect(m.target.querySelector('[role="status"]')).toBe(region); // AFTER
+  expect(loadingRegion()).toBe(region); // AFTER
   expect(region!.isConnected).toBe(true);
   expect(region!.textContent?.trim()).toBe('');
+});
+
+// portal#2376: Tailwind 4 space-y puts the margin on the sibling BEFORE a non-last child, so an empty last region
+// would leave one spacing unit of trailing space. The last region cancels it only while it is empty and last.
+it('the last region cancels the space-y unit it would otherwise leave when empty', async () => {
+  setStubPage('http://localhost/app/agents/g1/definitions/tasks%3Abuild?app=app-1');
+  const m = mountComponent(DefinitionRegisterSection as never, reactiveProps({ register: ready('app-1|20|0'), agent, basePath: '/app/agents/g1/definitions/tasks%3Abuild' } as Record<string, unknown>) as never);
+  mounted.push(m);
+  await tick(3);
+  const last = [...m.target.querySelectorAll<HTMLElement>('[role="status"]')].at(-1)!;
+  expect(last.className).toContain('last:empty:-mt-3');
 });

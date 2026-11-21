@@ -32,7 +32,7 @@ describe('agent Bundled agents tab: withheld Apps', () => {
   });
   it('keeps the notice readable in dark mode (#1353 QA: 4.12 < 4.5 without a dark colour)', async () => {
     const { root } = await mountBundled({ bundledMayBeIncomplete: true });
-    const note = [...root.querySelectorAll('p[role="status"]')].find((p) => p.textContent?.includes('may be incomplete'));
+    const note = [...root.querySelectorAll('[role="status"] p')].find((p) => p.textContent?.includes('may be incomplete'));
     expect(note?.className).toContain('dark:text-zinc-400');
   });
   it('known-empty control: nothing bundled and nothing withheld keeps the tab away', async () => {

@@ -1422,6 +1422,11 @@
   // THIS, not on the flag alone.
   const teamChatShown = $derived(activeTab === 'chats' && tabData.selectedChatKey === TEAM_CHAT_LOC);
   const chatFullView = $derived(chatMaximized && teamChatShown);
+  // The old, unregistered chat root: the branch of the chat panel that has no Channel identity.
+  const legacyChatShown = $derived(
+    !!tabData.selectedChatKey && tabData.selectedChatKey !== AGENT_CHAT_KEY && tabData.selectedChatKey !== TEAM_CHAT_LOC
+      && !(tabData.selectedChannelId && tabData.postChannelMessageForm),
+  );
   function setChatMaximized(full: boolean) {
     chatMaximized = full;
     replaceState(withChatView(new URL(window.location.href), full), {});
@@ -2883,15 +2888,21 @@
     <LiveRegion>
       {#if chatSwitchBusy}<p>{t('app.chats.opening', 'Opening chat…')}</p>{/if}
       {#if chatSwitchFailed}<p>{t('app.chats.open-failed', 'Could not open that chat. Your current conversation is still here.')}</p>{/if}
+      <!-- A read failure of the legacy chat just opened is announced from HERE, outside the panel below: the
+           panel is inert and aria-busy while a switch runs, and a region inside it can come back into the
+           accessibility tree already holding its text. The visible note stays in the panel, as plain text. -->
+      {#if legacyChatShown && tabData.selectedChatError}<span class="sr-only">{t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}</span>{/if}
     </LiveRegion>
     <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
+      <!-- portal#2376: the region is a flex item of this gap row, so while empty it is
+           out of flow (empty:absolute) and adds no gap; populated, it is the item the span was. -->
+      <LiveRegion class="empty:absolute">
       {#if tabData.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
              selector says so rather than quietly showing a shorter list. -->
         <span
-          role="status"
-          class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          class="block rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
         >
           {t(
             'app.chats.discovery-error',
@@ -2902,12 +2913,12 @@
         <!-- #2170 F6: the list loaded; only the linked chat could not be found
              for certain. Saying the list failed would overstate it. -->
         <span
-          role="status"
-          class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          class="block rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
         >
           {t('app.chats.deep-link-unresolved', 'Couldn’t find the linked chat in this App — pick it from the list.')}
         </span>
       {/if}
+      </LiveRegion>
       <label for="app-chat-select" class="text-sm text-zinc-500">{t('app.chats.select', 'Chat')}</label>
       <select id="app-chat-select" class="min-w-0 max-w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
         disabled={channelPostBusy} value={tabData.selectedChatKey ?? ''} onchange={(e) => { const key = e.currentTarget.value; e.currentTarget.value = tabData.selectedChatKey ?? ''; void selectChat(key); }}>
@@ -2924,18 +2935,25 @@
       <ListPageNav page={tabData.chatRootsPage} label={t('app.chats.pages', 'Legacy chat-root pages')} />
     {/if}
 
+    <LiveRegion>
     {#if tabData.chatNotFound && legacyChatResolvedForApp !== app.id}
       <!-- The reader followed a link to a SPECIFIC chat. Substituting the
            default silently would let them read one conversation believing it
            is another. -->
       <p
-        role="status"
         class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
       >
         {t(
           'app.chats.not-found',
           'That chat isn’t available — it may have been deleted, or you may not have access. Showing the first chat instead.',
         )}
+      </p>
+    {/if}
+    </LiveRegion>
+    {#if legacyChatShown && tabData.selectedChatError}
+      <!-- announced by the region above the panel -->
+      <p class="mb-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+        {t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}
       </p>
     {/if}
 
@@ -3181,9 +3199,7 @@
            existing readable transcript without inventing a post target. -->
       <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
         {#if tabData.selectedChatError}
-          <p role="status" class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-            {t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}
-          </p>
+          <!-- announced by the region above the chat branches -->
         {:else if (tabData.selectedChatMessages ?? []).length === 0}
           <p class="text-sm text-zinc-500">
             {t('app.chats.empty', 'No messages in this chat yet.')}
@@ -3351,10 +3367,15 @@
         {/if}
       </LiveOutcome>
 
+      <LiveRegion>
+        {#if agentsWithheld}
+          <p class="text-sm text-zinc-500">
+            {t('app.staff.roster-withheld', 'The agents installed in this App aren’t visible to you, so who can be cast here isn’t known.')}
+          </p>
+        {/if}
+      </LiveRegion>
       {#if agentsWithheld}
-        <p role="status" class="text-sm text-zinc-500">
-          {t('app.staff.roster-withheld', 'The agents installed in this App aren’t visible to you, so who can be cast here isn’t known.')}
-        </p>
+        <!-- announced by the region above -->
       {:else if installedAgents.length === 0}
         <p class="text-sm text-zinc-500">
           {t(
@@ -3630,9 +3651,12 @@
             <p role="status">{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
             <a href="/signin" onpointerenter={signInHref} onfocus={signInHref} onpointerdown={signInHref} oncontextmenu={signInHref} onauxclick={signInHref} onclick={signInHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
           </div>
-        {:else if teamRoster?.kind === 'hidden'}
-          <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
         {/if}
+        <LiveRegion>
+          {#if teamRoster?.kind === 'hidden'}
+            <p class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
+          {/if}
+        </LiveRegion>
         {#if allTerminalReportsStale}
           <p data-testid="terminal-stale-note" class="text-xs text-zinc-600 dark:text-zinc-400">{t('app.staff.terminal-stale-note', 'All terminal reports in this list are older than {minutes} minutes.', { minutes: TERMINAL_STALE_AFTER_MS / 60_000 })}</p>
         {/if}
@@ -3865,8 +3889,13 @@
         </p>
       </div>
 
+      <LiveRegion>
+        {#if agentsWithheld}
+          <p class="text-sm text-zinc-500">{t('app.agents.withheld', 'The agents installed in this App aren’t visible to you.')}</p>
+        {/if}
+      </LiveRegion>
       {#if agentsWithheld}
-        <p role="status" class="text-sm text-zinc-500">{t('app.agents.withheld', 'The agents installed in this App aren’t visible to you.')}</p>
+        <!-- announced by the region above -->
       {:else if installedAgentsSorted.length === 0}
         <p class="text-sm text-zinc-500">{t('app.agents.empty', 'No agents are installed in this App yet.')}</p>
       {:else}
@@ -4005,14 +4034,21 @@
              option count, or "no other agent to add" would read as complete
              after a failed grants read (portal#1188 review). Not shown when the
              whole list is already an error or unknown. -->
-        {#if tabData.subscribedAgentsError && !agentsWithheld && !tabData.availableAgentsError}
-          <p role="status" class="mb-2 text-xs text-zinc-500">
-            {t('app.agents.add.subscribed-unavailable', 'The agents your organization subscribes to could not be loaded, so only its own agents are listed. Reload to try again.')}
-          </p>
-        {/if}
+        <LiveRegion>
+          {#if tabData.subscribedAgentsError && !agentsWithheld && !tabData.availableAgentsError}
+            <p class="mb-2 text-xs text-zinc-500">
+              {t('app.agents.add.subscribed-unavailable', 'The agents your organization subscribes to could not be loaded, so only its own agents are listed. Reload to try again.')}
+            </p>
+          {/if}
+        </LiveRegion>
+        <LiveRegion>
+          {#if agentsWithheld}
+            <!-- The installed set is unknown, so what is still addable is unknown too. -->
+            <p class="text-sm text-zinc-500">{t('app.agents.add.withheld', 'Which agents can be added isn’t known, because the installed agents aren’t visible to you.')}</p>
+          {/if}
+        </LiveRegion>
         {#if agentsWithheld}
-          <!-- The installed set is unknown, so what is still addable is unknown too. -->
-          <p role="status" class="text-sm text-zinc-500">{t('app.agents.add.withheld', 'Which agents can be added isn’t known, because the installed agents aren’t visible to you.')}</p>
+          <!-- announced by the region above -->
         {:else if tabData.availableAgentsError}
           <p role="alert" class="text-sm text-red-600 dark:text-red-400">
             {t('app.agents.add.unavailable', 'The list of agents you can add could not be loaded. Reload to try again.')}
@@ -4122,12 +4158,17 @@
             never in client-side code.
           </p>
 
-          {#if keyControls === 'withheld'}
-            <p role="status" data-testid="key-controls-withheld" class="mb-5 text-sm text-zinc-500">{keysWithheldReason}</p>
-          {:else}
-          {#if keyControls === 'unknown'}
-            <p role="status" data-testid="key-controls-unknown" class="mb-3 text-sm text-zinc-500">{keyControlsUnknownNote()}</p>
-          {/if}
+          <LiveRegion>
+            {#if keyControls === 'withheld'}
+              <p data-testid="key-controls-withheld" class="mb-5 text-sm text-zinc-500">{keysWithheldReason}</p>
+            {/if}
+          </LiveRegion>
+          <LiveRegion data-testid="key-controls-unknown">
+            {#if keyControls === 'unknown'}
+              <p class="mb-3 text-sm text-zinc-500">{keyControlsUnknownNote()}</p>
+            {/if}
+          </LiveRegion>
+          {#if keyControls !== 'withheld'}
           <!-- portal#2135: a grid, so the button shares the INPUT's row and is
                centered on it; the label sits on the row above and an error on
                the row below, and neither can move the button. The breakpoint
@@ -4150,9 +4191,11 @@
             </form>
           </div>
           {/if}
-          {#if tabData.keyScopes?.kind === 'failed'}
-            <p role="status" class="mb-3 text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>
-          {/if}
+          <LiveRegion>
+            {#if tabData.keyScopes?.kind === 'failed'}
+              <p class="mb-3 text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>
+            {/if}
+          </LiveRegion>
         </div>
         <!-- portal#2330: the region stays mounted so the answer to Copy ID is announced. -->
         <div role="status" data-testid="key-copy-status" class="mb-0">
@@ -4165,10 +4208,14 @@
           {/key}
         </div>
 
-        {#if keysState === 'hidden'}
-          <!-- portal#1153: the reason line above already covers this fact for the Keys tab. -->
-        {:else if keysState === 'failed'}
-          <p role="status" class="text-sm text-amber-700 dark:text-amber-300">{t('app.keys.load-failed', 'Couldn’t load this App’s keys.')}</p>
+        <LiveRegion>
+          {#if keysState === 'failed'}
+            <p class="text-sm text-amber-700 dark:text-amber-300">{t('app.keys.load-failed', 'Couldn’t load this App’s keys.')}</p>
+          {/if}
+        </LiveRegion>
+        {#if keysState === 'hidden' || keysState === 'failed'}
+          <!-- hidden: the reason line above already covers this fact for the Keys tab (portal#1153).
+               failed: announced by the region above. -->
         {:else if appKeys.length === 0}
           <p class="text-sm text-zinc-400">{t('app.keys.empty', 'No keys yet.')}</p>
         {:else}
@@ -4581,13 +4628,20 @@
           Client Keys
           {#if keysState === 'ok'}<span class="ml-1 text-sm font-normal text-zinc-500">({activeKeys.length})</span>{/if}
         </h2>
-        {#if keyControls === 'unknown'}
-          <p role="status" data-testid="key-controls-unknown" class="mb-3 text-sm text-zinc-500">{keyControlsUnknownNote()}</p>
-        {/if}
-        {#if keysState === 'hidden'}
-          <p role="status" class="text-sm text-zinc-500">{t('app.keys.hidden', 'Only the App’s managers can see its keys.')}</p>
-        {:else if keysState === 'failed'}
-          <p role="status" class="text-sm text-amber-700 dark:text-amber-300">{t('app.keys.load-failed', 'Couldn’t load this App’s keys.')}</p>
+        <LiveRegion data-testid="key-controls-unknown">
+          {#if keyControls === 'unknown'}
+            <p class="mb-3 text-sm text-zinc-500">{keyControlsUnknownNote()}</p>
+          {/if}
+        </LiveRegion>
+        <LiveRegion>
+          {#if keysState === 'hidden'}
+            <p class="text-sm text-zinc-500">{t('app.keys.hidden', 'Only the App’s managers can see its keys.')}</p>
+          {:else if keysState === 'failed'}
+            <p class="text-sm text-amber-700 dark:text-amber-300">{t('app.keys.load-failed', 'Couldn’t load this App’s keys.')}</p>
+          {/if}
+        </LiveRegion>
+        {#if keysState === 'hidden' || keysState === 'failed'}
+          <!-- announced by the region above -->
         {:else if activeKeys.length}
           <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
             {#each activeKeys as key (key.id)}
@@ -4641,10 +4695,17 @@
         {:else}
           <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">New Client Key</h2>
         {/if}
+        <!-- Outside the card's mount condition: with keys present the card itself mounts when the
+             answer turns to withheld, and a region that arrives with its text is not announced. -->
+        <LiveRegion>
+          {#if keyControls === 'withheld'}
+            <p data-testid="setup-withheld" class="mb-4 text-sm text-zinc-500">{setupWithheldReason}</p>
+          {/if}
+        </LiveRegion>
         {#if !activeKeys.length || newKeySectionOpen || keyControls === 'withheld'}
           <div class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             {#if keyControls === 'withheld'}
-              <p role="status" data-testid="setup-withheld" class="text-sm text-zinc-500">{setupWithheldReason}</p>
+              <!-- announced by the region above the card -->
             {:else}
             <div>
               <label for="keyLabel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>

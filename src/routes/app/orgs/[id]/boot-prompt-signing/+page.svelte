@@ -29,13 +29,24 @@
   // The drifted and too-many notes arrive after a stale switch-on or a Next, so they live in a live region
   // that is already mounted (portal#2379). The chain below still decides what else shows: the branches that
   // come BEFORE them in it win, and so they do here.
-  const noteKind = $derived.by(() => {
-    if (done && form && 'signing' in form && form.signing) return null;
-    if (data.sw.kind === 'failed' || preview?.kind === 'failed') return null;
-    if (data.sw.kind === 'ok' && data.sw.required) return null;
-    if (outcome === 'hidden') return null;
-    return preview?.kind === 'drifted' ? 'drifted' : preview?.kind === 'too_many' ? 'too_many' : null;
-  });
+  const noteEligible = $derived(
+    !(done && form && 'signing' in form && form.signing) &&
+      !(data.sw.kind === 'failed' || preview?.kind === 'failed') &&
+      !(data.sw.kind === 'ok' && data.sw.required) &&
+      outcome !== 'hidden',
+  );
+  const noteKind = $derived(noteEligible ? (preview?.kind === 'drifted' ? 'drifted' : preview?.kind === 'too_many' ? 'too_many' : null) : null);
+  // A stale switch-on says so whichever preview the reload brings back (ok, drifted or too_many). It
+  // adds to a too_many preview's own count and CLI line, never replaces them.
+  const staleNote = $derived(noteEligible && (outcome === 'stale' || noteKind === 'drifted'));
+  // portal#2376: the two notes "couldn't load" and "this isn't available" live in the same always-mounted
+  // region, picked here with the precedence the chain below keeps: switched-on, a failed load, the
+  // required-status panel, then "hidden". They never overlap noteEligible, which excludes all three.
+  const switchedOn = $derived(done && !!form && 'signing' in form && !!form.signing);
+  const loadFailed = $derived(!switchedOn && (data.sw.kind === 'failed' || preview?.kind === 'failed'));
+  const noLongerAvailable = $derived(
+    !switchedOn && !loadFailed && !(data.sw.kind === 'ok' && data.sw.required) && outcome === 'hidden',
+  );
   const org = $derived(data.org);
   let submitting = $state(false);
 
@@ -97,24 +108,31 @@
           <SigningStatus required={form.signing.required} enforced={form.signing.enforced} />
           <p class="text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-on', 'Signing is switched on.')}</p>
         </div>
-      {:else if noteKind === 'drifted'}
-        <p class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
+      {:else if loadFailed}
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
+      {:else if noLongerAvailable}
+        <!-- The caller lost the audience between read and write: say nothing about the org. -->
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.unavailable', 'This isn’t available.')}</p>
       {:else if noteKind === 'too_many' && preview?.kind === 'too_many'}
         <div class="space-y-4">
+          {#if staleNote}
+            <p class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
+          {/if}
           <p class="text-sm text-zinc-700 dark:text-zinc-300">{countWords(preview.total)}</p>
           <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.too-many', 'Too many to review here; use the CLI:')} <code class="rounded bg-zinc-100 px-1 py-0.5 text-xs dark:bg-zinc-800">hadron org signing on</code></p>
         </div>
+      {:else if staleNote}
+        <p class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
       {/if}
     </LiveRegion>
     {#if done && form && 'signing' in form && form.signing}
       <!-- shown by the live region above, which is mounted before this result arrives (portal#2379) -->
-    {:else if data.sw.kind === 'failed' || preview?.kind === 'failed'}
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
+    {:else if loadFailed}
+      <!-- the note is in the region above -->
     {:else if data.sw.kind === 'ok' && data.sw.required}
       <SigningStatus required={data.sw.required} enforced={data.sw.enforced} />
-    {:else if outcome === 'hidden'}
-      <!-- The caller lost the audience between read and write: say nothing about the org. -->
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.unavailable', 'This isn’t available.')}</p>
+    {:else if noLongerAvailable}
+      <!-- the note is in the region above -->
     {:else if preview?.kind === 'drifted'}
       <a href="/app/orgs/{org.id}/boot-prompt-signing" data-sveltekit-reload class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('org.signing.look-again', 'Look again')}</a>
     {:else if preview?.kind === 'ok'}
@@ -162,9 +180,7 @@
         </DataTable>
       {/if}
 
-      {#if outcome === 'stale'}
-        <p role="status" class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
-      {:else if outcome === 'failed'}
+      {#if outcome === 'failed'}
         <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.on-failed', 'Couldn’t switch signing on. Try again.')}</p>
       {:else if outcome === 'no_review'}
         <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('org.signing.no-review', 'Review what would change first.')}</p>

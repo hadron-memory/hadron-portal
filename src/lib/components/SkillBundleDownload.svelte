@@ -30,6 +30,12 @@
 
   let { orgId, checkedCount, truncated = false, shown = 0 }: Props = $props();
 
+  // The count lines name the grids below them (aria-labelledby, portal#2381). An id is document-wide, so two
+  // panels on one page must not share one: `$props.id()` is unique per instance.
+  const uid = $props.id();
+  const leftOutSummaryId = `${uid}-left-out-summary`;
+  const unrecognizedSummaryId = `${uid}-unrecognized-summary`;
+
   const saving = $derived(exportSaves.pending > 0);
 
   interface Report {
@@ -242,13 +248,16 @@
             )}
           </p>
         {/if}
+        <!-- These count lines and the grids they name are in two separate blocks (the grids follow the live region, under
+             {#if report && (version || leftOut || unrecognized)}). They stay in step only because both read the same
+             `report` and test the same `.length > 0`: change one condition and you must change the other (portal#2381). -->
         {#if report.leftOut.length > 0}
-          <p data-testid="bundle-left-out-summary" class="text-xs text-amber-700 dark:text-amber-400">
+          <p id={leftOutSummaryId} data-testid="bundle-left-out-summary" class="text-xs text-amber-700 dark:text-amber-400">
             {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
           </p>
         {/if}
         {#if report.unrecognized.length > 0}
-          <p data-testid="bundle-unrecognized-summary" class="text-xs text-amber-700 dark:text-amber-400">
+          <p id={unrecognizedSummaryId} data-testid="bundle-unrecognized-summary" class="text-xs text-amber-700 dark:text-amber-400">
             {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
           </p>
         {/if}
@@ -266,7 +275,7 @@
         </p>
       {/if}
       {#if report.leftOut.length > 0}
-        <SkillExportLeftOutTable rows={report.leftOut} />
+        <SkillExportLeftOutTable rows={report.leftOut} labelledBy={leftOutSummaryId} />
       {/if}
       {#if report.unrecognized.length > 0}
         <p class="text-xs text-zinc-500">
@@ -278,6 +287,7 @@
         </p>
         <SkillExportLeftOutTable
           rows={report.unrecognized}
+          labelledBy={unrecognizedSummaryId}
           listKey="orgs:tasks:export-unrecognized"
           reasonHeader={t('tasks.bundle.unrecognized.column', 'What happened')}
           searchPlaceholder={t('tasks.bundle.unrecognized.search', 'Search tasks with unused export keys…')}

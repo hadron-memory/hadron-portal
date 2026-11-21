@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // "Task Nodes" — runnable nodes in the active org's memories. Uses the shared
   // DataTable chrome (search + saved-views "+ view" + Columns on one row, sticky
   // sortable/resizable header, pagination footer) — same component and layout as
@@ -96,11 +97,13 @@
     </p>
   </div>
 
-  {#if data.scopeIncomplete}
-    <p data-testid="tasks-scope-incomplete" role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-      {t('tasks.scope-incomplete', 'The organization’s system memories could not be listed, so tasks from them may be missing. Reload to try again.')}
-    </p>
-  {/if}
+  <LiveRegion>
+    {#if data.scopeIncomplete}
+      <p data-testid="tasks-scope-incomplete" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+        {t('tasks.scope-incomplete', 'The organization’s system memories could not be listed, so tasks from them may be missing. Reload to try again.')}
+      </p>
+    {/if}
+  </LiveRegion>
 
   {#if data.failed}
     <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">

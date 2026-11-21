@@ -160,6 +160,73 @@ describe('App Runs manual server table', () => {
     find(m.target, 'Retry').click(); m.unmount(); held.resolve(reply(section())); await tick(16);
     expect(navigationCalls).toEqual([]);
   });
+  // portal#1767 rows 1-4: the four Retry guards, one pin each. Every malformed
+  // body below still RENDERS if its guard is deleted, so each pin fails on its
+  // own assertions — the hand-mutant survey found the old malformed pin only
+  // died on the unhandled render exception of a body missing `statuses`.
+  const liveRegion = (root: HTMLElement) => {
+    const el = root.querySelector<HTMLElement>('[role="status"][aria-live="polite"]');
+    expect(el, 'the runs live region is mounted').not.toBeNull();
+    return el!;
+  };
+  // Positive control under the SAME timing as rows 1-2 (blind P2 on #2416): the
+  // negative assertions there ("ghost" absent, not "Runs loaded.") are only
+  // meaningful if a good reply WOULD have shown them within the same tick(16).
+  // A valid ok reply, delivered the same way, must render the run and announce.
+  it('control: a valid ok reply renders its run and announces "Runs loaded." within the rows 1-2 timing', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(section({ page: 1, runs: [run('fresh')] })), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetcher);
+    const m = mount(section({ failed: true, page: 1 })); find(m.target, 'Retry').click(); await tick(16);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(m.target.textContent).toContain('fresh');
+    expect(liveRegion(m.target).textContent).toBe('Runs loaded.');
+  });
+  it('refuses a malformed 200 body: the alert stays, no rows apply, no "Runs loaded." (row 1: delete the isRunsSection guard)', async () => {
+    // Every field renders; only `sort` violates isRunsSection, so a deleted
+    // guard applies this body instead of crashing the render.
+    const malformed = section({ page: 1, sort: 'garbage' as never, runs: [run('ghost')] });
+    const fetcher = vi.fn().mockResolvedValue(reply(malformed));
+    vi.stubGlobal('fetch', fetcher);
+    const m = mount(section({ failed: true, page: 1 })); find(m.target, 'Retry').click(); await tick(16);
+    // The alert is already up before Retry, so prove the click really re-read.
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const alert = m.target.querySelector('[role=alert]');
+    expect(alert, 'the failure alert stays up').toBeTruthy();
+    expect(alert?.textContent).toContain('Could not load runs');
+    expect(m.target.textContent).not.toContain('ghost');
+    expect(liveRegion(m.target).textContent).not.toBe('Runs loaded.');
+  });
+  it('refuses a non-ok response even when its body is a valid section (row 2: delete the res.ok guard)', async () => {
+    // A full Response, not a partial: only `ok`/`status` differ from a good
+    // reply, so deleting the res.ok guard applies this valid body.
+    const notOk = new Response(JSON.stringify(section({ page: 1, runs: [run('ghost')] })), { status: 500, headers: { 'content-type': 'application/json' } });
+    const fetcher = vi.fn().mockResolvedValue(notOk);
+    vi.stubGlobal('fetch', fetcher);
+    const m = mount(section({ failed: true, page: 1 })); find(m.target, 'Retry').click(); await tick(16);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const alert = m.target.querySelector('[role=alert]');
+    expect(alert, 'the failure alert stays up').toBeTruthy();
+    expect(alert?.textContent).toContain('Could not load runs');
+    expect(m.target.textContent).not.toContain('ghost');
+    expect(liveRegion(m.target).textContent).not.toBe('Runs loaded.');
+  });
+  it('encodes a reserved-character app ref into the runs-data path (row 3: interpolate ref raw)', async () => {
+    const fetcher = vi.fn().mockResolvedValue(reply(section({ page: 1 })));
+    vi.stubGlobal('fetch', fetcher);
+    const props = reactiveProps({ appRef: 'a/b?x', initial: section({ failed: true, page: 1 }) });
+    const m = mountComponent(AppRunsTable, props); cleanup.push(m.unmount);
+    find(m.target, 'Retry').click(); await tick(16);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    // Only the encoded path is pinned, not parameter order or defaults.
+    expect(new URL(String(fetcher.mock.calls[0][0]), 'http://x').pathname).toBe('/app/apps/a%2Fb%3Fx/runs-data');
+  });
+  it('re-reads runs-data with exactly { cache: "no-store" } (row 4: drop the init argument)', async () => {
+    const fetcher = vi.fn().mockResolvedValue(reply(section({ page: 1 })));
+    vi.stubGlobal('fetch', fetcher);
+    const m = mount(section({ failed: true, page: 1 })); find(m.target, 'Retry').click(); await tick(16);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][1]).toStrictEqual({ cache: 'no-store' });
+  });
   it('keeps filters enabled and merges a newer choice while navigation is held', async () => {
     const a = deferred<void>(), b = deferred<void>();
     let call = 0; navigationHooks.onGoto = () => ++call === 1 ? a.promise : b.promise;

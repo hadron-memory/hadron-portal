@@ -121,6 +121,21 @@ describe('mapAssetError', () => {
     expect(mapAssetError(gqlError('InvalidLocError'), 'x')[1].status).toBe(400);
   });
 
+  // portal#2323: the new bad-loc shape is BAD_USER_INPUT (+ extensions.reason),
+  // which was already a 400; pinned so the dual-shape contract is explicit.
+  it('maps the new bad-loc shape (BAD_USER_INPUT + reason) to 400', () => {
+    const err = new ClientError(
+      {
+        errors: [{ message: 'bad loc', extensions: { code: 'BAD_USER_INPUT', reason: 'too-long' } }],
+        status: 200,
+      } as never,
+      { query: 'query X { x }' },
+    );
+    const [body, init] = mapAssetError(err, 'x');
+    expect(init.status).toBe(400);
+    expect(body.code).toBe('BAD_USER_INPUT');
+  });
+
   it('does NOT collapse an internal server error into a 4xx', () => {
     const [body, init] = mapAssetError(gqlError('INTERNAL_SERVER_ERROR'), 'x');
     expect(init.status).toBe(500);

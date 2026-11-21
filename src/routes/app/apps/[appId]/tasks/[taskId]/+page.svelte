@@ -25,6 +25,7 @@
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
   import TaskPriorityFallback from '$lib/components/agent-tasks/TaskPriorityFallback.svelte';
   import LazySection from '$lib/components/agent-tasks/LazySection.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { readSection } from '$lib/agent-tasks/sections';
   import type { FindingsRead } from '$lib/agent-tasks/findings';
   import type { MemoriesRead } from '$lib/node-choices';
@@ -34,6 +35,8 @@
   import type { PageData } from './$types';
 
   type HistoryRead = TaskRead<{ events: AgentTeamEvent[]; capped: boolean }>;
+  // The history's cap, told by LazySection as each answer lands; its live region sits outside the lazy result.
+  let historyCapped = $state(false);
   type DependenciesRead = TaskRead<{ blockedBy: TaskDependencyPage; blocks: TaskDependencyPage }>;
 
   /**
@@ -55,7 +58,7 @@
   // portal#1415 A: one message with a {link} placeholder, so a translation can place the link.
   const projectZeroNote = splitAt(t('app.tasks.tree.project-zero', 'Tasks that belong to no project are listed on the {link}, not under this one.'), 'link');
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
-  const state = $derived(taskDisplayState(task));
+  const displayState = $derived(taskDisplayState(task));
 
   const crumbs = $derived([
     { label: t('app.tasks.crumb.apps', 'Apps'), href: appsHref },
@@ -181,7 +184,7 @@
 
       <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.assignee', 'Assignee')}</dt>
       <dd class="min-w-0">
-        {#if state === 'queued'}
+        {#if displayState === 'queued'}
           <span class="text-zinc-700 dark:text-zinc-300">
             {waitingFor
               ? t('app.tasks.fact.queued-for', 'Nobody yet: waiting for a worker with {req}', { req: waitingFor })
@@ -190,7 +193,7 @@
           {#if task.requirements?.excludeWorkerIds?.length}
             <span class="block text-xs text-zinc-500">{t('app.tasks.fact.excluded', 'Excludes {n} worker(s)', { n: task.requirements.excludeWorkerIds.length })}</span>
           {/if}
-        {:else if state === 'backlog'}
+        {:else if displayState === 'backlog'}
           <span class="text-zinc-700 dark:text-zinc-300">{t('app.tasks.fact.backlog-assignee', 'None: backlog tasks have no assignee and aren’t matched')}</span>
         {:else}
           <PartyLabel party={task.assignee} />
@@ -347,12 +350,15 @@
 
   <section id="subtasks" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="subtasks-heading">
     <h2 id="subtasks-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.subtasks', 'Subtasks')}</h2>
-    {#if data.tree.kind === 'ok' && data.tree.value}
-      {#if data.tree.value.capped}
-        <p role="status" class="mb-2 text-xs text-amber-700 dark:text-amber-300">
+    <!-- The cap note's region sits above the tree's own states, so it exists whatever the tree read says. -->
+    <LiveRegion>
+      {#if data.tree.kind === 'ok' && data.tree.value?.capped}
+        <p class="mb-2 text-xs text-amber-700 dark:text-amber-300">
           {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.')}
         </p>
       {/if}
+    </LiveRegion>
+    {#if data.tree.kind === 'ok' && data.tree.value}
       <SubtaskTree rows={data.tree.value.rows} rootId={task.id} {basePath} />
     {:else if data.tree.kind === 'not-participant'}
       <NotParticipant />
@@ -373,19 +379,13 @@
     <div class="mb-2 flex items-center justify-between gap-2">
       <h2 id="history-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.history', 'History')}</h2>
     </div>
-    <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="history" label={t('app.tasks.history.loading', 'Loading history…')}>
+    <LazySection appId={data.app.id} taskId={task.id} version={data.task} section="history" label={t('app.tasks.history.loading', 'Loading history…')} onread={(h: HistoryRead | null) => { historyCapped = h?.kind === 'ok' && h.value.capped; }}>
       {#snippet children(history: HistoryRead)}
         {#if history.kind === 'ok'}
           {#if history.value.events.length > 8}
             <a href="#history-end" class="mb-2 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.history.latest', 'Jump to latest')}</a>
           {/if}
           <TaskHistory events={history.value.events} {basePath} {people} />
-          {#if history.value.capped}
-            <p role="status" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              {t('app.tasks.history.capped', 'Showing the first 1000 events; later ones aren’t shown.')}
-            </p>
-          {/if}
-          <span id="history-end"></span>
         {:else if history.kind === 'not-participant'}
           <NotParticipant />
         {:else}
@@ -395,5 +395,16 @@
         {/if}
       {/snippet}
     </LazySection>
+    <!-- Outside the lazily rendered answer: the section mounts its children only once the read lands, so a region
+         inside them would arrive already holding the cap note. This one is in the page before any answer. -->
+    <LiveRegion>
+      {#if historyCapped}
+        <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+          {t('app.tasks.history.capped', 'Showing the first 1000 events; later ones aren’t shown.')}
+        </p>
+      {/if}
+    </LiveRegion>
+    <!-- After the cap note, so "Jump to latest" lands where the note is visible too. -->
+    <span id="history-end"></span>
   </section>
 </div>
