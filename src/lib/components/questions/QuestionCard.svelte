@@ -24,6 +24,13 @@
     TAMPERED: t('question.card.state.tampered', 'Changed outside Hadron'),
     UNVERIFIABLE: t('question.card.state.unverifiable', 'Cannot be verified'),
   });
+  // QuestionPriority is HIGH, LOW, NORMAL or URGENT. NORMAL is the default and earns no chip.
+  const priorityLabel = $derived(
+    question.priority === 'URGENT' ? t('question.card.priority.urgent', 'Urgent')
+    : question.priority === 'HIGH' ? t('question.card.priority.high', 'High priority')
+    : question.priority === 'LOW' ? t('question.card.priority.low', 'Low priority')
+    : null,
+  );
   const ANSWERABLE = ['OPEN', 'DECIDED', 'ANSWERED_UNCONFIRMED', 'STALE'];
   const problem = $derived(question.state === 'TAMPERED' || question.state === 'UNVERIFIABLE');
   const withdrawn = $derived(question.state === 'WITHDRAWN');
@@ -91,7 +98,7 @@
       {t('question.card.heading-code', 'Question {code}', { code: question.code })}
     </h2>
     <span data-testid="question-state" class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{STATE_LABEL[question.state] ?? question.state}</span>
-    {#if question.priority}<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">{question.priority}</span>{/if}
+    {#if priorityLabel}<span data-testid="question-priority" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">{priorityLabel}</span>{/if}
     {#if question.tier && question.tier !== 'ANSWERED'}
       <span data-testid="question-tier" class="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-300">{question.tier === 'SIGNED' ? t('question.card.tier.signature', 'needs signature') : t('question.card.tier.approval', 'needs approval')}</span>
     {/if}
@@ -243,6 +250,6 @@
     </div>
   {/if}
 
-  <p role="status" data-testid="question-status" class="mt-2 empty:hidden text-xs text-emerald-700 dark:text-emerald-300">{#if result?.ok && result.message}{result.message}{/if}</p>
-  <p role="alert" data-testid="question-error" class="mt-2 empty:hidden text-xs text-red-700 dark:text-red-300">{#if result && !result.ok && result.error}{result.error}{/if}</p>
+  <p role="status" data-testid="question-status" class="mt-2 empty:m-0 text-xs text-emerald-700 dark:text-emerald-300">{#if result?.ok && result.message}{result.message}{/if}</p>
+  <p role="alert" data-testid="question-error" class="mt-2 empty:m-0 text-xs text-red-700 dark:text-red-300">{#if result && !result.ok && result.error}{result.error}{/if}</p>
 </section>

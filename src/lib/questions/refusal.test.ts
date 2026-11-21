@@ -14,7 +14,7 @@ describe('question refusals (portal#2234)', () => {
   it('a forbidden refusal does not reload', () => expect(refusalNeedsReload('QUESTION_FORBIDDEN')).toBe(false));
 
   // Read from the snapshot, not copied by hand, so a code the server adds to a question mutation fails here.
-  const schema = readFileSync('schema/schema.graphql', 'utf8');
+  const schema = readFileSync(new URL('../../../schema/schema.graphql', import.meta.url), 'utf8');
   const documentedCodes = (field: string): string[] => {
     const m = schema.match(new RegExp(`\"\"\"([^\"]*?)\"\"\"\\s*\\n\\s*${field}\\(`));
     return m ? [...new Set(m[1].match(/\b(?:QUESTION_[A-Z_]+|NODE_WRITE_CONFLICT)\b/g) ?? [])] : [];

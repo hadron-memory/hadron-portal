@@ -2,17 +2,19 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { beginEnhanced } from '$lib/test/stubs/app-forms';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import QuestionCard from './QuestionCard.svelte';
 import type { QuestionCardView } from '$lib/questions/types';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
-afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
+afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); resetNavigationCalls(); });
 
 const person = (n: string) => ({ id: `id-${n}`, handle: n, name: n.toUpperCase() });
 const OPTIONS = ['A', 'B', 'C'].map((key) => ({ key, label: `Option ${key}`, whyChoose: `choose ${key}`, whyNot: key === 'B' ? 'because B' : null, risks: null }));
 const base: QuestionCardView = {
   id: 'q-1', urn: 'hrn:node:acme.com:m:q', portalUrl: null, code: 'Q1', title: 'Which one?', background: null, whyNow: null,
-  priority: 'P1', tier: 'ANSWERED', authorizes: false, state: 'OPEN', answered: false, revSeq: 7, viewerIsDecider: true, viewerMayAnswer: true,
+  priority: 'NORMAL', tier: 'ANSWERED', authorizes: false, state: 'OPEN', answered: false, revSeq: 7, viewerIsDecider: true, viewerMayAnswer: true,
   neededBy: null, defaultAction: null, askedAt: '2026-11-18T10:00:00Z', answeredAt: null, options: OPTIONS,
   recommendation: { key: 'B', reason: 'B is cheapest', by: { user: null, worker: person('marco'), app: null } }, noRecommendationReason: null,
   answer: null, answers: [], blocks: [], sources: [], specsTouched: [], specsMustChange: [],
@@ -154,5 +156,49 @@ describe('question card', () => {
     const h = el.querySelector('#question-card-title')!;
     expect(h.textContent!.trim()).toBe('Question Q7');
     expect(el.querySelector('section')!.getAttribute('aria-labelledby')).toBe('question-card-title');
+  });
+  it('P2: the priority chip says Urgent, High priority or Low priority, and NORMAL earns none (never the raw enum)', () => {
+    const chip = (priority: string) => mountCard({ priority }).querySelector('[data-testid=question-priority]')?.textContent?.trim() ?? null;
+    expect(chip('URGENT')).toBe('Urgent');
+    expect(chip('HIGH')).toBe('High priority');
+    expect(chip('LOW')).toBe('Low priority');
+    expect(chip('NORMAL')).toBeNull();
+  });
+  it('P2: the status and alert regions are always in the DOM and never display:none, so a first message is announced', () => {
+    const el = mountCard({});
+    for (const id of ['question-status', 'question-error']) {
+      const r = el.querySelector(`[data-testid=${id}]`)!;
+      expect(r).not.toBeNull();
+      expect(r.className).not.toMatch(/(^|\s)(empty:)?hidden(\s|$)/);
+    }
+    expect(el.querySelector('[data-testid=question-status]')!.getAttribute('role')).toBe('status');
+    expect(el.querySelector('[data-testid=question-error]')!.getAttribute('role')).toBe('alert');
+  });
+  describe('guarded(): one request in flight, and a reload after a stale refusal', () => {
+    const optionForm = (el: HTMLElement) => forms(el).find((f) => hidden(f, 'optionKey') === 'A' && !f.querySelector('textarea'))!;
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    it('locks every answer button while the request is in flight and frees them after', async () => {
+      const el = mountCard({});
+      const buttons = () => [...el.querySelectorAll<HTMLButtonElement>('form button[type=submit]')];
+      expect(buttons().every((b) => !b.disabled)).toBe(true);
+      const finish = await beginEnhanced(optionForm(el));
+      flushSync();
+      expect(buttons().every((b) => b.disabled)).toBe(true);
+      await finish({ type: 'success', status: 200, data: { kind: 'answerQuestion', ok: true } });
+      await flush(); flushSync();
+      expect(buttons().every((b) => !b.disabled)).toBe(true);
+    });
+    it('a refusal that asks for a reload invalidates the page; one that does not leaves it alone', async () => {
+      resetNavigationCalls();
+      const el = mountCard({});
+      let finish = await beginEnhanced(optionForm(el));
+      await finish({ type: 'failure', status: 409, data: { kind: 'answerQuestion', ok: false, error: 'x', reload: true } });
+      await flush();
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+      finish = await beginEnhanced(optionForm(el));
+      await finish({ type: 'failure', status: 403, data: { kind: 'answerQuestion', ok: false, error: 'x', reload: false } });
+      await flush();
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    });
   });
 });

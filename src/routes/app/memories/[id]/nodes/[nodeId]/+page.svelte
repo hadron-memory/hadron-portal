@@ -49,7 +49,7 @@
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
   import NodeDiscussion from '$lib/components/NodeDiscussion.svelte';
   import QuestionCard from '$lib/components/questions/QuestionCard.svelte';
-  import { QUESTION_ACTION_KINDS } from '$lib/questions/action-kinds';
+  import { questionResultOf } from '$lib/questions/action-kinds';
   import { COMMENT_NODE_TYPE, discussionCount, isCommentableClass, openFeedbackCue, type CommentSummary, type Discussion } from '$lib/comments';
   import { mintView, type NodeMintStatus } from '$lib/node-mint';
   import { approvalView, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
@@ -194,7 +194,7 @@
   // Compare the error instance, never its text: other actions still own theirs.
   let handledMetaError = $state.raw<unknown>(null);
   const pageActionError = $derived(
-    form?.error === handledMetaError || (form && typeof form === 'object' && 'kind' in form && QUESTION_ACTION_KINDS.includes(String(form.kind))) ? null : form?.error,
+    form?.error === handledMetaError || questionResult ? null : form?.error,
   );
 
   // Inline editing. #927: each text editor is a draft based on the revision it
@@ -2216,7 +2216,7 @@
   const isComment = $derived(node.nodeType === COMMENT_NODE_TYPE);
   // portal#2234: a node whose role is `question` gets the question card.
   const isQuestion = $derived(node.role === 'question');
-  const questionResult = $derived(form && typeof form === 'object' && 'kind' in form && QUESTION_ACTION_KINDS.includes(String(form.kind)) ? (form as { kind: string; ok?: boolean; error?: string; message?: string }) : null);
+  const questionResult = $derived(questionResultOf(form));
   // portal#1175: what the server says about this comment (`Node.asComment`).
   // Null when it was not returned; then the viewer is not treated as the author
   // and there is no target to link, never a guess. The server stays the
