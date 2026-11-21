@@ -21,7 +21,7 @@ describe('readStagedChange (portal#2380)', () => {
   });
 
   it('a link that is not an http(s) URL under /secret-changes/ is never rendered as a link', () => {
-    for (const ceremonyUrl of ['javascript:alert(1)', 'https://h.example/elsewhere/x', '/secret-changes/x', 'not a url']) {
+    for (const ceremonyUrl of ['javascript:alert(1)', 'javascript:/secret-changes/x', 'https://h.example/elsewhere/x', '/secret-changes/x', 'not a url']) {
       expect(readStagedChange(wire({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl }))).toEqual({ kind: 'plain-protected' });
     }
   });
