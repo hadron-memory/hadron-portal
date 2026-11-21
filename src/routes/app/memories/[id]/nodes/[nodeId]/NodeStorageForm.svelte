@@ -521,18 +521,22 @@
     {/if}
 
     <!-- Actions -->
-    <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-      <button
-        type="submit"
-        disabled={$submitting || propertiesInvalid || !!propertiesError || !!noWriteDoor}
-        aria-describedby={noWriteDoor ? 'no-write-door' : undefined}
-        class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {$submitting ? t('node-storage.saving', 'Saving…') : actionError ? t('node.save.retry', 'Retry') : t('node-storage.save', 'Save')}
-      </button>
+    <!-- A plain wrapper: an idle region as a flex gap item or the last child of a space-y parent shifts layout (Marco's placement ruling, #127408). -->
+    <div>
+      <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+        <button
+          type="submit"
+          disabled={$submitting || propertiesInvalid || !!propertiesError || !!noWriteDoor}
+          aria-describedby={noWriteDoor ? 'no-write-door' : undefined}
+          class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {$submitting ? t('node-storage.saving', 'Saving…') : actionError ? t('node.save.retry', 'Retry') : t('node-storage.save', 'Save')}
+        </button>
+      </div>
+      <!-- After the row, not its last item: an idle region there is a flex gap item (Marco's placement ruling, #127408). -->
       <LiveRegion>
         {#if actionSuccess}
-          <span class="text-sm text-green-600 dark:text-green-400">{actionSuccess}</span>
+          <p class="mt-2 text-sm text-green-600 dark:text-green-400">{actionSuccess}</p>
         {/if}
       </LiveRegion>
     </div>
