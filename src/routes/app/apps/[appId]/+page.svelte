@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
@@ -3321,27 +3322,23 @@
           {releaseWorkerActionError}
         </div>
       {/if}
-      {#if releaseWorkerNotice}
-        <!-- #823 — three outcomes, three messages, and the chrome follows the
-             one the server reported: green only for a release that happened and
-             announced itself, amber + role="alert" when an owed team-chat notice
-             failed, neutral when nothing was released at all.
+      <!-- #823 — three outcomes, three messages, and the chrome follows the
+           one the server reported: green only for a release that happened and
+           announced itself, amber + an alert when an owed team-chat notice
+           failed, neutral when nothing was released at all.
 
-             `{#key}` on the role, because ONE hidden form serves every row: a
-             second release re-renders this same element, and swapping `role`
-             from status to alert in place asks an assistive technology to
-             re-register a live region it already registered as polite. Keyed,
-             the alert is a fresh insertion — which is the case that matters,
-             since it is the one nobody else was told about. -->
-        {#key releaseWorkerNotice.role}
-          <div
-            role={releaseWorkerNotice.role}
-            class="rounded-lg border px-4 py-3 text-sm {releaseWorkerNotice.class}"
-          >
+           `LiveOutcome` keeps a status region AND an alert region mounted, and the
+           message lands in the one that matches. ONE hidden form serves every row, so
+           a second release reuses these regions; swapping `role` from status to
+           alert in place asks an assistive technology to re-register a live region
+           it already registered as polite, which this never does (portal#2379). -->
+      <LiveOutcome failed={releaseWorkerNotice?.role === 'alert'}>
+        {#if releaseWorkerNotice}
+          <div class="rounded-lg border px-4 py-3 text-sm {releaseWorkerNotice.class}">
             {releaseWorkerNotice.text}
           </div>
-        {/key}
-      {/if}
+        {/if}
+      </LiveOutcome>
 
       {#if agentsWithheld}
         <p role="status" class="text-sm text-zinc-500">
@@ -3565,9 +3562,11 @@
           </p>
         </div>
       {:else}
-        {#if pauseOutcome && !(pauseFor && !pauseOutcome.ok)}
-          <p role={pauseOutcome.ok ? 'status' : 'alert'} class="text-xs {pauseOutcome.ok ? 'text-green-700 dark:text-green-400' : 'text-red-500'}">{#if workerNameOf(pauseOutcome.workerId)}{workerNameOf(pauseOutcome.workerId)}: {/if}{pauseOutcome.message}</p>
-        {/if}
+        <LiveOutcome failed={pauseOutcome ? !pauseOutcome.ok : false}>
+          {#if pauseOutcome && !(pauseFor && !pauseOutcome.ok)}
+            <p class="text-xs {pauseOutcome.ok ? 'text-green-700 dark:text-green-400' : 'text-red-500'}">{#if workerNameOf(pauseOutcome.workerId)}{workerNameOf(pauseOutcome.workerId)}: {/if}{pauseOutcome.message}</p>
+          {/if}
+        </LiveOutcome>
         <!-- portal#1168: Unpause is a one-click clearPause for the chosen worker. -->
         <form bind:this={unpauseForm} method="POST" action="?/setWorkerPause" class="hidden" novalidate
           use:enhance={pauseEnhance(false)}>
