@@ -890,6 +890,43 @@ describe('TeamChatThread team filter — abandoned vs failed, clean re-announce,
     expect(chipOf(m, 'head-bo')!.textContent).not.toContain('team.bo');
   });
 
+  it('the announcement names an added head by the clicked tag when no supplied row labels it', async () => {
+    // Pins what the removed `?? requested.label` fallback used to cover: the
+    // label seed (activeTeamLabels) must reach the announcement, not just the chip.
+    const onFilterAnnouncement = vi.fn();
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
+      total: 2, filter: { kind: 'teams', headRefs: ['head-ada'] },
+      onFilterAnnouncement,
+      onSelectTeam: (_next: TeamChatFilter) => { /* the route applies the filter below */ },
+      filterFocusRequest: null,
+    });
+    const m = await mountThread(props);
+    document.body.append(m.target);
+    (tagOf(m, 'head-bo') as HTMLButtonElement).click(); await tick(2); // adds head-bo, seed 'team.bo'
+    // The applied read's rows come back WITHOUT head-bo's row, then the route
+    // applies the requested filter: the seed is the only source of its name.
+    props.messages = [message(1, { teamTags: [ADA] })];
+    props.filter = { kind: 'teams', headRefs: ['head-ada', 'head-bo'] };
+    (props.filterFocusRequest as { navigation?: string }).navigation = 'complete';
+    await tick(12);
+    const said = onFilterAnnouncement.mock.calls.map((c) => c[0] as string).filter((c) => c.includes('Team filter selected'));
+    expect(said).toEqual(['Team filter selected: team.ada, team.bo.']);
+  });
+
+  it('a toggle against a duplicated route prop computes on the distinct set, so no duplicate reaches the route', async () => {
+    // The pending path of the dedupe: a click on an unselected tag builds its next
+    // filter from toggleBase. On the raw prop it leaked the repeat to the route.
+    const onSelectTeam = vi.fn();
+    const m = await mountThread({
+      messages: [message(1, { teamTags: [ADA, BO] })], total: 1,
+      filter: { kind: 'teams', headRefs: ['head-ada', 'head-ada'] },
+      onSelectTeam,
+    });
+    (tagOf(m, 'head-bo') as HTMLButtonElement).click();
+    expect(onSelectTeam).toHaveBeenLastCalledWith({ kind: 'teams', headRefs: ['head-ada', 'head-bo'] });
+  });
+
   it('N10: focus is never yanked from a reader who moved off <body> before a failed read reverts', async () => {
     const props = reactiveProps<Record<string, unknown>>({
       messages: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [BO] })],
