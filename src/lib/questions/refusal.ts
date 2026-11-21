@@ -32,7 +32,7 @@ export function questionRefusal(code: string | null | undefined): QuestionRefusa
     case 'QUESTION_LOG_NOT_FOUND':
       return { status: 404, text: t('question.refusal.log-not-found', "This question's log no longer exists, or you can no longer read it.") };
     case 'FORBIDDEN':
-      return { status: 403, text: t('question.refusal.impersonation', 'Questions cannot be answered while impersonating.') };
+      return { status: 403, text: t('question.refusal.forbidden', 'You cannot do that on this question.') };
     default:
       return null;
   }
