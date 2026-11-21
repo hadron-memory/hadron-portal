@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { enhance } from "$app/forms";
   import type { SubmitFunction } from "@sveltejs/kit";
   import { onDestroy, tick } from "svelte";
@@ -195,8 +196,8 @@
       use:enhance={submit}
     >
       <input type="hidden" name="ref" value={shown.id} />
+      <LiveRegion>
       {#if (returned || actionGrant) && (shown.revokedAt || shown.holderDepartedAt)}<p
-          role="status"
           class="mb-2 text-sm"
         >
           {#if shown.revokedAt}
@@ -215,6 +216,7 @@
             )}
           {/if}
         </p>{/if}
+      </LiveRegion>
       {#if refusal}<p
           role="alert"
           class="mb-2 text-sm text-red-800 dark:text-red-200"

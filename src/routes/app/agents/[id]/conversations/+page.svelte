@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { onMount, tick, untrack } from 'svelte';
   import { deserialize } from '$app/forms';
   import { signinRedirectLocation } from '$lib/forms/signin-redirect';
@@ -652,9 +653,12 @@
         <span id="add-conversation-name-error" class="text-xs text-red-600 dark:text-red-400">{$addConversationErrors.name[0]}</span>
       {:else if addConversationError}
         <span role="alert" class="text-xs text-red-600 dark:text-red-400">{addConversationError}</span>
-      {:else if addConversationSaved}
-        <span role="status" class="text-xs text-green-600 dark:text-green-400">{addConversationSaved}</span>
       {/if}
+      <LiveRegion class="empty:absolute">
+        {#if !$addConversationErrors.name?.[0] && !addConversationError && addConversationSaved}
+          <span class="text-xs text-green-600 dark:text-green-400">{addConversationSaved}</span>
+        {/if}
+      </LiveRegion>
     </div>
 
     <button type="button" onclick={saveRevision} disabled={revisionsBusy || !!lockBlockedBy}

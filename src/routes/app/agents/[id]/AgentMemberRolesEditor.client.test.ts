@@ -108,7 +108,7 @@ describe('Agent member-roles editor (portal#1405)', () => {
     await tick(3);
     // The chip that took its place holds focus, not the page body.
     expect(document.activeElement).toBe(removeButton(t, 'reviewer'));
-    expect(t.querySelector('[aria-live="polite"]')?.textContent).toContain('Removed member. 2 roles left.');
+    expect(t.querySelector('.sr-only[aria-live="polite"]')?.textContent).toContain('Removed member. 2 roles left.');
   });
 
   it('removing the last role hands focus to the New role field', async () => {
