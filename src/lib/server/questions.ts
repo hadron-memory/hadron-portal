@@ -64,7 +64,7 @@ async function run(
     const code = extractGqlErrorCode(e);
     const known = questionRefusal(code);
     if (known) return refuse(kind, known.status, known.text, refusalNeedsReload(code));
-    return refuse(kind, 500, extractGqlError(e, t('question.refusal.generic', 'The question could not be updated.')));
+    return refuse(kind, 500, extractGqlError(e, t('question.refusal.generic', 'The question could not be updated.'), [], { transport: 'fallback' }));
   }
 }
 

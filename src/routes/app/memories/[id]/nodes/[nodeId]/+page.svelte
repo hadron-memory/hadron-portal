@@ -193,7 +193,9 @@
   // that duplicate raw banner cannot outlive the form's helpful notice.
   // Compare the error instance, never its text: other actions still own theirs.
   let handledMetaError = $state.raw<unknown>(null);
-  const pageActionError = $derived(form?.error === handledMetaError ? null : form?.error);
+  const pageActionError = $derived(
+    form?.error === handledMetaError || (form && typeof form === 'object' && 'kind' in form && QUESTION_ACTION_KINDS.includes(String(form.kind))) ? null : form?.error,
+  );
 
   // Inline editing. #927: each text editor is a draft based on the revision it
   // opened on, and its save is refused when the node changed since. The drafts

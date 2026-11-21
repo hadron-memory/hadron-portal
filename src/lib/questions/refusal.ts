@@ -34,5 +34,11 @@ export function questionRefusal(code: string | null | undefined): QuestionRefusa
 
 /** The codes after which the card must re-read, so it shows the current revision. */
 export function refusalNeedsReload(code: string | null | undefined): boolean {
-  return code === 'NODE_WRITE_CONFLICT' || code === 'QUESTION_UNKNOWN_OPTION';
+  return (
+    code === 'NODE_WRITE_CONFLICT' ||
+    code === 'QUESTION_UNKNOWN_OPTION' ||
+    code === 'QUESTION_WITHDRAWN' ||
+    code === 'QUESTION_NOT_ANSWERED' ||
+    code === 'QUESTION_NOT_FOUND'
+  );
 }

@@ -147,7 +147,7 @@
         </select>
       {/if}
       {#if question.answered}
-        <label class="text-xs font-medium" for="question-text-reason">{t('question.card.change-reason', 'Why the change (optional)')}</label>
+        <label class="text-xs font-medium" for="question-text-reason">{t('question.card.change-reason', 'Reason')}</label>
         <input id="question-text-reason" name="reason" type="text" class={field} />
       {/if}
       <div><button type="submit" class={btn} disabled={posting}>{t('question.card.send-answer', 'Send answer')}</button></div>
@@ -169,7 +169,7 @@
       <details class="mt-2" data-testid="question-earlier">
         <summary class="cursor-pointer text-xs">{t('question.card.earlier', 'Earlier entries ({n})', { n: earlier.length })}</summary>
         <ul class="mt-1 flex flex-col gap-1 text-xs">
-          {#each earlier as e (e.at + e.kind)}
+          {#each earlier as e, i (e.at + e.kind + (e.key ?? '') + i)}
             <li>
               <span class="font-medium">{e.kind === 'RETRACTION' ? t('question.card.taken-back', 'Taken back') : (e.key ? optionLabel(e.key) : '')}</span>
               {#if e.kind !== 'RETRACTION' && e.text}{e.key ? ' — ' : ''}{e.text}{/if}
@@ -181,12 +181,12 @@
     {/if}
   </div>
 
-  {#if controls && question.answered}
+  {#if question.viewerIsDecider && ANSWERABLE.includes(question.state) && question.answered}
     <form method="POST" action="?/retractQuestionAnswer" use:enhance={guarded} class="mt-3 flex flex-col gap-2" data-testid="question-undo-form">
       <input type="hidden" name="revision" value={question.revSeq} />
-      <label class="text-xs font-medium" for="question-undo-reason">{t('question.card.undo-reason', 'Why take it back (optional)')}</label>
+      <label class="text-xs font-medium" for="question-undo-reason">{t('question.card.undo-reason', 'Reason')}</label>
       <input id="question-undo-reason" name="reason" type="text" class={field} />
-      <div><button type="submit" class={btn} disabled={posting}>{t('question.card.undo', 'Undo: back to pending')}</button></div>
+      <div><button type="submit" class={btn} disabled={posting}>{t('question.card.undo', 'Undo')}</button></div>
     </form>
   {/if}
 
