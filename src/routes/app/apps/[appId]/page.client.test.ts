@@ -3065,20 +3065,23 @@ describe('Cast reporting choice (#1149)', () => {
     const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
     return { m, form };
   }
-  const radios = (form: HTMLFormElement) => [...form.querySelectorAll<HTMLInputElement>('input[name="reporting"]')];
+  // portal#1893: one checkbox replaces the two radios.
+  const reportsBox = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('input[type="checkbox"]#castReportsToWorker')!;
   // The id the server would echo back: the one this form instance posts.
   const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
 
-  it('starts with NEITHER choice selected and no head picker: nothing is guessed', async () => {
+  it('starts with the Reports to checkbox unchecked, no radios, no picker, no enforcement note (#1893)', async () => {
     const { form } = await openCast();
-    const [head, none] = radios(form);
-    expect(head.value).toBe('head');
-    expect(none.value).toBe('none');
-    expect(head.checked).toBe(false);
-    expect(none.checked).toBe(false);
+    const box = reportsBox(form);
+    expect(box).not.toBeNull();
+    expect(box.checked).toBe(false);
+    expect(form.querySelectorAll('input[type="radio"][name="reporting"]')).toHaveLength(0);
     expect(form.querySelector('#castReportsTo')).toBeNull();
-    expect(new FormData(form).has('reporting')).toBe(false);
-    expect(form.querySelector('fieldset legend')?.textContent).toContain('Reports to');
+    expect(form.textContent).not.toContain('Choose deliberately');
+    // Unchecked is the No team arm, exactly as the radio sent it.
+    const data = new FormData(form);
+    expect(data.get('reporting')).toBe('none');
+    expect(data.has('reportsTo')).toBe(false);
   });
 
   it('choosing a worker reveals the picker of ACTIVE workers only, with the URN under the name', async () => {
@@ -3086,8 +3089,7 @@ describe('Cast reporting choice (#1149)', () => {
       { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null },
       { id: 'w2', name: 'Old', urn: 'hrn:worker:acme.com:team:old', role: 'qa', retiredAt: '2026-09-01T00:00:00.000Z' },
     ]);
-    const [head] = radios(form);
-    head.click();
+    reportsBox(form).click();
     await tick(2);
     const pick = form.querySelector<HTMLSelectElement>('#castReportsTo')!;
     expect(pick).not.toBeNull();
@@ -3099,17 +3101,27 @@ describe('Cast reporting choice (#1149)', () => {
     expect(form.querySelector('span[title="hrn:worker:acme.com:team:ada"]')).not.toBeNull();
   });
 
-  it('No team hides the picker and submits only the No team arm', async () => {
-    const { form } = await openCast();
-    const [head, none] = radios(form);
-    head.click();
+  it('unchecking hides the picker, clears the picked worker, and submits only the No team arm', async () => {
+    const { form } = await openCast([
+      { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null },
+    ]);
+    reportsBox(form).click();
     await tick(2);
-    none.click();
+    const pick = form.querySelector<HTMLSelectElement>('#castReportsTo')!;
+    pick.value = 'w1';
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    expect(new FormData(form).get('reportsTo')).toBe('w1');
+    reportsBox(form).click();
     await tick(2);
     expect(form.querySelector('#castReportsTo')).toBeNull();
     const data = new FormData(form);
     expect(data.get('reporting')).toBe('none');
     expect(data.has('reportsTo')).toBe(false);
+    // Re-checking starts from no worker, so the old pick cannot come back.
+    reportsBox(form).click();
+    await tick(2);
+    expect(form.querySelector<HTMLSelectElement>('#castReportsTo')!.value).toBe('');
   });
 
   it('a refused cast keeps the user’s choice for correction and shows the server’s sentence', async () => {
@@ -3120,7 +3132,7 @@ describe('Cast reporting choice (#1149)', () => {
     form.querySelector('[name="agentId"]')!.dispatchEvent(new Event('change', { bubbles: true }));
     (form.querySelector('[name="name"]') as HTMLInputElement).value = 'Iris';
     form.querySelector('[name="name"]')!.dispatchEvent(new Event('input', { bubbles: true }));
-    radios(form)[0].click();
+    reportsBox(form).click();
     await tick(2);
     const pick = form.querySelector<HTMLSelectElement>('#castReportsTo')!;
     pick.value = 'w1';
@@ -3137,8 +3149,7 @@ describe('Cast reporting choice (#1149)', () => {
     await tick(3);
     expect(m.target.textContent).toContain('Worker not found in this App.');
     // Still a head, still Ada: the permanent cast was refused, nothing re-sent.
-    expect(radios(form)[0].checked).toBe(true);
-    expect(radios(form)[1].checked).toBe(false);
+    expect(reportsBox(form).checked).toBe(true);
     expect(form.querySelector<HTMLSelectElement>('#castReportsTo')!.value).toBe('w1');
   });
 });
@@ -3171,8 +3182,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     a.value = agent; a.dispatchEvent(new Event('change', { bubbles: true }));
     const n = form.querySelector<HTMLInputElement>('[name="name"]')!;
     n.value = name; n.dispatchEvent(new Event('input', { bubbles: true }));
-    form.querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.click();
-    await tick(2);
+    await tick(2); // unchecked Reports to is the No team arm (#1893)
   };
   const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
   const success = async (id: string) => {
@@ -3538,26 +3548,31 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(scroll).toHaveBeenCalledTimes(shouldScroll ? 1 : 0);
   });
 
-  it('a No team choice made for App A is not carried to App B', async () => {
+  it('a Reports to choice made for App A is not carried to App B', async () => {
     const { m, props, open, form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
+    form().querySelector<HTMLInputElement>('#castReportsToWorker')!.click();
+    await tick(2);
+    expect(form().querySelector<HTMLInputElement>('#castReportsToWorker')!.checked).toBe(true);
     props.data = await dataFor('a2');
     await tick(3);
     open();
     await tick(2);
-    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(false);
+    expect(form().querySelector<HTMLInputElement>('#castReportsToWorker')!.checked).toBe(false);
     expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('');
     expect(m.target.textContent).not.toContain('Worker cast.');
   });
 
-  it('changing the selected Agent clears the reporting choice', async () => {
+  it('changing the selected Agent unchecks Reports to', async () => {
     const { form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
-    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(true);
+    form().querySelector<HTMLInputElement>('#castReportsToWorker')!.click();
+    await tick(2);
+    expect(form().querySelector<HTMLInputElement>('#castReportsToWorker')!.checked).toBe(true);
     const a = form().querySelector<HTMLSelectElement>('[name="agentId"]')!;
     a.value = 'agent-b'; a.dispatchEvent(new Event('change', { bubbles: true }));
     await tick(2);
-    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(false);
+    expect(form().querySelector<HTMLInputElement>('#castReportsToWorker')!.checked).toBe(false);
   });
 
   it('A’s late success does not close B’s composer, empty B’s draft or say Worker cast on B', async () => {
