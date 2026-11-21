@@ -1884,6 +1884,9 @@
   // #2356: set by the cross-App fence below. A fence-driven teardown is part
   // of a navigation, whose own focus/scroll reset owns where focus goes, so
   // the Keys-panel fallback stays out of its way. Cleared on the next open.
+  // The skip ASSUMES the navigation's own focus/scroll reset runs after this
+  // teardown and so decides where focus lands. If a data swap on the same route
+  // ever reset nothing, a fence-driven close would leave focus on <body>.
   let grantScopeFenceFired = false;
   // portal#2311: the App's hosts, read when the dialog opens (never with the
   // Keys tab's first screen) and again on every open: one App's answer for one

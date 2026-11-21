@@ -1794,6 +1794,14 @@ export const actions: Actions = {
       // lands on the host field so the input can be marked invalid; every
       // other refusal (permission, key gone, network) stays a form message
       // and says nothing about what the reader typed.
+      //
+      // BAD_USER_INPUT is the PORTAL'S OWN inference, not a contract: under
+      // host:operate the only argument that can be malformed is the host id, so
+      // the pairing is read as "about the host". The corpus does not promise the
+      // server raises it for no other argument, so anything this cannot classify
+      // (another code, or any code under another scope) stays a form message and
+      // is never guessed into hostId. The host-specific codes are listed here,
+      // apart from appKeyRefusal, which only words the refusal.
       const code = extractGqlErrorCode(e);
       if (form.data.scope === 'host:operate' && (code === 'APP_KEY_SCOPE_HOST_CONFLICT' || code === 'BAD_USER_INPUT')) {
         return setError(form, 'hostId', text, { status });

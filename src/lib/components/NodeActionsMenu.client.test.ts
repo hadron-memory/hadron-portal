@@ -48,7 +48,11 @@ describe('NodeActionsMenu actions', () => {
     // the id: assert it is THE trigger, not just any button (a menu item is
     // an HTMLButtonElement too).
     expect(trigger.hasAttribute('aria-haspopup')).toBe(true);
-    expect(onselect).toHaveBeenCalledWith('delete', trigger);
+    // toHaveBeenCalledWith compares DOM nodes structurally, so any button would
+    // match; identity is what the contract says.
+    expect(onselect).toHaveBeenCalledTimes(1);
+    expect(onselect.mock.calls[0]![0]).toBe('delete');
+    expect(onselect.mock.calls[0]![1]).toBe(trigger);
   });
 
   it('exposes its open state as data-menu-open so stacking keys on state, not on role="menu"', () => {

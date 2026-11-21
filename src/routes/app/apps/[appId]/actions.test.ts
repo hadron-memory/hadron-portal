@@ -1256,6 +1256,49 @@ describe('grantKeyScope action', () => {
     expect(result.data.form.message).toBeUndefined();
   });
 
+  // #2420 F2: only a refusal ABOUT THE HOST lands on hostId. The pairing of
+  // BAD_USER_INPUT with host:operate is the portal's inference, so anything it
+  // cannot classify stays a plain form message and says nothing about what the
+  // reader typed in the host field.
+  describe('refusal routing: hostId only for a host-specific refusal (#2420)', () => {
+    type Refused = { status: number; data: { form: { message?: { type: string; text: string }; errors: Record<string, string[]> } } };
+    const refuse = (code: string, message: string) =>
+      mockRequest.mockRejectedValueOnce({ response: { errors: [{ message, extensions: { code } }] } });
+
+    it('a FORBIDDEN refusal under host:operate stays a form message, not a hostId error', async () => {
+      refuse('FORBIDDEN', 'Forbidden');
+      const r = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' })) as Refused;
+      expect(r.status).toBe(403);
+      expect(r.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+      expect(r.data.form.errors.hostId).toBeUndefined();
+    });
+
+    it('a not-found refusal under host:operate stays a form message', async () => {
+      refuse('APP_KEY_NOT_FOUND', 'App key not found.');
+      const r = (await runAction('grantKeyScope', { keyId: 'gone', scope: 'host:operate', hostId: 'h-1' })) as Refused;
+      expect(r.status).toBe(404);
+      expect(r.data.form.message).toEqual({ type: 'error', text: 'App key not found.' });
+      expect(r.data.form.errors.hostId).toBeUndefined();
+    });
+
+    it('an unclassified code under host:operate stays a form message', async () => {
+      refuse('SOMETHING_NEW', 'Something the portal does not know.');
+      const r = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' })) as Refused;
+      expect(r.data.form.message).toMatchObject({ type: 'error' });
+      expect(r.data.form.errors.hostId).toBeUndefined();
+    });
+
+    it.each(['BAD_USER_INPUT', 'APP_KEY_SCOPE_HOST_CONFLICT'])(
+      'a %s refusal under attention:deliver (no host argument) stays a form message',
+      async (code) => {
+        refuse(code, 'Not about a host.');
+        const r = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as Refused;
+        expect(r.data.form.message).toMatchObject({ type: 'error', text: 'Not about a host.' });
+        expect(r.data.form.errors.hostId).toBeUndefined();
+      },
+    );
+  });
+
   // Acceptance 5: the audience refusals. A participant who does not manage the
   // App, a worker session and an App key all answer FORBIDDEN — the portal
   // cannot and does not distinguish them; an impersonating admin is blocked

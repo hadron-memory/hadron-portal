@@ -522,26 +522,34 @@ try {
       await page.keyboard.press('Escape');
       const afterKeyEscape = await focusAfterClose();
       check(afterKeyEscape.onTrigger && !afterKeyEscape.onBody, `focus after keyboard Escape is ${afterKeyEscape.onTrigger ? 'the ⋯ trigger' : afterKeyEscape.onBody ? '<body>' : 'elsewhere'}`);
-      // A keyed row normally survives the success path's invalidation, so a
-      // detached trigger is the defensive case. Removing the row outright
-      // stands in for it: the teardown owes a landing spot — the Keys tab
-      // panel (#panel-keys, a focusable region boundary) — never <body>.
-      // This leg MUST stay the last one on the page: tr.remove() mutates
-      // Svelte-owned DOM behind the keyed {#each}, and nothing after it may
-      // rely on that table.
-      await page.locator(trigger).click();
-      await page.getByRole('menuitem', { name: /Grant scope/ }).click();
-      await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
-      await page.evaluate((sel) => document.querySelector(sel)?.closest('tr')?.remove(), trigger);
-      await page.keyboard.press('Escape');
-      await page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
-      const fallback = await page.evaluate(() => ({
-        id: document.activeElement?.id ?? '',
-        onBody: document.activeElement === document.body || document.activeElement === null,
-      }));
-      check(fallback.id === 'panel-keys' && !fallback.onBody, `focus after a detached trigger is ${fallback.id ? `#${fallback.id}` : fallback.onBody ? '<body>' : 'elsewhere'}`);
       check(errors.length === 0, `page errors: ${errors.join(' | ')}`);
     } finally { await page.close(); }
+    // A keyed row normally survives the success path's invalidation, so a
+    // detached trigger is the defensive case. Removing the row outright
+    // stands in for it: the teardown owes a landing spot, the Keys tab panel
+    // (#panel-keys, a focusable region boundary), never <body>. tr.remove()
+    // mutates Svelte-owned DOM behind the keyed {#each}, so this leg gets a page
+    // of its own: nothing before or after it can rely on that table, and no
+    // ordering convention is needed.
+    {
+      const detached = await open(browser, origin, css, { width, dark, state: 'default' });
+      try {
+        const check = (ok, msg) => { if (!ok) failures.push(`${leg}/detached-trigger: ${msg}`); };
+        const trigger = '#panel-keys tbody tr:last-child button[aria-label^="Actions for key"]';
+        await detached.page.locator(trigger).click();
+        await detached.page.getByRole('menuitem', { name: /Grant scope/ }).click();
+        await detached.page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
+        await detached.page.evaluate((sel) => document.querySelector(sel)?.closest('tr')?.remove(), trigger);
+        await detached.page.keyboard.press('Escape');
+        await detached.page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
+        const fallback = await detached.page.evaluate(() => ({
+          id: document.activeElement?.id ?? '',
+          onBody: document.activeElement === document.body || document.activeElement === null,
+        }));
+        check(fallback.id === 'panel-keys' && !fallback.onBody, `focus after a detached trigger is ${fallback.id ? `#${fallback.id}` : fallback.onBody ? '<body>' : 'elsewhere'}`);
+        check(detached.errors.length === 0, `page errors: ${detached.errors.join(' | ')}`);
+      } finally { await detached.page.close(); }
+    }
   }
 
   // portal#2319: the Revoke scope dialog on the same real page. The row that
