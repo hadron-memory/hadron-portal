@@ -567,6 +567,9 @@ describe('App tab navigation failure feedback (#2288)', () => {
       const held = deferred();
       navigationHooks.onPreloadData = () => held.promise.then(() => ({ type: 'loaded', data: {} }));
       await pick(target, 'runs');
+      // The pin only means something if the choice is parked inside preloadData when the page goes.
+      expect(navigationCalls.filter((c) => c.fn === 'preloadData')).toHaveLength(1);
+      expect(gotos()).toEqual([]);
       const first = mounted.pop()!;
       const rejections = await captureUnhandledRejections(async () => {
         first.unmount();
@@ -582,6 +585,8 @@ describe('App tab navigation failure feedback (#2288)', () => {
       const held = deferred();
       navigationHooks.onGoto = () => held.promise;
       await pick(target, 'runs');
+      // Held inside goto, not before it: the navigation was started and is still pending at teardown.
+      expect(gotos()).toEqual(['/app/apps/a1?tab=runs']);
       const first = mounted.pop()!;
       const rejections = await captureUnhandledRejections(async () => {
         first.unmount();
@@ -590,6 +595,7 @@ describe('App tab navigation failure feedback (#2288)', () => {
         await tick(4);
       });
       expect(rejections).toEqual([]);
+      expect(gotos()).toEqual(['/app/apps/a1?tab=runs']); // nothing further after the resolve
       expect(navigationCalls.filter((c) => c.fn === 'replaceState')).toEqual([]);
     });
   });
@@ -617,6 +623,8 @@ describe('App tab navigation failure feedback (#2288)', () => {
     await wait(20);
     await tick(4);
     expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
+    // The held first goto resolving adds no third navigation.
+    expect(navigationCalls.filter((c) => c.fn === 'goto')).toHaveLength(2);
   });
 
   it('a failure on one App is gone when the page is reused for another, and stays gone on return', async () => {
