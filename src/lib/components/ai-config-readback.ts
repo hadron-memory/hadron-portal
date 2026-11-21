@@ -1,9 +1,17 @@
-import { AI_CONFIG_PROVIDERS } from '$lib/ai-config';
+import { AI_CONFIG_PROVIDERS, AI_CONFIG_TEST_DEADLINE_MS } from '$lib/ai-config';
 import type { AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 
 /** The AI-config section's own re-read; never a router-wide invalidateAll(). */
 export const AI_CONFIGS_ENDPOINT = '/api/ai-configs';
-export const AI_CONFIG_TIMEOUT_MS = 10_000;
+
+/**
+ * The client's network window for AI-config work, derived from the server's
+ * respond-test deadline so the client can never abort first (#2054): the user
+ * sees the server's own timeout result, and no request runs on after the UI
+ * called it timed out. The margin covers transport and server overhead
+ * between the deadline tripping and the response reaching the browser.
+ */
+export const AI_CONFIG_TIMEOUT_MS = AI_CONFIG_TEST_DEADLINE_MS + 5_000;
 
 /** Explicit document readback must not degrade into same-fragment scrolling. */
 export function aiConfigReloadHref(): string {

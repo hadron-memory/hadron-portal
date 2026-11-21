@@ -11,6 +11,7 @@ import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
 import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
+import { AI_CONFIG_TIMEOUT_MS } from './ai-config-readback';
 import { page as stubPage, resetStubPage } from '$lib/test/stubs/app-stores';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
@@ -516,7 +517,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     button(target, 'Test').click();
     await settle();
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS);
     flushSync();
     expect(requestSignal?.aborted).toBe(true);
     expect(target.textContent).toContain('The test timed out. Try again.');
@@ -810,7 +811,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     await settle();
     expect(button(target, 'Save').disabled).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS);
     flushSync();
     expect(feedback(target).textContent).toContain('couldn’t be refreshed');
     expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
@@ -939,7 +940,7 @@ describe('AI configuration review fix pins', () => {
     expect(target.querySelector(`button[aria-label="${aiConfigStrings.actionsLabel('fast')}"]`)).not.toBeNull();
     expect(feedback(target).textContent).not.toContain('couldn’t be refreshed');
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS);
     flushSync();
     expect(onRefreshed).toHaveBeenCalledTimes(1);
     expect(relatedSignal?.aborted).toBe(true);
@@ -1159,7 +1160,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     await settle();
     expect(button(target, 'Save').disabled).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS);
     flushSync();
     expect(feedback(target).textContent).toContain('couldn’t confirm the change went through');
     expect(feedback(target).querySelector('a[data-sveltekit-reload]')).not.toBeNull();
@@ -1176,7 +1177,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     button(target, 'Save').click();
     await settle();
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS);
     flushSync();
     expect(feedback(target).textContent).toContain('couldn’t be refreshed');
 
@@ -1378,7 +1379,7 @@ describe('AI configuration code-review lifecycle pins', () => {
     rejectCreate(new Error('dropped response'));
     await settle();
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS);
     flushSync();
     expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
     button(m.target, 'Add configuration').click();
@@ -2056,7 +2057,7 @@ describe('#1898 follow-ups', () => {
     submit.click(); await settle();
     expect(submit.disabled).toBe(true);
     expect(posts.filter(p => p.action === 'create')).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(10_000); await settle();
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS); await settle();
     expect(button(m.target, 'Save').disabled).toBe(false);
     expect($<HTMLInputElement>(m.target, '#ac-key')?.value).toBe('synthetic-key');
     principalReadHandler = null;

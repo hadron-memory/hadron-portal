@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseAiConfigList, readAiConfigs, readResolvedAiConfigs, withAiConfigTimeout } from './ai-config-readback';
+import { AI_CONFIG_TEST_DEADLINE_MS } from '$lib/ai-config';
+import {
+  AI_CONFIG_TIMEOUT_MS,
+  parseAiConfigList,
+  readAiConfigs,
+  readResolvedAiConfigs,
+  withAiConfigTimeout,
+} from './ai-config-readback';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -15,6 +22,13 @@ const masked = {
 };
 
 describe('AI configuration readback parser', () => {
+  it('the client window outlasts the server respond-test deadline (#2054)', () => {
+    // The client must never abort before the server's own deadline: the user
+    // sees the server's timeout result, never a client timeout that leaves
+    // the request running unseen. Pin the relation so the two cannot cross.
+    expect(AI_CONFIG_TIMEOUT_MS).toBeGreaterThan(AI_CONFIG_TEST_DEADLINE_MS);
+  });
+
   it('drops fields outside the fixed masked DTO instead of forwarding them', () => {
     const parsed = parseAiConfigList({
       configs: [{

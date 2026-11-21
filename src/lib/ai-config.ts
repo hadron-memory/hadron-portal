@@ -1,6 +1,14 @@
 import type { AIProvider, AiConfigProvider } from './types';
 import { t } from './i18n/t';
 
+/**
+ * The server's own deadline for one AI-config respond test (#2042): the abort
+ * the user must be able to see. The client's network window is derived from
+ * this value so it can never fire first (#2054) — shared because the server
+ * route and the client helper live on opposite sides of `$lib/server`.
+ */
+export const AI_CONFIG_TEST_DEADLINE_MS = 20_000;
+
 export const AI_PROVIDERS: { value: AIProvider; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic (Claude)' },
   { value: 'openai', label: 'OpenAI' },
