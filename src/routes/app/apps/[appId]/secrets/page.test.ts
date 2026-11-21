@@ -51,7 +51,10 @@ describe('a staged result that has since ended', () => {
   });
   it('a staged create clears the name field', () => {
     const html = render(List as never, { props: { data: { app, secrets: { kind: 'ok', secrets: [secret], total: 1 }, signing: 'on', pending: [], impersonating: null }, form: { action: 'create', staged: true, name: 'new-key' } } } as never).body;
-    expect(html).not.toMatch(/id="secret-name"[^>]*value="new-key"/);
+    // Read the whole input tag, so the check does not depend on the order its attributes are emitted in.
+    const tag = html.match(/<input\b[^>]*\bid="secret-name"[^>]*>/)?.[0] ?? '';
+    expect(tag).not.toBe('');
+    expect(tag).not.toContain('new-key');
   });
 });
 
