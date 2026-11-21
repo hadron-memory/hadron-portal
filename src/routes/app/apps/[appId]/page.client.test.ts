@@ -2026,6 +2026,9 @@ describe('App AI configuration readback lifecycle', () => {
     await tick(30);
     expect(relatedSignal?.aborted).toBe(false);
 
+    // The related read's timer is armed a few ticks after mount (form fill,
+    // one await hop), so its window ends slightly past mount + the constant;
+    // advance beyond it rather than exactly to it.
     await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS + 1_000);
     expect(relatedSignal?.aborted).toBe(true);
   });

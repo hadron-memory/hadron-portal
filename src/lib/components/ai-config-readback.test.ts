@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AI_CONFIG_TEST_DEADLINE_MS } from '$lib/ai-config';
+import { AI_CONFIG_TEST_DEADLINE_MS, AI_CONFIG_TEST_MARGIN_MS } from '$lib/ai-config-deadline';
 import {
+  AI_CONFIG_RESPOND_TEST_TIMEOUT_MS,
   AI_CONFIG_TIMEOUT_MS,
   parseAiConfigList,
   readAiConfigs,
@@ -22,11 +23,22 @@ const masked = {
 };
 
 describe('AI configuration readback parser', () => {
-  it('the client window outlasts the server respond-test deadline (#2054)', () => {
-    // The client must never abort before the server's own deadline: the user
-    // sees the server's timeout result, never a client timeout that leaves
-    // the request running unseen. Pin the relation so the two cannot cross.
-    expect(AI_CONFIG_TIMEOUT_MS).toBeGreaterThan(AI_CONFIG_TEST_DEADLINE_MS);
+  it('pins the two client windows and their relation to the server deadline (#2054)', () => {
+    // Ordinary AI-config reads and mutations (identity check, section re-read,
+    // related refresh, uncertain-mutation lock) keep the historic 10 s window:
+    // only the respond test must outlast the server's deadline, and coupling
+    // the two held the form Save-disabled 2.5× longer after a dropped
+    // mutation response. The literal pin means moving either window is a
+    // conscious change to this test, not a silent drift.
+    expect(AI_CONFIG_TIMEOUT_MS).toBe(10_000);
+    // The respond-test window is derived, never chosen independently: it must
+    // outlast the server's 20 s abort (#2042) so the user sees that result,
+    // never a client abort with the request still running unseen (#2054).
+    expect(AI_CONFIG_RESPOND_TEST_TIMEOUT_MS).toBe(25_000);
+    expect(AI_CONFIG_RESPOND_TEST_TIMEOUT_MS).toBeGreaterThan(AI_CONFIG_TEST_DEADLINE_MS);
+    // The margin covers the server's pre-LLM work, serialization and
+    // transport; it may grow, but never shrink below 5 s unnoticed.
+    expect(AI_CONFIG_TEST_MARGIN_MS).toBeGreaterThanOrEqual(5_000);
   });
 
   it('drops fields outside the fixed masked DTO instead of forwarding them', () => {

@@ -11,7 +11,7 @@ import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
 import { managerCallbacks } from '$lib/test/ai-config-manager-callbacks';
 import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
-import { AI_CONFIG_TIMEOUT_MS } from './ai-config-readback';
+import { AI_CONFIG_RESPOND_TEST_TIMEOUT_MS, AI_CONFIG_TIMEOUT_MS } from './ai-config-readback';
 import { page as stubPage, resetStubPage } from '$lib/test/stubs/app-stores';
 import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
@@ -518,6 +518,14 @@ describe('AI configuration feedback lifecycle review controls', () => {
     await settle();
 
     await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS);
+    flushSync();
+    // The ordinary window no longer bounds the respond test (#2054): only its
+    // own derived window may abort it, so the server's 20 s deadline result
+    // stays observable instead of being cut off at 10 s again.
+    expect(requestSignal?.aborted).toBe(false);
+    expect(target.textContent).not.toContain('The test timed out. Try again.');
+
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_RESPOND_TEST_TIMEOUT_MS - AI_CONFIG_TIMEOUT_MS);
     flushSync();
     expect(requestSignal?.aborted).toBe(true);
     expect(target.textContent).toContain('The test timed out. Try again.');

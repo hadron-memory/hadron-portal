@@ -1,17 +1,26 @@
-import { AI_CONFIG_PROVIDERS, AI_CONFIG_TEST_DEADLINE_MS } from '$lib/ai-config';
+import { AI_CONFIG_PROVIDERS } from '$lib/ai-config';
+import { AI_CONFIG_TEST_DEADLINE_MS, AI_CONFIG_TEST_MARGIN_MS } from '$lib/ai-config-deadline';
 import type { AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 
 /** The AI-config section's own re-read; never a router-wide invalidateAll(). */
 export const AI_CONFIGS_ENDPOINT = '/api/ai-configs';
 
 /**
- * The client's network window for AI-config work, derived from the server's
- * respond-test deadline so the client can never abort first (#2054): the user
- * sees the server's own timeout result, and no request runs on after the UI
- * called it timed out. The margin covers transport and server overhead
- * between the deadline tripping and the response reaching the browser.
+ * The ordinary client network window for AI-config work: the identity check,
+ * the section re-read, the related refresh and the uncertain-mutation lock.
+ * Deliberately NOT derived from the server's respond-test deadline (#2054) —
+ * only the respond test needs to outlast it, and coupling them held the form
+ * Save-disabled 2.5× longer after a dropped mutation response.
  */
-export const AI_CONFIG_TIMEOUT_MS = AI_CONFIG_TEST_DEADLINE_MS + 5_000;
+export const AI_CONFIG_TIMEOUT_MS = 10_000;
+
+/**
+ * The respond-test request's own window: the one call that must outlast the
+ * server's 20 s test deadline (#2042), so the user sees the server's abort —
+ * never a client one that leaves the request running unseen (#2054). Derived
+ * from the deadline plus a named margin, never chosen independently.
+ */
+export const AI_CONFIG_RESPOND_TEST_TIMEOUT_MS = AI_CONFIG_TEST_DEADLINE_MS + AI_CONFIG_TEST_MARGIN_MS;
 
 /** Explicit document readback must not degrade into same-fragment scrolling. */
 export function aiConfigReloadHref(): string {
@@ -19,12 +28,17 @@ export function aiConfigReloadHref(): string {
   return `${window.location.pathname}${window.location.search}`;
 }
 
-/** One abort + timer + race implementation for AI-config network work. */
+/**
+ * One abort + timer + race implementation for AI-config network work. The
+ * window defaults to the ordinary timeout; the respond test passes its own
+ * derived window so it alone outlasts the server's deadline (#2054).
+ */
 export function withAiConfigTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   onTimeout: () => T,
   controller = new AbortController(),
   parentSignal?: AbortSignal,
+  timeoutMs: number = AI_CONFIG_TIMEOUT_MS,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let onAbort: (() => void) | null = null;
@@ -41,7 +55,7 @@ export function withAiConfigTimeout<T>(
   };
   const bounded = new Promise<T>((resolve, reject) => {
     onAbort = () => abort(resolve, reject);
-    timer = setTimeout(onAbort, AI_CONFIG_TIMEOUT_MS);
+    timer = setTimeout(onAbort, timeoutMs);
     if (controller.signal.aborted) onAbort();
     else controller.signal.addEventListener('abort', onAbort, { once: true });
     if (parentSignal && parentSignal !== controller.signal) {

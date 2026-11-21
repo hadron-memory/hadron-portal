@@ -17,7 +17,7 @@
   import type { ListPageNavigation } from '$lib/list-page';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import Urn from './Urn.svelte';
-  import { parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
+  import { AI_CONFIG_RESPOND_TEST_TIMEOUT_MS, AI_CONFIG_TIMEOUT_MS, parseAiConfig, withAiConfigTimeout } from './ai-config-readback';
   import { nextAiConfigMutationId } from './ai-config-recovery';
   import {
     isValidConfigName,
@@ -743,7 +743,14 @@
     }
   }
 
-  async function post(payload: Record<string, unknown>, uncertainMutation = false, parentSignal?: AbortSignal): Promise<Record<string, unknown>> {
+  async function post(
+    payload: Record<string, unknown>,
+    uncertainMutation = false,
+    parentSignal?: AbortSignal,
+    // The respond test outlasts the server's 20 s deadline (#2054); every
+    // other request keeps the ordinary window.
+    timeoutMs: number = AI_CONFIG_TIMEOUT_MS,
+  ): Promise<Record<string, unknown>> {
     let res: Response;
     let body: unknown;
     const request = (signal?: AbortSignal) => (async () => {
@@ -768,6 +775,7 @@
           },
           undefined,
           parentSignal,
+          timeoutMs,
         ));
       } else {
         ({ response: res, body } = await request());
@@ -1050,7 +1058,7 @@
           }
           override.params = params.value;
         }
-        const res = (await post({ action: 'testSaved', id: editing.id, override }, false, action.signal)) as { result: AiConfigTestResult };
+        const res = (await post({ action: 'testSaved', id: editing.id, override }, false, action.signal, AI_CONFIG_RESPOND_TEST_TIMEOUT_MS)) as { result: AiConfigTestResult };
         if (!isCurrent(action)) return;
         testResult = testResultView(res.result);
       } else if (!inlineTestable({ provider: providerInput, endpoint: endpointInput, apiStyle: apiStyleInput })) {
@@ -1063,7 +1071,7 @@
           provider: providerInput,
           model: modelInput.trim(),
           apiKey: enteredKey,
-        }, false, action.signal)) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        }, false, action.signal, AI_CONFIG_RESPOND_TEST_TIMEOUT_MS)) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
         if (!isCurrent(action)) return;
         testResult = r.ok
           ? { ok: true, headline: t('ai-config.test.ok.inline', '✓ Works: {provider} / {model}.', { provider: r.provider ?? '', model: r.model ?? '' }), details: r.reply ? [t('ai-config.test.reply', 'Reply: “{reply}”', { reply: r.reply })] : [] }
