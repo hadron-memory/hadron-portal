@@ -1696,6 +1696,30 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
   });
 
+  // #2420 (BLIND, unverified until now): a host refusal is an error on the host field, and it stays
+  // until the form is reset or resubmitted. Picking another host does NOT clear it, so the group
+  // keeps aria-invalid while the reader fixes it; the next submit's reply replaces it. Pinned as
+  // today's behaviour so a change to it is a decision, not an accident.
+  it('a host refusal stays on the host group while the reader picks another host, and a reopen clears it', async () => {
+    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.errors = { hostId: ['This key already operates as host h-1.'] };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    pickHost(dialog, 'h-1');
+    await tick(2);
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const reopened = await openGrant(panel);
+    await chooseScope(reopened, 'host:operate');
+    expect(hostGroup(reopened)!.getAttribute('aria-invalid')).not.toBe('true');
+  });
+
   it('a success closes the dialog and announces the granted scope', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
@@ -1721,9 +1745,9 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
-    // The success path invalidates the page and the table re-renders its
-    // rows — the captured ⋯ trigger can be detached by the time the dialog
-    // unmounts. Stand in for that by removing the row outright.
+    // A keyed row normally survives the success path's invalidation, so a
+    // detached trigger is the DEFENSIVE case (a refresh that dropped the key).
+    // Stand in for it by removing the row outright.
     const tabPanel = document.getElementById('panel-keys')!;
     const trigFocus = vi.spyOn(trigBefore, 'focus');
     const panelFocus = vi.spyOn(tabPanel, 'focus');
@@ -1829,6 +1853,24 @@ describe('App key scope grant dialog (portal#1487)', () => {
       expect(dialog.textContent).toContain('hk_cd…wv');
       expect(new FormData(grantForm(dialog)).get('keyId')).toBe('k2');
       expect(scopeSelect(dialog).value).toBe('attention:deliver');
+    });
+
+    // #2420 F3: the fence-skip is per teardown. A fence-driven close leaves the flag set;
+    // the next open clears it, so an ordinary close on B whose trigger is gone still
+    // lands focus on the Keys panel. A flag that outlived the open would skip that fallback.
+    it('a fence-driven close does not silence the Keys-panel fallback of the next dialog', async () => {
+      const { m, props } = await mountAppKeys();
+      await openGrant(m.target);
+      await moveTo(props, 'a2', KEY_B);
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      const dialog = await openGrant(m.target);
+      const tabPanel = document.getElementById('panel-keys')!;
+      const panelFocus = vi.spyOn(tabPanel, 'focus');
+      document.querySelector('button[aria-label^="Actions for key"]')!.closest('tr')!.remove();
+      (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+      flushSync(); await tick(2);
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(panelFocus).toHaveBeenCalledWith({ preventScroll: true });
     });
 
     it('A’s late grant answer says nothing on B and refreshes nothing there', async () => {
