@@ -184,3 +184,44 @@ describe('error paths expose no key, provider text, cause or model text', () => 
     }
   });
 });
+
+// #2036 (a): the failed-turn line says whether the turn ran under auto, and an auto turn with no
+// respond call has its own closed class, so the rate the auto choice costs is countable.
+describe('#2036 the failed-turn line names the choice', () => {
+  const lineOf = () => logged.map((a) => a.map(String).join(' ')).filter((l) => l.includes('[agent-chat] llm turn failed'));
+  const PROSE = 'prose SECRETMODELTEXT2036';
+
+  it('auto + prose reply: class=auto-no-respond choice=auto, still llmFailed after exactly one request', async () => {
+    next = () => reply([{ type: 'text', text: PROSE }]);
+    const e = await call('claude-sonnet-5-5').catch((x) => x);
+    expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
+    expect(bodies).toHaveLength(1);
+    const lines = lineOf();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('class=auto-no-respond');
+    expect(lines[0]).toContain('stage=tool-output');
+    expect(lines[0]).toContain('choice=auto');
+  });
+
+  it('forced + prose reply: the existing unexpected-tool-output class, choice=forced, no new token', async () => {
+    next = () => reply([{ type: 'text', text: PROSE }]);
+    const e = await call('claude-sonnet-5-5', 'anthropic', HISTORY, TOOLS, 'FORCED').catch((x) => x);
+    expect(publicChatError(e).code).toBe('llmFailed');
+    const lines = lineOf();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('class=unexpected-tool-output');
+    expect(lines[0]).toContain('choice=forced');
+    expect(lines[0]).not.toContain('auto-no-respond');
+  });
+
+  it('the line carries no model text', async () => {
+    for (const choice of ['AUTO', 'FORCED'] as const) {
+      next = () => reply([{ type: 'text', text: PROSE }]);
+      logged = [];
+      await call('claude-sonnet-5-5', 'anthropic', HISTORY, TOOLS, choice).catch((x) => x);
+      const everything = lineOf().join('\n');
+      expect(everything).not.toContain('SECRETMODELTEXT2036');
+      expect(everything).not.toContain('prose');
+    }
+  });
+});

@@ -115,6 +115,8 @@ export async function callAgentChatLlm(args: {
       turn: args.messages.length === 0 ? 'welcome' : 'turn',
       provider: args.provider,
       tools: args.tools?.length ?? 0,
+      choice: trace.auto ? 'auto' : 'forced',
+      noRespond: trace.noRespond === true,
     }));
     throw new ChatError('llmFailed');
   }
@@ -134,14 +136,17 @@ export async function callAgentChatLlm(args: {
 /** Where in one turn the failure happened, set by the call itself, not read from the error. */
 type LlmStage = 'config' | 'request' | 'tool-output';
 type LlmBranch = 'plain' | 'respond';
-interface LlmTrace { stage: LlmStage; branch?: LlmBranch }
-interface LlmFailureContext { stage: LlmStage; branch: LlmBranch; turn: 'welcome' | 'turn'; provider: AIProvider; tools: number }
+type LlmChoice = 'auto' | 'forced';
+/** `auto` and `noRespond` are set by the call itself (#2036), never read from the error or the reply. */
+interface LlmTrace { stage: LlmStage; branch?: LlmBranch; auto?: boolean; noRespond?: boolean }
+interface LlmFailureContext { stage: LlmStage; branch: LlmBranch; turn: 'welcome' | 'turn'; provider: AIProvider; tools: number; choice?: LlmChoice; noRespond?: boolean }
 
 /** Every field of the line comes out of one of these lists (or an integer), never from the input. */
 export const LOGGABLE_PROVIDERS = ['anthropic', 'openai', 'glm', 'bedrock'] as const satisfies readonly AIProvider[];
 const LOGGABLE_STAGES = ['config', 'request', 'tool-output'] as const satisfies readonly LlmStage[];
 const LOGGABLE_BRANCHES = ['plain', 'respond'] as const satisfies readonly LlmBranch[];
 const LOGGABLE_TURNS = ['welcome', 'turn'] as const;
+const LOGGABLE_CHOICES = ['auto', 'forced'] as const satisfies readonly LlmChoice[];
 const LOGGABLE_ANTHROPIC_TYPES: readonly string[] = [
   'invalid_request_error', 'authentication_error', 'permission_error', 'not_found_error',
   'rate_limit_error', 'api_error', 'overloaded_error',
@@ -202,15 +207,18 @@ export function describeLlmFailure(error: unknown, ctx: LlmFailureContext): stri
   const stage = pick(ctx.stage, LOGGABLE_STAGES, 'request');
   const branch = pick(ctx.branch, LOGGABLE_BRANCHES, 'respond');
   const turn = pick(ctx.turn, LOGGABLE_TURNS, 'turn');
+  const choice = pick(ctx.choice, LOGGABLE_CHOICES, 'forced');
   const provider = pick<AIProvider | 'unknown'>(ctx.provider, [...LOGGABLE_PROVIDERS, 'unknown'], 'unknown');
   const tools = Number.isInteger(ctx.tools) && ctx.tools >= 0 ? ctx.tools : 0;
   const status = stage === 'request' ? statusOf(error) : null;
   // The error.type vocabulary is Anthropic's; another provider's body may reuse a string by accident.
   const type = status !== null && provider === 'anthropic' ? anthropicTypeOf(error) : null;
   const klass = stage === 'config' ? 'config'
-    : stage === 'tool-output' ? 'unexpected-tool-output'
+    // #2036: an auto turn whose reply carried no respond call is countable on its own, so the
+    // rate the auto choice costs can be read off the log. A forced turn keeps the existing class.
+    : stage === 'tool-output' ? (choice === 'auto' && ctx.noRespond === true ? 'auto-no-respond' : 'unexpected-tool-output')
     : status === null ? 'request-failed' : 'provider-status';
-  return `[agent-chat] llm turn failed class=${klass} stage=${stage} branch=${branch} turn=${turn} provider=${provider} status=${status ?? 'none'} type=${type ?? 'none'} tools=${tools}`;
+  return `[agent-chat] llm turn failed class=${klass} stage=${stage} branch=${branch} choice=${choice} turn=${turn} provider=${provider} status=${status ?? 'none'} type=${type ?? 'none'} tools=${tools}`;
 }
 
 /** Logging must never replace or escape the public error: the context is built inside the guard too. */
@@ -273,6 +281,7 @@ async function callAgentChatLlmUnsafe(args: {
   trace.stage = 'request';
   trace.branch = respondTool ? 'respond' : 'plain';
   const autoToolChoice = respondTool !== undefined && args.toolChoice === 'AUTO';
+  trace.auto = autoToolChoice;
   const systemForSdk = autoToolChoice
     ? (baseSystem === undefined ? RESPOND_ONCE_INSTRUCTION : `${baseSystem}\n\n${RESPOND_ONCE_INSTRUCTION}`)
     : baseSystem;
@@ -336,6 +345,7 @@ async function callAgentChatLlmUnsafe(args: {
 
   if (!firstCall || firstCall.toolName !== 'respond') {
     trace.stage = 'tool-output';
+    trace.noRespond = true;
     throw new Error(
       `LLM did not produce a respond() tool call. Got text: ${result.text?.slice(0, 200) ?? '(empty)'}`,
     );
