@@ -311,6 +311,17 @@ describe('account load: the passkey-registration link (portal#1022)', () => {
     expect(await out.passkeysUrl).toBe('https://server.example/passkeys/register');
   });
 
+  // portal#1864 (Basil's LOCAL-delta P3 on #1860): the single-slash pin above
+  // lets a `+`-dropped mutant (`/\/$/` — strip exactly one slash) survive,
+  // because it strips the one slash that case carries. A base ending in
+  // multiple slashes must still join with exactly one separator.
+  it('strips every trailing slash, not only one, before joining', async () => {
+    publicEnv.PUBLIC_SERVER_URL = 'https://server.example//';
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: Promise<string | null> };
+    expect(await out.passkeysUrl).toBe('https://server.example/passkeys/register');
+  });
+
   it('falls back to the local default base when the env var is unset', async () => {
     const { load } = await import('./+page.server');
     const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { passkeysUrl: Promise<string | null> };
