@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { GraphQLError } from 'graphql';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
@@ -19,7 +19,8 @@ const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn() }));
 const node = { id: 'node-1', memoryId: 'mem-1', loc: 'boot:compiled', name: 'Compiled', nodeType: 'compiled-boot-prompt', role: 'boot-prompt', isRunnable: false, data: {}, properties: {}, tags: [] };
-beforeEach(() => { request.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}).mockClear(); });
+beforeEach(() => { request.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
+afterEach(() => { vi.restoreAllMocks(); });
 
 type Stage = 'read' | 'write';
 /** What the failing request throws: a plain Error (never a GraphQL response), or a GraphQL error with these extensions. */
@@ -34,7 +35,7 @@ async function save(stage: Stage, wire: Wire) {
     : new ClientError({ status: 200, headers: new Headers(), body: '', errors: [new GraphQLError(wire.message, { extensions: wire.extensions ?? {} })] }, { query: 'mutation q', variables: {} });
   request.mockImplementation(async (doc) => {
     if (doc === NODE_BY_ID_QUERY) { if (stage === 'read') throw failure(); return { node }; }
-    throw failure();
+    throw failure(); // the one other request the action makes is the write
   });
   const { actions } = await import('./+page.server');
   const fd = new FormData();
@@ -42,9 +43,14 @@ async function save(stage: Stage, wire: Wire) {
   return (await (actions as Record<string, (e: never) => Promise<unknown>>).updateContent({ request: { formData: async () => fd }, params: { id: 'mem-1', nodeId: 'node-1' }, locals: { token: 'test' } } as never)) as SaveResult;
 }
 
-const GENERIC_WRITE = { contentFailed: { code: 'failed', detail: 'Something went wrong on our side.' } };
+const GENERIC_FAILURE = { contentFailed: { code: 'failed', detail: 'Something went wrong on our side.' } };
 /** What the log carries: exactly the operation, the stage and a bounded code, so no content or wire text can ride along. */
 const savedFailureLog = (stage: Stage, code: string) => [['[node-detail] save failed:', { op: 'update-content', stage, code }]];
+/** The read stage short-circuits (one request, the read); the write stage reads first, then writes once. */
+const expectRequests = (stage: Stage) => {
+  expect(request).toHaveBeenCalledTimes(stage === 'read' ? 1 : 2);
+  expect(request.mock.calls[0][0]).toBe(NODE_BY_ID_QUERY);
+};
 const logged = () => (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
 const expectNoneOf = (r: unknown, ...secrets: string[]) => { for (const s of secrets) expect(JSON.stringify(r)).not.toContain(s); };
 
@@ -61,28 +67,32 @@ describe('portal#1899 compiled boot prompt save', () => {
     const r = await save('write', withCode('SOMETHING_NEW', 'private wire prose'));
     expect(r.status).toBe(500);
     expectNoneOf(r, 'private wire prose');
-    expect(r.data).toEqual(GENERIC_WRITE);
+    expect(r.data).toEqual(GENERIC_FAILURE);
     expect(logged()).toEqual(savedFailureLog('write', 'SOMETHING_NEW'));
+    expectRequests('write');
   });
   it.each(['read', 'write'] as const)('a plain %s Error never reaches the response; the log is bounded', async (stage) => {
     const r = await save(stage, { plain: 'private plain error' });
     expect(r.status).toBe(500);
     expectNoneOf(r, 'private plain');
     expect(logged()).toEqual(savedFailureLog(stage, 'no-code'));
+    expectRequests(stage);
   });
   it('an out-of-shape wire code is logged as a fixed marker, never as itself', async () => {
     const r = await save('write', withCode('some wire prose with content', 'private wire prose'));
     expect(r.status).toBe(500);
     expectNoneOf(r, 'private wire prose', 'some wire prose with content');
-    expect(r.data).toEqual(GENERIC_WRITE);
+    expect(r.data).toEqual(GENERIC_FAILURE);
     expect(logged()).toEqual(savedFailureLog('write', 'unrecognized'));
+    expectRequests('write');
   });
   it.each([['omitted', undefined], ['empty', '']] as const)('a GraphQL error with %s code shows the generic copy, never its message', async (_label, code) => {
     const r = await save('write', withCode(code, 'private wire prose'));
     expect(r.status).toBe(500);
     expectNoneOf(r, 'private wire prose');
-    expect(r.data).toEqual(GENERIC_WRITE);
+    expect(r.data).toEqual(GENERIC_FAILURE);
     expect(logged()).toEqual(savedFailureLog('write', 'no-code'));
+    expectRequests('write');
   });
 
   // portal#2405: the wire code is untrusted JSON, so a value that is not a string is its own fixture,
@@ -97,8 +107,9 @@ describe('portal#1899 compiled boot prompt save', () => {
     const r = await save('write', { message: 'private wire prose', extensions: { code } });
     expect(r.status).toBe(500);
     expectNoneOf(r, 'private wire prose', 'BOOT_PROMPT_COMPILED_WRITE');
-    expect(r.data).toEqual(GENERIC_WRITE);
+    expect(r.data).toEqual(GENERIC_FAILURE);
     expect(logged()).toEqual(savedFailureLog('write', 'no-code'));
+    expectRequests('write');
   });
 });
 
@@ -113,20 +124,23 @@ describe('portal#2405 the read stage fails like the write stage, and is never cl
     const r = await save('read', wire);
     expect(r.status).toBe(500);
     expectNoneOf(r, 'private wire prose');
-    expect(r.data.contentFailed.code).toBe('failed');
+    expect(r.data).toEqual(GENERIC_FAILURE);
     expect(logged()).toEqual(savedFailureLog('read', 'no-code'));
+    expectRequests('read');
   });
   it('a typed boot-prompt code on the READ is not a refusal: only the write is judged for it, so it stays a 500', async () => {
     const r = await save('read', withCode('BOOT_PROMPT_COMPILED_WRITE', 'private wire prose'));
     expect(r.status).toBe(500);
-    expect(r.data.contentFailed.code).toBe('failed');
+    expect(r.data).toEqual(GENERIC_FAILURE);
     expectNoneOf(r, 'private wire prose', 'compiled-prompt');
     expect(logged()).toEqual(savedFailureLog('read', 'BOOT_PROMPT_COMPILED_WRITE'));
+    expectRequests('read');
   });
   it('an out-of-shape code on the read is logged as the fixed marker, never as itself', async () => {
     const r = await save('read', withCode('some wire prose with content', 'private wire prose'));
     expect(r.status).toBe(500);
     expectNoneOf(r, 'private wire prose', 'some wire prose with content');
     expect(logged()).toEqual(savedFailureLog('read', 'unrecognized'));
+    expectRequests('read');
   });
 });
