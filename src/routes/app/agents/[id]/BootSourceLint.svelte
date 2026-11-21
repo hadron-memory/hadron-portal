@@ -25,7 +25,8 @@
     const result = await reader.get<SourceLintRead>(url(null));
     if (result.kind === 'superseded') return;
     if (result.kind === 'failed' || !usable(result.body)) {
-      // Reopening the view reads again; a failure is not remembered as loaded.
+      // Reopening the view reads again; a failure is not remembered as loaded. Not a loop:
+      // loadedFor is a plain variable, so the effect does not track it (pinned in the tests).
       loadedFor = -1;
       lint = { kind: 'failed' };
     }

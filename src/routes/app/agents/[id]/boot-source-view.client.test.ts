@@ -206,7 +206,7 @@ describe('who sees it (portal#1667)', () => {
 
 describe('source lint read robustness (portal#1677)', () => {
   const FAILED = 'Couldn’t load warnings';
-  it.each([['null', 'null'], ['a string', '"x"'], ['a number', '3'], ['an array', '[]']])('a 200 whose body is %s is a failed read, with no unhandled rejection', async (_n, raw) => {
+  it.each([['null', 'null'], ['a string', '"x"'], ['a number', '3'], ['an array', '[]'], ['HTML', '<html>502 Bad Gateway</html>'], ['empty', '']])('a 200 whose body is %s is a failed read, with no unhandled rejection', async (_n, raw) => {
     routes(() => new Response(raw, { status: 200 }));
     let root!: HTMLElement;
     const caught = await captureUnhandledRejections(async () => { root = await open(); });
@@ -222,6 +222,20 @@ describe('source lint read robustness (portal#1677)', () => {
     await switchTo(root, 'Boot prompt');
     expect(calls.filter((u) => u.includes('/lint'))).toHaveLength(2);
     expect(root.querySelector('[data-lint-kind="BROKEN_INCLUDE"]')).not.toBeNull();
+  });
+  it('a read that always fails is made once, not in a loop, and Retry makes exactly one more', async () => {
+    const calls = routes(refused);
+    const root = await open();
+    await settle();
+    await settle();
+    const reads = () => calls.filter((u) => u.includes('/lint')).length;
+    expect(reads()).toBe(1);
+    expect(lintBox(root)?.textContent).toContain(FAILED);
+    button(root, 'Retry').click();
+    await settle();
+    await settle();
+    expect(reads()).toBe(2);
+    expect(lintBox(root)?.textContent).toContain(FAILED);
   });
   it('a successful read is not repeated by reopening the tab', async () => {
     const calls = routes(page([warn('BROKEN_INCLUDE')]));
