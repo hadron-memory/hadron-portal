@@ -398,6 +398,9 @@ describe('updateFlow: the visible editor shows the refused draft (portal#2467)',
     const { m } = await mountHydrated(await refusal('not json'));
     await openFlow(m);
     expect(field(m.target, '#flow-field-0')!.value, 'the saved row, not an empty editor').toBe('saved');
+    expect(field(m.target, '#flow-writeto')!.value, 'the saved write-to, not the unreadable draft’s').toBe(SAVED_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value, 'the saved mode, not the draft’s append').toBe('replace');
+    expect(saveButton(m).disabled, 'nothing differs from the saved flow, so nothing to resubmit').toBe(true);
   });
 
   it('a real node change resets the editor to the next node’s saved flow', async () => {

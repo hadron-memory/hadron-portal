@@ -709,16 +709,18 @@
   // Ordering matters: this effect is declared before the hidden-input sync effect below, node.data is
   // read before any early return so the effect keeps tracking it, and `refusedFlowDraft` is a plain
   // (non-reactive) variable that is cleared inside the effect on purpose, so it can seed only once.
-  // A draft the page cannot read (rows missing or not a JSON array) never overrides the saved rows,
-  // because an empty editor over a saved flow, with Save enabled, would wipe it in one click.
+  // A draft the page cannot read (rows missing or not a JSON array) seeds nothing: the editor shows
+  // the saved flow, rows and write-to and mode together, because an empty editor over a saved flow,
+  // with Save enabled, would wipe it in one click.
   let refusedFlowDraft = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow')?.data ?? null);
   const seededFromRefusal = refusedFlowDraft !== null;
   $effect(() => {
     const stored = node.data;
     const draft = refusedFlowDraft;
     refusedFlowDraft = null;
-    if (draft) {
-      flowRows = rowsFromDraftJson(draft.extractionRows) ?? rowsFromNodeData(stored);
+    const draftRows = draft ? rowsFromDraftJson(draft.extractionRows) : null;
+    if (draft && draftRows) {
+      flowRows = draftRows;
       outputWriteTo = typeof draft.outputWriteTo === 'string' ? draft.outputWriteTo : '';
       outputMode = draft.outputMode === 'append' ? 'append' : 'replace';
       return;
