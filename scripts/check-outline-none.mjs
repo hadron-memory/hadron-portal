@@ -67,7 +67,7 @@
  * `unclassifiedExtensions` makes a new extension (a `.vue`, a `.tsx`, an `.svg` with
  * classes) fail the test until someone classifies it — the filter can no longer pass a
  * file by omission. An extensionless file (`Makefile`) is classified as `(none)` and a dotfile
- * with no extension (`.gitignore`) under its own name, so the empty `extname` is never a way
+ * with no extension (`dotfile:.gitignore`) under its own name, so the empty `extname` is never a way
  * past it (portal#2392). `.html` is scanned because `src/app.html` is markup the app ships and
  * the class-attribute read applies to it unchanged. The scripts test also pins that no
  * excluded-extension file under `src/` carries an `outline-none`/`outline-hidden` token
@@ -190,7 +190,8 @@ export const NO_EXTENSION = '(none)';
 
 /**
  * What a file is classified by: its extension; a dotfile with none (`.gitignore`,
- * `.prettierrc`: `extname` is '') by its own name; any other extensionless file
+ * `.prettierrc`: `extname` is '') by its own name under a `dotfile:` prefix, so `.gitignore`
+ * and `fixture.gitignore` (extension `.gitignore`) can never share a key; any other extensionless file
  * (`Makefile`, `LICENSE`) as `NO_EXTENSION`. The empty string is never a key, so
  * no file can pass the classification by having nothing to classify (portal#2392).
  */
@@ -198,7 +199,7 @@ export function extensionKey(path) {
   const ext = extname(path);
   if (ext) return ext;
   const name = basename(path);
-  return name.startsWith('.') ? name : NO_EXTENSION;
+  return name.startsWith('.') ? `dotfile:${name}` : NO_EXTENSION;
 }
 
 /** Every classification key present on a file under `root`, sorted. */
