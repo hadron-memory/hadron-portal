@@ -92,8 +92,10 @@ describe('compile and approval outcomes', () => {
   it.each([
     ['FORBIDDEN', 'This change was refused.'],
     ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs an active grant to customise this Agent.'],
-    ['NODE_WRITE_CONFLICT', 'Another edit was saved. Reload before trying again.'],
-  ])('portal#1755: an empty-source start refused with %s never claims a kept draft', async (code, lead) => {
+    // #2410 BLIND P2: NODE_WRITE_CONFLICT on a start is the server's "changed
+    // while the write waited", which names no edit, so the lead must not either.
+    ['NODE_WRITE_CONFLICT', 'The start could not be completed. Reload before trying again.'],
+  ])('portal#1755: an empty-source start refused with %s claims no kept draft and hints at no source', async (code, lead) => {
     // No draft exists to keep, and the server's answer teaches nothing about a
     // source, so the start refusal states the refusal and nothing more.
     const request = vi.fn().mockResolvedValueOnce(worker).mockRejectedValueOnce(error(code));
@@ -101,7 +103,7 @@ describe('compile and approval outcomes', () => {
     expect(result.ok).toBe(false);
     expect('status' in result && result.status).toBe(403);
     expect(result.text).toBe(lead);
-    expect(result.text).not.toMatch(/draft/i);
+    expect(result.text).not.toMatch(/draft|edit|saved|source/i);
   });
   const install = { installMemory: { id: 'install', urn: 'hrn:mem:example.com:install' } };
   const node = { node: { id: 'c', urn: 'hrn:node:example.com:install:boot:compiled', revision: 3, content: 'compiled', approvalStatus: { state: 'NOT_APPROVED', approval: null }, lintWarnings: null } };
