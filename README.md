@@ -41,6 +41,8 @@ Open [http://localhost:5173](http://localhost:5173).
 
 Both variables point to the same server; the `PUBLIC_` prefix makes SvelteKit expose it to client-side code.
 
+`PUBLIC_SERVER_URL` is also the only origin the portal will send a person to for a server-hosted ceremony (an App secret change, a grant signature): a ceremony link on any other host is refused, and when it is unset no ceremony link or redirect is offered at all. It is never guessed from `LOCAL_SERVER_URL` or the `localhost` default.
+
 ## Auth flow
 
 Authentication is handled by hadron-server. Two identity providers are supported:
