@@ -93,7 +93,45 @@ describe('#2430 asset origin host allowlist', () => {
     expect(resolveAssetStorageOrigin(raw)).toBeNull();
     expect(error).toHaveBeenCalledOnce();
     expect(String(error.mock.calls[0][0])).toContain('PUBLIC_ASSET_STORAGE_ORIGIN');
-    expect(String(error.mock.calls[0][0])).not.toContain('script-src');
+    const line = JSON.stringify(error.mock.calls);
+    expect(line).not.toContain(raw);
+    for (const bit of ['script-src', 'fixture', 'alert(1)']) expect(line).not.toContain(bit);
+  });
+
+  it('an unparseable value carrying credentials is not logged either', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const raw = 'https://user:SECRETPASS2430@[bad';
+    expect(resolveAssetStorageOrigin(raw)).toBeNull();
+    expect(error).toHaveBeenCalledOnce();
+    expect(JSON.stringify(error.mock.calls)).not.toContain('SECRETPASS2430');
+  });
+
+  // The direct-caller guard: only an origin that is already exactly its own serialization is spliced.
+  it.each([
+    'https://store.example.test/path',
+    'https://store.example.test/',
+    'HTTPS://Store.Example.test',
+    'https://user@store.example.test',
+    'https://:pw@store.example.test',
+    'https://store.example.test ',
+    'https://store.example.test https://evil.test',
+    '',
+  ])('appendConnectSrc refuses the not-normalised origin %j', (origin) => {
+    expect(appendConnectSrc(HEADER, origin)).toBe(HEADER);
+  });
+  it.each(['https://user@store.example.test', 'https://:pw@store.example.test', 'https://store.example.test:99999'])(
+    'resolveAssetStorageOrigin refuses %s', (raw) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(resolveAssetStorageOrigin(raw)).toBeNull();
+    });
+  it.each([
+    ['https://store.example.test.', 'https://store.example.test.'],
+    ['http://10.0.0.5:9000', 'http://10.0.0.5:9000'],
+    ['https://store.example.test:443', 'https://store.example.test'],
+    ['HTTPS://STORE.EXAMPLE.TEST', 'https://store.example.test'],
+  ])('resolveAssetStorageOrigin admits %s as %s', (raw, expected) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(resolveAssetStorageOrigin(raw)).toBe(expected);
   });
 
   it.each(DISALLOWED_HOSTS)('appendConnectSrc never splices %s, called directly', (raw) => {

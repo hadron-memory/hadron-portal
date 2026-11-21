@@ -58,7 +58,8 @@ export function resolveAssetStorageOrigin(raw: string | undefined): string | nul
     parsed = new URL(raw);
   } catch {
     console.error(
-      `[csp] PUBLIC_ASSET_STORAGE_ORIGIN is not a valid URL (${JSON.stringify(raw)}) — ` +
+      // The raw value is not logged: a malformed value can still carry credentials (#2430).
+      '[csp] PUBLIC_ASSET_STORAGE_ORIGIN is not a valid URL — ' +
         'the object-store origin will be missing from connect-src and browser asset ' +
         'uploads WILL fail with a CSP violation.'
     );
