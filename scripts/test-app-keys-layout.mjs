@@ -150,7 +150,7 @@ function geometry() {
   // The Keys prose's own cap (the wrapper around the create row), the width a
   // note meant to read like the other prose must stay inside.
   const prose = form.closest('.max-w-2xl');
-  const note = [...panel.querySelectorAll('p[role="status"]')].find((p) => p.textContent.includes('what these keys may do'));
+  const note = [...panel.querySelectorAll('[role="status"] p')].find((p) => p.textContent.includes('what these keys may do'));
   // Preview cells: one line box each, and the whole value showing.
   const col = [...panel.querySelectorAll('thead th')].findIndex((th) => th.textContent.trim().startsWith('Preview'));
   const previewCells = [...panel.querySelectorAll('tbody tr')].map((tr) => tr.children[col]?.querySelector('span.font-mono'));
