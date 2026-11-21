@@ -183,6 +183,20 @@ jobs:
       # and screen-reader pass the manual pass left undone.
       - name: Check Question card layout and live regions
         run: pnpm test:question-card-layout
+        env:
+          HADRON_LAYOUT_SHOTS: test-results/question-card
+
+      # The eight committed shots in shots/ are the PR's review evidence; CI also
+      # regenerates them every run and uploads them, so drift from the committed
+      # baselines is visible without a pixel-compare gate (which would flake
+      # across Chromium versions).
+      - name: Upload Question card screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: question-card-layout
+          path: test-results/question-card
+          if-no-files-found: ignore
 
       # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
       - name: Check Nodes tab lazy reads
