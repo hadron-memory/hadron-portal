@@ -4331,8 +4331,8 @@ export const MEMORY_SHARES_QUERY = /* GraphQL */ `
 // or hrn:user URN server-side, so the picker can pass whatever it has and the
 // resolution rules stay in one place.
 export const CREATE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
-  mutation CreateMemoryShare($memoryId: ID!, $granteeRef: String!, $role: MemoryShareRole!) {
-    createMemoryShare(memoryId: $memoryId, granteeRef: $granteeRef, role: $role) {
+  mutation CreateMemoryShare($memoryRef: ID!, $granteeRef: ID!, $role: MemoryShareRole!) {
+    createMemoryShare(memoryRef: $memoryRef, granteeRef: $granteeRef, role: $role) {
       memoryShare { role grantee { id handle name } }
     }
   }
@@ -4340,8 +4340,8 @@ export const CREATE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
 
 // #668: change an existing grantee's role.
 export const UPDATE_MEMORY_SHARE_ROLE_MUTATION = /* GraphQL */ `
-  mutation UpdateMemoryShareRole($memoryId: ID!, $granteeRef: String!, $role: MemoryShareRole!) {
-    updateMemoryShareRole(memoryId: $memoryId, granteeRef: $granteeRef, role: $role) {
+  mutation UpdateMemoryShareRole($memoryRef: ID!, $granteeRef: ID!, $role: MemoryShareRole!) {
+    updateMemoryShareRole(memoryRef: $memoryRef, granteeRef: $granteeRef, role: $role) {
       memoryShare { role grantee { id handle name } }
     }
   }

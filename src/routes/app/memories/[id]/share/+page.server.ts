@@ -81,8 +81,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 // @copilot on #839: `[id]` is a REF — the loader passes it to `memory(ref:)`,
 // which accepts an id OR a URN. But `createMemoryShare` / `updateMemoryShareRole`
-// take `memoryId`, and the server looks that up with
-// `findUnique({ where: { id: memoryId } })` (`isMemorySharePrincipal`) — a
+// took `memoryId` (hadron-server#4137 renamed it `memoryRef`, which accepts an id
+// or a URN); the page still sends the canonical id, which is a valid ref and
+// keeps an unknown memory a 404 here instead of an indistinguishable FORBIDDEN.
+// Before the rename the server looked it up with `findUnique({ where: { id } })` — a
 // strict id, no ref resolution. So on a URN-addressed page the list LOADS and
 // then every grant and role change fails FORBIDDEN, because the URN matched no
 // row and "no such memory" and "not the principal" are deliberately
@@ -105,7 +107,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(CREATE_MEMORY_SHARE_MUTATION, {
-        memoryId: await resolveMemoryId(locals.token, params.id),
+        memoryRef: await resolveMemoryId(locals.token, params.id),
         granteeRef: form.data.granteeRef,
         role: form.data.role,
       });
@@ -124,7 +126,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_SHARE_ROLE_MUTATION, {
-        memoryId: await resolveMemoryId(locals.token, params.id),
+        memoryRef: await resolveMemoryId(locals.token, params.id),
         granteeRef: form.data.granteeRef,
         role: form.data.role,
       });

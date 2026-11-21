@@ -1,4 +1,4 @@
-# Exported from hadron-server e42bb1897a39375ba3a888593718d61fa258093d (e42bb1897a39375ba3a888593718d61fa258093d, 2026-11-21T14:09:21+01:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 70a0f125cff3b75f78dd122655de48022f3200a4 (70a0f125cff3b75f78dd122655de48022f3200a4, 2026-11-21T16:13:47Z) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -6215,6 +6215,11 @@ type Grant {
   #3711 (V56): when the holder went (a person erased, a worker retired, an agent or App deleted); a fact, not a state. Only the App's manager reads it (appGrants); every other read answers null.
   """
   holderDepartedAt: DateTime
+
+  """
+  #4180 (hrn:node:hadronmemory.com:specs:cor:acl:140:03, Holger R5): why the holder went, as a cause with no wording; null unless the holder ended the grant (state HOLDER_GONE). REASON_NOT_RECORDED for a departure stamped before causes were kept, never a guess. Every read of the grant carries it.
+  """
+  holderDepartureReason: GrantHolderDepartureReason
   holderId: ID!
   holderKind: GrantHolderKind!
   id: ID!
@@ -6334,6 +6339,62 @@ input GrantCreditsInput {
   entry instead of double-crediting (at-least-once webhook safety).
   """
   sourceType: String
+}
+
+"""
+#4180 (hrn:node:hadronmemory.com:specs:cor:acl:140:03, Holger R5): why a grant's holder went. Cause codes, not words: how each is shown is still open in the spec, so the copy may change without these values changing. The set is open to additions; a client must treat an unknown value as a departure it cannot name. Not the end reasons of a secret read client (SECRET_DELETED, PROTECTED), which are not holder departures.
+"""
+enum GrantHolderDepartureReason {
+  """The agent was deleted."""
+  AGENT_DELETED
+
+  """
+  The agent was installed only through an importing agent, and that agent was deleted (hard delete; #4179).
+  """
+  AGENT_IMPORTER_DELETED
+
+  """
+  The agent was installed only through an importing agent, and that agent was uninstalled from the grant's App.
+  """
+  AGENT_IMPORTER_UNINSTALLED
+
+  """The import that installed the agent in the grant's App was removed."""
+  AGENT_IMPORT_REMOVED
+
+  """
+  The organization's licence to the agent was revoked, which ended its installation in the grant's App.
+  """
+  AGENT_LICENSE_REVOKED
+
+  """The agent was uninstalled from the grant's App."""
+  AGENT_UNINSTALLED
+
+  """The grantee App was deleted."""
+  APP_DELETED
+
+  """
+  The person removed themselves from the organization that owns the grant's App.
+  """
+  ORG_LEFT
+
+  """
+  The person was removed from the organization that owns the grant's App by someone else.
+  """
+  ORG_REMOVED
+
+  """
+  The holder went before causes were kept, so none was recorded. Not a guess at one.
+  """
+  REASON_NOT_RECORDED
+
+  """The person's account was erased."""
+  USER_ERASED
+
+  """The worker was deleted."""
+  WORKER_DELETED
+
+  """The worker was retired."""
+  WORKER_RETIRED
 }
 
 """
@@ -8439,17 +8500,16 @@ type Mutation {
       existing sole owner to reader/writer.
   """
   addMemoryMember(
-    memoryId: ID @deprecated(reason: "Use memoryRef (accepts id / URN).")
-
-    """#764 — the memory as an id or URN. Supply this OR memoryId."""
-    memoryRef: String
+    """
+    #764 — the memory as an id or URN. #4137: the deprecated memoryId is gone.
+    """
+    memoryRef: ID!
     role: MemoryMemberRole!
-    userId: ID @deprecated(reason: "Use userRef (accepts id / email / handle / URN).")
 
     """
-    #764 — the user as an id / email / handle / hrn:user:<handle> URN. Supply this OR userId.
+    #764 — the user as an id / email / handle / hrn:user:<handle> URN. #4137: the deprecated userId is gone.
     """
-    userRef: String
+    userRef: ID!
   ): AddMemoryMemberPayload!
 
   """
@@ -9503,7 +9563,7 @@ type Mutation {
       caller does not own — both return FORBIDDEN before grantee lookup.
       An owner of a wrong-class memory (for example private) can pass that
       principal check and receive InvalidMemoryClassForShareError.
-    - MemoryShareGranteeMissingError — granteeId doesn't resolve to
+    - MemoryShareGranteeMissingError — the grantee doesn't resolve to
       an existing User. Only reachable when the caller passes the
       principal guard.
     - CrossOrgShareNotAllowedError — the grantee is not a member of an
@@ -9515,15 +9575,12 @@ type Mutation {
   """
   createMemoryShare(
     """
-    Deprecated (#769): the grantee's user PK. Use granteeRef, which also accepts email / handle / URN.
+    #769 — the grantee as a reference resolved server-side: a user id, email, handle, or hrn:user:<handle> URN. Resolution sees the full user table, so a cross-org personal-memory share works by email/handle. #4137: the only way to name the grantee (the deprecated granteeId is gone).
     """
-    granteeId: ID @deprecated(reason: "Use granteeRef (accepts id / email / handle / hrn:user URN).")
+    granteeRef: ID!
 
-    """
-    #769 — the grantee as a reference resolved server-side: a user id, email, handle, or hrn:user:<handle> URN. Resolution sees the full user table, so a cross-org personal-memory share works by email/handle. Supply this OR granteeId.
-    """
-    granteeRef: String
-    memoryId: ID!
+    """#4137 — the memory as an id or hrn:mem URN (was memoryId)."""
+    memoryRef: ID!
     role: MemoryShareRole!
   ): CreateMemorySharePayload!
 
@@ -9996,10 +10053,8 @@ type Mutation {
   soft-deleted memory as FORBIDDEN.
   """
   deleteMemoryShare(
-    granteeId: ID @deprecated(reason: "Use granteeRef (accepts id / email / handle / hrn:user URN).")
-
     """
-    #769 — the grantee as a server-resolved reference (id / email / handle / hrn:user URN). Supply this OR granteeId. Omit BOTH to target the caller's own share (self-removal).
+    #769 — the grantee as a server-resolved reference (id / email / handle / hrn:user URN). Omit it to target the caller's own share (self-removal). #4137: the deprecated granteeId is gone.
     """
     granteeRef: String
 
@@ -11167,16 +11222,15 @@ type Mutation {
   being removed (self-removal).
   """
   removeMemoryMember(
-    memoryId: ID @deprecated(reason: "Use memoryRef (accepts id / URN).")
-
-    """#764 — the memory as an id or URN. Supply this OR memoryId."""
-    memoryRef: String
-    userId: ID @deprecated(reason: "Use userRef (accepts id / email / handle / URN).")
+    """
+    #764 — the memory as an id or URN. #4137: the deprecated memoryId is gone.
+    """
+    memoryRef: ID!
 
     """
-    #764 — the user as an id / email / handle / hrn:user:<handle> URN. Supply this OR userId.
+    #764 — the user as an id / email / handle / hrn:user:<handle> URN. #4137: the deprecated userId is gone.
     """
-    userRef: String
+    userRef: ID!
   ): RemoveMemoryMemberPayload!
 
   """
@@ -12346,34 +12400,33 @@ type Mutation {
     - LastOwnerProtectedError (FR-038) — would demote the sole owner.
   """
   updateMemoryMemberRole(
-    memoryId: ID @deprecated(reason: "Use memoryRef (accepts id / URN).")
-
-    """#764 — the memory as an id or URN. Supply this OR memoryId."""
-    memoryRef: String
+    """
+    #764 — the memory as an id or URN. #4137: the deprecated memoryId is gone.
+    """
+    memoryRef: ID!
     role: MemoryMemberRole!
-    userId: ID @deprecated(reason: "Use userRef (accepts id / email / handle / URN).")
 
     """
-    #764 — the user as an id / email / handle / hrn:user:<handle> URN. Supply this OR userId.
+    #764 — the user as an id / email / handle / hrn:user:<handle> URN. #4137: the deprecated userId is gone.
     """
-    userRef: String
+    userRef: ID!
   ): UpdateMemoryMemberRolePayload!
 
   """
   023-app-shape US3 — change the role on an existing MemoryShare.
-  Throws MemoryShareNotFoundError if the (memoryId, granteeId) row
+  Throws MemoryShareNotFoundError if the (memory, grantee) row
   doesn't exist — use createMemoryShare to upsert.
   
   Caller-authority rule matches createMemoryShare.
   """
   updateMemoryShareRole(
-    granteeId: ID @deprecated(reason: "Use granteeRef (accepts id / email / handle / hrn:user URN).")
+    """
+    #769 — the grantee as a server-resolved reference (id / email / handle / hrn:user URN). #4137: the deprecated granteeId is gone.
+    """
+    granteeRef: ID!
 
-    """
-    #769 — the grantee as a server-resolved reference (id / email / handle / hrn:user URN). Supply this OR granteeId.
-    """
-    granteeRef: String
-    memoryId: ID!
+    """#4137 — the memory as an id or hrn:mem URN (was memoryId)."""
+    memoryRef: ID!
     role: MemoryShareRole!
   ): UpdateMemoryShareRolePayload!
 
@@ -13088,7 +13141,7 @@ type NodeApprovalReceipt {
 """
 enum NodeApprovalState {
   """
-  The approval covers the current text: it was recorded at the revision in NodeApproval.revision, which can be older than Node.revision when only metadata (tags, properties, role, description, alias, loc, edges) changed since.
+  The approval covers the current text: it was recorded at the revision in NodeApproval.revision, which can be older than Node.revision when only metadata (tags, properties, role, description, alias, loc) changed since.
   """
   APPROVED
 
@@ -21674,9 +21727,11 @@ input UpdateNodeInput {
   """
   Optional optimistic-concurrency precondition (#937). When supplied, the
   update is applied only while the node's current live revision still equals
-  this positive 32-bit integer. A mismatch refuses atomically with
-  NODE_WRITE_CONFLICT; omitting it or passing null preserves last-write-wins
-  compatibility.
+  this positive 32-bit integer. A stale token is refused atomically with
+  NODE_WRITE_CONFLICT and no edges are applied. An inline-edge-only write
+  checks a current token without consuming it: the node's revision does not
+  advance and the same token remains valid. Omitting it or passing null
+  preserves last-write-wins compatibility.
   Read the baseline from Node.revision.
   """
   expectedRevision: Int
@@ -21721,8 +21776,9 @@ input UpdateNodeInput {
   """
   Why this change was made — recorded on the revision-history snapshot
   (NodeRevision.revLabel, #620; historically it squatted in editedBy),
-  mirroring hadron_update_node's reason arg so CLI and MCP edits leave
-  equally-traceable history.
+  mirroring hadron_update_node's reason arg. An inline-edge-only write
+  appends no revision, so it creates no history row on which to record this
+  reason.
   """
   reason: String
 
@@ -22647,6 +22703,15 @@ type WorkerContinuity {
   handoff: Node
 
   """
+  #1054 — the author RECORDED in the handoff: who held the worker when the session named by the
+  handoff's envelope ran. It is what the envelope claims, not proof of who wrote the node: any
+  writer of the handoff node can set the envelope's session id (to one of this worker's own
+  sessions), so it is a hint for a reader, never an authentication. Null when `handoff` is
+  null. For a handoff with no session envelope (hand-written) it is an author with nothing known.
+  """
+  handoffAuthor: WorkerContinuityAuthor
+
+  """
   The worker's most recent ENDED session, as a SANITIZED projection — the
   three facts continuity needs, and deliberately not the Session object.
   
@@ -22658,6 +22723,26 @@ type WorkerContinuity {
   """
   previousSession: WorkerContinuitySession
   status: WorkerContinuityStatus!
+}
+
+"""
+#1054 — the person behind a handoff, as identity only. The handle is identity
+(hrn:node:hadronmemory.com:specs:cor:acl:070:01), visible to any signed-in caller who can read
+the worker. A display name, if ever added, would follow the same rule's gate (self, admin or
+co-member; null, never an error).
+"""
+type WorkerContinuityAuthor {
+  """
+  The session the handoff's envelope names as its writer: the id alone, never the Session, and
+  null unless that session is one of this worker's own non-deleted sessions (same sanitization as
+  previousSession). Recorded, not authenticated: see handoffAuthor.
+  """
+  sessionId: ID
+
+  """
+  The handle of the user who held the worker when the session the envelope names ran: as recorded, not authenticated (see handoffAuthor). Null only when the author is unknown or erased.
+  """
+  userHandle: String
 }
 
 """
