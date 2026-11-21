@@ -7,6 +7,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
+  import { updatedFilterText } from '$lib/secrets/format';
   import { t } from '$lib/i18n/t';
   import type { AppSecret } from '$lib/server/secrets';
   import type { ActionData, PageData } from './$types';
@@ -29,12 +30,9 @@
     updatedMs: parseApiDate(s.updatedAt)?.getTime() ?? 0,
   })));
 
-  /** A staged create has no secret yet: its tracking id is create:<app>:<name>. */
-  const pendingName = (id: string | null) => {
-    if (!id) return null;
-    if (id.startsWith('create:')) return id.split(':').slice(2).join(':') || null;
-    return list.find((s) => s.id === id)?.name ?? null;
-  };
+  /** A staged create has no secret yet and carries the name asked for; any other request names its secret. */
+  const pendingName = (p: { secretId: string | null; createName: string | null }) =>
+    p.createName ?? (p.secretId ? (list.find((s) => s.id === p.secretId)?.name ?? null) : null);
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
@@ -51,7 +49,7 @@
     columnResizeMode: 'onChange',
     state: { get globalFilter() { return globalFilter; } },
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
-    globalFilterFn: makeGlobalFilterFn<Row>({ updated: (v) => (typeof v === 'number' && v > 0 ? fmtRunTime(String(v)) : '') }),
+    globalFilterFn: makeGlobalFilterFn<Row>({ updated: updatedFilterText }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 }, sorting: [{ id: 'name', desc: false }] },
   });
 </script>
@@ -77,7 +75,7 @@
   {/if}
 
   {#each data.pending as p (p.requestId)}
-    <PendingChange {...p} secretName={pendingName(p.secretId)} impersonating={!!data.impersonating} />
+    <PendingChange {...p} secretName={pendingName(p)} impersonating={!!data.impersonating} />
   {/each}
   <div aria-live="polite">
     {#if form && 'message' in form && form.message && form.action === 'withdraw'}

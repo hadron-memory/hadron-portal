@@ -25,6 +25,12 @@
   const staged = (action: string) => hasOpen && !!(form && 'staged' in form && form.staged && form.action === action);
   const saved = (action: string) => !!(form && 'ok' in form && form.ok && form.action === action);
   const stagedText = () => t('secrets.staged', 'Not saved yet.');
+  // The first Delete post only asks; the delete runs on the post that confirms (the server asks, so it holds without JavaScript).
+  const confirmingDelete = $derived(!!(form && 'confirm' in form && form.confirm && form.action === 'delete'));
+  // The Delete that was pressed unmounts when the prompt takes its place, which would drop focus to the
+  // page. Move focus to the prompt: it is then read out, and Delete and Cancel are the next stops.
+  let confirmPrompt = $state<HTMLElement>();
+  $effect(() => { if (confirmingDelete) confirmPrompt?.focus(); });
 </script>
 
 <svelte:head><title>{secret?.name ?? t('secrets.head', 'Secrets')} · {data.app.name} · Hadron</title></svelte:head>
@@ -106,9 +112,18 @@
     <section aria-labelledby="secret-delete-heading" class="max-w-lg space-y-3">
       <h2 id="secret-delete-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.delete.heading', 'Delete')}</h2>
       <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('secrets.delete.help', 'This removes the secret and every version of it.')}</p>
-      <form method="POST" action="?/delete" use:enhance={({ cancel }) => { if (!confirm(t('secrets.delete.confirm', 'Delete this secret and every version of it?'))) cancel(); }}>
-        <button type="submit" disabled={ro} class="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:bg-zinc-900 dark:text-red-400">{t('secrets.delete.submit', 'Delete')}</button>
-      </form>
+      {#if confirmingDelete}
+        <p bind:this={confirmPrompt} tabindex="-1" class="text-sm font-medium text-zinc-900 dark:text-white" data-testid="delete-confirm">{t('secrets.delete.confirm.named', 'Delete {name} and every version of it?', { name: secret.name })}</p>
+        <form method="POST" action="?/delete" use:enhance class="flex flex-wrap items-center gap-3">
+          <input type="hidden" name="confirm" value="yes" />
+          <button type="submit" disabled={ro} class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{t('secrets.delete.submit', 'Delete')}</button>
+          <a href="{basePath}/secrets/{secret.id}" class="text-sm text-zinc-700 hover:underline dark:text-zinc-300">{t('secrets.delete.cancel', 'Cancel')}</a>
+        </form>
+      {:else}
+        <form method="POST" action="?/delete" use:enhance>
+          <button type="submit" disabled={ro} class="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:bg-zinc-900 dark:text-red-400">{t('secrets.delete.submit', 'Delete')}</button>
+        </form>
+      {/if}
       <div aria-live="polite">
         {#if msg('delete')}
           <p role="alert" class="text-sm text-red-700 dark:text-red-400">{msg('delete')}</p>

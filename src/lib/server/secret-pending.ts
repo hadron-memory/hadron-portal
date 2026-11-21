@@ -5,12 +5,15 @@ import { secretWrite } from '$lib/server/secret-writes';
 import { addTracked, parseTracked, removeTracked, serializeTracked, TRACKED_COOKIE, type Tracked } from '$lib/secrets/tracked';
 import { t } from '$lib/i18n/t';
 import { ceremonyOrigin } from '$lib/ceremony-origin';
-import { isOpenState } from '$lib/secrets/staged';
+import { isTerminalState } from '$lib/secrets/staged';
 
 /** portal#2380 — the viewer's own change requests, re-read on every visit (no polling loop). */
 export interface PendingRow {
   requestId: string;
+  /** The secret the request is for; null while a staged create has none. */
   secretId: string | null;
+  /** The name a staged create asked for; null for every other request. */
+  createName: string | null;
   ceremonyUrl: string;
   state: string;
   operation: string;
@@ -28,8 +31,9 @@ export const trackRequest = (cookies: Cookies, t: Tracked) => writeTracked(cooki
 
 /**
  * Re-read the requests `match` selects. A request the server no longer shows the viewer (null)
- * is dropped; one that has ended is shown this once, then dropped; an open one stays, and a
- * failed read keeps it for the next visit.
+ * is dropped; one that has ended (a known terminal state) is shown this once, then dropped; an
+ * open one, or one in a state this code does not know, stays, and a failed read keeps it for the
+ * next visit.
  */
 export async function loadPending(
   client: Pick<GraphQLClient, 'request'>,
@@ -48,10 +52,10 @@ export async function loadPending(
     const r = reads[i];
     if (r === 'failed') continue;
     if (r === null) { if (!readOnly) kept = removeTracked(kept, tr.requestId); continue; }
-    // The server stages a protected create as a STORE; the create: tracking prefix says which it was.
-    const operation = r.operation.toUpperCase() === 'STORE' && tr.secretId.startsWith('create:') ? 'CREATE' : r.operation;
-    rows.push({ requestId: r.id, secretId: tr.secretId ?? null, ceremonyUrl: tr.ceremonyUrl, state: r.state, operation, expiresAt: r.expiresAt });
-    if (!readOnly && !isOpenState(r.state)) kept = removeTracked(kept, tr.requestId);
+    // The server stages a protected create as a STORE; the tracked create says which it was.
+    const operation = r.operation.toUpperCase() === 'STORE' && tr.create ? 'CREATE' : r.operation;
+    rows.push({ requestId: r.id, secretId: tr.secretId ?? null, createName: tr.create?.name ?? null, ceremonyUrl: tr.ceremonyUrl, state: r.state, operation, expiresAt: r.expiresAt });
+    if (!readOnly && isTerminalState(r.state)) kept = removeTracked(kept, tr.requestId);
   }
   if (!readOnly && kept.length !== all.length) writeTracked(cookies, kept);
   return rows;

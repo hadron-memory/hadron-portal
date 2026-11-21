@@ -38,12 +38,21 @@ export function readStagedChange(e: unknown, origin: string | null): StagedRefus
 
 export const isOpenState = (s: string) => s.toLowerCase() === 'open';
 
+/**
+ * The states a request ends in (hrn:node:hadronmemory.com:specs:cor:sec:070:02): completed, declined,
+ * expired, withdrawn; `stale` is how a request that lost a race to a change ends. Any other state is
+ * unknown, never assumed ended: the notice keeps showing it rather than dropping a request unseen.
+ */
+const TERMINAL_STATES = new Set(['completed', 'declined', 'expired', 'withdrawn', 'stale']);
+export const isTerminalState = (s: string) => TERMINAL_STATES.has(s.toLowerCase());
+
 export function requestStateText(state: string): string {
   switch (state.toLowerCase()) {
     case 'open': return t('secrets.request.state.open', 'Waiting for your passkey signature');
     case 'completed': return t('secrets.request.state.completed', 'Signed and applied');
     case 'expired': return t('secrets.request.state.expired', 'Expired before it was signed');
     case 'withdrawn': return t('secrets.request.state.withdrawn', 'Withdrawn');
+    case 'declined': return t('secrets.request.state.declined', 'Declined');
     case 'stale': return t('secrets.request.state.stale', 'The secret changed first, so this request can no longer be applied');
     default: return state;
   }

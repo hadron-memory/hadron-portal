@@ -21,6 +21,22 @@ describe('tracked change requests (portal#2380)', () => {
   });
 });
 
+describe('a staged create is tracked by its App and name (portal#2436)', () => {
+  const create = { requestId: 'r1', ceremonyUrl: U, create: { appId: 'app-1', name: 'stripe-key' } };
+  it('round-trips, without a secretId', () => {
+    expect(parseTracked(serializeTracked([create]), O)).toEqual([create]);
+  });
+  it('drops a pre-typed `create:<app>:<name>` secretId, an entry with both shapes, and a create with no name', () => {
+    const raw = JSON.stringify([
+      { secretId: 'create:app-1:old', requestId: 'r1', ceremonyUrl: U },
+      { ...create, secretId: 's1' },
+      { requestId: 'r2', ceremonyUrl: U, create: { appId: 'app-1', name: '' } },
+      { requestId: 'r3', ceremonyUrl: U, create: null },
+    ]);
+    expect(parseTracked(raw, O)).toEqual([]);
+  });
+});
+
 describe('a tracked link is re-pinned on read (portal#2417)', () => {
   const row = (ceremonyUrl: string) => JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl }]);
   it('a cookie edited to name another host is dropped, so no attacker link renders', () => {

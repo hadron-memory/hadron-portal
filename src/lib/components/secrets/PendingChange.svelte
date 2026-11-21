@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { t } from '$lib/i18n/t';
   import { isOpenState, requestStateText } from '$lib/secrets/staged';
   import { fmtRunTime } from '$lib/flow/runs';
@@ -13,11 +14,13 @@
    * to this tab (they sign in another one), so it never keeps offering Withdraw for a change
    * that was applied meanwhile.
    */
-  let { requestId, secretId = null, ceremonyUrl, state, operation, expiresAt, secretName = null, impersonating = false }: {
+  let { requestId, secretId = null, ceremonyUrl, state: requestState, operation, expiresAt, secretName = null, impersonating = false }: {
     requestId: string; secretId?: string | null; ceremonyUrl: string; state: string; operation: string; expiresAt: string; secretName?: string | null; impersonating?: boolean;
   } = $props();
-  const open = $derived(isOpenState(state));
+  const open = $derived(isOpenState(requestState));
   let root: HTMLElement | undefined;
+  // A re-read that failed leaves the notice as it was, so say that: the state shown is the last one seen.
+  let rereadFailed = $state(false);
 
   onMount(() => {
     let alive = true;
@@ -26,7 +29,7 @@
       // Coming back to a tab fires focus and visibilitychange together: one read for both.
       if (!alive || !open || reading || document.visibilityState === 'hidden') return;
       reading = true;
-      void invalidateAll().catch(() => {}).finally(() => { reading = false; });
+      void invalidateAll().then(() => { if (alive) rereadFailed = false; }, () => { if (alive) rereadFailed = true; }).finally(() => { reading = false; });
     };
     window.addEventListener('focus', reread);
     document.addEventListener('visibilitychange', reread);
@@ -50,7 +53,7 @@
 
 <div bind:this={root} tabindex="-1" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950" data-testid="pending-change">
   {#if secretName}<p class="font-mono text-xs text-amber-800 dark:text-amber-300">{secretName}</p>{/if}
-  <p class="font-medium text-amber-900 dark:text-amber-100">{requestStateText(state)}</p>
+  <p class="font-medium text-amber-900 dark:text-amber-100">{requestStateText(requestState)}</p>
   <p class="mt-1 text-amber-900 dark:text-amber-200">
     {#if open}
       {t('secrets.request.waiting', 'Pending: {op}. Nothing has been saved yet.', { op: opText })}
@@ -59,10 +62,17 @@
     {/if}
   </p>
   {#if open}
+    <LiveRegion data-testid="reread-status">
+      {#if rereadFailed}
+        <p class="mt-1 text-xs text-red-700 dark:text-red-400" data-testid="reread-failed">{t('secrets.request.reread-failed', "Couldn't check whether this has been signed. What's shown was true when you last looked.")}</p>
+      {/if}
+    </LiveRegion>
     <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">{t('secrets.request.expires', 'Expires {time}', { time: fmtRunTime(expiresAt) })}</p>
     <div class="mt-3 flex flex-wrap items-center gap-2">
       <a href={ceremonyUrl} target="_blank" rel="noopener noreferrer" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">{t('secrets.request.open-link', 'Open the signing page')}<span class="sr-only"> {t('secrets.request.new-tab', '(opens in a new tab)')}</span><span aria-hidden="true"> ↗</span></a>
       <form method="POST" action="?/withdraw" use:enhance={() => async ({ update }) => { await update();
+          // The page re-renders after update(); read the notice's connection only once it has.
+          await tick();
           // A withdrawn request is dropped from the page, so focus lands on the page title then.
           const target = root?.isConnected ? root : document.querySelector<HTMLElement>('h1');
           target?.setAttribute('tabindex', '-1');
