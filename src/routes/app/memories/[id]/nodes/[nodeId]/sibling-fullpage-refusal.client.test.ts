@@ -256,11 +256,14 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     const actionData = await refusedAction('testFlow', { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', agentRef: '', payload: '{"keep":"me"}' });
     const { m, props } = await mountHydrated(actionData);
 
-    stored = { ...NODE, revision: 5 };
+    // Same node id, new data (renamed elsewhere, revision bumped): the page
+    // re-renders with it, which is what makes this a re-run that took effect.
+    stored = { ...NODE, name: 'Foo renamed', revision: 5 };
     props.data = { ...PARENT, ...(await runLoad()) };
     await settle();
+    expect(m.target.querySelector('button[aria-label="Actions for Foo renamed"]'), 'the re-run reached the page').not.toBeNull();
 
-    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo renamed"]')!.click();
     flushSync();
     Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
     flushSync();
@@ -272,7 +275,15 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
   // hydrated hard = true (a refused hard delete) must not reach the reader
   // through the menu's delete dialog, because that entry resets it first. The
   // Settings danger-zone entry also resets it, but its confirm form carries no
-  // `hard` control, so there is nothing to observe there.
+  // `hard` control and the delete superForm has no `dataType` (default 'form':
+  // the enhanced submit posts the DOM fields), so `hard` is never posted from
+  // there and nothing hydrated can be serialised.
+  //
+  // This is not vacuous: the action-data assertion is only the precondition
+  // (the fixture really is a refused hard delete). The checkbox renders ticked
+  // only if $deleteFormData.hard was hydrated to true and nothing reset it, so
+  // removing `$deleteFormData.hard = false` from the menu's 'delete' case turns
+  // this test red (checked by mutant).
   it('delete: a refused hard delete never opens the menu dialog with Hard delete ticked', async () => {
     setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
     serve();
@@ -318,5 +329,15 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     expect(field(m.target, 'input[name="extractionRows"]')!.value, 'the draft is in the hidden input').toBe(rows);
     const save = m.target.querySelector<HTMLButtonElement>('form[action="?/updateFlow"] button[type="submit"]')!;
     expect(save.disabled, 'Save is disabled until the editor is dirty').toBe(true);
+
+    // Positive control: the same button enables once the editor is dirty, so the
+    // disabled state above comes from flowDirty and not from a button that
+    // never enables.
+    const writeTo = m.target.querySelector<HTMLInputElement>('#flow-writeto')!;
+    writeTo.value = 'hrn:node:acme.com:mem-a:target';
+    writeTo.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    await settle();
+    expect(save.disabled, 'Save enables once the editor is dirty').toBe(false);
   });
 });

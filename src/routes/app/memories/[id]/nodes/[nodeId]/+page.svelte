@@ -771,14 +771,16 @@
   // portal#2446: the first run must not rewrite flowFormData, which a
   // full-page updateFlow refusal hydrated with the reader's refused draft.
   // The dependencies are read BEFORE the early return so the effect still
-  // tracks them and later edits sync as before. The visible editor above
-  // (flowRows, outputWriteTo, outputMode) is seeded from node.data, not from
-  // the refused form, so until the reader edits, the hidden inputs hold the
-  // draft and the editor shows the saved flow; Save stays disabled until
-  // flowDirty (the Save button of form ?/updateFlow, `disabled={$flowSubmitting
-  // || !flowDirty || ...}`, ~:4127 in this file), so the unseen draft cannot be
-  // resubmitted. Seeding the editor
-  // from the draft is portal#2467.
+  // tracks them and later edits sync as before.
+  //
+  // The visible editor above (flowRows, outputWriteTo, outputMode) is seeded
+  // from node.data, not from the refused form. Until the reader edits, the
+  // hidden inputs therefore hold the draft while the editor shows the saved
+  // flow. That draft cannot be resubmitted unseen: the Save button of form
+  // ?/updateFlow is
+  //   disabled={$flowSubmitting || !flowDirty || flowRowsError !== null || !outputWriteToValid}
+  // and flowDirty is false until the editor differs from node.data. Seeding the
+  // editor from the draft is portal#2467.
   let flowSyncMounted = false;
   $effect(() => {
     const rowsJson = flowRowsJson;
@@ -2713,9 +2715,9 @@
       // starts undefined) and true on every later run, because the block is
       // entered only when the node id differs from the previous run's. A
       // same-node re-run (invalidateAll, a revision bump) does not enter it at
-      // all, so it leaves every form store alone: a kept draft across a
-      // same-node re-run is intended, and pinned in
-      // sibling-fullpage-refusal.client.test.ts. $deleteFormData.hard needs no first-mount
+      // all, so it leaves every form store AND every open flag (testFlowOpen,
+      // moveOpen, the delete confirm) alone: a kept draft across a same-node
+      // re-run is intended, and pinned in sibling-fullpage-refusal.client.test.ts. $deleteFormData.hard needs no first-mount
       // reset: its checkbox only renders inside the delete dialog, and both
       // ways in (the 'delete' menu case and the Settings danger-zone button)
       // set hard = false before opening it. The same goes for the move
