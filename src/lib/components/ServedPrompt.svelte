@@ -19,6 +19,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { t } from '$lib/i18n/t';
   import {
     POINTER_LEVEL_LABEL,
@@ -221,11 +222,16 @@
     'rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800';
 </script>
 
+<!-- A collapsible host (the chat panel) shows nothing while it waits: most readers get an empty answer. -->
+<LiveRegion>
+  {#if phase === 'loading'}
+    <p class="text-sm text-zinc-500 {collapsible ? 'sr-only' : ''}" data-testid="served-prompt-loading">
+      {t('served.loading', 'Loading the served prompt…')}
+    </p>
+  {/if}
+</LiveRegion>
 {#if phase === 'loading'}
-  <!-- A collapsible host (the chat panel) shows nothing while it waits: most readers get an empty answer. -->
-  <p role="status" class="text-sm text-zinc-500 {collapsible ? 'sr-only' : ''}" data-testid="served-prompt-loading">
-    {t('served.loading', 'Loading the served prompt…')}
-  </p>
+  <!-- announced by the LiveRegion above -->
 {:else if phase === 'failed'}
   <div role="alert" class="flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid="served-prompt-failed">
     <span>{t('served.failed', 'Couldn’t load the served prompt.')}</span>

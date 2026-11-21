@@ -101,7 +101,7 @@
       <LiveRegion>
         {#if repeated}<p>{t('app.tasks.picker.changed', 'The list changed while loading. Some tasks may be missing; close and reopen to refresh, or use an exact lookup.')}</p>{/if}
       </LiveRegion>
-      {#if pending}<p role="status">{t('app.tasks.picker.loading', 'Loading tasks…')}</p>{/if}
+      <LiveRegion>{#if pending}<p>{t('app.tasks.picker.loading', 'Loading tasks…')}</p>{/if}</LiveRegion>
       {#if exactDone && !pending && !failed && exactItems.length === 0}<p role="status">{t('app.tasks.picker.unavailable', 'No available task found in this App.')}</p>{/if}
       <DataTable {table} listKey="task-picker:open" bind:globalFilter={query} searchPlaceholder={t('app.tasks.picker.search', 'Filter loaded tasks…')} searchAriaLabel={t('app.tasks.picker.search', 'Filter loaded tasks…')} bounded>
         {#snippet cell(cell, row)}

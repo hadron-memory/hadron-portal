@@ -23,6 +23,7 @@
   the outer form.
 -->
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import Urn from '$lib/components/Urn.svelte';
@@ -307,12 +308,11 @@
     <SelectTask appId={app.id} includeEnded bind:open={picking} onselect={(choice: TaskChoice) => (picked = choice)} />
   {/if}
   {#if loadMemories}
+    <LiveRegion>{#if nodePicking && lazyMemories.kind !== 'ok' && lazyMemories.kind !== 'failed'}<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.nodes.picker.memories-loading', 'Loading your memories…')}</p>{/if}</LiveRegion>
     {#if lazyMemories.kind === 'ok'}
       <SelectNode memories={lazyMemories.value} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
     {:else if lazyMemories.kind === 'failed'}
       <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
-    {:else if nodePicking}
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.nodes.picker.memories-loading', 'Loading your memories…')}</p>
     {/if}
   {:else}
   {#await Promise.resolve(nodeMemories) then read}

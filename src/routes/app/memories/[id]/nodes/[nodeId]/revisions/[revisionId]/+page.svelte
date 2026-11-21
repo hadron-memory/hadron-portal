@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatPortalDateTime } from '$lib/format-portal-date';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #529: read-only snapshot view (opened in a new tab from the History tab).
   import Urn from '$lib/components/Urn.svelte';
   import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
@@ -91,8 +92,9 @@
   <!-- #1001: a revision is the state BEFORE an edit, so this is what that edit changed. -->
   <div>
     <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('node-revision.changes', 'Changes')}</h2>
+    <LiveRegion>{#if changes === null}<p class="text-sm text-zinc-400">{t('node-revision.changes.loading', 'Loading changes…')}</p>{/if}</LiveRegion>
     {#if changes === null}
-      <p class="text-sm text-zinc-400" role="status">{t('node-revision.changes.loading', 'Loading changes…')}</p>
+      <!-- announced by the LiveRegion above -->
     {:else if !changes.ok}
       <p class="text-sm text-zinc-500" role="status">{t('node-revision.changes.failed', 'Couldn’t load the changes.')}</p>
     {:else if changes.against === 'unknown'}

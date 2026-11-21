@@ -10,6 +10,7 @@
   // part that is buildable today, and AssetTable is already shaped to take the
   // memory column when that lands.
   import { invalidate } from '$app/navigation';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import AssetTable from '$lib/components/assets/AssetTable.svelte';
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
   import { t } from '$lib/i18n/t';
@@ -155,10 +156,11 @@
       {/if}
     </div>
   {:else}
+    <!-- Say that the wait is being watched. Otherwise a PENDING row with a
+         disabled Download reads as broken rather than as in-progress. -->
+    <LiveRegion>
     {#if pendingCount > 0}
-      <!-- Say that the wait is being watched. Otherwise a PENDING row with a
-           disabled Download reads as broken rather than as in-progress. -->
-      <p role="status" class="text-sm text-zinc-500">
+      <p class="text-sm text-zinc-500">
         {t(
           'memory-assets.scanning',
           '{n} file(s) are being scanned for malware — download unlocks when the scan passes. This list refreshes itself.',
@@ -166,6 +168,7 @@
         )}
       </p>
     {/if}
+    </LiveRegion>
 
     {#if data.truncated}
       <p class="text-sm text-amber-600 dark:text-amber-400">
