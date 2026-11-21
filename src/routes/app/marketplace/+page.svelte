@@ -203,6 +203,8 @@
             {@render card(memory)}
 
             {#if canAdopt}
+              <!-- One plain wrapper: the card is a flex gap-4 column, so a region beside the form would add an idle gap item. -->
+              <div>
               <form method="POST" action="?/addToAgent" class="space-y-2">
                 <input type="hidden" name="_kind" value="addToAgent" />
                 <!-- Static. Never written during the click that submits it. -->
@@ -231,6 +233,7 @@
                   <p class="mt-2 text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>
                 {/if}
               </LiveRegion>
+              </div>
             {/if}
           </div>
         {/each}
