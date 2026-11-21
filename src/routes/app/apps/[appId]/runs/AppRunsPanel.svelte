@@ -14,6 +14,7 @@
   import { t } from '$lib/i18n/t';
   import ListPageNav from '$lib/components/ListPageNav.svelte';
   import type { ListPageNavigation } from '$lib/list-page';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   
   import { runAppFlowSchema } from './schema';
 
@@ -94,14 +95,18 @@
       {#if runActionError}
         <div role="alert" class="mt-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{runActionError}</div>
       {/if}
+      <LiveRegion>
+        {#if data.flowsError}
+          <!-- #2170 F7: a failed read is not "no Flows". Say so, and offer no
+               pager over a list that was never read. -->
+          <p
+            data-flows-error
+            class="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          >{t('flows.load-failed', 'Flows couldn’t load. Reload the page to try again.')}</p>
+        {/if}
+      </LiveRegion>
       {#if data.flowsError}
-        <!-- #2170 F7: a failed read is not "no Flows". Say so, and offer no
-             pager over a list that was never read. -->
-        <p
-          role="status"
-          data-flows-error
-          class="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-        >{t('flows.load-failed', 'Flows couldn’t load. Reload the page to try again.')}</p>
+        <!-- announced by the region above -->
       {:else if data.flows.length > 0}
         <ul class="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
         {#each data.flows as flow (flow.entry.id)}

@@ -9,6 +9,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import SelectMemory from './SelectMemory.svelte';
   import Urn from './Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import type { NodeChoice, NodeChoicesPage } from '$lib/node-choices';
 
   /**
@@ -276,12 +277,13 @@
 
         {#if hasMore}
           <button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.nodes.picker.more', 'Load more nodes')}</button>
-        {:else if capped}
-          <!-- Not "all shown": the offset ceiling truncated the list (#1585).
-               hasMore is already false, so there is no Load more to press into
-               the 400 — this note is the honest replacement for it. -->
-          <p role="status">{t('app.nodes.picker.capped', 'Showing the first results only. Search to narrow the list.')}</p>
         {/if}
+        <!-- Not "all shown": the offset ceiling truncated the list (#1585).
+             hasMore is already false, so there is no Load more to press into
+             the 400 — this note is the honest replacement for it. -->
+        <LiveRegion>
+          {#if !hasMore && capped}<p>{t('app.nodes.picker.capped', 'Showing the first results only. Search to narrow the list.')}</p>{/if}
+        </LiveRegion>
         {#if !pending && !failed && searched && items.length === 0}
           <p role="status">{t('app.nodes.picker.empty', 'No nodes found.')}</p>
         {/if}

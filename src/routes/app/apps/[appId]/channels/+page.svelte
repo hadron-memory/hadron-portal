@@ -18,6 +18,7 @@
   import type { Channel } from '$lib/types';
   import type { EffectiveRow } from '$lib/register-view';
   import type { PageData, ActionData } from './$types';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import {
     CHANNEL_DESCRIPTION_MAX,
     CHANNEL_NAME_MAX,
@@ -450,11 +451,13 @@
       </p>
     </div>
 
-    {#if data.agentsWithheld}
-      <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-        {t('app.channels.agents-withheld', 'The agents installed in this App aren’t visible to you, so they aren’t offered below. This is not an empty list.')}
-      </p>
-    {/if}
+    <LiveRegion>
+      {#if data.agentsWithheld}
+        <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+          {t('app.channels.agents-withheld', 'The agents installed in this App aren’t visible to you, so they aren’t offered below. This is not an empty list.')}
+        </p>
+      {/if}
+    </LiveRegion>
     <RegisterPanel
       rows={[...data.appRows, ...data.orgRows]}
       ownerType="APP"

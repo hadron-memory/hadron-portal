@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
@@ -1206,16 +1207,26 @@
 
         {#if vectorHealthError}
           <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{vectorHealthError}</div>
-        {:else if vectorHealth}
-          {#if vectorHealth.truncation}
-            <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        {/if}
+        <!-- portal#2376: one persistent region per note (not one for both: they are separate
+             children of this `space-y` column and keep their gap that way). -->
+        <LiveRegion data-testid="vector-health-truncated-region">
+          {#if !vectorHealthError && vectorHealth?.truncation}
+            <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               {t('memory-settings.vector-health.truncated', 'Showing {shown} of {total} findings; other check kinds may hide embedding failures.', { shown: vectorHealth.truncation.shown, total: vectorHealth.truncation.total })}
             </div>
           {/if}
-          {#if vectorHealth.skipped}
-            <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        </LiveRegion>
+        <LiveRegion data-testid="vector-health-skipped-region">
+          {#if !vectorHealthError && vectorHealth?.skipped}
+            <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               {t('memory-settings.vector-health.skipped', 'The embedding check did not run: {reason}', { reason: vectorHealth.skipped })}
             </div>
+          {/if}
+        </LiveRegion>
+        {#if !vectorHealthError && vectorHealth}
+          {#if vectorHealth.skipped}
+            <!-- the note is in the region above -->
           {:else if vectorHealth.failed.length === 0}
             <p data-testid="vector-health-empty" role="status" class="text-sm text-zinc-600 dark:text-zinc-300">
               {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}

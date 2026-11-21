@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import WorkerLeaveAlone from './WorkerLeaveAlone.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
@@ -693,18 +694,22 @@
         </p>
       </div>
 
+      <LiveRegion>
+        {#if data.workerSessions === null}
+          <!-- Unavailable is NOT empty (#737). A refused or failed read must not
+               render as "this worker has never worked". -->
+          <p
+            class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
+          >
+            {t(
+              'worker.sessions.unavailable',
+              'The worker sessions couldn’t be loaded — that is a read failure, not an empty history.',
+            )}
+          </p>
+        {/if}
+      </LiveRegion>
       {#if data.workerSessions === null}
-        <!-- Unavailable is NOT empty (#737). A refused or failed read must not
-             render as "this worker has never worked". -->
-        <p
-          role="status"
-          class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
-        >
-          {t(
-            'worker.sessions.unavailable',
-            'The worker sessions couldn’t be loaded — that is a read failure, not an empty history.',
-          )}
-        </p>
+        <!-- the note is in the region above -->
       {:else if data.workerSessions.length === 0}
         <!-- Says what was actually read. The old copy — "this worker has not been
              bound to a worker session yet" — was an absolute claim about the
@@ -755,17 +760,19 @@
         </p>
       </div>
 
-      {#if data.worklog === null}
-        <p
-          role="status"
-          class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
-        >
-          {t(
-            'worker.worklog.unavailable',
-            'The worklog couldn’t be loaded — that is a read failure, not an empty worklog.',
-          )}
-        </p>
-      {:else}
+      <LiveRegion>
+        {#if data.worklog === null}
+          <p
+            class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
+          >
+            {t(
+              'worker.worklog.unavailable',
+              'The worklog couldn’t be loaded — that is a read failure, not an empty worklog.',
+            )}
+          </p>
+        {/if}
+      </LiveRegion>
+      {#if data.worklog !== null}
         <!-- Filters are off: on this page the WORKER is the filter, and the
              control's hidden `tab` field belongs to the App page's tab strip. -->
         <!-- A DISTINCT listKey from the App page's worklog: same component, but a

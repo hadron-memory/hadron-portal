@@ -244,6 +244,13 @@
 <section aria-labelledby="stop-set-heading" class="space-y-3" data-testid="stop-panel">
   <h2 id="stop-set-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.stops.set.heading', 'Stop a worker or team')}</h2>
 
+  <LiveRegion>
+    {#if !impersonating && manages === 'unknown'}
+      <p class="text-sm text-amber-800 dark:text-amber-300" data-testid="stop-unknown-hint">
+        {t('app.stops.unknown-hint', 'Couldn’t check whether you manage this App, so stops can’t be set or lifted from here right now. Reload to try again. You can see the stops below.')}
+      </p>
+    {/if}
+  </LiveRegion>
   {#if impersonating}
     <p class="text-xs text-zinc-500 dark:text-zinc-400">
       {t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: impersonating })}
@@ -253,9 +260,7 @@
       {t('app.stops.read-only', 'Only whoever manages this App can set or lift a stop. You can see the stops below.')}
     </p>
   {:else if manages === 'unknown'}
-    <p role="status" class="text-sm text-amber-800 dark:text-amber-300" data-testid="stop-unknown-hint">
-      {t('app.stops.unknown-hint', 'Couldn’t check whether you manage this App, so stops can’t be set or lifted from here right now. Reload to try again. You can see the stops below.')}
-    </p>
+    <!-- announced by the status region above -->
   {:else}
     <form
       bind:this={formEl}

@@ -25,6 +25,7 @@
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
   import TaskPriorityFallback from '$lib/components/agent-tasks/TaskPriorityFallback.svelte';
   import LazySection from '$lib/components/agent-tasks/LazySection.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { readSection } from '$lib/agent-tasks/sections';
   import type { FindingsRead } from '$lib/agent-tasks/findings';
   import type { MemoriesRead } from '$lib/node-choices';
@@ -347,12 +348,15 @@
 
   <section id="subtasks" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="subtasks-heading">
     <h2 id="subtasks-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.subtasks', 'Subtasks')}</h2>
-    {#if data.tree.kind === 'ok' && data.tree.value}
-      {#if data.tree.value.capped}
-        <p role="status" class="mb-2 text-xs text-amber-700 dark:text-amber-300">
+    <!-- The cap note's region sits above the tree's own states, so it exists whatever the tree read says. -->
+    <LiveRegion>
+      {#if data.tree.kind === 'ok' && data.tree.value?.capped}
+        <p class="mb-2 text-xs text-amber-700 dark:text-amber-300">
           {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks may not be shown.')}
         </p>
       {/if}
+    </LiveRegion>
+    {#if data.tree.kind === 'ok' && data.tree.value}
       <SubtaskTree rows={data.tree.value.rows} rootId={task.id} {basePath} />
     {:else if data.tree.kind === 'not-participant'}
       <NotParticipant />
@@ -380,11 +384,13 @@
             <a href="#history-end" class="mb-2 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.history.latest', 'Jump to latest')}</a>
           {/if}
           <TaskHistory events={history.value.events} {basePath} {people} />
-          {#if history.value.capped}
-            <p role="status" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              {t('app.tasks.history.capped', 'Showing the first 1000 events; later ones aren’t shown.')}
-            </p>
-          {/if}
+          <LiveRegion>
+            {#if history.value.capped}
+              <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                {t('app.tasks.history.capped', 'Showing the first 1000 events; later ones aren’t shown.')}
+              </p>
+            {/if}
+          </LiveRegion>
           <span id="history-end"></span>
         {:else if history.kind === 'not-participant'}
           <NotParticipant />

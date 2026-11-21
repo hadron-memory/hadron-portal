@@ -3,6 +3,7 @@
   import { page as appPage } from '$app/state';
   import SelectApp from '$lib/components/SelectApp.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import ActionRegisterList from './ActionRegisterList.svelte';
   import type { DefinitionRegister } from '$lib/action-register/definition';
   import { parseLimit, parseOffset } from '$lib/action-register/present';
@@ -51,10 +52,15 @@
 <section aria-labelledby="register-heading" class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-800" data-testid="definition-register">
   <h2 id="register-heading" class="text-lg font-semibold">{t('action-register.section.title', 'Codes that send work to this task')}</h2>
 
+  <LiveRegion>
+    {#if register.kind === 'unavailable'}
+      <p class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-unavailable">
+        {t('action-register.section.unavailable', 'The action register isn’t available for this Agent.')}
+      </p>
+    {/if}
+  </LiveRegion>
   {#if register.kind === 'unavailable'}
-    <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-unavailable">
-      {t('action-register.section.unavailable', 'The action register isn’t available for this Agent.')}
-    </p>
+    <!-- announced by the status region above -->
   {:else if register.kind === 'options-failed'}
     <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('action-register.section.options-failed', 'Couldn’t load the Apps for this Agent.')}</p>
   {:else}
@@ -74,12 +80,17 @@
       {/if}
     </div>
 
+    <LiveRegion>
+      {#if register.index && !stale && (register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found')}
+        <p class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-not-available">{t('action-register.section.not-available', 'Not available for this App.')}</p>
+      {/if}
+    </LiveRegion>
     {#if register.index === null}
       <!-- No App chosen: nothing was asked, so nothing is empty. -->
     {:else if stale}
       <p role="status" class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>
     {:else if register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found'}
-      <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-not-available">{t('action-register.section.not-available', 'Not available for this App.')}</p>
+      <!-- announced by the status region above -->
     {:else if register.index.kind === 'failed'}
       <p role="alert" class="text-sm text-red-700 dark:text-red-300" data-testid="register-failed">{t('action-register.load-failed', 'Couldn’t load the action register.')}</p>
     {:else}

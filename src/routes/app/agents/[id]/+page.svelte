@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import AgentLifecycle from './AgentLifecycle.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import BootProvenance from '$lib/components/BootProvenance.svelte';
@@ -926,6 +927,16 @@
   {/if}
   {#if data.bootSource}
     <div hidden={activeTab !== 'boot'}>
+      <!-- portal#2376: the two "not available" notes of the boot tab share one persistent region
+           (each is the only thing its branch shows), so a note that arrives after the page is
+           open is announced. -->
+      <LiveRegion data-testid="boot-unavailable-region">
+        {#if data.bootSource.mode === 'source-missing' && !data.bootSource.canStart}
+          <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+        {:else if data.bootSource.mode === 'source-unreadable'}
+          <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-unreadable', 'You can’t see this Agent’s boot prompt.')}</p>
+        {/if}
+      </LiveRegion>
       {#if data.bootSource.mode === 'legacy'}
         <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.no-source', 'This Agent has no boot prompt source yet.')}</p>
         {#if data.bootSource.canStart}
@@ -947,11 +958,9 @@
       {:else if data.bootSource.mode === 'source-missing'}
         {#if data.bootSource.canStart}
           {#key data.bootStartForm.id}<StartBootSource seeded={true} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
-        {:else}
-          <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
         {/if}
       {:else if data.bootSource.mode === 'source-unreadable'}
-        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-unreadable', 'You can’t see this Agent’s boot prompt.')}</p>
+        <!-- the note is in the region above -->
       {:else}
         <p role="alert" class="text-sm text-red-600 dark:text-red-400">{t('agent.boot.unknown', 'The boot prompt could not be loaded. Reload the page to try again.')}</p>
       {/if}
@@ -1405,11 +1414,13 @@
       {:else if bundleResult?.bundleAdded}
         <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
       {/if}
-      {#if bundledMayBeIncomplete}
-        <p role="status" class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-          {t('agent.bundled.withheld', 'This list may be incomplete because some installed agents aren’t visible to you.')}
-        </p>
-      {/if}
+      <LiveRegion>
+        {#if bundledMayBeIncomplete}
+          <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            {t('agent.bundled.withheld', 'This list may be incomplete because some installed agents aren’t visible to you.')}
+          </p>
+        {/if}
+      </LiveRegion>
       <!-- 24rem offset tuned to this page's chrome (breadcrumb + header + tab
            bar above) — per-page convention, same as the Memories grid. -->
       <DataTable

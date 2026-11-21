@@ -3,6 +3,7 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import Urn from '$lib/components/Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { formatPortalDate } from '$lib/format-portal-date';
   import { t } from '$lib/i18n/t';
@@ -144,9 +145,11 @@
     {:else if form?.teamGrant === 'stopped'}
       <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.team.stopped-done', 'Stopped.')}</p>
     {/if}
-    {#if unread}
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unread', "This page couldn't be refreshed, so what it shows may be out of date. Reload the page to check.")}</p>
-    {/if}
+    <LiveRegion>
+      {#if unread}
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unread', "This page couldn't be refreshed, so what it shows may be out of date. Reload the page to check.")}</p>
+      {/if}
+    </LiveRegion>
   </div>
 {/snippet}
 
@@ -159,8 +162,13 @@
 
   {@render outcomeRegion()}
 
+  <LiveRegion>
+    {#if shown.status === 'unavailable'}
+      <p data-testid="team-grant-unavailable" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unavailable', "This couldn't be read. Reload the page to try again.")}</p>
+    {/if}
+  </LiveRegion>
   {#if shown.status === 'unavailable'}
-    <p role="status" data-testid="team-grant-unavailable" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unavailable', "This couldn't be read. Reload the page to try again.")}</p>
+    <!-- announced by the region above -->
   {:else}
     {#if live}
       <div class="text-sm text-zinc-700 dark:text-zinc-300">

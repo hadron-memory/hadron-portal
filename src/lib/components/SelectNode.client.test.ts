@@ -292,6 +292,27 @@ describe('SelectNode: pick flow (#1576)', () => {
     }
   });
 
+  it('the capped note speaks from a status region that existed, empty, before the cap, and is emptied by a fresh search (portal#2376)', async () => {
+    const cappedPage = async () => ({ ok: true, json: async () => ({ kind: 'ok', value: { items: [node(1)], hasMore: false, capped: true, nextOffset: 100_010 } }) });
+    serve({ [url('m2', 'node', 0)]: [cappedPage], [url('m2', 'few', 0)]: [okPage([node(2)], false, 1)] });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    const note = 'Showing the first results only';
+    const speaking = () => [...target.querySelectorAll<HTMLElement>('[role="status"]')].find((r) => r.textContent?.includes(note)) ?? null;
+    expect(speaking()).toBeNull();
+    const idle = [...target.querySelectorAll<HTMLElement>('[role="status"]')].filter((r) => !r.textContent?.trim());
+    expect(idle.length, 'a status region exists, empty, before the cap').toBeGreaterThan(0);
+    await search(target, 'node');
+    const region = speaking();
+    expect(region, 'the note is inside a status region').not.toBeNull();
+    expect(idle, 'that region existed, empty, before the note').toContain(region);
+    expect(region!.getAttribute('aria-live')).toBe('polite');
+    await search(target, 'few');
+    expect(region!.isConnected).toBe(true);
+    expect(region!.textContent!.trim()).toBe('');
+  });
+
   it('closing the picker dismisses it; reopening the SAME instance starts over at the memory stage', async () => {
     // The reset is the close $effect's job. A remount proves nothing (a fresh
     // mount is trivially reset — the review's P2: the old test passed with

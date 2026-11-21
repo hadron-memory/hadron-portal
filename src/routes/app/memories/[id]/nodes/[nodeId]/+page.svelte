@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
   import RefreshNodeLoc from './RefreshNodeLoc.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
@@ -3528,11 +3529,7 @@
         {/if}
       </div>
       {#if showDataSource}
-        {#if dataDraft.unavailable}
-          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
-            {t('node.data.source.unavailable', 'This node’s data is nested too deeply to show or edit as text here.')}
-          </p>
-        {:else}
+        {#if !dataDraft.unavailable}
         <div class="mt-3">
           <!-- Source editor: monospace, auto-growing to fit its content
                (min-h floor, max-h cap then scrolls). The border turns red
@@ -3575,9 +3572,7 @@
         </div>
         {/if}
       {:else if dataUnavailable}
-        <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
-          {t('node.data.unavailable', 'This node’s data is nested too deeply to show here.')}
-        </p>
+        <!-- the note is in the region below -->
       {:else if renderedJson != null}
         <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedData as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
       {:else}
@@ -3590,6 +3585,17 @@
         </div>
       {/if}
     {/if}
+    <!-- portal#2376: both "nested too deeply" notes of this tab (Source and Rendered view) share one
+         region that stays mounted across tab switches; the note was the only thing either view showed. -->
+    <LiveRegion>
+      {#if activeTab === 'data' && (showDataSource ? dataDraft.unavailable : dataUnavailable)}
+        <p class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+          {showDataSource
+            ? t('node.data.source.unavailable', 'This node’s data is nested too deeply to show or edit as text here.')
+            : t('node.data.unavailable', 'This node’s data is nested too deeply to show here.')}
+        </p>
+      {/if}
+    </LiveRegion>
 
     <!-- ═══ PROPERTIES TAB (#518, typed table #588, storage form #1031) ═══ -->
     {#if activeTab === 'properties'}
@@ -3630,14 +3636,7 @@
       {#if showPropertiesSource}
         <!-- #886: the whole bag as JSON — typed fields, undeclared keys and the
              skill export alike. Saving replaces the bag with exactly this. -->
-        {#if propertiesDraft.unavailable}
-          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
-            {t(
-              'node.properties.source.unavailable',
-              'This node’s properties are nested too deeply to show or edit as text here.',
-            )}
-          </p>
-        {:else}
+        {#if !propertiesDraft.unavailable}
         <div class="mt-3">
           <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
             {t(
@@ -3721,9 +3720,7 @@
           </div>
         {/if}
         {#if propertiesUnavailable}
-          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
-            {t('node.properties.unavailable', 'This node’s properties are nested too deeply to show here.')}
-          </p>
+          <!-- the note is in the region below -->
         {:else if hasProperties}
           <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
         {:else if typedPropertyRows.length === 0}
@@ -3737,6 +3734,17 @@
         {/if}
       {/if}
     {/if}
+    <!-- portal#2376: both "nested too deeply" notes of this tab (Source and Rendered view) share one
+         region that stays mounted across tab switches, after the view that would have held the bag. -->
+    <LiveRegion>
+      {#if activeTab === 'properties' && (showPropertiesSource ? propertiesDraft.unavailable : propertiesUnavailable)}
+        <p class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+          {showPropertiesSource
+            ? t('node.properties.source.unavailable', 'This node’s properties are nested too deeply to show or edit as text here.')
+            : t('node.properties.unavailable', 'This node’s properties are nested too deeply to show here.')}
+        </p>
+      {/if}
+    </LiveRegion>
     <!-- #1031: the storage form (object type, typed properties, skill export),
          which was the separate `/edit` page behind an "Edit" button here.
          Shown under the Rendered view; the Source view is the other editor of

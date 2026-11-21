@@ -18,6 +18,7 @@
  * and `page.data` carries the loader's fresh superforms. Superforms rebinds from
  * that fresh form, which is what erased the error on main.
  */
+import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { get } from 'svelte/store';
@@ -500,7 +501,7 @@ describe('#1882: a failed location move in Settings says so', () => {
     expect(target.querySelector('#editLoc')).toBeNull();
     expect(target.querySelector('#editName')).toBeNull();
     expect(buttonNamed(target, 'Edit')).toBeTruthy();
-    expect(target.querySelector('[role="status"]')?.textContent ?? '').not.toBe('');
+    expect(firstPopulatedStatusText(target) ?? '').not.toBe('');
   });
 });
 

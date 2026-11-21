@@ -7,6 +7,7 @@
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { App, AppMember } from '$lib/types';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
   type AddAppMemberForm = Infer<typeof addAppMemberSchema, 'zod4'>;
@@ -174,16 +175,21 @@
         <span class="ml-2 text-sm font-normal text-zinc-500">({members.length}{memberLimit !== null ? ` / ${memberLimit}` : ''})</span>
       {/if}
     </h2>
+    <!-- portal#1148: a null agent says nothing when the install roster is withheld. -->
+    <LiveRegion>
+      {#if !app.agent && agentsWithheld}
+        <p class="mt-1 text-sm text-zinc-500">
+          {t('app.members.agent-withheld', 'Which Agent is linked to this App isn’t visible to you.')}
+        </p>
+      {/if}
+    </LiveRegion>
     {#if app.agent}
       <p class="mt-1 text-sm text-zinc-500">
         Roles below are defined by the linked Agent
         <a href="/app/agents/{app.agent.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{app.agent.name}</a>.
       </p>
     {:else if agentsWithheld}
-      <!-- portal#1148: a null agent says nothing when the install roster is withheld. -->
-      <p role="status" class="mt-1 text-sm text-zinc-500">
-        {t('app.members.agent-withheld', 'Which Agent is linked to this App isn’t visible to you.')}
-      </p>
+      <!-- announced by the region above -->
     {:else}
       <p class="mt-1 text-sm text-amber-600 dark:text-amber-400">
         This App has no Agent linked yet. Members can only be added once an Agent is linked.
@@ -191,11 +197,13 @@
     {/if}
   </div>
 
-  {#if membersWithheld}
-    <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-      {t('app.members.withheld', 'The members of this App aren’t visible to you. This is not an empty list.')}
-    </p>
-  {/if}
+  <LiveRegion>
+    {#if membersWithheld}
+      <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+        {t('app.members.withheld', 'The members of this App aren’t visible to you. This is not an empty list.')}
+      </p>
+    {/if}
+  </LiveRegion>
 
   {#if membersError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">

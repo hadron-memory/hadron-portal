@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #336: Profile tab of the org-detail tab layout. The org name + URN live in
   // the layout header; this page is the overview — the org properties box and
   // subscribed memories. Memories / Agents / Apps / Team / Integrations / Usage
@@ -157,9 +158,12 @@
   {#if signingOutcome !== 'hidden' && signing.kind !== 'hidden'}
     <section aria-labelledby="signing-heading" data-testid="boot-prompt-signing" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 id="signing-heading" class="font-semibold text-zinc-900 dark:text-white">{t('org.signing.heading', 'Boot prompt signing')}</h2>
-      {#if signing.kind === 'failed'}
-        <p role="status" class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
-      {:else}
+      <LiveRegion>
+        {#if signing.kind === 'failed'}
+          <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
+        {/if}
+      </LiveRegion>
+      {#if signing.kind !== 'failed'}
         <div class="mt-3">
           <SigningStatus required={signing.required} enforced={signing.enforced} />
         </div>

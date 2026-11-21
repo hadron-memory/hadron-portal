@@ -155,7 +155,9 @@ describe('runs page: Agent picker (#1444)', () => {
       flows: [], flowsError: true,
       flowsPage: { offset: 0, count: 0, total: 0, firstHref: null, previousHref: null, nextHref: null },
     });
-    const alert = t.querySelector('[role="status"][data-flows-error]');
+    // portal#2376: the note is the content of a persistent status region, no longer the region itself.
+    const alert = t.querySelector('[data-flows-error]');
+    expect(alert?.closest('[role="status"]')).not.toBeNull();
     expect(alert?.textContent).toContain('Flows couldn’t load');
     expect(t.textContent).not.toContain('No flows on this page.');
   });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // portal#1921 (R1, R3, R4): what switching on org boot-prompt signing would
   // change, and the switch-on itself. The preview IS the confirmation: Switch on
   // sits under the table and is offered only once every row is loaded.
@@ -27,6 +28,15 @@
   const done = $derived(outcome === 'done');
   const org = $derived(data.org);
   let submitting = $state(false);
+
+  // portal#2376: the two notes below ("couldn't load", "this isn't available") live in a region that
+  // is always mounted, so they are picked here with the same precedence the branches below keep:
+  // switched-on first, then a failed load, then the required-status panel, then "hidden".
+  const switchedOn = $derived(done && !!form && 'signing' in form && !!form.signing);
+  const loadFailed = $derived(!switchedOn && (data.sw.kind === 'failed' || preview?.kind === 'failed'));
+  const noLongerAvailable = $derived(
+    !switchedOn && !loadFailed && !(data.sw.kind === 'ok' && data.sw.required) && outcome === 'hidden',
+  );
 
   const stateWords = (r: PreviewRow): string =>
     r.state === 'SIGNATURE_PENDING'
@@ -80,16 +90,23 @@
   </div>
 
   <section class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="signing-preview">
+    <LiveRegion>
+      {#if loadFailed}
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
+      {:else if noLongerAvailable}
+        <!-- The caller lost the audience between read and write: say nothing about the org. -->
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.unavailable', 'This isn’t available.')}</p>
+      {/if}
+    </LiveRegion>
     {#if done && form && 'signing' in form && form.signing}
       <SigningStatus required={form.signing.required} enforced={form.signing.enforced} />
       <p role="status" class="text-sm text-green-700 dark:text-green-300">{t('org.signing.switched-on', 'Signing is switched on.')}</p>
-    {:else if data.sw.kind === 'failed' || preview?.kind === 'failed'}
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.failed', 'Couldn’t load boot prompt signing.')}</p>
+    {:else if loadFailed}
+      <!-- the note is in the region above -->
     {:else if data.sw.kind === 'ok' && data.sw.required}
       <SigningStatus required={data.sw.required} enforced={data.sw.enforced} />
-    {:else if outcome === 'hidden'}
-      <!-- The caller lost the audience between read and write: say nothing about the org. -->
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('org.signing.unavailable', 'This isn’t available.')}</p>
+    {:else if noLongerAvailable}
+      <!-- the note is in the region above -->
     {:else if preview?.kind === 'drifted'}
       <p role="status" class="text-sm text-amber-800 dark:text-amber-200">{t('org.signing.stale', 'What would change has changed, or this review is more than 10 minutes old. Look again before switching on.')}</p>
       <a href="/app/orgs/{org.id}/boot-prompt-signing" data-sveltekit-reload class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('org.signing.look-again', 'Look again')}</a>
