@@ -3,7 +3,7 @@
  * dialog opens (not on the Keys tab's first screen: ruling 0273).
  *
  * The gate pin: the read is the server's (`hostRegistrations` is gated to the
- * readers of the App's tasks and events, cor:agt:050:21), run with the CALLER'S
+ * readers of the App's tasks and events, hrn:node:hadronmemory.com:specs:cor:agt:050:21), run with the CALLER'S
  * token. A refusal answers `{ kind: 'refused' }`, a failure `{ kind: 'failed' }`,
  * and neither is ever an empty host list, so "No hosts are registered" is only
  * ever said about a viewer the server answered for.

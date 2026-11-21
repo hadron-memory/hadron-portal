@@ -3,7 +3,7 @@
 // (ruling 0273), and never cached: the answer is one App's, for one reader.
 //
 // Access control is the GraphQL read's (hostRegistrations is gated to the
-// readers of the App's tasks and events, cor:agt:050:21), run with the
+// readers of the App's tasks and events, hrn:node:hadronmemory.com:specs:cor:agt:050:21), run with the
 // caller's own token; no second copy of the rule lives here. A refusal or a
 // failure is a 200 with its kind, because the dialog degrades on it.
 import { json } from '@sveltejs/kit';
