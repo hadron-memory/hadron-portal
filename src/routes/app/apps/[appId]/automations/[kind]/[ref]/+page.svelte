@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { tick, untrack } from 'svelte';
@@ -128,11 +129,13 @@
       {#if schedule.enabled && nextRun}
         <p class="text-sm text-zinc-700 dark:text-zinc-300" data-testid="schedule-next">{t('app.automations.next-run', 'Next run: {when}', { when: `${nextRun} (${schedule.timezone})` })}</p>
       {/if}
-      {#if data.created}
-        <p role="status" class="text-sm text-emerald-800 dark:text-emerald-300" data-testid="schedule-created">
-          {t('app.automations.created', 'Created. You approved it by creating it.')}
-        </p>
-      {/if}
+      <LiveRegion>
+        {#if data.created}
+          <p class="text-sm text-emerald-800 dark:text-emerald-300" data-testid="schedule-created">
+            {t('app.automations.created', 'Created. You approved it by creating it.')}
+          </p>
+        {/if}
+      </LiveRegion>
       <div class="flex flex-wrap items-center gap-2 pt-1">
         <a href="{approvalHref(data.app.id, data.kind, data.ref)}/edit" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.change', 'Change')}</a>
         <form method="POST" action={schedule.enabled ? '?/pause' : '?/resume'} use:enhance>
@@ -182,20 +185,23 @@
 
   <div class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
     <div bind:this={outcome} tabindex="-1" data-testid="automation-outcome" class="space-y-2 outline-none">
-      {#if form?.code === 'stale'}
-        <p role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          {t('app.automations.stale', 'This automation changed while you were reviewing it. The summary below is the new one. Review it, then approve again.')}
-        </p>
-      {:else if form?.code === 'refused'}
+      <LiveRegion>
+        {#if form?.code === 'stale'}
+          <p class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            {t('app.automations.stale', 'This automation changed while you were reviewing it. The summary below is the new one. Review it, then approve again.')}
+          </p>
+        {:else if form?.code !== 'refused' && form?.code !== 'missing-hash' && form && 'approved' in form}
+          <p class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.approved-done', 'Approved.')}</p>
+        {:else if form?.code !== 'refused' && form?.code !== 'missing-hash' && form && 'declined' in form}
+          <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.declined-done', 'Declined.')}</p>
+        {/if}
+      </LiveRegion>
+      {#if form?.code === 'refused'}
         <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.message || t('app.automations.refused', 'The server refused this action.')}</p>
       {:else if form?.code === 'missing-hash'}
         <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {t('app.automations.missing-hash', 'Reload the page and try again.')}
         </p>
-      {:else if form && 'approved' in form}
-        <p role="status" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.approved-done', 'Approved.')}</p>
-      {:else if form && 'declined' in form}
-        <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.declined-done', 'Declined.')}</p>
       {/if}
     </div>
     <div class="flex flex-wrap items-center gap-2">

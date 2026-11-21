@@ -8,6 +8,7 @@ import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { kitAppliedResults, resetKitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedWithRawResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
@@ -17,7 +18,7 @@ import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recover
 import { message, pageData, runsPanel } from './app-page.fixture';
 import {
   createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
-  revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
+  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
 } from './schema';
 import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
@@ -4836,5 +4837,85 @@ describe('App chats: deep-link uncertainty vs chat-list failure', () => {
     const t = await mountChats({ chatsError: true, chatDeepLinkUnresolved: false });
     expect(t.textContent).toContain(DISCOVERY);
     expect(t.textContent).not.toContain(DEEP_LINK);
+  });
+});
+
+describe('App page results are announced in persistent live regions (portal#2375)', () => {
+  const twoChats = [{ key: 'chats:team', label: 'Team chat' }, { key: 'chats:other', label: 'Other chat' }];
+  async function mountChatsPage() {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
+    const data = await pageData();
+    const m = mountComponent(Page as never, { data: { ...data, appChats: twoChats }, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  const chooseOther = (t: HTMLElement) => {
+    const select = t.querySelector<HTMLSelectElement>('#app-chat-select')!;
+    select.value = 'chats:other';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  it('"Opening chat…" fills a status region that was already mounted and empty', async () => {
+    const t = await mountChatsPage();
+    const idle = idleStatusRegions(t);
+    expect(idle.length).toBeGreaterThan(0);
+    let release!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((r) => { release = r; });
+    chooseOther(t);
+    await tick(2);
+    const region = announcedStatusRegion(t);
+    expect(region?.textContent).toContain('Opening chat');
+    expect(idle).toContain(region);
+    release();
+    await tick(6);
+    expect(region!.isConnected).toBe(true);
+    expect(region!.querySelector('p')).toBeNull();
+  });
+
+  it('"Could not open that chat" fills the same kind of region', async () => {
+    const t = await mountChatsPage();
+    const idle = idleStatusRegions(t);
+    expect(idle.length).toBeGreaterThan(0);
+    navigationHooks.onGoto = () => { throw new Error('offline'); };
+    chooseOther(t);
+    await tick(3);
+    const region = announcedStatusRegion(t);
+    expect(region?.textContent).toContain('Could not open that chat');
+    expect(idle).toContain(region);
+  });
+
+  it('the retire success lands in the status region that was already mounted and empty', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+    const data = await pageData();
+    const staff = [{
+      id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null,
+      memoryId: 'mem-ada', agent: { id: 'ag-coord', name: 'Coordinator', systemMemoryId: 'mem-sys' }, family: 'claude', hasLiveSession: true, heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
+    }];
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: { kind: 'unavailable' } }, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const t = m.target;
+    const idle = idleStatusRegions(t);
+    expect(idle.length).toBeGreaterThan(0);
+
+    t.querySelector<HTMLButtonElement>('button[aria-label="Actions for Ada"]')!.click();
+    flushSync();
+    [...t.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === 'Retire')!.click();
+    await tick(2);
+    const retire = requestSubmit.mock.contexts[0] as HTMLFormElement;
+    const done = await superValidate(zod4(retireWorkerSchema), { errors: false });
+    done.message = { type: 'success', text: 'Ada retired.' };
+    await submitEnhancedWithResult(retire, { type: 'success', status: 200, data: { form: done } });
+    props.form = { form: done };
+    await tick(3);
+    const region = announcedStatusRegion(t);
+    expect(region?.textContent).toContain('Ada retired.');
+    expect(idle).toContain(region);
   });
 });

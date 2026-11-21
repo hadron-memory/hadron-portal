@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   // #396 — "Merge memory": empties a source memory into a target. Sibling of
   // merge-node (#395) at the memory level. Reuses the command-page framework's
   // multiselect (include strategy) + checkbox (deleteSourceMem) kinds.
@@ -124,8 +125,9 @@
   </div>
 {/if}
 
+<LiveRegion>
 {#if result}
-  <section role="status" class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
+  <section class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
     <p class="text-sm text-green-800 dark:text-green-300">
       {t('commands.merge-memory.result.merged-into', 'Merged into')} <span class="font-medium">{result.name}</span>.
     </p>
@@ -138,3 +140,4 @@
     </a>
   </section>
 {/if}
+</LiveRegion>
