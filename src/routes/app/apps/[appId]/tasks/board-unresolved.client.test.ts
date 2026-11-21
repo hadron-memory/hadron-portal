@@ -42,6 +42,18 @@ describe('Unresolved findings', () => {
     expect(note(m).textContent).toContain('Unresolved findings was turned off');
     expect(m.target.querySelectorAll('#task-unresolved-guidance')).toHaveLength(1);
   });
+  it('portal#2378: a bucket change that drops Unresolved findings is announced by a region that was already there', async () => {
+    const m = await mount({ filter: 'all' });
+    const region = () => m.target.querySelector<HTMLElement>('[data-testid=unresolved-note-region]');
+    const before = region();
+    expect(before, 'mounted before the bucket changes').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent).not.toContain('Unresolved findings was turned off');
+    (m.instance.navigate as (next: unknown) => void)(data({ filter: 'active', unresolvedDropped: true }));
+    await tick(4);
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('Unresolved findings was turned off');
+  });
   it('the form submits it only when on, beside the bucket', async () => {
     expect(submitted(await mount({ filter: 'ended', unresolved: true }))).toContainEqual(['unresolved', '1']);
     expect(submitted(await mount({ filter: 'ended' })).some(([k]) => k === 'unresolved')).toBe(false);

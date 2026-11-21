@@ -9,6 +9,10 @@
   import CommandForm from '$lib/components/commands/CommandForm.svelte';
   import type { CommandField, CommandFieldValue } from '$lib/components/commands/command-field';
   import Urn from '$lib/components/Urn.svelte';
+  import DataTable from '$lib/components/table/DataTable.svelte';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
   import { accessCheckSchema } from './schema';
@@ -78,6 +82,34 @@
   }
 
   const result = $derived(form && 'result' in form ? form.result : null);
+
+  type GrantRow = NonNullable<typeof result>['grants'][number];
+  const grantRows = $derived<GrantRow[]>(result?.grants ?? []);
+  let grantFilter = $state('');
+  const grantColumns: PortalColumnDef<GrantRow>[] = [
+    { accessorKey: 'source', header: t('commands.access-check.grants.source', 'Source'), size: 260 },
+    { accessorKey: 'role', header: t('commands.access-check.grants.role', 'Role'), size: 120 },
+    { accessorFn: (g) => g.via ?? '—', id: 'via', header: t('commands.access-check.grants.via', 'Via'), size: 200 },
+  ];
+  const grantTable = createSvelteTable<GrantRow>({
+    get data() {
+      return grantRows;
+    },
+    columns: grantColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return grantFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      grantFilter = typeof u === 'function' ? u(grantFilter) : u;
+    },
+    globalFilterFn: makeGlobalFilterFn<GrantRow>({}, {}),
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
   const error = $derived($commandMessage?.type === 'error' ? $commandMessage.text : null);
 
   const CAPS = [
@@ -146,24 +178,23 @@
       {#if result.grants.length === 0}
         <p class="text-sm text-zinc-500">{t('commands.access-check.grants.empty', 'No grants — this user has no access to this resource.')}</p>
       {:else}
-        <table class="w-full text-left text-sm">
-          <thead class="text-xs uppercase tracking-wide text-zinc-400">
-            <tr>
-              <th class="py-1 pr-4 font-medium">{t('commands.access-check.grants.source', 'Source')}</th>
-              <th class="py-1 pr-4 font-medium">{t('commands.access-check.grants.role', 'Role')}</th>
-              <th class="py-1 font-medium">{t('commands.access-check.grants.via', 'Via')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each result.grants as grant, i (i)}
-              <tr class="border-t border-zinc-100 dark:border-zinc-800">
-                <td class="py-1.5 pr-4 font-mono text-xs text-zinc-700 dark:text-zinc-300">{grant.source}</td>
-                <td class="py-1.5 pr-4 text-zinc-700 dark:text-zinc-300">{grant.role}</td>
-                <td class="py-1.5 text-zinc-500">{grant.via ?? '—'}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <DataTable
+          table={grantTable}
+          listKey="commands:access-check:grants"
+          searchPlaceholder={t('commands.access-check.grants.search', 'Search grants')}
+          searchAriaLabel={t('commands.access-check.grants.search', 'Search grants')}
+          bind:globalFilter={grantFilter}
+          bounded
+          rowAttrs={() => ({ 'data-testid': 'access-check-grant-row' })}
+        >
+          {#snippet cell(cell)}
+            {#if cell.column.id === 'source'}
+              <span class="font-mono text-xs">{cell.getValue()}</span>
+            {:else}
+              {String(cell.getValue() ?? '—')}
+            {/if}
+          {/snippet}
+        </DataTable>
       {/if}
     </div>
   </section>

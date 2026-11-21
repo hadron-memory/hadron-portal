@@ -43,7 +43,7 @@ function ev(orgId = 'org-1') {
 /** Route by document: the org slice, then the runnable-nodes search. */
 function route(opts: {
   memories?: Array<{ id: string }>;
-  system?: Array<{ id: string; appId?: string | null }>;
+  system?: Array<{ id: string; appId: string | null }>;
   systemThrow?: boolean;
   nodes?: unknown[];
   nodesThrow?: boolean;
@@ -170,11 +170,7 @@ describe('org tasks load()', () => {
   });
 
   it('#1689: setExport accepts a node that lives in a system memory of this org', async () => {
-    const writes = routeAction({ node: storedTask({ memoryId: 'sys-1' }) });
-    mockRequest.mockImplementation(((impl) => async (q: string, v: unknown) =>
-      q === ORG_SYSTEM_MEMORY_IDS_QUERY ? { memories: { items: [{ id: 'sys-1', appId: null }], total: 1 } } : impl(q, v))(
-      mockRequest.getMockImplementation()!,
-    ));
+    const writes = routeAction({ node: storedTask({ memoryId: 'sys-1' }), system: [{ id: 'sys-1', appId: null }] });
     const actions = await importActions();
     const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
     expect(out).not.toMatchObject({ status: 404 });
@@ -251,13 +247,10 @@ describe('org tasks load() — #1706 App-owned install memories', () => {
   it('setExport refuses a task that lives in an App-owned install memory as not-found', async () => {
     // With the id filtered out of the scope, an install-memory node is not one
     // of the page's rows — the same answer as a node outside the org.
-    const writes = routeAction({ node: storedTask({ memoryId: 'sys-install' }) });
-    mockRequest.mockImplementation(((impl) => async (q: string, v: unknown) =>
-      q === ORG_SYSTEM_MEMORY_IDS_QUERY
-        ? { memories: { items: [{ id: 'sys-install', appId: 'app-1' }], total: 1 } }
-        : impl(q, v))(
-      mockRequest.getMockImplementation()!,
-    ));
+    const writes = routeAction({
+      node: storedTask({ memoryId: 'sys-install' }),
+      system: [{ id: 'sys-install', appId: 'app-1' }],
+    });
     const actions = await importActions();
     const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
     expect(out).toMatchObject({ status: 404, data: { exportFailed: { code: 'not-found' } } });
@@ -324,10 +317,18 @@ const storedTask = (over: Record<string, unknown> = {}) => ({
 });
 
 /** Route the action's reads; record every other call as the write. */
-function routeAction(opts: { node?: unknown; memories?: Array<{ id: string }>; writeError?: unknown }) {
+function routeAction(opts: {
+  node?: unknown;
+  memories?: Array<{ id: string }>;
+  system?: Array<{ id: string; appId: string | null }>;
+  writeError?: unknown;
+}) {
   const writes: Array<[string, unknown]> = [];
   mockRequest.mockImplementation(async (query: string, vars: unknown) => {
-    if (query === ORG_SYSTEM_MEMORY_IDS_QUERY) return { memories: { items: [], total: 0 } };
+    if (query === ORG_SYSTEM_MEMORY_IDS_QUERY) {
+      const items = opts.system ?? [];
+      return { memories: { items, total: items.length } };
+    }
     if (query === NODE_PROPERTIES_READ_QUERY) return { node: opts.node ?? null };
     if (query === ORG_TASK_MEMORY_IDS_QUERY) {
       return { organization: { id: 'org-1', memories: opts.memories ?? [{ id: 'mem-1' }] } };

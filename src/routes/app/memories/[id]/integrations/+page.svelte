@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { formatPortalDate } from '$lib/format-portal-date';
   // #266: Integrations tab — GitHub source + branches and the sync/push actions,
   // split out of the Settings page.
@@ -95,11 +96,13 @@
   {#if commandError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{commandError}</div>
   {/if}
-  {#if successMessage}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {successMessage}
-    </div>
-  {/if}
+  <LiveRegion>
+    {#if successMessage}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+        {successMessage}
+      </div>
+    {/if}
+  </LiveRegion>
 
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('integrations.github', 'GitHub')}</h2>

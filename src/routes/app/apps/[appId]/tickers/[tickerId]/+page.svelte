@@ -434,7 +434,7 @@
         <button type="button" onclick={refresh} class="ml-2 py-1 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
       </div>
     {:else if rows.length === 0 && !data.paged}
-      <p role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="subscribers-empty">
+      <p class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="subscribers-empty">
         {t('app.ticker.subscribers.empty', 'Nobody follows this ticker yet.')}
       </p>
     {:else}

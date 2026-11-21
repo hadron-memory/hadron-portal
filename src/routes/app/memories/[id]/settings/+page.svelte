@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
@@ -727,9 +728,11 @@
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
 <fieldset disabled={data.impersonation != null || (data.canWriteMemory === false && !canEditSettings)} class="space-y-8">
-  {#if settingsActionSuccess && !isEditing}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{settingsActionSuccess}</div>
-  {/if}
+  <LiveRegion>
+    {#if settingsActionSuccess && !isEditing}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{settingsActionSuccess}</div>
+    {/if}
+  </LiveRegion>
 
   <!-- Memory settings -->
   <section class="max-w-lg">
@@ -989,9 +992,12 @@
 
       {#if vectorActionError}
         <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{vectorActionError}</div>
-      {:else if vectorActionSuccess}
-        <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{vectorActionSuccess}</div>
       {/if}
+      <LiveRegion>
+        {#if !vectorActionError && vectorActionSuccess}
+          <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{vectorActionSuccess}</div>
+        {/if}
+      </LiveRegion>
 
       <label class="flex items-start gap-3">
         <input type="checkbox" bind:checked={$vectorForm.vectorIndexEnabled} class="mt-0.5 h-4 w-4" />
@@ -1148,12 +1154,14 @@
 
         {#if retryEmbedsError}
           <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{retryEmbedsError}</div>
-        {:else if retriedCount !== null}
+        {/if}
+        <LiveRegion>
+          {#if retriedCount !== null && !retryEmbedsError}
           <!-- Says what was QUEUED, not what now works: the embedding worker
                has not run when the mutation resolves, so a node counted here
                may fail again on its next attempt.
                hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee -->
-          <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+          <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
             {#if retriedCount === 0}
               <!-- @copilot on #837: NEUTRAL, because 0 has two causes. The
                    mutation returns 0 when nothing was failing AND when the
@@ -1174,6 +1182,7 @@
             {/if}
           </div>
         {/if}
+        </LiveRegion>
 
         <button type="submit" disabled={$retryEmbedsSubmitting}
           class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
@@ -1202,6 +1211,13 @@
               ? t('memory-settings.vector-health.checking', 'Checking...')
               : t('memory-settings.vector-health.check', 'Check vector index health')}
           </button>
+          <LiveRegion data-testid="vector-health-region">
+            {#if !vectorHealthError && vectorHealth && !vectorHealth.skipped && vectorHealth.failed.length === 0}
+              <p data-testid="vector-health-empty" class="mt-3 text-sm text-zinc-600 dark:text-zinc-300">
+                {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
+              </p>
+            {/if}
+          </LiveRegion>
         </form>
 
         {#if vectorHealthError}
@@ -1216,10 +1232,6 @@
             <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               {t('memory-settings.vector-health.skipped', 'The embedding check did not run: {reason}', { reason: vectorHealth.skipped })}
             </div>
-          {:else if vectorHealth.failed.length === 0}
-            <p data-testid="vector-health-empty" role="status" class="text-sm text-zinc-600 dark:text-zinc-300">
-              {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
-            </p>
           {/if}
           {#if vectorHealth.failed.length > 0}
             <VectorHealthTable rows={vectorHealth.failed} memoryId={g.id} />
@@ -1241,9 +1253,12 @@
 
       {#if schemaActionError}
         <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{schemaActionError}</div>
-      {:else if schemaActionSuccess}
-        <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{schemaActionSuccess}</div>
       {/if}
+      <LiveRegion>
+        {#if !schemaActionError && schemaActionSuccess}
+          <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{schemaActionSuccess}</div>
+        {/if}
+      </LiveRegion>
 
       <p class="text-xs text-zinc-500 dark:text-zinc-400">
         Declares the collections (object types) this memory holds and the typed
@@ -1314,9 +1329,11 @@
   {#if canTransfer}
     <section class="max-w-3xl border-t border-zinc-200 pt-6 dark:border-zinc-800" aria-labelledby="transfer-title">
       <h3 id="transfer-title" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('memory-transfer.heading', 'Transfer ownership')}</h3>
-      {#if $page.url.searchParams.get('transferred') === '1'}
-        <p role="status" class="mb-4 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('memory-transfer.done', 'Ownership transferred. The old URN still resolves.')}</p>
-      {/if}
+      <LiveRegion>
+        {#if $page.url.searchParams.get('transferred') === '1'}
+          <p class="mb-4 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('memory-transfer.done', 'Ownership transferred. The old URN still resolves.')}</p>
+        {/if}
+      </LiveRegion>
       <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
         {t('memory-transfer.intro', 'Preview the new URN and dependent records before moving this memory. The destination must be an organization you administer or your own user account.')}
       </p>

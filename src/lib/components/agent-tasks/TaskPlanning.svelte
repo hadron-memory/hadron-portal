@@ -239,7 +239,9 @@
     <SelectTask {appId} bind:open={picker} onselect={(task) => chosen = task} />
   {/if}
   {#if canPriority || canBlockers}<p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.planning.authority', 'The server checks whether you may assign this task before saving priority or blockers.')}</p>{/if}
-  {#if pending}<p role="status">{t('app.tasks.saving', 'Saving…')}</p>{/if}
+  <LiveRegion>
+    {#if pending}<p>{t('app.tasks.saving', 'Saving…')}</p>{/if}
+  </LiveRegion>
   <LiveRegion>
     {#if saved}<p>{refreshFailed ? t('app.tasks.saved-refresh-failed', 'Saved. Reload to refresh facts.') : t('app.tasks.saved', 'Saved. Facts refreshed.')}</p>{/if}
   </LiveRegion>

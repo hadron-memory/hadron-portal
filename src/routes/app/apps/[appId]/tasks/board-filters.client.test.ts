@@ -62,6 +62,18 @@ describe('one Overdue note, not two (portal#1434 item 3)', () => {
     expect(m.target.querySelectorAll('[data-testid=overdue-dropped]')).toHaveLength(1);
     expect(box(m).getAttribute('aria-describedby')).toBe('task-overdue-guidance');
   });
+  it('portal#2378: a bucket change that drops Overdue is announced by a region that was already there', async () => {
+    const m = await mount({ filter: 'active' });
+    const region = () => m.target.querySelector<HTMLElement>('[data-testid=overdue-note-region]');
+    const before = region();
+    expect(before, 'mounted before the bucket changes').not.toBeNull();
+    expect(before!.getAttribute('role')).toBe('status');
+    expect(before!.textContent).not.toContain('Overdue was turned off');
+    (m.instance.navigate as (next: unknown) => void)(data({ filter: 'ended', overdueDropped: true }));
+    await tick(4);
+    expect(region()).toBe(before);
+    expect(before!.textContent).toContain('Overdue was turned off');
+  });
   it('unavailable and not dropped: the guidance line explains why', async () => {
     const m = await mount({ filter: 'ended' });
     expect(guidance(m).textContent).toContain('Overdue applies to Active, Queued and All tasks.');

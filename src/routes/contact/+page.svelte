@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -36,11 +37,14 @@
 <div class="mx-auto max-w-lg px-4 py-16">
   <h1 class="mb-6 text-center text-3xl font-bold text-zinc-900 dark:text-white">Get in touch</h1>
 
-  {#if successMessage}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300 text-center">
-      {successMessage}
-    </div>
-  {:else}
+  <LiveRegion>
+    {#if successMessage}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300 text-center">
+        {successMessage}
+      </div>
+    {/if}
+  </LiveRegion>
+  {#if !successMessage}
     {#if actionError}
       <div role="alert" class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
     {/if}

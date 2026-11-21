@@ -1868,12 +1868,17 @@
   // own focus order the way reading document.activeElement would.
   let grantScopeKey = $state<AppKey | null>(null);
   let grantScopeTriggerEl: HTMLButtonElement | null = null;
+  // #2356: set by the cross-App fence below. A fence-driven teardown is part
+  // of a navigation, whose own focus/scroll reset owns where focus goes, so
+  // the Keys-panel fallback stays out of its way. Cleared on the next open.
+  let grantScopeFenceFired = false;
   function openGrantScope(key: AppKey, trigger?: HTMLButtonElement) {
     if ($grantKeyScopeSubmitting) return;
     grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: key.id, scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
     grantKeyScopeErrors.set({});
     grantKeyScopeMessage.set(undefined);
     grantScopeTriggerEl = trigger ?? null;
+    grantScopeFenceFired = false;
     grantScopeKey = key;
   }
   function closeGrantScope() {
@@ -1884,11 +1889,14 @@
   // RESTORE is the action's own job: the {#if} below unmounts the node on
   // every close path BEFORE destroy() runs, so the browser's own close()
   // restore finds a detached dialog and focus falls to <body> (real
-  // Chromium). The captured trigger can be GONE by then — the success path
-  // invalidates the page and the table re-renders its rows, and a cross-App
-  // fence drops the departed App's dialog wholesale — so a detached (or
-  // absent) trigger lands on the Keys TAB PANEL (#panel-keys, a focusable
-  // region boundary by its tabindex 0) instead: never <body>.
+  // Chromium). The captured trigger can be GONE by then: the keyed row
+  // normally survives the success path's invalidation (the row DOM is reused),
+  // so a detached trigger is the defensive case (a row removed by a refresh
+  // that dropped the key), and a cross-App fence drops the departed App's
+  // dialog wholesale. A detached (or absent) trigger lands on the Keys TAB
+  // PANEL (#panel-keys, a focusable region boundary by its tabindex 0), never
+  // <body>, with preventScroll so it does not jump the page; the fence case
+  // skips the fallback because the navigation owns focus.
   function grantScopeDialogAction(el: HTMLDialogElement) {
     el.showModal();
     el.querySelector<HTMLSelectElement>('select[name="scope"]')?.focus();
@@ -1896,7 +1904,7 @@
       destroy() {
         if (el.open) el.close();
         if (grantScopeTriggerEl && grantScopeTriggerEl.isConnected) grantScopeTriggerEl.focus();
-        else document.getElementById('panel-keys')?.focus();
+        else if (!grantScopeFenceFired) document.getElementById('panel-keys')?.focus({ preventScroll: true });
       },
     };
   }
@@ -1914,9 +1922,11 @@
     grantScopeContextApp = app.id;
     grantScopeGeneration += 1;
     // Discard the departed App's dialog, form fields, outcomes and captured
-    // trigger together (the teardown then lands on the heading, not on
-    // another App's row).
+    // trigger together. The teardown then skips its Keys-panel fallback
+    // (grantScopeFenceFired) so it neither focuses another App's row nor
+    // races the navigation's own focus/scroll reset.
     grantScopeTriggerEl = null;
+    grantScopeFenceFired = true;
     untrack(() => {
       grantScopeKey = null;
       grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: '', scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
@@ -1953,7 +1963,15 @@
   }
   const newCastFormId = () => `castWorker:${Math.random().toString(36).slice(2, 10)}`;
   const castFormId = newCastFormId();
-  const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
+  // portal#1893: the Reports to checkbox starts unchecked, which is the No team arm. The schema
+  // keeps `reporting` blank-by-default so the ACTION still refuses an omitted choice; this form
+  // seeds `none` for the blank the loader's empty form carries, and leaves a submitted result as is.
+  const initialCastWorkerForm = untrack(() => {
+    const submitted = submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null;
+    if (submitted) return submitted;
+    const empty = data.castWorkerForm;
+    return { ...empty, data: { ...empty.data, reporting: empty.data.reporting || 'none' } } as CastWorkerSuperform;
+  });
   const {
     form: castWorkerForm,
     errors: castWorkerErrors,
@@ -2030,7 +2048,7 @@
       if (f.valid && f.message?.type === 'success') {
         const attempt = castAttemptGeneration;
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
+          (current) => ({ ...current, agentId: '', name: '', reporting: 'none', reportsTo: '' }),
           { taint: false },
         );
         castOpen = false;
@@ -2069,7 +2087,7 @@
     castWorkerFormId.set(newCastFormId());
     untrack(() => {
       castWorkerForm.update(
-        (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
+        (current) => ({ ...current, agentId: '', name: '', reporting: 'none', reportsTo: '' }),
         { taint: false },
       );
       castWorkerMessage.set(undefined);
@@ -3377,7 +3395,7 @@
               id="castAgentId"
               name="agentId"
               bind:value={$castWorkerForm.agentId}
-              onchange={() => castWorkerForm.update((c) => ({ ...c, reporting: '', reportsTo: '' }), { taint: false })}
+              onchange={() => castWorkerForm.update((c) => ({ ...c, reporting: 'none', reportsTo: '' }), { taint: false })}
               aria-invalid={!!castWorkerAgentError}
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
@@ -3445,26 +3463,33 @@
               </p>
             {/if}
           </div>
-          <!-- hadron-portal#1149 — the user wants to say who this worker reports
-               to. Two deliberate choices, NEITHER preselected: a worker, or No
-               team. Omission is never No team and a coordinator is never
-               guessed, so there is no default and no "skip". -->
-          <fieldset
-            aria-describedby={castWorkerReportingError ? 'castReportingError' : undefined}
-            class="space-y-2"
-          >
-            <legend class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('app.staff.field.reports-to', 'Reports to')}
-            </legend>
+          <!-- hadron-portal#1893 — who this worker reports to is one checkbox, off
+               by default. Off is the explicit No team arm (`reporting: 'none'`,
+               sent by the hidden input); on reveals the worker picker
+               (`reporting: 'head'`). Unchecking clears the picked worker so a
+               submit never carries both arms. Supersedes the two-radio design
+               of hadron-portal#1149. -->
+          <div class="space-y-2">
+            <!-- Exactly one `reporting` value posts, with or without script: the checkbox sends
+                 `head` when on, the hidden input sends `none` when off. -->
+            {#if $castWorkerForm.reporting !== 'head'}
+              <input type="hidden" name="reporting" value="none" />
+            {/if}
             <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
               <input
-                type="radio"
+                id="castReportsToWorker"
+                type="checkbox"
                 name="reporting"
                 value="head"
-                bind:group={$castWorkerForm.reporting}
-                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
+                checked={$castWorkerForm.reporting === 'head'}
+                onchange={(e) =>
+                  castWorkerForm.update(
+                    (c) => ({ ...c, reporting: e.currentTarget.checked ? 'head' : 'none', reportsTo: '' }),
+                    { taint: false },
+                  )}
+                class="h-4 w-4 rounded border-zinc-300 text-indigo-600 dark:border-zinc-600"
               />
-              {t('app.staff.reports-to.choice.worker', 'A worker')}
+              {t('app.staff.field.reports-to', 'Reports to')}
             </label>
             {#if $castWorkerForm.reporting === 'head'}
               <div class="pl-6">
@@ -3492,24 +3517,10 @@
                 {/if}
               </div>
             {/if}
-            <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
-              <input
-                type="radio"
-                name="reporting"
-                value="none"
-                bind:group={$castWorkerForm.reporting}
-                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
-              />
-              {t('app.staff.reports-to.choice.none', 'No team')}
-            </label>
             {#if castWorkerReportingError}
               <p id="castReportingError" role="alert" class="text-xs text-red-600 dark:text-red-400">{castWorkerReportingError}</p>
-            {:else}
-              <p class="text-xs text-zinc-400">
-                {t('app.staff.reports-to.help', 'Choose deliberately. A cast without a choice will be refused once enforcement is on.')}
-              </p>
             {/if}
-          </fieldset>
+          </div>
           <div>
             <p class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.role', 'Role')}
@@ -4269,14 +4280,14 @@
                        reader never loses "what a valid host is" to the error.
                        The alert renders on exactly grantKeyScopeActionError,
                        the same expression describedby keys on, so the id
-                       always resolves. aria-invalid covers a refusal that
-                       arrives as a form message rather than a field error
-                       (the server's own BAD_USER_INPUT on a malformed host —
-                       the client schema stops only the empty case): the host
-                       is this dialog's one free-text field, so any error
-                       showing beside it marks it invalid. -->
+                       always resolves. aria-invalid keys on the HOST field
+                       error alone (#2356): the server routes a host-specific
+                       refusal (a second host, a malformed host id) there, while
+                       a permission, key-gone or network refusal stays a form
+                       message and must not tell a screen-reader user that the
+                       host they typed is wrong. -->
                   <input id="grant-host" type="text" name="hostId" bind:value={$grantKeyScopeForm.hostId}
-                    aria-invalid={!!$grantKeyScopeErrors.hostId || !!grantKeyScopeActionError}
+                    aria-invalid={!!$grantKeyScopeErrors.hostId}
                     aria-describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
                     class={inputClass} autocomplete="off" />
                   <p id="grant-host-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The id of the one host this key may operate. A host key reaches one host.')}</p>

@@ -121,3 +121,15 @@ it('#1408 Org memories exposes its selected panel through the shared tab semanti
   expect(selected!.getAttribute('aria-controls')).toBe(panel!.id);
   expect(panel!.getAttribute('aria-labelledby')).toBe(selected!.id);
 });
+
+it('portal#2316: the Subscriptions sub-tab renders each subscription as a row of the shared DataTable', async () => {
+  const target = await mountMemories('subscriptions');
+  const rows = [...target.querySelectorAll('[data-testid="subscription-row"]')];
+  expect(rows.map((r) => r.getAttribute('data-memory-id'))).toEqual(['s1', 's2']);
+  expect(rows[0]!.textContent).toContain('Shared One');
+  expect(rows[0]!.textContent).toContain('other.com:s1');
+  expect(rows[0]!.textContent).toContain('reader');
+  expect(rows[0]!.textContent).toContain('Other');
+  expect(rowMenuItems(target, 'Unsubscribe')).toHaveLength(2);
+});
+

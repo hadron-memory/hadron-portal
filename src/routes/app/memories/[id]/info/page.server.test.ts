@@ -173,3 +173,38 @@ describe('memory Info owner attribution (#1846 slice A)', () => {
     }
   });
 });
+
+describe('personal memory access (#1848)', () => {
+  function pev(userId: string | null, viewer: string | null) {
+    return {
+      parent: async () => ({
+        graph: { id: 'mem-1', urn: 'hrn:mem:u:p', name: 'P', class: 'personal', agent: null, organizationId: null, userId },
+        org: null,
+        orgReadFailed: false,
+      }),
+      locals: { token: 't', user: viewer ? { id: viewer } : undefined },
+    } as unknown as Parameters<typeof load>[0];
+  }
+  const pa = async (e: Parameters<typeof load>[0]) => ((await load(e)) as { personalAccess: string | null }).personalAccess;
+
+  it('owner with no shares is owner-only; with shares is owner-shared, roster never returned', async () => {
+    mockRequest.mockResolvedValueOnce({ memory: { shares: [] } });
+    expect(await pa(pev('u1', 'u1'))).toBe('owner-only');
+    mockRequest.mockResolvedValueOnce({ memory: { shares: [{ grantee: { email: 'x@y' } }] } });
+    const data = await load(pev('u1', 'u1'));
+    expect((data as { personalAccess: string }).personalAccess).toBe('owner-shared');
+    expect(JSON.stringify(data)).not.toContain('x@y');
+  });
+  it('a viewer who is not the owner (server hides userId) is other, with no share read', async () => {
+    expect(await pa(pev(null, 'u2'))).toBe('other');
+    expect(await pa(pev('u1', 'u2'))).toBe('other');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+  it('a failed share read is unknown, not owner-only', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('boom'));
+    expect(await pa(pev('u1', 'u1'))).toBe('unknown');
+  });
+  it('non-personal memories carry no personalAccess', async () => {
+    expect(await pa(ev())).toBeNull();
+  });
+});
