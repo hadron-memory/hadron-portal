@@ -75,11 +75,12 @@ describe('worker leave-alone action (portal#2194)', () => {
 
   // portal#2196: the action's own refusals, WORKER_LEAVE_ALONE_NOT_PERMITTED included, stay definite once the
   // *_NOT_FOUND suffix no longer vouches for them.
-  it.each(['WORKER_NOT_FOUND', 'WORKER_RETIRED', 'WORKER_LEAVE_ALONE_NOT_PERMITTED'])('its own refusal %s did not commit: released, not uncertain', async (code) => {
-    mockRequest.mockRejectedValueOnce(gqlError(code, 'Refused.'));
+  it.each([['WORKER_NOT_FOUND', 404], ['WORKER_RETIRED', 404], ['WORKER_LEAVE_ALONE_NOT_PERMITTED', 403]])('its own refusal %s did not commit: released as %i with the server text, not uncertain', async (code, status) => {
+    mockRequest.mockRejectedValueOnce(gqlError(code, 'Refused by the server.'));
     const result = (await run({ leaveAlone: 'true' })) as { status: number; data: { leaveAloneError: string; uncertain?: boolean } };
+    expect(result.status).toBe(status);
     expect(result.data.uncertain).toBeUndefined();
-    expect(result.status).not.toBe(502);
+    expect(result.data.leaveAloneError).toBe('Refused by the server.');
   });
 
   it('a recognised refusal did not commit: released with its status, not uncertain', async () => {

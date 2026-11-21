@@ -1,8 +1,11 @@
 /**
- * portal#2196: the lifecycle control classifies a failed write. Only a recognised refusal came
- * before any commit; an unrelated `*_NOT_FOUND` may have come after one and stays uncertain.
+ * portal#2194 (hadron-server#4242): the Agent page lets a manager choose how long
+ * the agent's workers run. The action sends `updateAgent(ref, lifecycle)` and
+ * nothing else, refuses a value that is not one of the two before any request,
+ * and shows the server's refusal as text.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { UPDATE_AGENT_LIFECYCLE_MUTATION } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -10,37 +13,65 @@ vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedV
 
 beforeEach(() => {
   mockRequest.mockReset();
-  mockRequest.mockResolvedValue({});
+  mockRequest.mockResolvedValue({ updateAgent: { id: 'agent-1', lifecycle: 'SHORT_LIVED' } });
 });
 
-async function run(lifecycle = 'LONG_LIVED') {
+async function run(lifecycle?: string) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
-  fd.set('lifecycle', lifecycle);
-  return actions.updateLifecycle!({ request: { formData: async () => fd }, params: { id: 'agent-1' }, locals: { token: 'tok' } } as never) as Promise<{ status: number; data: { lifecycleError: string; uncertain?: boolean } }>;
+  if (lifecycle !== undefined) fd.set('lifecycle', lifecycle);
+  return actions.updateLifecycle({ request: { formData: async () => fd }, params: { id: 'agent-1' }, locals: { token: 'tok' } } as never);
 }
 const gqlError = (code: string, message: string) => ({ response: { errors: [{ message, extensions: { code } }] } });
+const sent = () => mockRequest.mock.calls.filter(([q]) => q === UPDATE_AGENT_LIFECYCLE_MUTATION);
 
-describe('Agent lifecycle action (portal#2196)', () => {
-  it.each(['INTERNAL_SERVER_ERROR', 'SOMETHING_ELSE', 'FOO_NOT_FOUND'])('GraphQL code %s can come after a commit: outcome unknown, never "Not saved"', async (code) => {
-    mockRequest.mockRejectedValueOnce(gqlError(code, 'secret internals'));
-    const result = await run();
+describe('Agent lifecycle action (portal#2194)', () => {
+  it.each(['LONG_LIVED', 'SHORT_LIVED'])('round-trips %s: sends exactly ref and lifecycle', async (value) => {
+    const result = await run(value);
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0][1]).toEqual({ ref: 'agent-1', lifecycle: value });
+    expect(result).toEqual({ lifecycleSaved: value });
+  });
+
+  it('refuses a value that is not a lifecycle before any request', async () => {
+    for (const bad of [undefined, '', 'long_lived', 'FOREVER']) {
+      const result = (await run(bad)) as { status: number; data: { lifecycleError: string } };
+      expect(result.status).toBe(400);
+      expect(result.data.lifecycleError).toBeTruthy();
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('shows the server refusal as text, with its status', async () => {
+    mockRequest.mockRejectedValue(gqlError('FORBIDDEN', 'Forbidden'));
+    const result = (await run('SHORT_LIVED')) as { status: number; data: { lifecycleError: string } };
+    expect(result.status).toBe(403);
+    expect(result.data.lifecycleError).toMatch(/owner or an organization admin/);
+  });
+
+
+  it('a transport failure may have committed: marked uncertain, never "Not saved"', async () => {
+    mockRequest.mockRejectedValueOnce(new TypeError('fetch failed'));
+    const result = (await run('SHORT_LIVED')) as { status: number; data: { lifecycleError: string; uncertain?: boolean } };
     expect(result.status).toBe(502);
     expect(result.data.uncertain).toBe(true);
+    expect(result.data.lifecycleError).toMatch(/couldn.t confirm/i);
+    expect(result.data.lifecycleError).not.toMatch(/not saved|owner|admin/i);
+  });
+
+  it.each(['INTERNAL_SERVER_ERROR', 'SOMETHING_ELSE', 'FOO_NOT_FOUND'])('GraphQL code %s can come after a commit: outcome unknown, locked, never "Not saved", no server text', async (code) => {
+    mockRequest.mockRejectedValueOnce(gqlError(code, 'secret internals'));
+    const result = (await run('SHORT_LIVED')) as { status: number; data: { lifecycleError: string; uncertain?: boolean } };
+    expect(result.status).toBe(502);
+    expect(result.data.uncertain).toBe(true);
+    expect(result.data.lifecycleError).toMatch(/couldn.t confirm/i);
     expect(result.data.lifecycleError).not.toMatch(/not saved|secret internals/i);
   });
 
-  it('AGENT_NOT_FOUND did not commit: released as 404, not uncertain', async () => {
+  it('a recognised refusal did not commit: released with its status, not uncertain', async () => {
     mockRequest.mockRejectedValueOnce(gqlError('AGENT_NOT_FOUND', 'Refused.'));
-    const result = await run();
+    const result = (await run('SHORT_LIVED')) as { status: number; data: { lifecycleError: string; uncertain?: boolean } };
     expect(result.status).toBe(404);
-    expect(result.data.uncertain).toBeUndefined();
-  });
-
-  it('FORBIDDEN did not commit: released as 403, not uncertain', async () => {
-    mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'Refused.'));
-    const result = await run();
-    expect(result.status).toBe(403);
     expect(result.data.uncertain).toBeUndefined();
   });
 });
