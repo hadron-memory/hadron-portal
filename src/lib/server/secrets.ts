@@ -111,7 +111,12 @@ export async function loadAppSecret(client: Pick<GraphQLClient, 'request'>, appI
     return s && s.ownerType === 'app' && s.ownerId === appId ? { kind: 'ok', secret: s } : { kind: 'missing' };
   } catch (e) {
     // The server may refuse the read outright for a secret the viewer may not see: that is "missing", not a fault.
-    if (extractGqlErrorCode(e) === 'NOT_FOUND' || extractGqlErrorCode(e) === 'FORBIDDEN') return { kind: 'missing' };
+    // Logged by its code (never the message) so a real permission fault is still visible in the logs.
+    const code = extractGqlErrorCode(e);
+    if (code === 'NOT_FOUND' || code === 'FORBIDDEN') {
+      console.error('[secrets] read refused:', { op: 'app-secret', code });
+      return { kind: 'missing' };
+    }
     logReadFailure('app-secret', e);
     return { kind: 'failed' };
   }

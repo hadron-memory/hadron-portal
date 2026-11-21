@@ -55,6 +55,10 @@ describe('portal#2436 item 8: a failed read leaves a bounded trace, never the wi
       request.mockRejectedValue(err(code));
       expect(await loadAppSecret(client, 'a', 's')).toEqual({ kind: 'missing' });
     }
-    expect(logged()).toEqual([]);
+    expect(logged()).toEqual([
+      ['[secrets] read refused:', { op: 'app-secret', code: 'NOT_FOUND' }],
+      ['[secrets] read refused:', { op: 'app-secret', code: 'FORBIDDEN' }],
+    ]);
+    expect(JSON.stringify(logged())).not.toContain('private wire prose');
   });
 });

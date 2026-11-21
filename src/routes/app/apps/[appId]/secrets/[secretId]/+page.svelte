@@ -27,6 +27,10 @@
   const stagedText = () => t('secrets.staged', 'Not saved yet.');
   // The first Delete post only asks; the delete runs on the post that confirms (the server asks, so it holds without JavaScript).
   const confirmingDelete = $derived(!!(form && 'confirm' in form && form.confirm && form.action === 'delete'));
+  // The Delete that was pressed unmounts when the prompt takes its place, which would drop focus to the
+  // page. Move focus to the prompt: it is then read out, and Delete and Cancel are the next stops.
+  let confirmPrompt = $state<HTMLElement>();
+  $effect(() => { if (confirmingDelete) confirmPrompt?.focus(); });
 </script>
 
 <svelte:head><title>{secret?.name ?? t('secrets.head', 'Secrets')} · {data.app.name} · Hadron</title></svelte:head>
@@ -109,7 +113,7 @@
       <h2 id="secret-delete-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.delete.heading', 'Delete')}</h2>
       <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('secrets.delete.help', 'This removes the secret and every version of it.')}</p>
       {#if confirmingDelete}
-        <p class="text-sm font-medium text-zinc-900 dark:text-white" data-testid="delete-confirm">{t('secrets.delete.confirm', 'Delete {name} and every version of it?', { name: secret.name })}</p>
+        <p bind:this={confirmPrompt} tabindex="-1" class="text-sm font-medium text-zinc-900 dark:text-white" data-testid="delete-confirm">{t('secrets.delete.confirm.named', 'Delete {name} and every version of it?', { name: secret.name })}</p>
         <form method="POST" action="?/delete" use:enhance class="flex flex-wrap items-center gap-3">
           <input type="hidden" name="confirm" value="yes" />
           <button type="submit" disabled={ro} class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">{t('secrets.delete.submit', 'Delete')}</button>
