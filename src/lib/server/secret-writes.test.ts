@@ -34,6 +34,13 @@ describe('inputs', () => {
     for (const typed of ['sk_live_abc', '42', 'true', 'null', '1e3', '1.50', '"quoted"', '007', '9007199254740993']) expect(parseSecretValue(typed)).toBe(typed);
     expect(parseSecretValue('{not json')).toBe('{not json');
   });
+  it('a multi-line value keeps its text and its trailing newline, with the browser CRLF read as LF', () => {
+    const pem = '-----BEGIN KEY-----\nabc\ndef\n-----END KEY-----\n';
+    expect(parseSecretValue(pem.replace(/\n/g, '\r\n'))).toBe(pem);
+    expect(parseSecretValue(pem)).toBe(pem);
+    expect(parseSecretValue('line1\r\nline2')).toBe('line1\nline2');
+    expect(parseSecretValue('{not\r\njson')).toBe('{not\njson');
+  });
   it('a number JSON would round, inside an object or array, stores the text typed, never a different number', () => {
     for (const lossy of ['{"id":12345678901234567890}', '[0.100000000000000005]', '{"p":1.0000000000000000001}', '[2e-400]', '{"s":1.23456789012345e-310}', '[9007199254740993]', '[1e999]']) expect(parseSecretValue(lossy)).toBe(lossy);
     expect(parseSecretValue('{"s":"12345678901234567890"}')).toEqual({ s: '12345678901234567890' });

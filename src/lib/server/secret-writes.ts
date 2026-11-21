@@ -78,16 +78,18 @@ function numberLoses(tok: string): boolean {
 /**
  * What is stored for a typed value. An object or array of JSON is stored as JSON (unless it holds a
  * number JSON would round); everything else, including a bare true, 42, 1.50 or "quoted", is stored
- * exactly as typed, so a secret never turns into a different value than the one in the field.
+ * exactly as typed (line breaks as LF), so a secret never turns into a different value than the one in the field.
  */
 export function parseSecretValue(raw: string): unknown {
   const s = raw.trim();
   if (s === '') return undefined;
-  if (s[0] !== '{' && s[0] !== '[') return raw;
+  // A browser submits a textarea's line breaks as CRLF; a key or certificate pasted over several
+  // lines must reach the server with the LF it was copied with. Nothing else is changed.
+  if (s[0] !== '{' && s[0] !== '[') return raw.replace(/\r\n/g, '\n');
   try {
     const v = JSON.parse(s);
-    return losesNumbers(s) ? raw : v;
+    return losesNumbers(s) ? raw.replace(/\r\n/g, '\n') : v;
   } catch {
-    return raw;
+    return raw.replace(/\r\n/g, '\n');
   }
 }
