@@ -3,10 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-import { parseHarnessEnv, injectionEcho } from './lib/cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, APPS_KINDS } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
-import { APPS_KINDS } from './lib/cell-harness-env.mjs';
 import { probeCellEscapes, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
@@ -387,8 +386,10 @@ try {
    // A leg that renders nothing proves nothing: rows are present, every column is revealed, and every column carries content in some row.
    const rendered = await page.evaluate(() => {
     const t = window.__fixtureTables.at(-1);
-    const heads = [...document.querySelectorAll('thead th')].map(th => th.textContent.trim());
-    const rows = [...document.querySelectorAll('tbody tr')];
+    // Scoped to the table under test (the last scroller), so a page with several tables cannot satisfy one table's column with another's row.
+    const root = [...document.querySelectorAll('[data-testid="data-table-scroller"]')].at(-1) ?? document.createElement('div');
+    const heads = [...root.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    const rows = [...root.querySelectorAll('tbody tr')];
     const empty = heads.filter((h, i) => h && !rows.some(r => { const td = r.children[i]; return td && (td.textContent.trim() || td.querySelector('svg,img,button,a,input')); }));
     return { rows: rows.length, hidden: t.getAllLeafColumns().filter(c => !c.getIsVisible()).map(c => c.id), empty };
    });
@@ -414,7 +415,7 @@ try {
    // The headline case: an INLINE `truncate` element (overflow:hidden clips nothing on an inline box), real utility classes and no
    // display override. Without it, deleting the probe's inline rule would leave every leg green.
    await control.evaluate(el => el.remove());
-   await page.evaluate(() => { document.querySelector('tbody td').replaceChildren(Object.assign(document.createElement('span'), { className: 'truncate', textContent: 'W'.repeat(120) })); });
+   await page.evaluate(() => { document.querySelector('tbody td')?.replaceChildren(Object.assign(document.createElement('span'), { className: 'truncate', textContent: 'W'.repeat(120) })); });
    await settlePage(page);
    if ((await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX)).length === 0) failures.push(`${leg}: the escape probe did not see an inline truncate escape`);
    await control.evaluate(el => el.remove()); await net.evaluate(el => el.remove());

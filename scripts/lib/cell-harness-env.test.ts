@@ -17,6 +17,7 @@ describe('parseHarnessEnv', () => {
     expect(parseHarnessEnv({ CELL_KIND: v }).cellKind).toBe(v);
   });
   it.each(['', 'Findings', 'tasks', 'staff'])('rejects CELL_KIND=%j', v => {
+    expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(/^CELL_KIND must be one of /);
     expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`, got ${JSON.stringify(v)}`);
   });
   describe.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s', name => {
