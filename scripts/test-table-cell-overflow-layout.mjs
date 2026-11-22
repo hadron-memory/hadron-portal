@@ -366,10 +366,12 @@ try {
  // Rows marked `measured` are the issue's browser-check rows: reported, never failed, fixed only where #2486 confirms.
  if (!env.cellKind || env.cellKind === 'agent-tasks') {
   const rowsPage = await browser.newPage();
-  await rowsPage.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
-  await rowsPage.goto(new URL('/__cell_fixture', origin).href);
-  const taskRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts')).AGENT_TASK_CELL_ROWS);
-  await rowsPage.close();
+  let taskRows;
+  try {
+   await rowsPage.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+   await rowsPage.goto(new URL('/__cell_fixture', origin).href);
+   taskRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts')).AGENT_TASK_CELL_ROWS);
+  } finally { await rowsPage.close(); }
   assert.ok(taskRows.length >= 7, 'the fixture lists every #2487 row');
   const taskCellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAll((cells, limit) => cells.flatMap(td => {
    const box = td.getBoundingClientRect(), found = [];
@@ -426,7 +428,8 @@ try {
      await page.locator('[data-negative]').evaluate(el => el.remove());
      console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
     }
-    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+    // A measured row is reported, never failed: its document overflow is logged by the line above, not queued.
+    if (!measured && !(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
     await unmountFixture(page);
     assertPatched();
     if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);

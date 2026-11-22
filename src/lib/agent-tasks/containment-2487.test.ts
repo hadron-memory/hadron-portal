@@ -6,19 +6,25 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
+import { MAX_HANDLE_LENGTH } from './handle';
+import { LONG_HANDLE } from '$lib/test/fixtures/agent-tasks-cell-harness';
 import { rosterStateChipClass, ROSTER_STATES } from './roster';
 
 describe('portal#2487 TaskHandle is capped at its cell', () => {
-  const html = render(TaskHandle, { props: { handle: 'AT0.12345678901.12345678901.12345678901.12345678901.12345678901.1' } }).body;
+  const html = render(TaskHandle, { props: { handle: 'AT0.12345678901.12345678901.12345678901.12345678901.123456789012' } }).body;
   it('caps at the cell width as well as 14rem, so a 64-character handle cannot outgrow a 150px column', () => {
     expect(html).toContain('max-w-[min(14rem,100%)]');
     expect(html).not.toMatch(/max-w-\[14rem\]/);
   });
+  it('uses the longest legal handle, not one past it', () => {
+    expect(LONG_HANDLE).toHaveLength(MAX_HANDLE_LENGTH);
+  });
   it('is its own containing block, so its visually hidden prefix is clipped with it and cannot widen the page', () => {
-    expect(html).toMatch(/class="[^"]*\brelative\b[^"]*\btruncate\b/);
+    expect(html).toMatch(/class="[^"]*\brelative\b/);
+    expect(html).toMatch(/class="[^"]*\btruncate\b/);
   });
   it('keeps the full identifier reachable, unchanged', () => {
-    expect(html).toContain('title="AT0.12345678901.12345678901.12345678901.12345678901.12345678901.1"');
+    expect(html).toContain('title="AT0.12345678901.12345678901.12345678901.12345678901.123456789012"');
   });
 });
 

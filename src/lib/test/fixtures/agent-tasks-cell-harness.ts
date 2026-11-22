@@ -25,7 +25,7 @@ export const AGENT_TASK_CELL_ROWS = [
 export type AgentTaskCellRow = (typeof AGENT_TASK_CELL_ROWS)[number]['listKey'];
 
 /** 64 characters, the longest legal handle: `AT` plus dotted numbers. */
-export const LONG_HANDLE = 'AT0.12345678901.12345678901.12345678901.12345678901.12345678901.1';
+export const LONG_HANDLE = 'AT0.12345678901.12345678901.12345678901.12345678901.123456789012';
 const LONG_TITLE = 'LongTaskTitleWithSixtyUnbrokenCharactersABCDEFGHIJKLMNOPQRSTUVWXYZ0123';
 // PartyLabel (shared by 25 callers) is judged at a realistic name; its own long-name limit is a separate finding.
 const LONG_NAME = 'GabrielaTheEngineer';
