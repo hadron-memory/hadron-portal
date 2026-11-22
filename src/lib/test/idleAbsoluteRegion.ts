@@ -8,6 +8,8 @@ import { tick } from '$lib/test/mountComponent';
  * idle region stays a flex item (portal#2394). jsdom computes no Tailwind, so the pin is the class the
  * region carries plus the `data-idle` it keeps with that whitespace node present.
  */
+const settle = () => tick(2); // two ticks: the MutationObserver callback, then the effect it triggers
+
 export async function expectIdleAbsoluteRegion(root: Element): Promise<void> {
   const regions = [...root.querySelectorAll<HTMLElement>('[role="status"]')].filter(
     (r) => /(^|\s)(idle|empty):absolute(\s|$)/.test(r.className),
@@ -15,7 +17,7 @@ export async function expectIdleAbsoluteRegion(root: Element): Promise<void> {
   expect(regions.length, 'a status region taken out of flow while idle').toBeGreaterThan(0);
   for (const region of regions) {
     region.append(document.createTextNode('\n  '));
-    await tick(2);
+    await settle();
     expect(region.hasAttribute('data-idle'), 'idle with a whitespace text node').toBe(true);
     expect(region.matches(':empty'), 'a whitespace text node breaks :empty').toBe(false);
     expect(region.classList.contains('idle:absolute'), 'carries idle:absolute').toBe(true);
@@ -25,10 +27,10 @@ export async function expectIdleAbsoluteRegion(root: Element): Promise<void> {
     const speech = document.createElement('span');
     speech.textContent = 'Saved.';
     region.append(speech);
-    await tick(2);
+    await settle();
     expect(region.hasAttribute('data-idle'), 'populated: not idle').toBe(false);
     speech.remove();
-    await tick(2);
+    await settle();
     expect(region.hasAttribute('data-idle'), 'cleared: idle again').toBe(true);
   }
 }
