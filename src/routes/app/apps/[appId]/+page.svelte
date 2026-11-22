@@ -458,6 +458,7 @@
     // readable only by whoever manages the App, so the column exists only when
     // the server answered the scopes read; for anyone else it isn't there at
     // all, never an empty chip. Read-only: giving and taking back scopes is S7b.
+    // Size 200: the chips wrap (break-all) inside the cell, and the old 90 made every scope a tall one-word column (portal#2488).
     ...(untrack(() => tabData.keyScopes?.kind === 'ok')
       ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 200 } satisfies PortalColumnDef<AppKey>]
       : []),

@@ -82,7 +82,7 @@
   let globalFilter = $state('');
   // §8: at 390px the grid keeps Ticker, State and Every on screen, so the first
   // three columns fit the 308px phone column together (132 + 92 + 76); the
-  // name truncates and the rest scroll. Pinned in scripts/test-tickers-layout.mjs.
+  // name truncates and the rest scroll. scripts/test-tickers-layout.mjs checks that outcome at 390px; the sizes themselves are not pinned there.
   const columns: PortalColumnDef<Row>[] = [
     { id: 'name', accessorFn: (r) => r.name, header: t('app.tickers.col.ticker', 'Ticker'), enableHiding: false, size: 132 },
     { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 92 },

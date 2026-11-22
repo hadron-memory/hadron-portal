@@ -28,6 +28,8 @@ export function probeCellEscapes(escapePx) {
       const range = document.createRange(); range.selectNodeContents(n);
       for (const r of range.getClientRects()) record('text', n.textContent.trim(), r.left, r.right);
     }
+    // Not counted, by design: position:absolute/fixed boxes (menus and popovers are slice 0 of #1962, not cell content), box-shadow and
+    // outline (a focus ring paints outside its box on purpose), svg, and vertical overflow.
     // Boxes: a pill, chip or button whose painted chrome (a background or a border) leaves the cell. A transparent
     // box paints nothing, so the 44px coarse-pointer hit area of an icon button is not an escape (portal#2488 QA
     // of the screenshot: the icons sit inside the cell).

@@ -1,6 +1,7 @@
 // #1942: real components/CSS, synthetic data only. No production or backend.
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 import { parseHarnessEnv, injectionEcho, APPS_KINDS } from './lib/cell-harness-env.mjs';
@@ -24,7 +25,7 @@ const patchSource = (code, id, from, to, required = true) => {
 };
 const assertPatched = () => assert.deepEqual(patchFailures, [], 'every fixture source patch matched');
 // portal#2488: the real Apps route pages import $app/forms, $app/environment and the public env; same stubs as the client test lane.
-const stub = name => new URL(`../src/lib/test/stubs/${name}.ts`, import.meta.url).pathname;
+const stub = name => fileURLToPath(new URL(`../src/lib/test/stubs/${name}.ts`, import.meta.url));
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, resolve: { alias: { '$app/forms': stub('app-forms'), '$app/environment': stub('app-environment'), '$env/dynamic/public': stub('env-dynamic-public') } }, plugins: [{
  name: 'table-cell-fixture', enforce: 'pre', transform(code, id) {
   if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) {
@@ -395,7 +396,11 @@ try {
    });
    if (rendered.rows < 3 || rendered.hidden.length || rendered.empty.length) failures.push(`${leg}: the fixture did not render what the probe measures ${JSON.stringify(rendered)}`);
    const net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
-   // Declared widths first, then the table's own minimum (the declared size is a default the reader can drag below).
+   // Declared widths first, then a 120px floor (or the column's own larger minSize), the same floor the legacy legs use. This is NOT the
+   // DataTable drag floor of 40 (Math.max(40, minSize)): probed at 40 with the containment net off, every table escapes by intrinsic word
+   // width alone (a 'Pause' or an 'In effect' pill cannot fit in 40px, and no cell CSS can fix that), so the leg would measure the
+   // net-off oracle's own limit, not a defect. Below ~120px the production td clip contains it. Columns declared under 120 (an actions
+   // column) are therefore probed wider here than declared; their declared-width pass above is the narrow check.
    for (const sizing of ['declared', 'minimum']) {
     if (sizing === 'minimum') await page.evaluate(() => { const t = window.__fixtureTables.at(-1); t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, Math.max(120, c.columnDef.minSize ?? 40)]))); });
     await settlePage(page);
