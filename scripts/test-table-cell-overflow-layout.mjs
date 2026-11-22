@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { createServer } from 'vite';
+import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { parseHarnessEnv, injectionEcho } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
@@ -22,7 +23,16 @@ const patchSource = (code, id, from, to, required = true) => {
  return code.replaceAll(from, () => to);
 };
 const assertPatched = () => assert.deepEqual(patchFailures, [], 'every fixture source patch matched');
-const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
+// portal#2491: the Orgs pages use superforms, which imports `$app/*` itself, so it is served from source and
+// its `$app/forms` is the real-fetch replica (as in test-cast-submit-focus.mjs).
+const server = await createServer({ server: { host: '127.0.0.1', port: 0 },
+ optimizeDeps: { exclude: ['sveltekit-superforms'] },
+ resolve: { alias: [{ find: /^\$app\/forms$/, replacement: fileURLToPath(new URL('../src/lib/test/stubs/app-forms-browser.ts', import.meta.url)) }] },
+ plugins: [{
+ name: 'table-cell-orgs-app-stubs', enforce: 'pre', transform(code, id) {
+  if (!/\/routes\/app\/orgs\/.*\+page\.svelte$|\/sveltekit-superforms\//.test(id) || !code.includes("from '$app/")) return null;
+  return code.replaceAll("from '$app/navigation'", "from '$lib/test/stubs/app-navigation'").replaceAll("from '$app/stores'", "from '$lib/test/stubs/app-stores'");
+ } }, {
  name: 'table-cell-fixture', enforce: 'pre', transform(code, id) {
   if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) {
    // Every one of the three imports $app/navigation; only TasksAlarms also imports $app/stores.
