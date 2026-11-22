@@ -1130,7 +1130,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).LIB_CELL_ROWS);
   } finally { await rowsPage.close(); }
   assert.ok(libRows.length >= 5, 'the fixture lists every fixed #2492 row');
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect } of libRows) {
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns } of libRows) {
    const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
    const errors = await watchErrors(page);
    await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -1158,6 +1158,45 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
     await page.locator('[data-negative]').evaluate(el => el.remove());
     console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
     if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+    // A DATE cell wraps at its spaces and never splits a token (blind review, #2515): with the column
+    // narrowed below one token a token may overflow (the reader widens or scrolls) but must not break
+    // mid-digit. A leg with date columns that finds none of them fails: nothing measured proves nothing.
+    if (dateColumns.length) {
+     const split = await page.evaluate(ids => {
+      const t = window.__fixtureTables.at(-1);
+      t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, ids.includes(c.id) ? 50 : (c.columnDef.size ?? 150)])));
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+       const cols = t.getVisibleLeafColumns().map(c => c.id);
+       const found = [], broken = [];
+       for (const id of ids) {
+        const index = cols.indexOf(id);
+        if (index < 0) continue;
+        for (const row of document.querySelectorAll('tbody tr')) {
+         const td = row.children[index];
+         if (!td || !td.textContent.trim()) continue;
+         found.push(id);
+         const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+         for (let n; (n = walker.nextNode());) {
+          let top = null, token = '';
+          const range = document.createRange();
+          for (let i = 0; i < n.textContent.length; i++) {
+           const ch = n.textContent[i];
+           if (/\s/.test(ch)) { top = null; token = ''; continue; }
+           range.setStart(n, i); range.setEnd(n, i + 1);
+           const rect = range.getClientRects()[0];
+           if (!rect) continue;
+           if (top !== null && Math.abs(rect.top - top) > 2) { broken.push(`${id}: ${token}|${ch}`); top = rect.top; token = ch; continue; }
+           top = rect.top; token += ch;
+          }
+         }
+        }
+       }
+       resolve({ found: [...new Set(found)], broken });
+      })));
+     }, dateColumns);
+     if (split.found.length === 0) failures.push(`${leg}: none of the date columns ${JSON.stringify(dateColumns)} rendered a cell`);
+     if (split.broken.length) failures.push(`${leg}: a date token splits mid-digit at 50px ${JSON.stringify(split.broken.slice(0, 4))}`);
+    }
     await unmountFixture(page);
     assertPatched();
     if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
