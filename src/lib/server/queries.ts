@@ -6323,3 +6323,35 @@ export const SET_SATURATION_ALARM_WAKE_ROLES_MUTATION = /* GraphQL */ `
     setSaturationAlarmWakeRoles(appRef: $appRef, roles: $roles) { appId roles }
   }
 `;
+
+// portal#1856: the team-metrics read, isolated from the shared App loader.
+export const TEAM_METRICS_QUERY = /* GraphQL */ `
+  query TeamMetrics($appRef: ID!, $since: DateTime, $until: DateTime) {
+    teamMetrics(appRef: $appRef, since: $since, until: $until) {
+      appId asOf
+      window { since until }
+      startedOwned {
+        all { ...TeamMetricsCountFields }
+        ownersTruncated
+        byOwner {
+          owner { id kind name urn }
+          tasks { ...TeamMetricsCountFields }
+          projectsTruncated
+          byProject { project { handle noProject taskId title } tasks { ...TeamMetricsCountFields } }
+        }
+      }
+      projects {
+        truncated
+        items { project { handle noProject taskId title } children { status tasks { ...TeamMetricsCountFields } } }
+      }
+      workers {
+        active { ...TeamMetricsCountFields }
+        idle { ...TeamMetricsCountFields }
+        overdue { ...TeamMetricsCountFields }
+        inop { ...TeamMetricsCountFields }
+      }
+      flow { completed { ...TeamMetricsCountFields } started { ...TeamMetricsCountFields } }
+    }
+  }
+  fragment TeamMetricsCountFields on TeamMetricsCount { total ids truncated }
+`;
