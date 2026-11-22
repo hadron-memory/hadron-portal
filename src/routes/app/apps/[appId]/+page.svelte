@@ -458,8 +458,9 @@
     // readable only by whoever manages the App, so the column exists only when
     // the server answered the scopes read; for anyone else it isn't there at
     // all, never an empty chip. Read-only: giving and taking back scopes is S7b.
+    // Size 200: the chips wrap (break-all) inside the cell, and the old 90 made every scope a tall one-word column (portal#2488).
     ...(untrack(() => tabData.keyScopes?.kind === 'ok')
-      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 90 } satisfies PortalColumnDef<AppKey>]
+      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 200 } satisfies PortalColumnDef<AppKey>]
       : []),
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
@@ -3997,7 +3998,7 @@
                    claim is what a reader of the roster needs to see. -->
               {@const rt = reportsToOf(worker, staffById)}
               {#if rt.kind === 'known'}
-                <span class="truncate text-xs">
+                <span class="block max-w-full truncate text-xs" title={rt.name ?? undefined}>
                   <a href="/app/workers/{rt.id}" class="text-indigo-600 hover:underline dark:text-indigo-400"
                     >{rt.name ?? t('app.staff.reports-to.unnamed', 'Another worker')}</a
                   >{#if rt.retired}{' '}<span class="text-zinc-500">{t('app.staff.reports-to.retired', '(retired)')}</span>{/if}
@@ -4094,7 +4095,7 @@
           {#snippet cell(cell, agent)}
             {#if cell.column.id === 'name'}
               <div class="min-w-0">
-                <a href="/app/agents/{agent.id}" class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white">{agent.name}</a>
+                <a href="/app/agents/{agent.id}" class="block max-w-full truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white" title={agent.name}>{agent.name}</a>
                 {#if agent.urn}
                   <Urn value={agent.urn} type="agent" size={8} />
                 {/if}
@@ -4427,7 +4428,7 @@
                 {:else}
                   <span class="flex flex-wrap gap-1" data-testid="key-scopes">
                     {#each scopes as sc (scopeLabel(sc))}
-                      <span class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{scopeLabel(sc)}</span>
+                      <span class="max-w-full break-all rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{scopeLabel(sc)}</span>
                     {/each}
                   </span>
                 {/if}

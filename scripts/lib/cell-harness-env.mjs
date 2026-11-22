@@ -1,5 +1,6 @@
 // portal#2129 rows 1, 6, 8: validate every harness env knob before the dev server or a browser starts.
-const KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks'];
+export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
+const KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', ...APPS_KINDS];
 const flag = (env, name) => {
   if (!(name in env) || env[name] === undefined) return false;
   if (env[name] !== '0' && env[name] !== '1') throw new Error(`${name} must be 0 or 1 when set, got ${JSON.stringify(env[name])}`);
@@ -13,7 +14,7 @@ export function parseHarnessEnv(env) {
   }
   let cellKind = null;
   if (env.CELL_KIND !== undefined) {
-    if (!KINDS.includes(env.CELL_KIND)) throw new Error(`CELL_KIND must be alarms, runs, config, findings, wake or agent-tasks, got ${JSON.stringify(env.CELL_KIND)}`);
+    if (!KINDS.includes(env.CELL_KIND)) throw new Error(`CELL_KIND must be one of ${KINDS.join(', ')}, got ${JSON.stringify(env.CELL_KIND)}`);
     cellKind = env.CELL_KIND;
   }
   const injectPointerFailure = flag(env, 'CELL_INJECT_POINTER_FAILURE');
