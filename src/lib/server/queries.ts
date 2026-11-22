@@ -4713,10 +4713,12 @@ export const APP_RUN_HOPS_QUERY = /* GraphQL */ `
 
 // The kill switch (guarded server-side: only a still-RUNNING/PENDING row
 // transitions; a raced terminal state survives in the audit log).
+// `id:` -> `ref:` per hadron-server#4141 S5 (#4789, hard rename, no alias —
+// hrn:node:hadronmemory.com:specs:cor:api:140:01); portal#2498.
 export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  mutation CancelAppRun($id: ID!) {
-    cancelAppRun(id: $id) {
+  mutation CancelAppRun($ref: ID!) {
+    cancelAppRun(ref: $ref) {
       ...AppRunFields
     }
   }
