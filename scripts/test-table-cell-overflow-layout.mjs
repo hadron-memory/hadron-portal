@@ -968,7 +968,7 @@ async function loadNodePageData(devServer, tab) {
     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
    }, { css, dark });
-   await page.evaluate(async kind => { const { mountAppsCellFixture } = await import('/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await mountAppsCellFixture(document.getElementById('fixture'), kind); }, kind);
+   await page.evaluate(async kind => { const orgs = kind.startsWith('orgs-'); const m = await import(orgs ? '/src/lib/test/fixtures/orgs-cell-harness.ts' : '/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await (orgs ? m.mountOrgsCellFixture : m.mountAppsCellFixture)(document.getElementById('fixture'), kind); }, kind);
    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
    await settlePage(page);
    // Every column the reader can reveal is revealed: a hidden-by-default column (a Stops Id, a ticker Last tick) is still a cell.
