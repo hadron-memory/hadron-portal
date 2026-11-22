@@ -91,7 +91,8 @@
              the icon grouped with the whole block — vertically centered beside
              it — instead of trailing the wrapped tail's last few characters
              (the 390 orphan in Gino's LOCAL review). The button's accessible
-             name is the static ACTION (per review:icon-button-aria-label);
+             name is the static ACTION (per
+             hrn:node:hadronmemory.com:hadron-portal:review:icon-button-aria-label);
              the CONFIRMATION is announced by the polite status region, not by
              mutating the name. -->
         <p class="mt-3 flex items-center justify-center gap-1 text-sm text-zinc-600 dark:text-zinc-400">
