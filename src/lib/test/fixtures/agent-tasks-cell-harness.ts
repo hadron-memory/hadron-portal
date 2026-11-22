@@ -15,8 +15,8 @@ import TasksRoster from '$lib/components/agent-tasks/TasksRoster.svelte';
 /**
  * The rows of #2487, by listKey, consumed by scripts/test-table-cell-overflow-layout.mjs (real Chromium, kind
  * "agent-tasks": cells are measured by box, so jsdom is not involved). `measured: true` means report-only,
- * never failed; no row is report-only now. `tasks:immutable-findings` was measured clean (no component fix was
- * needed) and is enforced as a regression pin; `app-tasks:composition-lanes` failed red on main and is fixed.
+ * never failed; no row is report-only now. the immutable-findings table was measured clean (no component fix was
+ * needed) and is enforced as a regression pin; the composition-lanes table failed red on main and is fixed.
  */
 export const AGENT_TASK_CELL_ROWS = [
   { listKey: 'task-picker:open', measured: false, scope: '' },
