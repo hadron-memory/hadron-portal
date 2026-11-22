@@ -7,6 +7,7 @@
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
   import SaturationAlarmWakeRoles from './SaturationAlarmWakeRoles.svelte';
+  import { wakeRolesCanManage } from './wake-roles-can-manage';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   // portal#2205: the delete dialog is shared with the worker's own page, so it
@@ -4837,7 +4838,7 @@
       {#key app.id}
         <SaturationAlarmWakeRoles
           read={tabData.saturationWakeRoles ?? null}
-          canManage={data.viewerManages?.kind === 'known' && data.viewerManages.manages && !impersonating}
+          canManage={wakeRolesCanManage(data.viewerManages, impersonating)}
         />
       {/key}
 

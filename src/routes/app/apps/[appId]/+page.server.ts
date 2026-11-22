@@ -1350,7 +1350,7 @@ export const actions: Actions = {
       return { wakeRolesSaved: r.setSaturationAlarmWakeRoles.roles };
     } catch (e: unknown) {
       const known = ['BAD_USER_INPUT', 'APP_NOT_FOUND', 'APP_MANAGER_REQUIRED', 'SESSION_NOT_BOUND', 'APP_UNINSTALLED'];
-      if (!isDefiniteRefusal(e, known)) return fail(502, { wakeRolesError: t('app.wake-roles.unconfirmed', 'Couldn’t confirm the save; checking…'), uncertain: true });
+      if (!isDefiniteRefusal(e, known)) return fail(502, { wakeRolesError: t('app.wake-roles.unconfirmed', 'Couldn’t confirm the save. Your list is kept: save again if it isn’t what is stored.'), uncertain: true });
       const code = extractGqlErrorCode(e);
       if (code === 'BAD_USER_INPUT') return fail(400, { wakeRolesError: extractGqlError(e, t('app.wake-roles.error.failed', 'Not saved. Try again.'), ['BAD_USER_INPUT']) });
       if (code === 'APP_NOT_FOUND') return fail(404, { wakeRolesError: t('app.wake-roles.error.not-found', 'Not saved. You may not have access to change this App’s settings.') });

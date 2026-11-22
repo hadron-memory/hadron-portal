@@ -8,6 +8,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import SaturationAlarmWakeRoles from './SaturationAlarmWakeRoles.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -97,6 +98,37 @@ describe('saturation alarm wake roles (portal#2464)', () => {
     await tick(3);
     expect(root.querySelector('[role="alert"]')?.textContent).toContain('At most 32 names.');
     expect(sentRoles(root)).toEqual(['bad role']);
+  });
+
+  it('an unconfirmed save re-reads, keeps the draft and says what to do (the copy is true)', async () => {
+    resetNavigationCalls();
+    const root = mountIt({ read: ok([]), canManage: true });
+    await tick();
+    await addRole(root, 'triager');
+    await submitEnhancedWithResult(root.querySelector('form')!, { type: 'failure', status: 502, data: { wakeRolesError: 'x', uncertain: true } });
+    await tick(3);
+    expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+    expect(root.querySelector('[role="alert"]')?.textContent).toMatch(/save again/);
+    expect(root.querySelector('[role="alert"]')?.textContent).not.toMatch(/checking/);
+    expect(sentRoles(root)).toEqual(['triager']);
+  });
+
+  it('a refusal does not re-read', async () => {
+    resetNavigationCalls();
+    const root = mountIt({ read: ok([]), canManage: true });
+    await tick();
+    await addRole(root, 'triager');
+    await submitEnhancedWithResult(root.querySelector('form')!, { type: 'failure', status: 400, data: { wakeRolesError: 'No.' } });
+    await tick(3);
+    expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(false);
+  });
+
+  it('the role input has a visible label', async () => {
+    const root = mountIt({ read: ok([]), canManage: true });
+    await tick();
+    const label = root.querySelector<HTMLLabelElement>('label[for="wake-role-input"]')!;
+    expect(label.classList.contains('sr-only')).toBe(false);
+    expect(label.textContent).toBe('Role');
   });
 
   it('"Saved." lands in the status region that was already mounted and empty', async () => {

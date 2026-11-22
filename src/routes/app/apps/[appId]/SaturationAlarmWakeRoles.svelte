@@ -11,6 +11,8 @@
 <script lang="ts">
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
+  import { isUncertainResult } from '$lib/write-recovery.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { t } from '$lib/i18n/t';
 
@@ -59,12 +61,23 @@
         ok = true;
         return;
       }
+      // No answer, or an answer that may have come after the commit: re-read the list, and if it now holds
+      // what was sent the save happened. A save is the whole list, so sending it again is harmless.
+      if (isUncertainResult(result)) {
+        await invalidateAll().catch(() => {});
+        if (!dirty) {
+          draft = null;
+          ok = true;
+        } else {
+          error = t('app.wake-roles.unconfirmed', 'Couldn’t confirm the save. Your list is kept: save again if it isn’t what is stored.');
+        }
+        return;
+      }
       if (result.type === 'failure') {
-        // A save is the whole list, so a repeat is harmless: an unconfirmed one keeps the draft to send again.
         error = String((result.data as { wakeRolesError?: string } | undefined)?.wakeRolesError ?? failed);
         return;
       }
-      error = t('app.wake-roles.unconfirmed', 'Couldn’t confirm the save; checking…');
+      error = failed;
     };
   };
 
@@ -99,7 +112,7 @@
 
       {#if canManage}
         <div class="mb-3 flex items-center gap-2">
-          <label for="wake-role-input" class="sr-only">{t('app.wake-roles.input', 'Role')}</label>
+          <label for="wake-role-input" class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.wake-roles.input', 'Role')}</label>
           <input
             id="wake-role-input"
             type="text"
