@@ -404,6 +404,47 @@ describe('Worker agents tab (#1009)', () => {
     expect(names(target)).toEqual([]);
   });
 
+  // portal#1330 — the hold (Worker.heldByUserId) and the holder (roster heldBy) are two reads. A holder whose
+  // id is not the hold's is another read's person: it must neither render nor match a search.
+  it.each(['self', 'other'])('ignores a %s-hold roster holder whose id is not the hold\'s (#1330)', async (kind) => {
+    const target = await mountStaff([worker({ heldByUserId: kind === 'self' ? 'u1' : 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u-other-read', name: 'Wrong Person', handle: 'wrong-person', urn: 'hrn:user:acme.com:wrong-person',
+      } }) },
+    });
+    const text = columnTexts(target, 'Name held by')[0];
+    expect(text).not.toContain('Wrong Person');
+    expect(text).toContain(kind === 'self' ? 'Your name — held by you' : 'Held by another member');
+    expect(target.querySelector('[title="hrn:user:acme.com:wrong-person"]')).toBeNull();
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    for (const q of ['Wrong Person', 'wrong-person', 'hrn:user:acme.com:wrong-person']) {
+      search.value = q;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(2);
+      expect(names(target)).toEqual([]);
+    }
+  });
+
+  it('keeps the self + masked fallback: "held by you", no URN (#1330)', async () => {
+    const target = await mountStaff([worker({ heldByUserId: 'u1' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: null }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Your name — held by you');
+    expect(target.querySelector('tbody tr [title^="hrn:user:"]')).toBeNull();
+  });
+
+  it('falls back to the handle, in the cell and in search, when the holder name is empty (#1330)', async () => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: { id: 'u9', name: '', handle: 'sample-handle', urn: null } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('sample-handle');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'sample-handle';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual(['Ada']);
+  });
+
   it.each([null, undefined])('does not search an undisclosed holder projection (#1168)', async (heldByUserId) => {
     const target = await mountStaff([worker({ heldByUserId })], {
       kind: 'ok', byWorker: { w1: entry({ heldBy: {

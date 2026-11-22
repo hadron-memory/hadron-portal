@@ -158,7 +158,7 @@
   import { DEFAULT_TAB, READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
-  import { workerHold } from '$lib/worker-hold';
+  import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, chatFullViewFromParams, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
@@ -772,8 +772,8 @@
           // stale projection whose row does not disclose a holder.
           const hold = workerHold(worker, data.user?.id);
           if (hold.kind !== 'self' && hold.kind !== 'other') return '';
-          const holder = rosterEntry(worker.id)?.heldBy;
-          return holder ? `${holder.name ?? holder.handle ?? ''} ${holder.urn ?? ''}` : '';
+          const holder = holderForHold(hold, rosterEntry(worker.id)?.heldBy);
+          return holder ? `${holderLabel(holder) ?? t('app.staff.held.you', 'Your name — held by you')} ${holder.urn ?? ''}` : '';
         },
         terminal: (row: Worker) => (row as (typeof staffRows)[number]).terminalAgeSearch,
       },
@@ -3965,10 +3965,10 @@
                    (`hold.kind`) with no holder falls back to the unnamed line,
                    never a guess. `name` is null both withheld and unset, so the
                    handle stands in. -->
-              {@const holder = rosterEntry(worker.id)?.heldBy ?? null}
+              {@const holder = holderForHold(hold, rosterEntry(worker.id)?.heldBy)}
               {#if hold.kind === 'self'}
                 <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                  {holder?.name ?? holder?.handle ?? t('app.staff.held.you', 'Your name — held by you')}
+                  {holderLabel(holder) ?? t('app.staff.held.you', 'Your name — held by you')}
                   {#if hold.since}
                     <span class="font-normal text-zinc-500">· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span>
                   {/if}
@@ -3979,7 +3979,7 @@
               {:else if hold.kind === 'other'}
                 <span class="text-xs text-zinc-500">
                   {#if holder}
-                    {holder.name ?? holder.handle ?? t('app.staff.held.other', 'Held by another member')}
+                    {holderLabel(holder) ?? t('app.staff.held.other', 'Held by another member')}
                   {:else}
                     {t('app.staff.held.other', 'Held by another member')}
                   {/if}

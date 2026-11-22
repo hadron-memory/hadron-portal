@@ -86,3 +86,27 @@ export function workerHold(
 export function isHeld(hold: WorkerHold): boolean {
   return hold.kind === 'self' || hold.kind === 'other';
 }
+
+/** The holder identity a roster read may show for a hold: `holder` is a RosterHolder-shaped value. */
+export interface HolderIdentity {
+  id: string;
+  name: string | null;
+  handle: string | null;
+  urn: string | null;
+}
+
+/**
+ * portal#1330 — the roster's `heldBy` is a SECOND read beside `Worker.heldByUserId`, and the two can
+ * disagree (a transfer between the reads, a stale tick). Identity is shown only when the holder IS the
+ * hold's holder; a mismatch, a masked null or an absent roster entry yields null, which callers render
+ * as the existing withheld/unknown line. Never a guess, and never a fresh identity fetch.
+ */
+export function holderForHold<H extends HolderIdentity>(hold: WorkerHold, holder: H | null | undefined): H | null {
+  if (!holder || (hold.kind !== 'self' && hold.kind !== 'other')) return null;
+  return holder.id === hold.holderId ? holder : null;
+}
+
+/** What to call a holder: the name, else the handle. An empty or blank string counts as unset (`??` would keep it). */
+export function holderLabel(holder: Pick<HolderIdentity, 'name' | 'handle'> | null | undefined): string | null {
+  return holder?.name?.trim() || holder?.handle?.trim() || null;
+}

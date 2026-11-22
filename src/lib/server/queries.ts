@@ -5820,7 +5820,6 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
         pausedUntil
         currentTask { id title status }
         heldBy { id handle urn name }
-        heldAt
         # portal#1492: state, reason and age only — never the host label or prompt.
         terminal { status reason checkedAt }
       }
