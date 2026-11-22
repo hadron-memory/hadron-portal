@@ -52,12 +52,15 @@ it('logs only bounded GraphQL metadata, never constructor payloads or headers', 
   expect(result).toEqual({ message: 'Something went wrong on our side.', requestId });
 });
 
-// #1397 (Ruth N4): a PAYLOADLESS ClientError — a non-2xx whose body never
-// parsed as GraphQL, so `response` has no `errors` — classifies as transport.
-// The `instanceof ClientError` guard is then the ONLY thing routing it to the
+// #1397: a PAYLOADLESS ClientError — a non-2xx whose body never parsed as
+// GraphQL, so `response` has no `errors` — classifies as transport. The
+// `instanceof ClientError` guard is then the ONLY thing routing it to the
 // bounded log; the else branch would log .message/.stack, and ClientError's
 // constructor embeds the whole {response, request} JSON — query and variables
-// included — in the message. Dropping that guard must fail here.
+// included — in the message. Dropping that guard must fail here. The metadata
+// argument is pinned to its FULL shape (transport → code null; the requestId
+// key only exists for an internal failure carrying one) so an extra field
+// cannot creep into the log unnoticed.
 it('a payloadless ClientError logs bounded metadata only, never its embedded query or variables', async () => {
   const log = vi.spyOn(console, 'error').mockImplementation(() => {});
   const error = new ClientError(
@@ -71,5 +74,6 @@ it('a payloadless ClientError logs bounded metadata only, never its embedded que
   }
   expect(log).toHaveBeenCalledOnce();
   expect(log.mock.calls[0][0]).toBe('[portal] unexpected GraphQL error');
+  expect(log.mock.calls[0][1]).toEqual({ status: 503, code: null });
   expect(result).toEqual({ message: 'Something went wrong on our side.' });
 });
