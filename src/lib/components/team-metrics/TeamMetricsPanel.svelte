@@ -57,7 +57,7 @@
       <section aria-labelledby="metrics-workers-h">
         <h2 id="metrics-workers-h" class="text-lg font-semibold">{t('team-metrics.workers.title', 'Workers')}</h2>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('team-metrics.as-of', 'As of {when}. A worker can be in more than one of these.', { when: fmt(m.asOf) })}</p>
-        <dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="metrics-workers">
+        <dl class="mt-3 grid grid-cols-2 items-start gap-3 sm:grid-cols-4" data-testid="metrics-workers">
           {#each workerKinds as k (k)}
             <div class={card}>
               <dt class="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{workerLabel[k]}</dt>
@@ -108,7 +108,7 @@
         {#if m.flow === null}
           <p class={card + ' mt-3 text-sm text-zinc-600 dark:text-zinc-400'} data-testid="metrics-flow-null">{notVisible}</p>
         {:else}
-          <dl class="mt-3 grid grid-cols-2 gap-3 sm:max-w-md" data-testid="metrics-flow">
+          <dl class="mt-3 grid grid-cols-2 items-start gap-3 sm:max-w-md" data-testid="metrics-flow">
             <div class={card}>
               <dt class="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('team-metrics.flow.completed', 'Finished')}</dt>
               <dd class="mt-1 text-2xl"><CountDrill count={m.flow.completed} kind="task" {appId} label={t('team-metrics.label.finished', 'finished tasks')} /></dd>

@@ -57,6 +57,12 @@ describe('loadTeamMetrics', () => {
     expect(request.mock.calls[1]![1]).toEqual({ appRef: 'app1' });
   });
 
+  it('does not retry when no window was sent', async () => {
+    const request = vi.fn().mockRejectedValue(refused('BAD_USER_INPUT'));
+    expect(await loadTeamMetrics({ request } as never, 'app1')).toEqual({ kind: 'invalid', metrics: null });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it('a refused window whose fallback read also fails is invalid with no metrics', async () => {
     expect(await loadTeamMetrics(clientOf(() => Promise.reject(refused('BAD_USER_INPUT'))), 'app1')).toEqual({ kind: 'invalid', metrics: null });
   });

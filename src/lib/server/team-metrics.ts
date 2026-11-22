@@ -17,6 +17,8 @@ export async function loadTeamMetrics(
   // The window only applies to Flow: keep the rest of the page and refuse beside the form. The
   // retry is one read, never a loop: a second refusal leaves the input error alone.
   if (view.kind === 'invalid') {
+    // No window was sent, so the refusal cannot be about one: no retry to make.
+    if (!window.since && !window.until) return view;
     const base = await readTeamMetrics(client, appRef, {});
     return { kind: 'invalid', metrics: base.kind === 'ok' ? base.metrics : null };
   }
