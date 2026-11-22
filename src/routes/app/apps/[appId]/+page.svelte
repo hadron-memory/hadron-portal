@@ -4328,7 +4328,7 @@
       {#key app.id}
         <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} hasAgent={installedAgents.length > 0} /></div>
       {/key}
-    {:else if data.createMemoryForm}
+    {:else if data.createMemoryForm && tabData.canCreateMemory === false}
       <!-- portal#1391: display only. It states no role or membership and no authorization rule the server did not
            state; the server's createAppMemory gate stays the authority. -->
       <p data-testid="app-memory-create-unavailable" class="mt-6 text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.create-unavailable', 'Adding a memory isn’t available to you here.')}</p>

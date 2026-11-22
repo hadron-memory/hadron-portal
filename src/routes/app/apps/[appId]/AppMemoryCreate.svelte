@@ -9,10 +9,10 @@
   import type { AppMemoryMessage } from './app-memories';
   import { createAppMemorySchema } from './schema';
   type Fields = Infer<typeof createAppMemorySchema, 'zod4'>;
-  let { initial, result, hasAgent = true }: {
+  let { initial, result, hasAgent }: {
     initial: SuperValidated<Fields, AppMemoryMessage>; result: unknown;
     // The App has an installed Agent (the page's app.agents). A memory is added through one, so say so before an attempt.
-    hasAgent?: boolean;
+    hasAgent: boolean;
   } = $props();
   const { form, errors, message, submitting, enhance } = superForm(untrack(() => {
     const submitted = submittedForm<Fields>(result, 'createAppMemory') as SuperValidated<Fields, AppMemoryMessage> | null;
@@ -30,7 +30,7 @@
     {t('app.memory.add', 'Add a memory')}
   </summary>
   {#if !hasAgent}
-    <p data-testid="app-memory-needs-agent" class="mt-3 max-w-xl text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.needs-agent', 'Install an Agent in this App before adding a memory.')}</p>
+    <p id="app-memory-needs-agent" data-testid="app-memory-needs-agent" class="mt-3 max-w-xl text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.needs-agent', 'Install an Agent in this App before adding a memory.')}</p>
   {/if}
   <form method="POST" action="?/createMemory" use:enhance novalidate class="mt-3 max-w-xl space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
     <fieldset disabled={$submitting} class="space-y-3">
@@ -45,7 +45,7 @@
       <textarea id="app-memory-description" name="description" bind:value={$form.description} rows="3" class={inputClass} aria-describedby="app-memory-description-help"></textarea>
       <p id="app-memory-description-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.description.help', 'Optional. Shown in the list of App memories.')}</p>
     </div>
-    <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-600 disabled:opacity-50">{$submitting ? t('app.memory.creating', 'Creating...') : t('app.memory.create', 'Create memory')}</button>
+    <button type="submit" disabled={$submitting} aria-describedby={hasAgent ? undefined : 'app-memory-needs-agent'} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-600 disabled:opacity-50">{$submitting ? t('app.memory.creating', 'Creating...') : t('app.memory.create', 'Create memory')}</button>
     </fieldset>
   </form>
   <LiveOutcome failed={$message?.type === 'error'}>

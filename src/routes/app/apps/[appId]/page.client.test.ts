@@ -3231,11 +3231,13 @@ describe('creating a new App memory (#487)', () => {
     const m=await mountPage(await memoryPage('OWNER', false));
     const note=m.target.querySelector('[data-testid="app-memory-needs-agent"]');
     expect(note?.textContent).toContain('Install an Agent in this App');
+    expect(m.target.querySelector('form[action="?/createMemory"] button[type="submit"]')?.getAttribute('aria-describedby')).toBe(note?.id);
     expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
   });
   it('does not say it when an Agent is installed', async () => {
     const m=await mountPage(await memoryPage('OWNER', true));
     expect(m.target.querySelector('[data-testid="app-memory-needs-agent"]')).toBeNull();
+    expect(m.target.querySelector('form[action="?/createMemory"] button[type="submit"]')?.hasAttribute('aria-describedby')).toBe(false);
   });
   // One neutral sentence: no role, no membership, no authorization rule the server did not state.
   it.each([['a contributor','CONTRIBUTOR',[{role:'CONTRIBUTOR',user:{id:'u1'}}]],['a reader','READER',[{role:'READER',user:{id:'u1'}}]],['an unknown membership','READER',[]],['an App with no organization','READER',null]] as const)('gives %s one neutral sentence and no form', async (_n, role, members) => {

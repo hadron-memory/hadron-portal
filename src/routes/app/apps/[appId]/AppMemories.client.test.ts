@@ -14,7 +14,7 @@ it('a success identifies and links the created memory, and keeps the form open t
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  const created={id:'new-id',urn:'hrn:mem:acme.com:new-notes',name:'New notes'};
  const posted={...initial,posted:true,message:{type:'success' as const,text:'Memory created.',created}};
- const m=mountComponent(AppMemoryCreate as never,{initial,result:{form:posted}} as never);
+ const m=mountComponent(AppMemoryCreate as never,{initial,hasAgent:true,result:{form:posted}} as never);
  try{await tick();const result=m.target.querySelector('[role=status]')!;
  expect(m.target.querySelector('details')!.open).toBe(true);
  expect(result.textContent).toContain('New notes');
@@ -30,7 +30,7 @@ it('a success identifies and links the created memory, and keeps the form open t
 it('an enhanced submit that succeeds keeps the opened form open and shows the created memory',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  const created={id:'new-id',urn:'hrn:mem:acme.com:new-notes',name:'New notes'};
- const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ const m=mountComponent(AppMemoryCreate as never,{initial,hasAgent:true,result:null} as never);
  try{await tick();
  const details=m.target.querySelector('details')!;
  expect(details.open).toBe(false);
@@ -60,7 +60,7 @@ it('an enhanced submit that succeeds keeps the opened form open and shows the cr
 
 it('the create form is collapsed until asked for, and says so in its caption',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
- const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ const m=mountComponent(AppMemoryCreate as never,{initial,hasAgent:true,result:null} as never);
  try{await tick();
  const details=m.target.querySelector('details')!;
  expect(details.open).toBe(false);
@@ -72,7 +72,7 @@ it('the create form is collapsed until asked for, and says so in its caption',as
 it('a submission that failed validation keeps the form open on its error',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  const failed={...initial,valid:false,posted:true,errors:{name:['Name is required']}};
- const m=mountComponent(AppMemoryCreate as never,{initial,result:{form:failed}} as never);
+ const m=mountComponent(AppMemoryCreate as never,{initial,hasAgent:true,result:{form:failed}} as never);
  try{await tick();
  expect(m.target.querySelector('details')!.open).toBe(true);
  expect(m.target.textContent).toContain('Name is required');
@@ -86,7 +86,7 @@ it.each([[true,true],[false,false]])('showDescription=%s puts the Description co
  // non-null description so the present direction proves the column renders
  // data, not just a header, and the absent direction catches a data leak
  const memories=[{id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',description:'a note',appId:'a'}];
- const m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription} as never);
+ const m=mountComponent(AppMemories as never,{initial,hasAgent:true,result:null,memories,canCreate:false,showDescription} as never);
  try{await tick();
  const headers=[...m.target.querySelectorAll('th')].map(h=>h.textContent?.trim());
  expect(headers.some(h=>h?.startsWith('Description'))).toBe(present);
@@ -119,7 +119,7 @@ it('restores a saved view that names the absent Description column (user-owned A
  // try starts before mount: a throwing mount must still clear storage.
  let m:ReturnType<typeof mountComponent>|undefined;
  try{
- m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription:false} as never);
+ m=mountComponent(AppMemories as never,{initial,hasAgent:true,result:null,memories,canCreate:false,showDescription:false} as never);
  // init() awaits the view list, then the active id, before applyView lands.
  // Poll to the restored state rather than counting ticks: a fixed count
  // either outgrows the chain into a false red or reads a not-yet-filtered
@@ -164,7 +164,7 @@ it('renders the storage-error family text when saving a view fails',async()=>{
  const prompt=vi.spyOn(window,'prompt').mockReturnValue('My view');
  let m:ReturnType<typeof mountComponent>|undefined;
  try{
- m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription:false} as never);
+ m=mountComponent(AppMemories as never,{initial,hasAgent:true,result:null,memories,canCreate:false,showDescription:false} as never);
  await tick(2); // let ViewTabs init settle before driving the strip
  const newView=[...m.target.querySelectorAll('button')].find(b=>b.textContent?.trim()===savedViewsStrings.newView());
  expect(newView).toBeDefined();
@@ -182,7 +182,7 @@ it('renders the storage-error family text when saving a view fails',async()=>{
 // portal#2379: a failed create lands in the always-mounted alert region, not a status one.
 it('an enhanced submit that fails lands in the alert region that was already mounted and empty',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
- const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ const m=mountComponent(AppMemoryCreate as never,{initial,hasAgent:true,result:null} as never);
  try{await tick();
  const alertRegion=m.target.querySelector('[role=alert]');
  expect(alertRegion).not.toBeNull();
@@ -200,7 +200,7 @@ it('an enhanced submit that fails lands in the alert region that was already mou
 // portal#1391: Description is optional, and an empty one is blank, not a value.
 it('says Description is optional in helper text the field is described by',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
- const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ const m=mountComponent(AppMemoryCreate as never,{initial,hasAgent:true,result:null} as never);
  try{await tick();
  const field=m.target.querySelector<HTMLTextAreaElement>('#app-memory-description')!;
  const help=m.target.querySelector(`#${field.getAttribute('aria-describedby')}`);

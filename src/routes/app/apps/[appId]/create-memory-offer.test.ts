@@ -4,6 +4,7 @@
  * reads the viewer's manage right on the App; the server stays the gate.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse, Kind, type FragmentDefinitionNode, type SelectionSetNode } from 'graphql';
 import { APP_QUERY, APP_DETAIL_ORG_QUERY, APP_MEMBERS_QUERY, SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -127,11 +128,19 @@ it('org-App loader keeps creation-panel description rows distinct from the full 
 // portal#1391: the create offer is only as good as the member selection it reads. canCreateMemory comes from
 // APP_DETAIL_ORG_QUERY's members (role + user id); a query that stops selecting them fails the offer closed silently.
 describe('canCreateMemory follows APP_DETAIL_ORG_QUERY member selection (portal#1391)', () => {
-  it('the query selects each member role and user id', () => {
-    const members = APP_DETAIL_ORG_QUERY.replace(/\s+/g, ' ');
-    expect(members).toContain('AppDetailOrgFields');
-    // the fragment is part of the sent document: role and user { id } must both be in it
-    expect(/members \{[^}]*\brole\b[^}]*user \{[^}]*\bid\b/.test(members)).toBe(true);
+  it('the query document selects each member role and user id', () => {
+    const doc = parse(APP_DETAIL_ORG_QUERY);
+    const fragments = new Map(doc.definitions.filter((d): d is FragmentDefinitionNode => d.kind === Kind.FRAGMENT_DEFINITION).map((d) => [d.name.value, d]));
+    const paths: string[] = [];
+    const walk = (set: SelectionSetNode, path: string, seen: Set<string>) => {
+      for (const sel of set.selections) {
+        if (sel.kind === Kind.FIELD) { const here = `${path}${sel.name.value}`; paths.push(here); if (sel.selectionSet) walk(sel.selectionSet, `${here}.`, seen); }
+        else if (sel.kind === Kind.INLINE_FRAGMENT) walk(sel.selectionSet, path, seen);
+        else if (!seen.has(sel.name.value)) { const f = fragments.get(sel.name.value); if (f) walk(f.selectionSet, path, new Set(seen).add(sel.name.value)); }
+      }
+    };
+    for (const d of doc.definitions) if (d.kind === Kind.OPERATION_DEFINITION) walk(d.selectionSet, '', new Set());
+    expect(paths).toEqual(expect.arrayContaining(['organization.members.role', 'organization.members.user.id']));
   });
   it.each([['ADMIN', true], ['OWNER', true], ['CONTRIBUTOR', false], ['READER', false]])('the viewer as org %s: canCreateMemory is %s', async (role, expected) => {
     mockRequest.mockImplementation(async (query: string) => {
