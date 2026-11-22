@@ -36,6 +36,7 @@ import {
   APP_ORG_AGENT_GRANTS_QUERY,
   APP_QUERY,
   SET_APP_SWEEP_MODE_MUTATION,
+  SET_SATURATION_ALARM_WAKE_ROLES_MUTATION,
   APP_MEMBERS_QUERY,
   SELF_CAN_MANAGE_QUERY,
   SET_APP_AGENT_BOOT_PROMPT_MUTATION,
@@ -103,6 +104,7 @@ import type {
 } from '$lib/types';
 import { loadAppKeyScopes } from '$lib/server/tickers';
 import { loadAppKeys, loadViewerManages } from '$lib/server/app-keys';
+import { loadSaturationAlarmWakeRoles } from '$lib/server/saturation-wake-roles';
 import type { Actions, PageServerLoad } from './$types';
 import {
   createAppMemorySchema,
@@ -810,6 +812,9 @@ export async function _loadAppPage(
       .request<{ app: { chatbotAiConfigId: string | null } | null }>(APP_CHATBOT_AI_CONFIG_QUERY, { ref: params.appId })
       .then((r) => ({ ok: true as const, configId: r.app?.chatbotAiConfigId ?? null }))
       .catch(() => ({ ok: false as const }));
+  // portal#2464 (hadron-server#4777): the roles this App's saturation alarms wake. Its own read, coerced to
+  // ok / hidden / failed so it can never null the page.
+  const wakeRolesP = wants('wakeRoles') ? loadSaturationAlarmWakeRoles(client, params.appId) : Promise.resolve(null);
   // portal#2240: the stop banner is the frame's; started first so the staff
   // read below can tell whether the banner needs worker names.
   const liveStopsP = mode.frame ? loadLiveStops(client, app.id) : Promise.resolve(null);
@@ -1161,6 +1166,7 @@ export async function _loadAppPage(
     chatConfigs,
     aiChoices: await aiChoiceRowsP.then((rows) => (rows ? chatAiChoiceOptions(rows, chatConfigs) : null)),
     chatbotAiConfig: await chatbotAiConfigP,
+    saturationWakeRoles: await wakeRolesP,
     appConfigs: configsData?.items ?? [],
     configsPage: appListNavigation(url, 'configOffset', 'ai-configs', configOffset, configsData?.items.length ?? 0, configsData?.total ?? 0),
     configsError: configsData === null,
@@ -1328,6 +1334,29 @@ export const actions: Actions = {
       const code = extractGqlErrorCode(e);
       const text = extractGqlError(e, t('app.sweep-mode.error.failed', 'Not saved. Try again.'), ['APP_NOT_FOUND', 'BAD_USER_INPUT']);
       return fail(code === 'FORBIDDEN' ? 403 : code === 'APP_NOT_FOUND' ? 404 : code === 'BAD_USER_INPUT' ? 400 : 500, { sweepModeError: text });
+    }
+  },
+
+  // portal#2464 (hadron-server#4777, hrn:node:hadronmemory.com:specs:cor:agt:060:16): set the WHOLE list of roles
+  // this App's saturation alarms wake. A person acts as themselves (no instruction). The server owns the rules
+  // (trim, lower-case, de-duplicate, the cap), so the portal sends the names as typed and shows the server's
+  // BAD_USER_INPUT sentence. APP_NOT_FOUND is the same answer for a non-participant and a deleted App, so its
+  // copy never says the App is gone.
+  setSaturationAlarmWakeRoles: async ({ request, params, locals }) => {
+    const roles = (await request.formData()).getAll('roles').map(String);
+    try {
+      const r = await gqlClient(locals.token).request<{ setSaturationAlarmWakeRoles: { roles: string[] } }>(
+        SET_SATURATION_ALARM_WAKE_ROLES_MUTATION, { appRef: params.appId, roles });
+      return { wakeRolesSaved: r.setSaturationAlarmWakeRoles.roles };
+    } catch (e: unknown) {
+      const known = ['BAD_USER_INPUT', 'APP_NOT_FOUND', 'APP_MANAGER_REQUIRED', 'SESSION_NOT_BOUND', 'APP_UNINSTALLED'];
+      if (!isDefiniteRefusal(e, known)) return fail(502, { wakeRolesError: t('app.wake-roles.unconfirmed', 'Couldn’t confirm the save. Your list is kept: save again if it isn’t what is stored.'), uncertain: true });
+      const code = extractGqlErrorCode(e);
+      if (code === 'BAD_USER_INPUT') return fail(400, { wakeRolesError: extractGqlError(e, t('app.wake-roles.error.failed', 'Not saved. Try again.'), ['BAD_USER_INPUT']) });
+      if (code === 'APP_NOT_FOUND') return fail(404, { wakeRolesError: t('app.wake-roles.error.not-found', 'Not saved. You may not have access to change this App’s settings.') });
+      if (code === 'APP_MANAGER_REQUIRED' || code === 'FORBIDDEN') return fail(403, { wakeRolesError: t('app.wake-roles.error.manager', 'Only whoever manages this App can change this.') });
+      if (code === 'APP_UNINSTALLED') return fail(409, { wakeRolesError: t('app.wake-roles.error.uninstalled', 'This App is uninstalled, so its settings can’t be changed.') });
+      return fail(409, { wakeRolesError: t('app.wake-roles.error.session', 'Not saved. Sign in again and retry.') });
     }
   },
 

@@ -67,6 +67,18 @@ describe('#1171 History cell', () => {
     expect(body).not.toContain('data-testid="revision-worker"');
     expect(body).not.toContain('data-testid="revision-agent"');
   });
+
+  // portal#2490: the info line truncates in the History cell, so its full value
+  // must stay reachable through a title (blind review, #2507 — the branch had
+  // no vitest pin; only the browser harness covered it).
+  it('keeps a long edited-by info string reachable through a title', () => {
+    const info = 'imported-by-fixture-identity-with-long-unbroken-suffix';
+    const { body } = render(RevisionEditedBy, {
+      props: { view: revisionEditorView({ editedByUser: null, editedByInfo: info, editedByWorker: null, editedByAgent: null }) },
+    });
+    expect(body).toContain(info);
+    expect(body).toContain(`title="${info}"`);
+  });
 });
 
 describe('#1171 revision reads', () => {
