@@ -111,7 +111,7 @@ try {
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
- for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings')) {
+ for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings' && k !== 'agent-tasks')) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -357,6 +357,84 @@ try {
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
    throw e;
   } finally { await page.close(); }
+ }
+
+ // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and
+ // legal synthetic data, default column sizes. A cell passes when no element inside it paints outside its
+ // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
+ // to the first cell and must see it, so a leg that finds nothing proves the oracle can see.
+ // Rows marked `measured` are the issue's browser-check rows: reported, never failed, fixed only where #2486 confirms.
+ if (!env.cellKind || env.cellKind === 'agent-tasks') {
+  const rowsPage = await browser.newPage();
+  await rowsPage.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  await rowsPage.goto(new URL('/__cell_fixture', origin).href);
+  const taskRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts')).AGENT_TASK_CELL_ROWS);
+  await rowsPage.close();
+  assert.ok(taskRows.length >= 7, 'the fixture lists every #2487 row');
+  const taskCellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAll((cells, limit) => cells.flatMap(td => {
+   const box = td.getBoundingClientRect(), found = [];
+   for (const el of td.querySelectorAll('*')) {
+    if (el.closest('.sr-only')) continue;
+    let clipped = false;
+    for (let a = el.parentElement; a && a !== td; a = a.parentElement) { const st = getComputedStyle(a); if (st.overflowX !== 'visible' || st.overflow !== 'visible') { clipped = true; break; } }
+    if (clipped) continue;
+    let px = 0;
+    for (const r of el.getClientRects()) px = Math.max(px, box.left - r.left, r.right - box.right);
+    if (px > limit) found.push({ cell: td.textContent.trim().slice(0, 40), el: `${el.tagName.toLowerCase()}${el.className ? '.' + String(el.className).split(' ')[0] : ''}`, px: Math.round(px) });
+    const st = getComputedStyle(el);
+    if (st.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1 && !el.closest('[title]')) found.push({ cell: td.textContent.trim().slice(0, 40), el: el.tagName.toLowerCase(), px: 0, note: 'ellipsized with no reachable full value' });
+   }
+   // Bare text (a cell that renders a string with no element) is judged by its glyph boxes.
+   const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+   for (let n; (n = walker.nextNode());) {
+    if (!n.textContent.trim() || n.parentElement.closest('.sr-only')) continue;
+    let clipped = false;
+    for (let a = n.parentElement; a && a !== td; a = a.parentElement) { const st = getComputedStyle(a); if (st.overflowX !== 'visible' || st.overflow !== 'visible') { clipped = true; break; } }
+    if (clipped) continue;
+    const range = document.createRange(); range.selectNodeContents(n);
+    let px = 0;
+    for (const r of range.getClientRects()) px = Math.max(px, box.left - r.left, r.right - box.right);
+    if (px > limit) found.push({ cell: td.textContent.trim().slice(0, 40), el: '#text', px: Math.round(px) });
+   }
+   return found;
+  }), ESCAPE_PX);
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) {
+   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+   const errors = await watchErrors(page);
+   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+   const leg = `agent-tasks/${listKey}/${width}/${dark ? 'dark' : 'light'}`;
+   try {
+    await page.goto(new URL('/__cell_fixture', origin).href);
+    await page.evaluate(({ css, dark }) => {
+     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+    }, { css, dark });
+    await page.evaluate(async row => { const { mountAgentTaskCell } = await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts'); window.stopFixture = mountAgentTaskCell(document.getElementById('fixture'), row); }, listKey);
+    await page.locator(`${scope}tbody td`).first().waitFor({ timeout: 10000 });
+    // Columns a view hides by default (the roster's Last assigned) still have cells a reader can show.
+    await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
+    await settlePage(page);
+    const escapes = await taskCellEscapes(page, scope);
+    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/agent-tasks-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
+    if (measured) console.log(`${leg}: MEASURED (not failed, #2486 decides)`, escapes);
+    else {
+     if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
+     // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
+     await page.locator(`${scope}tbody td`).first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
+     if (!(await taskCellEscapes(page, scope)).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
+     await page.locator('[data-negative]').evaluate(el => el.remove());
+     console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
+    }
+    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+    await unmountFixture(page);
+    assertPatched();
+    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+   } catch (e) {
+    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-').replaceAll(':', '-')}.png`, fullPage: true }).catch(() => {});
+    throw e;
+   } finally { await page.close(); }
+  }
  }
  assert.deepEqual(failures, []);
 } finally { await browser?.close(); await server.close(); }

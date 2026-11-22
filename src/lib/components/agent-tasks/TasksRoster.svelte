@@ -229,16 +229,16 @@
           {/if}
         </div>
       {:else if cell.column.id === 'lastActive'}
-        <span class="whitespace-nowrap">{e.lastActiveAt ? fmtRunTime(e.lastActiveAt) : '—'}</span>
+        <span>{e.lastActiveAt ? fmtRunTime(e.lastActiveAt) : '—'}</span>
       {:else if cell.column.id === 'lastAssigned'}
-        <span class="whitespace-nowrap">{e.lastAssignedAt ? fmtRunTime(e.lastAssignedAt) : '—'}</span>
+        <span>{e.lastAssignedAt ? fmtRunTime(e.lastAssignedAt) : '—'}</span>
       {:else if cell.column.id === 'reportsTo'}
         <span class="inline-flex flex-wrap items-center gap-1">
           <PartyLabel party={e.reportsTo} showUrn={false} />
           {#if e.reportsToRetired}<span class="text-xs text-zinc-500">{t('app.tasks.roster.retired', '(retired)')}</span>{/if}
         </span>
       {:else}
-        <span class="block max-w-full truncate">{cell.getValue() || '—'}</span>
+        <span class="block max-w-full truncate" title={String(cell.getValue() || '')}>{cell.getValue() || '—'}</span>
       {/if}
     {/snippet}
   </DataTable>
