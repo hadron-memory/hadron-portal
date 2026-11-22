@@ -100,13 +100,13 @@
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
-          <a href="{basePath}/secrets/{row.secret.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.secret.name}</a>
+          <a href="{basePath}/secrets/{row.secret.id}" class="block max-w-full truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={row.secret.name}>{row.secret.name}</a>
         {:else if cell.column.id === 'protected'}
           <span class="rounded-full px-2 py-0.5 text-xs font-medium {row.secret.protected ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'}">{row.protectedText}</span>
         {:else if cell.column.id === 'version'}
           <span>{row.secret.currentVersion ?? '—'}</span>
         {:else if cell.column.id === 'updated'}
-          <time datetime={row.secret.updatedAt} class="whitespace-nowrap">{fmtRunTime(row.secret.updatedAt)}</time>
+          <time datetime={row.secret.updatedAt}>{fmtRunTime(row.secret.updatedAt)}</time>
         {/if}
       {/snippet}
     </DataTable>

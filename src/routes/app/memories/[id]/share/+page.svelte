@@ -101,7 +101,10 @@
     { accessorKey: 'grantee', header: t('memory-share.col.person', 'Person'), enableHiding: false, size: 200 },
     { accessorKey: 'granteeUrn', id: 'granteeUrn', header: 'URN', size: 260 },
     { accessorKey: 'role', id: 'role', header: t('memory-share.col.role', 'Role'), size: 150 },
-    { accessorKey: 'grantedBy', id: 'grantedBy', header: t('memory-share.col.granted-by', 'Shared by'), size: 160 },
+    // portal#2509: 200, not 160. On a touch pointer the URN chip's reveal toggle and
+    // two copy buttons are 44px targets (140px with gaps); 160 less the cell's 32px
+    // padding cannot hold them.
+    { accessorKey: 'grantedBy', id: 'grantedBy', header: t('memory-share.col.granted-by', 'Shared by'), size: 200 },
     // @copilot on #839: an `accessorKey` on the raw string sorts by WALL CLOCK
     // and ignores the offset — the `DateTime` scalar only promises a
     // `Date.parse`-able value, so `23:00+02:00` sorts after `22:00Z` while being
@@ -350,10 +353,14 @@
                  its URN — so it carries one too
                  (hrn:node:hadronmemory.com:hadron-portal:review:render-urn).
                  Null renders as absent, never as an empty chip. -->
-            <div class="flex min-w-0 items-center gap-2">
-              <span class="truncate">{row.grantedBy}</span>
+            <!-- portal#2509: the PartyLabel containment stack (#2506): a bounded
+                 column, a truncating name, and a per-chip wrapper so the Urn
+                 chip truncates itself. No overflow clip (#2413): a clipping
+                 ancestor cuts the copy buttons' focus ring. -->
+            <div class="flex max-w-full min-w-0 flex-col">
+              <span class="truncate" title={row.grantedBy}>{row.grantedBy}</span>
               {#if row.grantorUrn}
-                <Urn value={row.grantorUrn} type="user" size={8} compact />
+                <span class="block max-w-full min-w-0"><Urn value={row.grantorUrn} type="user" size={8} compact /></span>
               {/if}
             </div>
           {:else if cell.column.id === 'granted'}
