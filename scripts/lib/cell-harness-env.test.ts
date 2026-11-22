@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error plain .mjs helper shared with the layout script
-import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, batteryFor } from './cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, APPS_KINDS, batteryFor } from './cell-harness-env.mjs';
 
 // The accepted set, spelled out here on purpose — see the accept test below.
-const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'agent-tasks', 'agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
+// The eight apps kinds join from main's portal#2488 slice (unioned in #2507's carry).
+const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'agent-tasks', 'agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
 
 // portal#2129 rows 1, 6, 8: every env knob is validated before any browser launches.
 describe('parseHarnessEnv', () => {
@@ -19,14 +20,15 @@ describe('parseHarnessEnv', () => {
   // Literal list, not KINDS: the accept test must fail when a kind joins the
   // helper's list without anyone choosing to accept it (blind review, #2507) —
   // it.each(KINDS) could never go red, no matter what KINDS became.
-  it('KINDS is exactly the eleven kinds named below', () => {
+  it('KINDS is exactly the nineteen kinds named below', () => {
     expect(KINDS).toEqual(ALL_KINDS);
   });
   it.each(ALL_KINDS)('accepts CELL_KIND=%s', v => {
     expect(parseHarnessEnv({ CELL_KIND: v }).cellKind).toBe(v);
   });
-  it.each(['', 'Findings', 'tasks', 'edge-removals'])('rejects CELL_KIND=%j', v => {
+  it.each(['', 'Findings', 'tasks', 'edge-removals', 'staff'])('rejects CELL_KIND=%j', v => {
     expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`CELL_KIND must be one of ${ALL_KINDS.join(', ')}, got ${JSON.stringify(v)}`);
+    expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`, got ${JSON.stringify(v)}`);
   });
   describe.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s', name => {
     const key = name === 'CELL_INJECT_POINTER_FAILURE' ? 'injectPointerFailure' : 'injectMissingTrigger';
@@ -43,7 +45,7 @@ describe('parseHarnessEnv', () => {
 
 describe('injection knobs and CELL_KIND', () => {
   it.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s=1 is rejected for a kind that never reaches the findings leg', name => {
-    for (const kind of ['alarms', 'runs', 'config', 'agent-tasks']) {
+    for (const kind of ['alarms', 'runs', 'config', 'agent-tasks', ...APPS_KINDS]) {
       expect(() => parseHarnessEnv({ [name]: '1', CELL_KIND: kind })).toThrow(`${name}=1 only acts on the findings leg, got CELL_KIND=${JSON.stringify(kind)}`);
     }
   });
@@ -88,6 +90,7 @@ describe('batteryFor', () => {
       findings: ['findings'],
       agentTasks: ['agent-tasks'],
       pages: PAGE_KINDS,
+      apps: APPS_KINDS,
     });
   });
   it('rejects a kind outside the accepted set', () => {

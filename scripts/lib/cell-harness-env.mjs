@@ -1,13 +1,16 @@
 // portal#2129 rows 1, 6, 8: validate every harness env knob before the dev server or a browser starts.
 // portal#2490: the kinds split into batteries — the component mount (alarms,
 // runs, config), findings and agent-tasks (each a battery of its own: injection
-// knobs / a different oracle; agent-tasks joined from portal#2502), and the six
-// route-page kinds (a mounted real page). KINDS is derived so CELL_KIND's
-// accepted set and the batteries' kind lists cannot drift, and batteryFor is
-// the ONE routing table: the script never writes a kind list of its own.
+// knobs / a different oracle; agent-tasks joined from portal#2502), the six
+// route-page kinds of slice 4 (a mounted real page), and the eight Apps route
+// pages (portal#2488, unioned from main in #2507's carry: real apps pages with
+// the escape-probe oracle). KINDS is derived so CELL_KIND's accepted set and
+// the batteries' kind lists cannot drift, and batteryFor is the ONE routing
+// table: the script never writes a kind list of its own.
+export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
 export const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'agent-tasks'];
 export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
-export const KINDS = [...COMPONENT_KINDS, ...PAGE_KINDS];
+export const KINDS = [...COMPONENT_KINDS, ...PAGE_KINDS, ...APPS_KINDS];
 // The component battery's own kinds: findings and agent-tasks are COMPONENT_KINDS
 // (CELL_KIND accepts them) but mount through their own batteries, not this one.
 const COMPONENT_BATTERY_KINDS = ['alarms', 'runs', 'config'];
@@ -16,15 +19,18 @@ const COMPONENT_BATTERY_KINDS = ['alarms', 'runs', 'config'];
 // ONE battery. The pages list in the script once ran all six page kinds for ANY
 // non-page kind — a single-kind run dragged in every page leg (and the node
 // loader and fetch guard) — because the routing lived in three hand-written
-// conditionals. It lives here now, pinned by a table test.
+// conditionals. It lives here now, pinned by a table test. The Apps kinds
+// (main's #2488 slice) are a page-mount battery of their own: they run the
+// escape-probe oracle, not the six-kind pages battery's geometry walker.
 export function batteryFor(cellKind) {
   if (cellKind === null) {
-    return { component: COMPONENT_BATTERY_KINDS, findings: ['findings'], agentTasks: ['agent-tasks'], pages: PAGE_KINDS };
+    return { component: COMPONENT_BATTERY_KINDS, findings: ['findings'], agentTasks: ['agent-tasks'], pages: PAGE_KINDS, apps: APPS_KINDS };
   }
-  if (cellKind === 'findings') return { component: [], findings: ['findings'], agentTasks: [], pages: [] };
-  if (cellKind === 'agent-tasks') return { component: [], findings: [], agentTasks: ['agent-tasks'], pages: [] };
-  if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], agentTasks: [], pages: [cellKind] };
-  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], agentTasks: [], pages: [] };
+  if (cellKind === 'findings') return { component: [], findings: ['findings'], agentTasks: [], pages: [], apps: [] };
+  if (cellKind === 'agent-tasks') return { component: [], findings: [], agentTasks: ['agent-tasks'], pages: [], apps: [] };
+  if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], agentTasks: [], pages: [cellKind], apps: [] };
+  if (APPS_KINDS.includes(cellKind)) return { component: [], findings: [], agentTasks: [], pages: [], apps: [cellKind] };
+  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], agentTasks: [], pages: [], apps: [] };
   throw new Error(`batteryFor: unknown kind ${JSON.stringify(cellKind)} — parseHarnessEnv validates the accepted set first`);
 }
 const flag = (env, name) => {

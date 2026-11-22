@@ -8,6 +8,7 @@ import { chromium } from 'playwright';
 import { parseHarnessEnv, injectionEcho, batteryFor } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
+import { probeCellEscapes, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
@@ -816,6 +817,84 @@ async function loadNodePageData(devServer, tab) {
    // before, blind review, #2507), and the stack, not just e.message.
    if (errors.length) failures.push(`${leg}: browser errors before the crash ${JSON.stringify(errors)}`);
    failures.push(`${leg}: leg crashed ${e?.stack ?? e?.message ?? e}`);
+  } finally { await page.close(); }
+ }
+
+ // ══ portal#2488: the Apps route tables (#1962 slice 2) ════════════════════
+ // The REAL route pages are mounted; every cell must keep its content inside
+ // its own box with the containment net OFF, at the declared widths and at the
+ // minimum width, so no clip can hide an escape. The probe sees inline
+ // `truncate` (which clips nothing) as an escape.
+ // Kinds come from the one routing table (union, #2507's carry of main's
+ // #2488): an apps kind routes to this battery alone; every other kind runs no
+ // apps legs. The page is the same emulated one the other batteries use, so
+ // pointer/viewport emulation cannot differ between batteries.
+ for (const kind of battery.apps) for (const width of widths) for (const dark of [false, true]) {
+  const page = await newEmulatedPage(browser, width);
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  const leg = `${kind}/${width}/${dark ? 'dark' : 'light'}`;
+  const legFailuresBefore = failures.length;
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async kind => { const { mountAppsCellFixture } = await import('/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await mountAppsCellFixture(document.getElementById('fixture'), kind); }, kind);
+   await page.locator('tbody td').first().waitFor({ timeout: 10000 });
+   await settlePage(page);
+   // Every column the reader can reveal is revealed: a hidden-by-default column (a Stops Id, a ticker Last tick) is still a cell.
+   await page.evaluate(() => window.__fixtureTables.at(-1).toggleAllColumnsVisible(true));
+   await settlePage(page);
+   // A leg that renders nothing proves nothing: rows are present, every column is revealed, and every column carries content in some row.
+   const rendered = await page.evaluate(() => {
+    const t = window.__fixtureTables.at(-1);
+    // Scoped to the table under test (the last scroller), so a page with several tables cannot satisfy one table's column with another's row.
+    const root = [...document.querySelectorAll('[data-testid="data-table-scroller"]')].at(-1) ?? document.createElement('div');
+    const heads = [...root.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    const rows = [...root.querySelectorAll('tbody tr')];
+    const empty = heads.filter((h, i) => h && !rows.some(r => { const td = r.children[i]; return td && (td.textContent.trim() || td.querySelector('svg,img,button,a,input')); }));
+    return { rows: rows.length, hidden: t.getAllLeafColumns().filter(c => !c.getIsVisible()).map(c => c.id), empty };
+   });
+   if (rendered.rows < 3 || rendered.hidden.length || rendered.empty.length) failures.push(`${leg}: the fixture did not render what the probe measures ${JSON.stringify(rendered)}`);
+   const net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
+   // Declared widths first, then a 120px floor (or the column's own larger minSize), the same floor the legacy legs use. This is NOT the
+   // DataTable drag floor of 40 (Math.max(40, minSize)): probed at 40 with the containment net off, every table escapes by intrinsic word
+   // width alone (a 'Pause' or an 'In effect' pill cannot fit in 40px, and no cell CSS can fix that), so the leg would measure the
+   // net-off oracle's own limit, not a defect. Below ~120px the production td clip contains it. Columns declared under 120 (an actions
+   // column) are therefore probed wider here than declared; their declared-width pass above is the narrow check.
+   for (const sizing of ['declared', 'minimum']) {
+    if (sizing === 'minimum') await page.evaluate(() => { const t = window.__fixtureTables.at(-1); t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, Math.max(120, c.columnDef.minSize ?? 40)]))); });
+    await settlePage(page);
+    const found = await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX);
+    if (found.length) failures.push(`${leg}/${sizing}: cell content escapes its cell ${JSON.stringify(found)}`);
+    // The table keeps its width inside the page and scrolls internally. (The document's own scrollWidth is not used: the
+    // page's TabRow keeps an invisible fixed measuring clone that widens it on main, with or without a table defect.)
+    const scrollers = await page.locator('[data-testid="data-table-scroller"]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
+    if (!scrollers.length || scrollers.some(r => r > width + 0.5)) failures.push(`${leg}/${sizing}: the table scroller leaves the page ${JSON.stringify(scrollers)}`);
+   }
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   // The control: the same probe must SEE a deliberate escape in this table, or "no escapes" proves nothing.
+   const control = await page.addStyleTag({ content: 'tbody td * { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; display: inline-block !important; max-width: none !important; } tbody td { white-space: nowrap !important; }' });
+   await page.evaluate(() => { document.querySelector('tbody td')?.append(Object.assign(document.createElement('span'), { textContent: 'W'.repeat(120) })); });
+   await settlePage(page);
+   if ((await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX)).length === 0) failures.push(`${leg}: the escape probe did not see a deliberate escape`);
+   // The headline case: an INLINE `truncate` element (overflow:hidden clips nothing on an inline box), real utility classes and no
+   // display override. Without it, deleting the probe's inline rule would leave every leg green.
+   await control.evaluate(el => el.remove());
+   await page.evaluate(() => { document.querySelector('tbody td')?.replaceChildren(Object.assign(document.createElement('span'), { className: 'truncate', textContent: 'W'.repeat(120) })); });
+   await settlePage(page);
+   if ((await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX)).length === 0) failures.push(`${leg}: the escape probe did not see an inline truncate escape`);
+   await control.evaluate(el => el.remove()); await net.evaluate(el => el.remove());
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+   console.log(failures.length === legFailuresBefore ? `${leg}: every cell stays inside its box; negative control detected` : `${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`);
+  } catch (e) {
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
+   throw e;
   } finally { await page.close(); }
  }
 
