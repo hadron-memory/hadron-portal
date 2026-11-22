@@ -128,9 +128,10 @@
             <div class="mt-1 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400" data-testid="my-grant-app-id">{g.appId}</div>
           {/if}
         {:else if cell.column.id in fmt}
-          {fmt[cell.column.id](cell.getValue())}
+          <span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{fmt[cell.column.id](cell.getValue())}</span>
         {:else}
-          {String(cell.getValue() ?? dash)}
+          <!-- portal#2492: Action, Reason and the space-less Values JSON have no break opportunity, so wrap anywhere inside the cell. -->
+          <span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{String(cell.getValue() ?? dash)}</span>
         {/if}
       {/snippet}
     </DataTable>

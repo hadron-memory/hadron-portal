@@ -119,7 +119,7 @@
       {#if cell.column.id === 'actions'}
         {#if writable}<div class="flex flex-wrap gap-2"><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.edit', 'Edit')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => remove(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.delete', 'Delete')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { chosen = row; memory = null; preview = null; editing = undefined; previewStale = false; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-memory', 'Apply to a memory…')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { bulk = row; chosen = null; preview = null; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-several', 'Apply to several memories…')}</button></div>{/if}
       {:else if cell.column.id === 'required'}{row.required ? t('config.yes', 'Yes') : t('config.no', 'No')}
-      {:else}{String(cell.getValue() ?? '')}{/if}
+      {:else}<!-- portal#2492: a 64-character name or a long description token has no break opportunity, so wrap anywhere inside the cell. --><span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{String(cell.getValue() ?? '')}</span>{/if}
     {/snippet}
   </DataTable>
   {#if editing !== undefined && writable}
