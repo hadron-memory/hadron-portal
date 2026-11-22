@@ -187,7 +187,7 @@
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'coordinator'}
-              <span class="inline-flex flex-wrap items-center gap-1">
+              <span class="inline-flex max-w-full min-w-0 flex-wrap items-center gap-1">
                 {#if row.lane.coordinator}
                   <PartyLabel party={row.lane.coordinator} />
                   {#if row.lane.coordinatorRetired}<span class="text-xs text-zinc-500 dark:text-zinc-400">{retired()}</span>{/if}
