@@ -21,7 +21,7 @@ describe('parseHarnessEnv', () => {
   // Literal list, not KINDS: the accept test must fail when a kind joins the
   // helper's list without anyone choosing to accept it (blind review, #2507) —
   // it.each(KINDS) could never go red, no matter what KINDS became.
-  it('KINDS is exactly the twenty-nine kinds named below', () => {
+  it('KINDS is exactly the kinds named below', () => {
     expect(KINDS).toEqual(ALL_KINDS);
   });
   it.each(ALL_KINDS)('accepts CELL_KIND=%s', v => {
@@ -95,6 +95,9 @@ describe('batteryFor', () => {
       apps: [...APPS_KINDS, ...ORGS_KINDS],
       lib: ['lib-rows'],
     });
+  });
+  it('routes an Orgs kind to the apps battery alone', () => {
+    expect(batteryFor('orgs-mine')).toEqual({ component: [], findings: [], wake: [], agentTasks: [], pages: [], apps: ['orgs-mine'], lib: [] });
   });
   it('rejects a kind outside the accepted set', () => {
     expect(() => batteryFor('edge-removals')).toThrow('batteryFor: unknown kind "edge-removals"');
