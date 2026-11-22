@@ -37,5 +37,5 @@ export type TeamMetrics = {
 export type TeamMetricsView =
   | { kind: 'ok'; metrics: TeamMetrics }
   | { kind: 'hidden' }
-  | { kind: 'invalid' }
+  | { kind: 'invalid'; metrics: TeamMetrics | null }
   | { kind: 'failed' };

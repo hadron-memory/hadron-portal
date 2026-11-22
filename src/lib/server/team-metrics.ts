@@ -13,6 +13,21 @@ export async function loadTeamMetrics(
   appRef: string,
   window: { since?: string; until?: string } = {},
 ): Promise<TeamMetricsView> {
+  const view = await readTeamMetrics(client, appRef, window);
+  // The window only applies to Flow: keep the rest of the page and refuse beside the form. The
+  // retry is one read, never a loop: a second refusal leaves the input error alone.
+  if (view.kind === 'invalid') {
+    const base = await readTeamMetrics(client, appRef, {});
+    return { kind: 'invalid', metrics: base.kind === 'ok' ? base.metrics : null };
+  }
+  return view;
+}
+
+async function readTeamMetrics(
+  client: GraphQLClient,
+  appRef: string,
+  window: { since?: string; until?: string },
+): Promise<TeamMetricsView> {
   try {
     const r = await client.request<{ teamMetrics: TeamMetrics | null }>(TEAM_METRICS_QUERY, {
       appRef,
@@ -25,7 +40,7 @@ export async function loadTeamMetrics(
     const code = extractGqlErrorCode(e);
     // One answer for every reason the server withholds the App; never an empty dashboard.
     if (code === 'APP_NOT_FOUND' || code === 'FORBIDDEN' || code === 'NOT_FOUND') return { kind: 'hidden' };
-    if (code === 'BAD_USER_INPUT') return { kind: 'invalid' };
+    if (code === 'BAD_USER_INPUT') return { kind: 'invalid', metrics: null };
     console.warn(`[team-metrics] read failed (${code ?? 'transport'})`);
     return { kind: 'failed' };
   }
@@ -39,7 +54,9 @@ export function windowFromParams(params: URLSearchParams): { since?: string; unt
   for (const key of ['since', 'until'] as const) {
     const v = params.get(key);
     if (v === null || v === '') continue;
-    if (!DAY.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`))) out.malformed = true;
+    const ms = Date.parse(`${v}T00:00:00Z`);
+    // An impossible day (2026-02-31) would roll over to March; refuse it, never guess.
+    if (!DAY.test(v) || Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== v) out.malformed = true;
     else out[key] = `${v}T00:00:00.000Z`;
   }
   return out;

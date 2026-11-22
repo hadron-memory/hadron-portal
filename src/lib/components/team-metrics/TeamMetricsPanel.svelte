@@ -12,11 +12,13 @@
   import OwnerTable from './OwnerTable.svelte';
   import ProjectTable from './ProjectTable.svelte';
 
-  let { view, appId, since = '', until = '', windowRefused = false }: {
-    view: TeamMetricsView; appId: string; since?: string; until?: string; windowRefused?: boolean;
+  let { view, appId, since = '', until = '' }: {
+    view: TeamMetricsView; appId: string; since?: string; until?: string;
   } = $props();
 
-  const fmt = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  // UTC and a fixed locale on purpose: the server renders this and the browser re-renders it, and
+  // the window bounds are UTC midnights, which a local zone would show as the previous day.
+  const fmt = (iso: string) => `${new Date(iso).toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC`;
   const notVisible = t('team-metrics.not-visible', 'Not visible to you');
   const workerKinds = ['active', 'idle', 'overdue', 'inop'] as const;
   const workerLabel: Record<(typeof workerKinds)[number], string> = {
@@ -45,12 +47,12 @@
     <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-indigo-500">{t('team-metrics.window.apply', 'Apply')}</button>
     <p class="basis-full text-xs text-zinc-500 dark:text-zinc-400">{t('team-metrics.window.help', 'The window only applies to Flow. It runs from the first day up to, not including, the last day, and is at most 31 days.')}</p>
   </form>
-  {#if windowRefused || view.kind === 'invalid'}
+  {#if view.kind === 'invalid'}
     <p class="mt-3 text-sm text-red-700 dark:text-red-400" role="alert" data-testid="metrics-invalid">{t('team-metrics.invalid', 'That window was not accepted. Use two days at most 31 days apart, with From before Until.')}</p>
   {/if}
 
-  {#if view.kind === 'ok'}
-    {@const m = view.metrics}
+  {#if view.kind === 'ok' || (view.kind === 'invalid' && view.metrics)}
+    {@const m = view.metrics!}
     <div class="mt-6 space-y-8">
       <section aria-labelledby="metrics-workers-h">
         <h2 id="metrics-workers-h" class="text-lg font-semibold">{t('team-metrics.workers.title', 'Workers')}</h2>
@@ -71,7 +73,7 @@
         {#if m.startedOwned === null}
           <p class={card + ' mt-3 text-sm text-zinc-600 dark:text-zinc-400'} data-testid="metrics-started-null">{notVisible}</p>
         {:else}
-          <p class="mt-3 text-sm">{t('team-metrics.started.total', 'Total')}: <CountDrill count={m.startedOwned.all} kind="task" {appId} label={t('team-metrics.label.started-all', 'started tasks')} /></p>
+          <p class="mt-3 flex items-baseline gap-2 text-sm"><span>{t('team-metrics.started.total', 'Total')}</span> <CountDrill count={m.startedOwned.all} kind="task" {appId} label={t('team-metrics.label.started-all', 'started tasks')} /></p>
           {#if m.startedOwned.byOwner.length === 0}
             <p class={card + ' mt-3 text-sm text-zinc-600 dark:text-zinc-400'} data-testid="metrics-started-empty">{t('team-metrics.started.empty', 'No started tasks.')}</p>
           {:else}

@@ -81,11 +81,29 @@ describe('TeamMetricsPanel states', () => {
     expect(h).not.toContain('metrics-hidden');
   });
 
-  it('a refused window shows an input error beside the form and no figures', () => {
-    const h = html({ kind: 'invalid' });
+  it('a refused window shows an input error beside the form and keeps Workers and the snapshot', () => {
+    const h = html({ kind: 'invalid', metrics: base });
     expect(h).toContain('metrics-invalid');
     expect(h).toContain('metrics-window-form');
+    expect(h).toContain('metrics-workers');
+  });
+
+  it('a refused window with nothing to show is the input error alone', () => {
+    const h = html({ kind: 'invalid', metrics: null });
+    expect(h).toContain('metrics-invalid');
     expect(h).not.toContain('metrics-workers');
+  });
+
+  it('an owner shows once: one row, its URN and total once, however many projects', () => {
+    const h = html(ok());
+    expect(h.match(/metrics-owner-row/g)?.length).toBe(1);
+    expect(h.match(/hrn:worker:hadronmemory\.com:hadron-dev-team:gil/g)?.length).toBe(1);
+  });
+
+  it('times are UTC with a fixed locale, so the server and the browser agree', () => {
+    const h = html(ok());
+    expect(h).toContain('Nov 22, 2026, 10:00 AM UTC');
+    expect(h).toContain('Nov 15, 2026, 12:00 AM UTC');
   });
 
   it('states what startedOwned counts, and nothing labels flow as owned', () => {

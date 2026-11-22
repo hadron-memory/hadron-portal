@@ -16,7 +16,7 @@
 {#if count.total === 0}
   <span class="tabular-nums text-zinc-500 dark:text-zinc-400" data-testid="metrics-count">0</span>
 {:else}
-  <details class="min-w-0" data-testid="metrics-drill">
+  <details class="inline-block min-w-0 align-baseline" data-testid="metrics-drill">
     <summary class="cursor-pointer select-none rounded text-indigo-700 hover:underline focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-300" aria-label={t('team-metrics.drill.open', '{count} {label}, show them', { count: count.total, label })}>
       <span class="tabular-nums font-semibold" data-testid="metrics-count">{count.total}</span>
     </summary>
@@ -24,9 +24,9 @@
       {#if count.truncated}
         <p class="text-amber-800 dark:text-amber-300" data-testid="metrics-truncated">{t('team-metrics.drill.partial', 'First {shown} of {total}', { shown, total: count.total })}</p>
       {/if}
-      <ul class="flex max-h-40 flex-wrap gap-1 overflow-auto">
+      <ul class="flex flex-wrap gap-1">
         {#each count.ids as id (id)}
-          <li><a href={href(id)} class="block rounded border border-zinc-200 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{id.slice(0, 8)}</a></li>
+          <li><a href={href(id)} class="block rounded border border-zinc-200 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"><span class="text-zinc-500 dark:text-zinc-400">{kind === 'task' ? t('team-metrics.drill.task', 'task') : t('team-metrics.drill.worker', 'worker')}</span> {id.slice(0, 8)}</a></li>
         {/each}
       </ul>
     </div>

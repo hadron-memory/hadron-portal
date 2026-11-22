@@ -48,8 +48,17 @@ describe('loadTeamMetrics', () => {
     expect(await loadTeamMetrics(clientOf(() => Promise.reject(refused(code))), 'app1')).toEqual({ kind: 'hidden' });
   });
 
-  it('BAD_USER_INPUT is an input error, not a refusal', async () => {
-    expect(await loadTeamMetrics(clientOf(() => Promise.reject(refused('BAD_USER_INPUT'))), 'app1')).toEqual({ kind: 'invalid' });
+  it('BAD_USER_INPUT is an input error, not a refusal, and keeps the rest of the page via a window-less read', async () => {
+    const request = vi.fn()
+      .mockRejectedValueOnce(refused('BAD_USER_INPUT'))
+      .mockResolvedValueOnce({ teamMetrics: full });
+    const view = await loadTeamMetrics({ request } as never, 'app1', { since: '2026-01-01T00:00:00.000Z', until: '2026-06-01T00:00:00.000Z' });
+    expect(view).toEqual({ kind: 'invalid', metrics: full });
+    expect(request.mock.calls[1]![1]).toEqual({ appRef: 'app1' });
+  });
+
+  it('a refused window whose fallback read also fails is invalid with no metrics', async () => {
+    expect(await loadTeamMetrics(clientOf(() => Promise.reject(refused('BAD_USER_INPUT'))), 'app1')).toEqual({ kind: 'invalid', metrics: null });
   });
 
   it('an outage is failed, never hidden and never empty', async () => {
@@ -73,5 +82,9 @@ describe('windowFromParams', () => {
   it('flags junk instead of guessing', () => {
     expect(windowFromParams(new URLSearchParams('since=yesterday')).malformed).toBe(true);
     expect(windowFromParams(new URLSearchParams('until=2026-13-45')).malformed).toBe(true);
+  });
+  it('refuses an impossible day instead of rolling it into the next month', () => {
+    expect(windowFromParams(new URLSearchParams('since=2026-02-31')).malformed).toBe(true);
+    expect(windowFromParams(new URLSearchParams('since=2028-02-29')).malformed).toBe(false);
   });
 });
