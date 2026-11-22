@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error plain .mjs helper shared with the layout script
-import { parseHarnessEnv, injectionEcho, KINDS } from './cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, batteryFor } from './cell-harness-env.mjs';
 
 // The accepted set, spelled out here on purpose — see the accept test below.
 const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'agent-tasks', 'agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
@@ -60,5 +60,37 @@ describe('injectionEcho', () => {
     expect(injectionEcho(parseHarnessEnv({ CELL_INJECT_POINTER_FAILURE: '0', CELL_INJECT_MISSING_TRIGGER: '0' }))).toEqual([]);
     expect(injectionEcho(parseHarnessEnv({ CELL_INJECT_POINTER_FAILURE: '1' }))).toEqual(['INJECTION ACTIVE: CELL_INJECT_POINTER_FAILURE=1 (this run is expected to fail)']);
     expect(injectionEcho(parseHarnessEnv({ CELL_INJECT_POINTER_FAILURE: '1', CELL_INJECT_MISSING_TRIGGER: '1' }))).toHaveLength(2);
+  });
+});
+
+// The kind-to-battery routing (blind review, #2507): the pages list in the
+// script once ran all six page kinds for any non-page CELL_KIND. The routing is
+// batteryFor's now — this table is the pin that keeps it symmetric.
+describe('batteryFor', () => {
+  it('routes no kind to the pages battery but the page kinds — the #2507 P2, pinned', () => {
+    for (const kind of ALL_KINDS.filter(k => !PAGE_KINDS.includes(k))) {
+      expect(batteryFor(kind).pages, `CELL_KIND=${kind}`).toEqual([]);
+    }
+    for (const kind of PAGE_KINDS) {
+      expect(batteryFor(kind).pages, `CELL_KIND=${kind}`).toEqual([kind]);
+    }
+  });
+  it('routes every kind to exactly one battery, alone', () => {
+    for (const kind of ALL_KINDS) {
+      const owned = Object.entries(batteryFor(kind)).filter(([, kinds]) => kinds.length > 0);
+      expect(owned, `CELL_KIND=${kind}`).toHaveLength(1);
+      expect(owned[0][1], `CELL_KIND=${kind}`).toEqual([kind]);
+    }
+  });
+  it('null runs every battery at its full list', () => {
+    expect(batteryFor(null)).toEqual({
+      component: ['alarms', 'runs', 'config'],
+      findings: ['findings'],
+      agentTasks: ['agent-tasks'],
+      pages: PAGE_KINDS,
+    });
+  });
+  it('rejects a kind outside the accepted set', () => {
+    expect(() => batteryFor('edge-removals')).toThrow('batteryFor: unknown kind "edge-removals"');
   });
 });

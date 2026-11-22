@@ -5,13 +5,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { parseHarnessEnv, injectionEcho, PAGE_KINDS } from './lib/cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, batteryFor } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
 for (const line of injectionEcho(env)) console.log(line);
+// The ONE kind-to-battery routing (blind review, #2507): every battery's kind
+// list below is derived from this, never hand-written, so a single-kind run
+// reaches exactly its own battery — pinned by the batteryFor table test.
+const battery = batteryFor(env.cellKind);
 // Each source patch must match, or the fixture would silently run unpatched components. A throw inside a
 // Vite transform surfaces as a failed module load in the page, so the failure is also recorded here and
 // asserted after the fixture mounts (assertPatched).
@@ -46,6 +50,10 @@ const STUB_SPECIFIERS = {
   '$lib/server/api': 'server-api',
   '$lib/server/guards': 'server-guards',
 };
+// Hoisted out of the transform hook, with a path-separator boundary: 'src'
+// must be a prefix DIRECTORY, not a string prefix (a sibling like src-old
+// would match without the separator) — blind review, #2507.
+const srcRoot = path.resolve(__dirname, '../src') + path.sep;
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
  name: 'table-cell-fixture', enforce: 'pre',
  transform(code, id) {
@@ -53,8 +61,10 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plug
   // fixture's own page mounts, their transitive imports, and the node loader's
   // graph — the latter via the dev server's SSR environment). This subsumes the
   // per-component $app patches this plugin used to make (same stub files);
-  // an $app/$env import the map does not know still fails loudly below.
-  const srcRoot = path.resolve(__dirname, '../src');
+  // an $app/$env import the map does not know still fails loudly below — for
+  // EVERY src/ module, AppRunsTable/TasksAlarms/AiServiceConfigManager included,
+  // which is why their old dedicated re-check branch is gone: it re-tested the
+  // already-rewritten code and so could never fire (blind review, #2507).
   if (id.startsWith(srcRoot) && /\.(ts|svelte|js|mjs)$/.test(id) && !id.includes('/.svelte-kit/') && !id.includes('/stubs/')) {
    let patched = code;
    for (const [from, to] of Object.entries(STUB_SPECIFIERS)) {
@@ -63,13 +73,6 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plug
    // A $app/ or $env/ import the map does not know would run unstubbed.
    if (/from ['"]\$app\//.test(patched) || /from ['"]\$env\//.test(patched)) patchFailure(`table-cell-fixture: an unpatched $app/$env import is left in ${id}`);
    code = patched;
-  }
-  if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) {
-   // The generic rewrite above already carries the three components' $app
-   // imports to the stubs; this branch stays as the loud guard that they DID
-   // resolve through this plugin (a stale path here means a silently
-   // unpatched component).
-   if (/from ['"]\$app\//.test(code)) patchFailure(`table-cell-fixture: an $app/ import is left unpatched in ${id}`);
   }
   // Expose only the fixture's actual table objects, no production test API.
   if (id.endsWith('/createSvelteTable.svelte.ts')) code = patchSource(code, id, 'return createTable(withFeatures(options));', 'const fixtureTable = createTable(withFeatures(options)); globalThis.__fixtureTables ??= []; globalThis.__fixtureTables.push(fixtureTable); return fixtureTable;');
@@ -173,6 +176,11 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
+// The strict escape oracle starts at the 120px sizing step (blind review,
+// #2507, named): below it a reader is expected to widen the column (the 40px
+// minimum case), so narrower cells are judged by the resize pass, not the
+// net-off scan. 119, not 120, to keep a rounding-boundary cell inside.
+const STRICT_ORACLE_MIN_CELL_PX = 119;
 let browser;
 const failures = [];
 try {
@@ -186,13 +194,18 @@ try {
  // re-optimizes and force-reloads the page — destroying the mount evaluate's
  // execution context mid-import. Seen exactly once per cold cache, on the
  // first page leg. Warming on a throwaway page makes that reload happen here.
- {
+ // Only the pages battery needs it (blind review, #2507): a component-kind or
+ // findings/agent-tasks run never mounts a page graph.
+ if (battery.pages.length) {
   const warm = await newEmulatedPage(browser, 1280);
   await warm.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>warm</title>' }));
   await warm.goto(new URL('/__cell_fixture', origin).href);
   // A mid-import optimizer reload can kill this evaluate and resolve
   // waitForLoadState immediately (blind review, #2507), so retry the imports
   // once after a settle — post-reload they resolve against the optimized deps.
+  // The result is CHECKED: a silently-swallowed failure here (a typo'd or
+  // removed path) would make warming a no-op and let the flake this block
+  // prevents reappear on the first leg (blind review, #2507).
   const imports = () => warm.evaluate(async () => { await Promise.allSettled([
    import('/src/routes/app/agents/+page.svelte'),
    import('/src/routes/app/memories/+page.svelte'),
@@ -203,19 +216,16 @@ try {
   ]); }).then(() => true, () => false);
   await imports();
   await warm.waitForLoadState('load').catch(() => {});
-  await imports();
+  if (!(await imports())) console.error('warm-up: the page-graph imports still fail after the retry — the first page leg may hit the mid-import optimizer reload this block exists to prevent');
   await warm.close();
  }
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
- // Which battery runs which kind (blind review, #2507, direct form): a page
- // kind belongs to the pages battery below, never here; findings is a battery
- // of its own below (injection knobs, a different oracle, and a first column
- // that is not a pixelStrip candidate).
-const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
- : PAGE_KINDS.includes(env.cellKind) || env.cellKind === 'findings' || env.cellKind === 'agent-tasks' ? []
- : [env.cellKind];
+ // The component battery's kinds come from the one routing table above — never
+ // a hand-written list (blind review, #2507): a page kind belongs to the pages
+ // battery below, findings and agent-tasks to their own.
+ const componentKinds = battery.component;
  for (const width of widths) for (const dark of [false, true]) for (const kind of componentKinds) {
   const page = await newEmulatedPage(browser, width);
   const errors = await watchErrors(page);
@@ -269,7 +279,7 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
       }
       return { text: td.textContent.slice(0, 50), width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
      }));
-     const overflow = geometry.filter(x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length));
+     const overflow = geometry.filter(x => x.width >= STRICT_ORACLE_MIN_CELL_PX && (x.scroll > x.client + 1 || x.badGlyphs.length));
      if (overflow.length) failures.push(`${kind}/${width}/${dark}/${zoom}/${sizing}: net-off ${JSON.stringify(overflow)}`);
 
      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${kind}/${width}/${dark}/${zoom}/${sizing}: internal scroller, not document overflow ${await page.evaluate(()=>document.documentElement.scrollWidth)}`);
@@ -387,7 +397,7 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
  // portal#2118 item 5: the findings table has no interactive column, so it gets its own geometry pass.
  // Severity (six revealed markers, and an 80-character plain label) and text stay inside their cells
  // (#2115 QA F1, #2119). The control strips severity's wrap and must see the overflow.
- if (!env.cellKind || env.cellKind === 'findings') for (const width of widths) for (const dark of [false, true]) {
+ if (battery.findings.length) for (const width of widths) for (const dark of [false, true]) {
   const page = await newEmulatedPage(browser, width);
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -479,14 +489,16 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
  // once they land.
  const NODE_TABS = { 'node-properties': 'properties', 'node-history': 'history' };
  const nodeLoadedByKind = {};
- async function loadNodePageData(server, tab) {
-  const loaderMod = await server.ssrLoadModule('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts');
-  const queries = await server.ssrLoadModule('/src/lib/server/queries.ts');
-  const comments = await server.ssrLoadModule('/src/lib/server/comments.ts');
+ // `devServer`, not `server`: the name was shadowing the outer vite server the
+// caller passes (blind review, #2507).
+async function loadNodePageData(devServer, tab) {
+  const loaderMod = await devServer.ssrLoadModule('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts');
+  const queries = await devServer.ssrLoadModule('/src/lib/server/queries.ts');
+  const comments = await devServer.ssrLoadModule('/src/lib/server/comments.ts');
   // Synthetic content — loaded FROM the fixture's own PAGE_FIXTURE_VALUES so
   // the canned map and the in-page pins cannot drift apart (blind review, #2507).
-  const { PAGE_FIXTURE_VALUES: F } = await server.ssrLoadModule('/src/lib/test/fixtures/table-cell-overflow-harness.ts');
-  const { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO } = F;
+  const { PAGE_FIXTURE_VALUES: F } = await devServer.ssrLoadModule('/src/lib/test/fixtures/table-cell-overflow-harness.ts');
+  const { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO, LONG_EDGE_NAME } = F;
   const AT = '2026-10-01T00:00:00Z';
   const NODE = {
    id: 'leaf-pk', memoryId: 'mem-A', loc: 'fixture-loc', name: 'Fixture Node', revision: 4,
@@ -525,7 +537,7 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
    }
    if (doc === queries.NODE_EDGE_REMOVALS_QUERY) {
     return { nodeEdgeRemovals: [
-     { id: 'rm-1', edgeName: 'depends on', edgeLoc: LONG_LOC, targetLoc: LONG_TARGET_LOC, targetId: ID32, reason: 'TARGET_HARD_DELETED', removedBy: LONG_ACTOR, createdAt: AT },
+     { id: 'rm-1', edgeName: LONG_EDGE_NAME, edgeLoc: LONG_LOC, targetLoc: LONG_TARGET_LOC, targetId: ID32, reason: 'TARGET_HARD_DELETED', removedBy: LONG_ACTOR, createdAt: AT },
      { id: 'rm-2', edgeName: 'relates to', edgeLoc: null, targetLoc: null, targetId: 'j'.repeat(32), reason: 'TARGET_HARD_DELETED', removedBy: null, createdAt: AT },
     ] };
    }
@@ -539,42 +551,54 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
    // Unknown document: LOUD, per the server-api stub's own contract ("answers
    // NOTHING on its own ... a loud failure, not a silent empty list"). A
    // plausible empty answer here would render an empty panel and never flag
-   // that the loader grew a query this map does not cover.
-   const opName = /(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(String(doc))?.[1] ?? '(unnamed)';
+   // that the loader grew a query this map does not cover. Name the operation
+   // for a parsed DocumentNode too — String(doc) on one is "[object Object]"
+   // (blind review, #2507).
+   const opName = doc?.definitions?.[0]?.name?.value
+    ?? /(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(String(doc))?.[1]
+    ?? '(unnamed)';
    throw new Error(`table-cell-fixture: canned GraphQL map has no answer for ${opName} — add it next to the others`);
   };
-  return await (async () => {
-   // Nothing in this load may reach the network: every read is the canned map
-   // above. A stray real fetch names its URL instead of an opaque ECONNREFUSED.
-   const realFetch = globalThis.fetch;
-   globalThis.fetch = (input, init) => {
-    const u = typeof input === 'string' ? input : input?.url ?? String(input);
-    // signing-capability's /capabilities probe is DESIGNED to degrade to "every
-    // switch off" when the server is unreachable; the stub api's reserved
-    // .invalid origin answers it synthetically here so the degradation path is
-    // exercised without any network at all.
-    if (u === 'http://fixture.invalid/capabilities') return new Response('unavailable', { status: 503 });
-    throw new Error(`table-cell-fixture: unexpected real fetch during the node loader run: ${u}`);
-   };
-   try {
-    const loaded = await loaderMod.load({
-     params: { id: 'mem-A', nodeId: 'leaf-pk' },
-     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
-     url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk?tab=${tab}`),
-     parent: async () => PARENT,
-    });
-    // The streamed promises are awaited INSIDE the guard (blind review, #2507):
-    // a streamed branch that fetches must hit the guard's named failure, not
-    // the real network after the finally below restores fetch.
-    const plain = {}; const streamed = {};
-    for (const [k, v] of Object.entries(loaded)) {
-     if (v && typeof v.then === 'function') streamed[k] = await v; else plain[k] = v;
-    }
-    return { parent: PARENT, plain, streamed, tab };
-   } finally { globalThis.fetch = realFetch; }
-  })();
+  // Nothing in this load may reach the network: every read is the canned map
+  // above. A stray real fetch names its URL instead of an opaque ECONNREFUSED.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (input, init) => {
+   const u = typeof input === 'string' ? input : input?.url ?? String(input);
+   // signing-capability's /capabilities probe is DESIGNED to degrade to "every
+   // switch off" when the server is unreachable; the stub api's reserved
+   // .invalid origin answers it synthetically here so the degradation path is
+   // exercised without any network at all.
+   if (u === 'http://fixture.invalid/capabilities') return new Response('unavailable', { status: 503 });
+   throw new Error(`table-cell-fixture: unexpected real fetch during the node loader run: ${u}`);
+  };
+  try {
+   const loaded = await loaderMod.load({
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
+    url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk?tab=${tab}`),
+    parent: async () => PARENT,
+   });
+   // The streamed promises are awaited INSIDE the guard (blind review, #2507):
+   // a streamed branch that fetches must hit the guard's named failure, not
+   // the real network after the finally below restores fetch.
+   const plain = {}; const streamed = {};
+   for (const [k, v] of Object.entries(loaded)) {
+    if (v && typeof v.then === 'function') streamed[k] = await v; else plain[k] = v;
+   }
+   return { parent: PARENT, plain, streamed, tab };
+  } finally {
+   globalThis.fetch = realFetch;
+   // The canned map comes out with the guard: legs run sequentially so it was
+   // never re-entrant-unsafe, but a stale map left on globalThis could answer a
+   // LATER leg's stray request instead of failing loudly (blind review, #2507).
+   delete globalThis.__fixtureGql;
+  }
  }
- const pagesKinds = env.cellKind === null || !PAGE_KINDS.includes(env.cellKind) ? PAGE_KINDS : [env.cellKind];
+ // From the one routing table (blind review, #2507): a component kind or
+ // findings/agent-tasks runs NO page legs — this list once fell back to ALL six
+ // page kinds for any non-page kind, dragging the node loader and fetch guard
+ // into single-kind runs.
+ const pagesKinds = battery.pages;
  for (const kind of pagesKinds) for (const width of widths) for (const dark of [false, true]) {
   const page = await newEmulatedPage(browser, width);
   const errors = await watchErrors(page);
@@ -605,9 +629,18 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
    if (kind === 'agent-apps' || kind === 'agent-bundled') {
     const label = kind === 'agent-apps' ? 'Apps' : 'Bundled agents';
     const tab = page.getByRole('tab', { name: label, exact: true }).first();
+    const more = page.getByRole('button', { name: /More/ });
+    // WAIT for one of the two shapes before choosing (blind review, #2507):
+    // isVisible() does not wait, and a strip that has not rendered yet fell
+    // through to the More path. Bounded: neither shape rendering rejects here,
+    // loudly, instead of clicking at nothing.
+    await Promise.race([
+     tab.waitFor({ state: 'visible', timeout: 15000 }),
+     more.waitFor({ state: 'visible', timeout: 15000 }),
+    ]);
     if (await tab.isVisible()) await tab.click();
     else {
-     await page.getByRole('button', { name: /More/ }).click();
+     await more.click();
      await page.getByRole('menuitem', { name: label, exact: true }).click();
     }
    }
@@ -616,7 +649,7 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
    await settlePage(page);
    if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}-default.png`, fullPage: true });
    assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), width === 390, `${leg}: actual pointer mode`);
-   // net OFF: production containment must be the only thing stopping a escape.
+   // net OFF: production containment must be the only thing stopping an escape.
    const net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
    await settlePage(page);
    const readEscapes = () => page.locator('tbody td').evaluateAll(cells => cells.map(td => {
@@ -637,7 +670,7 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
     return { text: td.textContent.slice(0, 50), width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
    }));
    const clean = await readEscapes();
-   const cleanOut = clean.filter(x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length));
+   const cleanOut = clean.filter(x => x.width >= STRICT_ORACLE_MIN_CELL_PX && (x.scroll > x.client + 1 || x.badGlyphs.length));
    if (cleanOut.length) failures.push(`${leg}: net-off ${JSON.stringify(cleanOut)}`);
    // TITLE pins: the truncate idiom's other half — the full value stays
    // reachable. On main these titles do not exist, so every pin is red there.
@@ -682,6 +715,7 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
      // element, entirely on main); the node-properties pins above are the
      // structural ones (blind review, #2507).
      pin('edited-by info', document.querySelector(`div[title="${V.LONG_INFO}"]`), V.LONG_INFO);
+     pin('edge name', document.querySelector(`span[title="${V.LONG_EDGE_NAME}"]`), V.LONG_EDGE_NAME);
      pin('edge loc', document.querySelector(`code[title="${V.LONG_LOC}"]`), V.LONG_LOC);
      pin('target loc', document.querySelector(`code[title="${V.LONG_TARGET_LOC}"]`), V.LONG_TARGET_LOC);
      pin('target id', document.querySelector(`code[title="${V.ID32}"]`), V.ID32);
@@ -722,10 +756,10 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
    }, controlTarget);
    if (!sawControl) failures.push(`${leg}: negative control had no cell to target`);
    else {
-    const dirty = (await readEscapes()).filter(x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length));
+    const dirty = (await readEscapes()).filter(x => x.width >= STRICT_ORACLE_MIN_CELL_PX && (x.scroll > x.client + 1 || x.badGlyphs.length));
     if (!dirty.length) failures.push(`${leg}: negative control not detected by the oracle`);
     await page.evaluate(() => document.querySelector('[data-negative-text]')?.remove());
-    const after = (await readEscapes()).filter(x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length));
+    const after = (await readEscapes()).filter(x => x.width >= STRICT_ORACLE_MIN_CELL_PX && (x.scroll > x.client + 1 || x.badGlyphs.length));
     if (after.length) failures.push(`${leg}: clean after negative control cleanup ${JSON.stringify(after)}`);
    }
    await net.evaluate(el => el.remove());
@@ -758,7 +792,7 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
    const inTables = await scan(true);
    if (inTables.length) failures.push(`${leg}: visible document overflow inside a table ${JSON.stringify(inTables)}`);
    const outsideTables = await scan(false);
-   if (outsideTables.length) console.log(`${leg}: NOTE out-of-slice visible overflow (open audit row, not a failure here): ${JSON.stringify(outsideTables)}`);
+   if (outsideTables.length) console.log(`${leg}: NOTE out-of-slice visible overflow (open audit row portal#2486, not a failure here): ${JSON.stringify(outsideTables)}`);
    if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    await unmountFixture(page);
    assertPatched();
@@ -778,10 +812,14 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
     metas: [...document.querySelectorAll('meta')].map(m => `${m.name}=${m.content}`).join('|'),
    })).catch(e => `(probe failed: ${e?.message})`);
    console.error(`${leg}: environment ${JSON.stringify(envProbe)}`);
-   failures.push(`${leg}: leg crashed ${e?.message ?? e}`);
+   // The page's OWN errors are part of the crash record (they were dropped
+   // before, blind review, #2507), and the stack, not just e.message.
+   if (errors.length) failures.push(`${leg}: browser errors before the crash ${JSON.stringify(errors)}`);
+   failures.push(`${leg}: leg crashed ${e?.stack ?? e?.message ?? e}`);
   } finally { await page.close(); }
  }
-  // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and
+
+ // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and
  // legal synthetic data, default column sizes. A cell passes when no element inside it paints outside its
  // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
  // to the first cell and must see it, so a leg that finds nothing proves the oracle can see.
@@ -861,6 +899,6 @@ const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
    } finally { await page.close(); }
   }
  }
- 
-assert.deepEqual(failures, []);
+
+ assert.deepEqual(failures, []);
 } finally { await browser?.close(); await server.close(); }

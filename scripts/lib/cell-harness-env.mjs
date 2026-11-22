@@ -1,11 +1,32 @@
 // portal#2129 rows 1, 6, 8: validate every harness env knob before the dev server or a browser starts.
-// portal#2490: the kinds split in two — the component kinds (an extracted
-// component mount; agent-tasks joined from portal#2502) and the six route-page
-// kinds (a mounted real page). KINDS is derived so CELL_KIND's accepted set and
-// the batteries' kind lists cannot drift.
+// portal#2490: the kinds split into batteries — the component mount (alarms,
+// runs, config), findings and agent-tasks (each a battery of its own: injection
+// knobs / a different oracle; agent-tasks joined from portal#2502), and the six
+// route-page kinds (a mounted real page). KINDS is derived so CELL_KIND's
+// accepted set and the batteries' kind lists cannot drift, and batteryFor is
+// the ONE routing table: the script never writes a kind list of its own.
 export const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'agent-tasks'];
 export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
 export const KINDS = [...COMPONENT_KINDS, ...PAGE_KINDS];
+// The component battery's own kinds: findings and agent-tasks are COMPONENT_KINDS
+// (CELL_KIND accepts them) but mount through their own batteries, not this one.
+const COMPONENT_BATTERY_KINDS = ['alarms', 'runs', 'config'];
+// Which battery owns a CELL_KIND, and with which kinds (blind review, #2507):
+// null runs every battery at its full list; any specific kind routes to exactly
+// ONE battery. The pages list in the script once ran all six page kinds for ANY
+// non-page kind — a single-kind run dragged in every page leg (and the node
+// loader and fetch guard) — because the routing lived in three hand-written
+// conditionals. It lives here now, pinned by a table test.
+export function batteryFor(cellKind) {
+  if (cellKind === null) {
+    return { component: COMPONENT_BATTERY_KINDS, findings: ['findings'], agentTasks: ['agent-tasks'], pages: PAGE_KINDS };
+  }
+  if (cellKind === 'findings') return { component: [], findings: ['findings'], agentTasks: [], pages: [] };
+  if (cellKind === 'agent-tasks') return { component: [], findings: [], agentTasks: ['agent-tasks'], pages: [] };
+  if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], agentTasks: [], pages: [cellKind] };
+  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], agentTasks: [], pages: [] };
+  throw new Error(`batteryFor: unknown kind ${JSON.stringify(cellKind)} — parseHarnessEnv validates the accepted set first`);
+}
 const flag = (env, name) => {
   if (!(name in env) || env[name] === undefined) return false;
   if (env[name] !== '0' && env[name] !== '1') throw new Error(`${name} must be 0 or 1 when set, got ${JSON.stringify(env[name])}`);

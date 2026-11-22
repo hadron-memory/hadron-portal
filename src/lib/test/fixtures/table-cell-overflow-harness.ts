@@ -24,10 +24,11 @@ const LONG_LOC = 'fixture:edge:' + 'l'.repeat(50);
 const LONG_TARGET_LOC = 'fixture:target:' + 't'.repeat(49);
 const ID32 = 'i'.repeat(32);
 const LONG_ACTOR = 'actor-example.test:fixture-account-with-long-unbroken-id';
+const LONG_EDGE_NAME = 'depends-on-' + 'e'.repeat(54); // 65: edge names are free-typed (the form takes any trimmed string), so a long one must stay reachable (blind review, #2507)
 const LONG_INFO = 'worker-example.test:fixture:identity-with-long-unbroken-suffix';
 const LONG_DESCRIPTION = LONG64 + 'D'.repeat(40);
 const LONG_URN = 'hrn:agent:example.test:fixture:' + 'u'.repeat(28);
-export const PAGE_FIXTURE_VALUES = { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO, LONG_DESCRIPTION, LONG_URN };
+export const PAGE_FIXTURE_VALUES = { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO, LONG_DESCRIPTION, LONG_URN, LONG_EDGE_NAME };
 
 /**
  * portal#2490 node-page mount: the REAL /nodes/[nodeId] page, from data the

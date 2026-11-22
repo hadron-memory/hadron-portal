@@ -3916,12 +3916,16 @@
                 {:else}
                   <!-- The branch choice stays here (absent renders italic amber),
                        but the TEXT inside every branch comes from the one helper,
-                       so the cell, the title, and the filter can't drift apart. -->
-                  <span class="block truncate font-mono text-xs text-zinc-900 dark:text-white" title={typedPropertyValueText(row)}>
+                       so the cell, the title, and the filter can't drift apart.
+                       Resolved ONCE per cell: the helper can run displayJson on a
+                       large object, and a render called it two to three times
+                       (blind review, #2507). -->
+                  {@const text = typedPropertyValueText(row)}
+                  <span class="block truncate font-mono text-xs text-zinc-900 dark:text-white" title={text}>
                     {#if !row.present}
-                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{typedPropertyValueText(row)}</span>
+                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{text}</span>
                     {:else}
-                      {typedPropertyValueText(row)}
+                      {text}
                     {/if}
                   </span>
                 {/if}
@@ -4512,7 +4516,7 @@
                 <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{formatPortalDateTime(r.createdAt)}</span>
               {:else if cell.column.id === 'edge'}
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-zinc-700 dark:text-zinc-300">{r.edgeName ?? '—'}</span>
+                  <span class="block truncate text-zinc-700 dark:text-zinc-300" title={r.edgeName ?? undefined}>{r.edgeName ?? '—'}</span>
                   {#if r.edgeLoc}
                     <code class="block truncate text-xs text-zinc-500 dark:text-zinc-400" title={r.edgeLoc}>{r.edgeLoc}</code>
                   {:else}
