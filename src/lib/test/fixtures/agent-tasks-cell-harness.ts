@@ -5,13 +5,14 @@
 // renders as "Unknown: {raw}"), and a role token is free text.
 import { mount, unmount } from 'svelte';
 import SelectTask from '$lib/components/agent-tasks/SelectTask.svelte';
+import TaskFindings from '$lib/components/agent-tasks/TaskFindings.svelte';
 import TaskClones from '$lib/components/agent-tasks/TaskClones.svelte';
 import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
 import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
 import TasksComposition from '$lib/components/agent-tasks/TasksComposition.svelte';
 import TasksRoster from '$lib/components/agent-tasks/TasksRoster.svelte';
 
-/** The rows of #2487, by listKey. `measured` rows are the issue's browser-check rows: reported, not fixed here. */
+/** The rows of #2487, by listKey. A `measured` row is reported, never failed; none is left (the two browser-check rows were measured and are enforced below). */
 export const AGENT_TASK_CELL_ROWS = [
   { listKey: 'task-picker:open', measured: false, scope: '' },
   { listKey: 'task-clones', measured: false, scope: '' },
@@ -20,7 +21,8 @@ export const AGENT_TASK_CELL_ROWS = [
   // The Composition view mounts two tables; `scope` keeps each row's cells to its own table.
   { listKey: 'app-tasks:composition-workers', measured: false, scope: 'section[aria-labelledby="composition-workers"] ' },
   { listKey: 'app-tasks:roster', measured: false, scope: '' },
-  { listKey: 'app-tasks:composition-lanes', measured: true, scope: 'section[aria-labelledby="composition-lanes"] ' },
+  { listKey: 'tasks:immutable-findings', measured: false, scope: '' },
+  { listKey: 'app-tasks:composition-lanes', measured: false, scope: 'section[aria-labelledby="composition-lanes"] ' },
 ] as const;
 export type AgentTaskCellRow = (typeof AGENT_TASK_CELL_ROWS)[number]['listKey'];
 
@@ -40,6 +42,15 @@ export function mountAgentTaskCell(target: HTMLElement, row: AgentTaskCellRow) {
     const real = globalThis.fetch;
     globalThis.fetch = (async () => new Response(JSON.stringify({ kind: 'ok', value: { items: [choice(1), choice(2)], hasMore: false } }), { headers: { 'content-type': 'application/json' } })) as typeof fetch;
     const instance = mount(SelectTask, { target, props: { appId: 'fixture', open: true, onselect: () => {} } });
+    return () => { unmount(instance); globalThis.fetch = real; };
+  }
+  if (row === 'tasks:immutable-findings') {
+    // Legal long values: an id and a severity are provider labels, the text is free prose with an unbroken token.
+    const items = [1, 2].map(i => ({ id: `F${i}-${'x'.repeat(40)}`, severity: 'a-severity-label-with-no-spaces-0123456789', text: `${LONG_TITLE} ${LONG_TITLE} and then some prose` }));
+    const real = globalThis.fetch;
+    const dispositions = items.map(f => ({ findingId: f.id, disposition: 'deferred', reference: { kind: 'ISSUE', target: 'https://github.com/hadron-memory/hadron-portal/issues/2487', label: LONG_TITLE } }));
+    globalThis.fetch = (async () => new Response(JSON.stringify({ kind: 'ok', items: dispositions, total: dispositions.length }), { headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    const instance = mount(TaskFindings, { target, props: { appId: 'fixture', taskId: 'fixture-task', canWrite: true, initial: { kind: 'page', page: { taskId: 'fixture-task', offset: 0, items, total: 2, hasMore: false } } } as never });
     return () => { unmount(instance); globalThis.fetch = real; };
   }
   if (row === 'task-clones') {
