@@ -8,7 +8,7 @@
 // oracle). KINDS is derived so CELL_KIND's accepted set and the batteries' kind
 // lists cannot drift, and batteryFor is the ONE routing table: the script never
 // writes a kind list of its own.
-export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
+export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants'];
 // Not exported (blind review #2507, fold): nothing imports it — the tests build
 // ALL_KINDS literally and import KINDS/PAGE_KINDS/APPS_KINDS, the script imports
 // only parseHarnessEnv/injectionEcho/batteryFor. KINDS derives from it below.

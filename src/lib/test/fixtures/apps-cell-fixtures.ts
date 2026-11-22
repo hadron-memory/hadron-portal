@@ -8,6 +8,12 @@ import Secrets from '../../../routes/app/apps/[appId]/secrets/+page.svelte';
 import Stops from '../../../routes/app/apps/[appId]/stops/+page.svelte';
 import Tasks from '../../../routes/app/apps/[appId]/tasks/+page.svelte';
 import Tickers from '../../../routes/app/apps/[appId]/tickers/+page.svelte';
+import Channels from '../../../routes/app/apps/[appId]/channels/+page.svelte';
+import { addAttendanceSchema, createChannelSchema, deleteChannelSchema, editAttendanceSchema, removeAttendanceSchema, renameChannelSchema } from '../../../routes/app/apps/[appId]/channels/schema';
+import Grants from '../../../routes/app/apps/[appId]/grants/+page.svelte';
+import { grantsFixture, fixtureGrant } from '../../../routes/app/apps/[appId]/grants/grants.fixture';
+import { superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 
 const app = { id: 'fixture-app', name: 'Team', urn: 'hrn:app:example.test:team', organizationId: null };
@@ -108,5 +114,40 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => 
     const instance = mount(Tasks as never, { target, props: { data, form: null } } as never);
     return () => unmount(instance);
   }
+  if (kind === 'apps-channels') return mountChannels(target);
+  if (kind === 'apps-grants') {
+    setStubPage('http://localhost/app/apps/app-example/grants', { appId: 'app-example' });
+    const base = grantsFixture();
+    const grants = [0, 1, 2].map(i => ({ ...fixtureGrant, id: `grant-${i}`, holderId: `worker-${i}`, reason: `${LONG}${LONG} reason ${i}`, action: i === 0 ? 'bootprompt.compile.approve' : 'schedule.create', values: { entryNode: `${LONG}-node-${i}` } }));
+    const holders = Object.fromEntries(grants.map(g => [`WORKER:${g.holderId}`, { id: g.holderId, name: `${LONG}${g.holderId}`.slice(0, 64), urn: `hrn:worker:example.test:team:${LONG.slice(0, 40)}${g.holderId}` }]));
+    const data = { ...base, grants: { items: grants, total: grants.length }, holders };
+    const instance = mount(Grants as never, { target, props: { data, form: null } } as never);
+    return () => unmount(instance);
+  }
   throw new Error(`unknown Apps cell fixture ${kind}`);
+}
+
+// portal#2488: the Channels page — one team chat and one channel with a 64-char unbroken name, a long description
+// and a memory the viewer can and cannot read, so the name, address and host cells carry their worst case.
+async function mountChannels(target: HTMLElement) {
+  setStubPage('http://localhost/app/apps/app-example/channels', { appId: 'app-example' });
+  const shared = { id: 'mem-shared', urn: `hrn:mem:example.test:${LONG.slice(0, 40)}-team-shared`, name: `${LONG} shared chats` };
+  const channel = (i: number) => ({
+    id: `ch-${i}`, name: `${LONG}${i}`.slice(0, 64), description: `${LONG}${LONG} what this channel is for`, kind: 'CHAT', loc: `chats:c${i}`,
+    chatRootUrn: i === 2 ? null : `hrn:node:example.test:${LONG.slice(0, 40)}-team-shared:chats:${LONG.slice(0, 40)}${i}`, chatRootNodeId: `root-${i}`,
+    lastSeq: 12, lastMessageAt: null, createdAt: at, memoryId: 'mem-shared', memory: i === 1 ? null : shared,
+  });
+  const data = {
+    appRows: [], orgRows: [], attendees: [], canManageRegister: false, registerLoadFailed: false,
+    addAttendanceForm: await superValidate(zod4(addAttendanceSchema), { errors: false }),
+    editAttendanceForm: await superValidate(zod4(editAttendanceSchema), { errors: false }),
+    removeAttendanceForm: await superValidate(zod4(removeAttendanceSchema), { errors: false }),
+    app: { id: 'app-example', name: 'Team', urn: 'hrn:app:example.test:team', organizationId: 'org-1', defaultChannel: { id: 'ch-0' }, sharedMemory: shared },
+    channels: [0, 1, 2].map(channel), total: 3, defaultChannelId: 'ch-0', canWrite: { 'mem-shared': true },
+    createForm: await superValidate(zod4(createChannelSchema), { errors: false }),
+    renameForm: await superValidate(zod4(renameChannelSchema), { errors: false }),
+    deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
+  };
+  const instance = mount(Channels as never, { target, props: { data, form: null } } as never);
+  return () => unmount(instance);
 }

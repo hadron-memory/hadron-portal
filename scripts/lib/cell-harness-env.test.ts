@@ -5,7 +5,7 @@ import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, APPS_KINDS, ORGS_KIN
 // The accepted set, spelled out here on purpose — see the accept test below.
 // The eight apps kinds join from main's portal#2488 slice and wake from main's
 // portal#2501 slice (both unioned in #2507's carries).
-const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions'];
+const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants', 'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions'];
 
 // portal#2129 rows 1, 6, 8: every env knob is validated before any browser launches.
 describe('parseHarnessEnv', () => {
