@@ -3914,13 +3914,14 @@
                     {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}
                   </span>
                 {:else}
+                  <!-- The branch choice stays here (absent renders italic amber),
+                       but the TEXT inside every branch comes from the one helper,
+                       so the cell, the title, and the filter can't drift apart. -->
                   <span class="block truncate font-mono text-xs text-zinc-900 dark:text-white" title={typedPropertyValueText(row)}>
                     {#if !row.present}
-                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
-                    {:else if typeof row.value === 'object'}
-                      {displayJson(row.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)')}
+                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{typedPropertyValueText(row)}</span>
                     {:else}
-                      {String(row.value)}
+                      {typedPropertyValueText(row)}
                     {/if}
                   </span>
                 {/if}
