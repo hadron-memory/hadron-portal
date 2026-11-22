@@ -4,6 +4,7 @@ import {
   extractionRowsError,
   outputFromNodeData,
   rowsFromNodeData,
+  rowsFromDraftJson,
   rowsToSpec,
 } from './extraction';
 
@@ -65,5 +66,28 @@ describe('node-data round trip', () => {
     expect(
       outputFromNodeData({ output: { writeTo: 'acme.com::m::log', mode: 'append' } }),
     ).toEqual({ writeTo: 'acme.com::m::log', mode: 'append' });
+  });
+});
+
+describe('rowsFromDraftJson (portal#2467)', () => {
+  it('reads the refused draft’s rows, defaulting a bad shape and a non-string description', () => {
+    const json = JSON.stringify([
+      { field: 'a', shape: 'number', description: 'd' },
+      { field: 'b', shape: 'nope', description: 7 },
+    ]);
+    expect(rowsFromDraftJson(json)).toEqual([
+      { field: 'a', shape: 'number', description: 'd' },
+      { field: 'b', shape: 'string', description: '' },
+    ]);
+  });
+  it('an empty array is a draft with every row removed, not an unreadable one', () => {
+    expect(rowsFromDraftJson('[]')).toEqual([]);
+  });
+  it('reads a draft with an entry the editor cannot show as unreadable, so typed rows are never hidden', () => {
+    expect(rowsFromDraftJson(JSON.stringify([{ shape: 'number' }, { field: 5 }, { field: 'ok' }]))).toBeNull();
+    expect(rowsFromDraftJson(JSON.stringify([{ shape: 'number', description: 'd' }]))).toBeNull();
+  });
+  it.each([['not json'], [undefined], [null], [42], ['{"field":"a"}'], ['"x"']])('reads %j as unreadable (null), never throws', (input) => {
+    expect(rowsFromDraftJson(input)).toBeNull();
   });
 });
