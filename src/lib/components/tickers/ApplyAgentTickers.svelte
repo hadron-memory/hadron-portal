@@ -291,7 +291,7 @@
                     <!-- portal#2489 (remedy a of the #1962 audit): nowrap plus the non-breaking space
                          painted "(the App’s floor)" past the 140px Every column. A plain space and
                          normal wrapping keep the whole value visible in the cell. -->
-                    <span data-testid="wake-apply-every">{cadenceText(row.c.effectiveCadenceSeconds)}{#if label} ({label}){/if}</span>
+                    <span data-testid="wake-apply-every">{cadenceText(row.c.effectiveCadenceSeconds)}{#if label}{' '}({label}){/if}</span>
                   {/if}
                 {/snippet}
               </DataTable>

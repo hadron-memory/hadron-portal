@@ -418,7 +418,7 @@ try {
      for (let a = el; a && a.tagName !== 'TD'; a = a.parentElement) { const st = getComputedStyle(a); if (st.textOverflow === 'ellipsis' || st.overflow === 'hidden') return true; }
      return false;
     });
-    if (!every || everyClipped || !every.text.includes('(')) failures.push(`${leg}: the floor label stays visible and wrapped in Every ${JSON.stringify(every)}`);
+    if (!every || everyClipped || !every.text.includes('min (')) failures.push(`${leg}: the floor label stays visible and wrapped in Every ${JSON.stringify(every)}`);
    }
    // Where the audit's default-size geometry binds — the table's own scroller scrolls, so columns hold
    // their declared sizes (a wider container spreads surplus and these cells fit by construction,
