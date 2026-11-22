@@ -44,7 +44,7 @@
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
   import RevisionEditedBy from '$lib/components/RevisionEditedBy.svelte';
   import { revisionEditorView } from '$lib/revision-editor';
-  import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
+  import HistoryValidationCell from '$lib/components/HistoryValidationCell.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
@@ -2316,7 +2316,7 @@
     { accessorFn: (r) => editorLabel(r), id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
     // #914: the snapshot's own recorded authorship and validation, never today's.
     { accessorFn: (r) => historyAuthorshipText(r), id: 'authorship', header: t('node.history.col.authorship', 'Authorship'), enableSorting: false, size: 240 },
-    { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 140 },
+    { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 260 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
   const revisionTable = createSvelteTable<HistoryRow>({
@@ -4441,7 +4441,7 @@
               {/if}
             {:else if cell.column.id === 'validation'}
               {@const v = historyValidation(r)}
-              {#if v}<NodeValidationBadge view={v} compact />{/if}
+              {#if v}<HistoryValidationCell view={v} />{/if}
             {:else if cell.column.id === 'actions'}
               <button type="button" data-revision-id={r.id} onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
                 aria-label={t('node.history.row-actions', 'Revision actions')}
