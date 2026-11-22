@@ -105,28 +105,66 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
+// The strict no-clipping oracle applies from this measured width up: the sizing legs hold every
+// declared minimum at 120px (the drag legs assert aria-valuemin >= 120), so 119px is that floor
+// within 1px of sub-pixel tolerance — narrower restored text columns are intentionally recoverable
+// by widening instead (the 40px legs).
+const STRICT_CELL_MIN_PX = 119;
+const flaggedCell = x => x.width >= STRICT_CELL_MIN_PX && (x.scroll > x.client + 1 || x.badGlyphs.length > 0);
+// Kinds whose tables have an interactive column run the sizing/interaction loop; findings and wake
+// each get their own dedicated pass below.
+const SIZING_KINDS = ['alarms', 'runs', 'config'];
+// Shared td-level oracle — glyph boxes of UNCLIPPED text vs the owning td, plus scroll-vs-client.
+// evaluateAll callbacks cannot close over Node scope and Playwright refuses functions as evaluate
+// arguments, so this one definition is injected into the page once per leg (openLeg) as
+// window.__tdGeometry and every leg's oracle calls it there — the definitions cannot drift apart.
+const tdGeometry = td => {
+ const rect = td.getBoundingClientRect();
+ const badGlyphs = [];
+ const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+ for (let n; (n = walker.nextNode());) {
+  if (!n.textContent.trim()) continue;
+  let clipped = false;
+  for (let a = n.parentElement; a && a !== td; a = a.parentElement) {
+   const st = getComputedStyle(a);
+   if (st.textOverflow === 'ellipsis' || st.position === 'absolute' || st.position === 'fixed' || st.overflow === 'hidden') clipped = true;
+  }
+  if (clipped) continue;
+  const range = document.createRange(); range.selectNodeContents(n);
+  for (const r of range.getClientRects()) if (r.left < rect.left - .5 || r.right > rect.right + .5) badGlyphs.push(n.textContent.slice(0, 40));
+ }
+ return { width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
+};
 let browser;
 const failures = [];
 try {
  await server.listen(); const origin = server.resolvedUrls.local[0];
  const css = await (await fetch(new URL('/src/app.css?direct', origin))).text();
  browser = await chromium.launch({ headless: true });
- if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
- const cellWidth = env.cellWidth;
- const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
- for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings' && k !== 'wake')) {
+ // Shared leg setup: one fixture page with its error watch, the fixture route, the app.css/dark shell
+ // and the mounted fixture for one kind. Only the sizing loop's kinds fetch /api/ai-configs
+ // (AiServiceConfigManager); findings and wake never request it, so they take no route for it.
+ const openLeg = async (kind, width, dark, aiConfigs = false) => {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
-  await page.route('**/api/ai-configs', r => r.fulfill({ contentType: 'application/json', body: '{"endpoints":[]}' }));
+  if (aiConfigs) await page.route('**/api/ai-configs', r => r.fulfill({ contentType: 'application/json', body: '{"endpoints":[]}' }));
+  await page.goto(new URL('/__cell_fixture', origin).href);
+  await page.evaluate(({ css, dark }) => {
+   document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+   document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+   document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+  }, { css, dark });
+  await page.evaluate(async kind => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), kind); }, kind);
+  await page.evaluate(`window.__tdGeometry = ${tdGeometry.toString()}`);
+  return { page, errors };
+ };
+ if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
+ const cellWidth = env.cellWidth;
+ const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
+ for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? SIZING_KINDS.filter(k => k === env.cellKind) : SIZING_KINDS)) {
+  const { page, errors } = await openLeg(kind, width, dark, true);
   try {
-   await page.goto(new URL('/__cell_fixture', origin).href);
-   await page.evaluate(({ css, dark }) => {
-    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
-    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-   }, { css, dark });
-   await page.evaluate(async kind => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), kind); }, kind);
    await page.locator('tbody td').first().waitFor();
    if (kind === 'alarms') {
     const action = await page.locator('form').first().getAttribute('action');
@@ -149,25 +187,9 @@ try {
      }, sizing);
      await settlePage(page);
      // At 40px, noninteractive text is intentionally recoverable by widening.
-     // The 120px and wider oracle is strict: no clipping may mask a repair.
-     const geometry = await page.locator('tbody td').evaluateAll(cells => cells.map(td => {
-      const rect = td.getBoundingClientRect();
-      const badGlyphs = [];
-      const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
-      for (let n; (n = walker.nextNode());) {
-       if (!n.textContent.trim()) continue;
-       let clipped = false;
-       for (let a = n.parentElement; a && a !== td; a = a.parentElement) {
-        const st = getComputedStyle(a);
-        if (st.textOverflow === 'ellipsis' || st.position === 'absolute' || st.position === 'fixed' || st.overflow === 'hidden') clipped = true;
-       }
-       if (clipped) continue;
-       const range = document.createRange(); range.selectNodeContents(n);
-       for (const r of range.getClientRects()) if (r.left < rect.left - .5 || r.right > rect.right + .5) badGlyphs.push(n.textContent.slice(0, 40));
-      }
-      return { text: td.textContent.slice(0, 50), width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
-     }));
-     const overflow = geometry.filter(x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length));
+     // The STRICT_CELL_MIN_PX and wider oracle is strict: no clipping may mask a repair.
+     const geometry = await page.locator('tbody td').evaluateAll(cells => cells.map(td => ({ text: td.textContent.slice(0, 50), ...window.__tdGeometry(td) })));
+     const overflow = geometry.filter(flaggedCell);
      if (overflow.length) failures.push(`${kind}/${width}/${dark}/${zoom}/${sizing}: net-off ${JSON.stringify(overflow)}`);
 
      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${kind}/${width}/${dark}/${zoom}/${sizing}: internal scroller, not document overflow ${await page.evaluate(()=>document.documentElement.scrollWidth)}`);
@@ -286,18 +308,9 @@ try {
  // Severity (six revealed markers, and an 80-character plain label) and text stay inside their cells
  // (#2115 QA F1, #2119). The control strips severity's wrap and must see the overflow.
  if (!env.cellKind || env.cellKind === 'findings') for (const width of widths) for (const dark of [false, true]) {
-  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-  const errors = await watchErrors(page);
-  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   const leg = `findings/${width}/${dark ? 'dark' : 'light'}`;
+  const { page, errors } = await openLeg('findings', width, dark);
   try {
-   await page.goto(new URL('/__cell_fixture', origin).href);
-   await page.evaluate(({ css, dark }) => {
-    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
-    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-   }, { css, dark });
-   await page.evaluate(async () => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), 'findings'); });
    // Bounded: no severity field at all is a loud abort (a thrown timeout), not a hang.
    await page.locator('[data-testid="finding-severity"]').first().waitFor({ timeout: 10000 });
    // Fonts first: a late webfont would change the measured glyph boxes (portal#2125 item 5).
@@ -370,45 +383,19 @@ try {
  // contained by its own overflow — so the nowrap control strips overflow too, proving the oracle can
  // still see this defect class rather than passing against it.
  if (!env.cellKind || env.cellKind === 'wake') for (const width of widths) for (const dark of [false, true]) {
-  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-  const errors = await watchErrors(page);
-  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   const leg = `wake/${width}/${dark ? 'dark' : 'light'}`;
-  const flagged = x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length > 0);
+  const { page, errors } = await openLeg('wake', width, dark);
   try {
-   await page.goto(new URL('/__cell_fixture', origin).href);
-   await page.evaluate(({ css, dark }) => {
-    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
-    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-   }, { css, dark });
-   await page.evaluate(async () => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), 'wake'); });
    await page.locator('[data-testid="wake-since"]').first().waitFor({ timeout: 10000 });
    const legFailuresBefore = failures.length;
    await settlePage(page);
-   // Per pinned cell: the owning td's geometry (unclipped glyph boxes and scroll vs client), plus the
-   // reachability facts the acceptance names — the truncated timestamp's title, the wrapped label's text.
-   const cellState = () => page.locator('[data-testid="wake-since"], [data-testid="wake-apply-every"]').evaluateAll(fields => fields.map(f => {
-    const td = f.closest('td'); const rect = td.getBoundingClientRect();
-    const badGlyphs = [];
-    const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
-    for (let n; (n = walker.nextNode());) {
-     if (!n.textContent.trim()) continue;
-     let clipped = false;
-     for (let a = n.parentElement; a && a !== td; a = a.parentElement) {
-      const st = getComputedStyle(a);
-      if (st.textOverflow === 'ellipsis' || st.position === 'absolute' || st.position === 'fixed' || st.overflow === 'hidden') clipped = true;
-     }
-     if (clipped) continue;
-     const range = document.createRange(); range.selectNodeContents(n);
-     for (const r of range.getClientRects()) if (r.left < rect.left - .5 || r.right > rect.right + .5) badGlyphs.push(n.textContent.slice(0, 40));
-    }
-    return { field: f.dataset.testid, width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs, title: f.getAttribute('title'), text: f.textContent.trim() };
-   }));
+   // Per pinned cell: the owning td's geometry (the shared td-level oracle), plus the reachability
+   // facts the acceptance names — the truncated timestamp's title, the wrapped label's text.
+   const cellState = () => page.locator('[data-testid="wake-since"], [data-testid="wake-apply-every"]').evaluateAll(fields => fields.map(f => ({ field: f.dataset.testid, ...window.__tdGeometry(f.closest('td')), title: f.getAttribute('title'), text: f.textContent.trim() })));
    const clean = await cellState();
    if (clean.length !== 2) failures.push(`${leg}: both pinned cells must render ${JSON.stringify(clean)}`);
    else {
-    const out = clean.filter(flagged);
+    const out = clean.filter(flaggedCell);
     if (out.length) failures.push(`${leg}: worker-wake cell escapes its cell ${JSON.stringify(out)}`);
     const since = clean.find(x => x.field === 'wake-since');
     if (!since || since.title !== since.text) failures.push(`${leg}: Since keeps its full value in a title ${JSON.stringify(since)}`);
@@ -423,22 +410,35 @@ try {
    // Where the audit's default-size geometry binds — the table's own scroller scrolls, so columns hold
    // their declared sizes (a wider container spreads surplus and these cells fit by construction,
    // DataTable.svelte's max(100%, total) width model) — force the repaired cells back to uncontained
-   // nowrap: the oracle must flag BOTH, or it cannot see this defect class.
-   const binds = await page.locator('[data-testid="wake-since"], [data-testid="wake-apply-every"]').evaluateAll(fields => fields.some(f => { const s = f.closest('[data-testid="data-table-scroller"]'); return s.scrollWidth > s.clientWidth + 1; }));
-   if (binds) {
+   // nowrap. Binding is PER CELL: the two cells sit in different tables with different column sets,
+   // so at a width where only one scroller overflows, only that cell is forced to escape — asserting
+   // the other would fail the control for the wrong reason (portal#2501 BLIND P2).
+   const bindsByCell = await page.locator('[data-testid="wake-since"], [data-testid="wake-apply-every"]').evaluateAll(fields => Object.fromEntries(fields.map(f => {
+    const s = f.closest('[data-testid="data-table-scroller"]');
+    return [f.dataset.testid, s === null ? null : s.scrollWidth > s.clientWidth + 1];
+   })));
+   // A null is a markup change (no scroller ancestor): a loud named failure, not a TypeError on null.
+   const scrollerMissing = Object.entries(bindsByCell).filter(([, binds]) => binds === null).map(([field]) => field);
+   if (scrollerMissing.length) failures.push(`${leg}: pinned cell has no data-table-scroller ancestor ${JSON.stringify(scrollerMissing)}`);
+   const boundCells = Object.entries(bindsByCell).filter(([, binds]) => binds === true).map(([field]) => field);
+   if (boundCells.length) {
     const control = await page.addStyleTag({ content: '[data-testid="wake-since"], [data-testid="wake-apply-every"] { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important }' });
     await settlePage(page);
-    const dirty = (await cellState()).filter(flagged);
-    if (dirty.length !== 2) failures.push(`${leg}: nowrap control must flag both pinned cells ${JSON.stringify(dirty)}`);
+    const dirty = (await cellState()).filter(flaggedCell).map(x => x.field);
+    // Every cell whose scroller bound must be seen escaping. Extra flags are legitimate: forcing
+    // nowrap can itself push a table from surplus-spread into binding, and that escape is the
+    // control's own doing — the "left escapes behind" check below still gates a stuck page.
+    const unflaggedBound = boundCells.filter(b => !dirty.includes(b));
+    if (unflaggedBound.length) failures.push(`${leg}: nowrap control must flag the scroller-bound cells ${JSON.stringify({ bound: boundCells, flagged: dirty })}`);
     await control.evaluate(el => el.remove()); await settlePage(page);
-    if ((await cellState()).some(flagged)) failures.push(`${leg}: nowrap control left escapes behind`);
+    if ((await cellState()).some(flaggedCell)) failures.push(`${leg}: nowrap control left escapes behind`);
    }
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    await unmountFixture(page);
    assertPatched();
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
-   if (failures.length === legFailuresBefore) console.log(`${leg}: every and since inside their cells, values reachable${binds ? '; nowrap control flags both' : ' (widened geometry: declared sizes do not bind, control skipped)'}`, clean);
+   if (failures.length === legFailuresBefore) console.log(`${leg}: every and since inside their cells, values reachable${boundCells.length ? `; nowrap control flags ${boundCells.join(' and ')}` : ' (widened geometry: declared sizes do not bind, control skipped)'}`, clean);
    else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
   } catch (e) {
    if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);

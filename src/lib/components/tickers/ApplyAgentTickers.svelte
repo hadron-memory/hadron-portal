@@ -290,7 +290,8 @@
                     {@const label = floorLabel(row.c.effectiveCadenceSeconds, floorSeconds)}
                     <!-- portal#2489 (remedy a of the #1962 audit): nowrap plus the non-breaking space
                          painted "(the App’s floor)" past the 140px Every column. A plain space and
-                         normal wrapping keep the whole value visible in the cell. -->
+                         normal wrapping keep the whole value visible in the cell.
+                         The {' '} is an expression, not a literal space: Svelte trims plain text whitespace at a block start. -->
                     <span data-testid="wake-apply-every">{cadenceText(row.c.effectiveCadenceSeconds)}{#if label}{' '}({label}){/if}</span>
                   {/if}
                 {/snippet}
