@@ -3208,21 +3208,52 @@ describe('Cast role follows the selected Agent (#1319)', () => {
 });
 
 describe('creating a new App memory (#487)', () => {
-  async function memoryPage(role: string, installed = true) {
+  // Every case resets the stub page itself (portal#1391): no case leans on the one a sibling left behind.
+  async function memoryPage(role: string, installed = true, members: { role: string; user: { id: string } }[] | null = [{ role, user: { id: 'u1' } }]) {
+    setStubPage('http://localhost/app/apps/a1?tab=memory', { appId: 'a1' });
     const data = await pageData();
-    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members:[{role,user:{id:'u1'}}] }, app: {...data.app, organizationId:'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
+    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: members === null ? null : { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members }, app: {...data.app, organizationId: members === null ? null : 'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
   }
+  const mountPage = async (data: unknown) => { const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();return m; };
   it.each(['OWNER','ADMIN'])('offers creation for an org %s with an installed Agent', async role => {
-    setStubPage('http://localhost/app/apps/a1?tab=memory', {appId:'a1'});
-    const m=mountComponent(Page as never,{data:await memoryPage(role),form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    const m=await mountPage(await memoryPage(role));
     expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
     expect(m.target.textContent).toContain('Project notes');
     expect(m.target.querySelector('[title="hrn:mem:acme.com:notes"]')).not.toBeNull();
     expect(m.target.querySelector('select[name=memoryClass],input[name=memoryRef]')).toBeNull();
   });
   it.each(['CONTRIBUTOR','READER'])('hides creation from org %s even if App.role says OWNER',async role=>{
-    const data=await memoryPage(role);const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    const m=await mountPage(await memoryPage(role));
     expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+  // portal#1391: say what is needed before an attempt, from the install fact the page has (app.agents), not a first-Agent summary.
+  it('says an Agent must be installed before the form is tried, when none is', async () => {
+    const m=await mountPage(await memoryPage('OWNER', false));
+    const note=m.target.querySelector('[data-testid="app-memory-needs-agent"]');
+    expect(note?.textContent).toContain('Install an Agent in this App');
+    expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
+  });
+  it('does not say it when an Agent is installed', async () => {
+    const m=await mountPage(await memoryPage('OWNER', true));
+    expect(m.target.querySelector('[data-testid="app-memory-needs-agent"]')).toBeNull();
+  });
+  // One neutral sentence: no role, no membership, no authorization rule the server did not state.
+  it.each([['a contributor','CONTRIBUTOR',[{role:'CONTRIBUTOR',user:{id:'u1'}}]],['a reader','READER',[{role:'READER',user:{id:'u1'}}]],['an unknown membership','READER',[]],['an App with no organization','READER',null]] as const)('gives %s one neutral sentence and no form', async (_n, role, members) => {
+    const m=await mountPage(await memoryPage(role, true, members as never));
+    const note=m.target.querySelector('[data-testid="app-memory-create-unavailable"]');
+    expect(note?.textContent?.trim()).toBe('Adding a memory isn’t available to you here.');
+    expect(note?.textContent).not.toMatch(/owner|admin|contributor|reader|member|organization/i);
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+  it('does not show the sentence to someone who can create', async () => {
+    const m=await mountPage(await memoryPage('ADMIN'));
+    expect(m.target.querySelector('[data-testid="app-memory-create-unavailable"]')).toBeNull();
+  });
+  it('titles the node browser under the memories table', async () => {
+    const m=await mountPage(await memoryPage('ADMIN'));
+    const h=[...m.target.querySelectorAll('h3')].find(x=>x.textContent?.trim()==='Memory nodes');
+    expect(h).toBeTruthy();
+    expect(m.target.querySelector('#app-memory-nodes-title')).toBe(h);
   });
 });
 

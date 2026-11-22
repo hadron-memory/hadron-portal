@@ -123,3 +123,29 @@ it('org-App loader keeps creation-panel description rows distinct from the full 
     vi.mocked(fetchAllItems).mockResolvedValue([]);
   }
 });
+
+// portal#1391: the create offer is only as good as the member selection it reads. canCreateMemory comes from
+// APP_DETAIL_ORG_QUERY's members (role + user id); a query that stops selecting them fails the offer closed silently.
+describe('canCreateMemory follows APP_DETAIL_ORG_QUERY member selection (portal#1391)', () => {
+  it('the query selects each member role and user id', () => {
+    const members = APP_DETAIL_ORG_QUERY.replace(/\s+/g, ' ');
+    expect(members).toContain('AppDetailOrgFields');
+    // the fragment is part of the sent document: role and user { id } must both be in it
+    expect(/members \{[^}]*\brole\b[^}]*user \{[^}]*\bid\b/.test(members)).toBe(true);
+  });
+  it.each([['ADMIN', true], ['OWNER', true], ['CONTRIBUTOR', false], ['READER', false]])('the viewer as org %s: canCreateMemory is %s', async (role, expected) => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === APP_QUERY) return { app: { ...APP, organizationId: 'org-1' } };
+      if (query === APP_DETAIL_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.com', members: [{ id: 'mem-1', role, user: { id: 'user-1' } }, { id: 'mem-2', role: 'OWNER', user: { id: 'someone-else' } }] } };
+      if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
+      if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
+      return { appNodesPage: { items: [], total: 0, hasMore: false } };
+    });
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' }, locals: { token: 'tok', user: { id: 'user-1' } }, parent: async () => ({}), depends: () => {},
+      url: new URL('http://localhost/app/apps/app-1?tab=memory'),
+    } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
+    expect(result.canCreateMemory).toBe(expected);
+  });
+});

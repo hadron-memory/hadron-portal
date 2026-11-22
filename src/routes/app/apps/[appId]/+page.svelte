@@ -4315,6 +4315,7 @@
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
+    <h3 id="app-memory-nodes-title" class="mb-2 mt-6 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.memory-node.title', 'Memory nodes')}</h3>
     <MemoryBrowser
       nodes={tabData.appNodes ?? []}
       multiMemory={true}
@@ -4325,8 +4326,12 @@
     />
     {#if data.createMemoryForm && tabData.canCreateMemory === true}
       {#key app.id}
-        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} /></div>
+        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} hasAgent={installedAgents.length > 0} /></div>
       {/key}
+    {:else if data.createMemoryForm}
+      <!-- portal#1391: display only. It states no role or membership and no authorization rule the server did not
+           state; the server's createAppMemory gate stays the authority. -->
+      <p data-testid="app-memory-create-unavailable" class="mt-6 text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.create-unavailable', 'Adding a memory isn’t available to you here.')}</p>
     {/if}
     </div>
   {/if}

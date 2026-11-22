@@ -196,3 +196,23 @@ it('an enhanced submit that fails lands in the alert region that was already mou
  expect(m.target.querySelector('[role=status]')!.textContent!.trim()).toBe('');
  }finally{m.unmount();resetKitAppliedResults();}
 });
+
+// portal#1391: Description is optional, and an empty one is blank, not a value.
+it('says Description is optional in helper text the field is described by',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const m=mountComponent(AppMemoryCreate as never,{initial,result:null} as never);
+ try{await tick();
+ const field=m.target.querySelector<HTMLTextAreaElement>('#app-memory-description')!;
+ const help=m.target.querySelector(`#${field.getAttribute('aria-describedby')}`);
+ expect(help?.textContent).toMatch(/^Optional\./);
+ expect(m.target.querySelector('label[for="app-memory-description"]')?.textContent?.trim()).toBe('Description');
+ }finally{m.unmount();}
+});
+it.each([['null',null],['an empty string',''],['spaces','   ']])('renders %s description as the same dash',async(_n,description)=>{
+ const m=mountComponent(AppMemories as never,{memories:[{id:'m1',urn:'hrn:mem:acme.com:a',name:'Alpha',description,appId:'a'},{id:'m2',urn:'hrn:mem:acme.com:b',name:'Beta',description:'Real text',appId:'a'}]} as never);
+ try{await tick(3);
+ const cells=[...m.target.querySelectorAll('tbody tr')].map(r=>[...r.querySelectorAll('td')].map(td=>td.textContent?.trim()));
+ expect(cells[0]?.[1]).toBe('—');
+ expect(cells[1]?.[1]).toBe('Real text');
+ }finally{m.unmount();}
+});
