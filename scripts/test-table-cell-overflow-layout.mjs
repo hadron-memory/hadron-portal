@@ -6,9 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// portal#2490: the six route-page kinds. Everything else is a component kind.
-const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
-import { parseHarnessEnv, injectionEcho } from './lib/cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, PAGE_KINDS } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
@@ -105,7 +103,6 @@ const newEmulatedPage = async (browser, width) => {
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'pointer', value: coarse ? 'coarse' : 'fine' }] });
  };
  await pin();
- page.__cellPin = pin;
  page.__cellShot = async opts => {
   const buf = await page.screenshot(opts);
   await pin();
@@ -193,28 +190,32 @@ try {
   const warm = await newEmulatedPage(browser, 1280);
   await warm.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>warm</title>' }));
   await warm.goto(new URL('/__cell_fixture', origin).href);
-  await warm.evaluate(async () => { await Promise.allSettled([
+  // A mid-import optimizer reload can kill this evaluate and resolve
+  // waitForLoadState immediately (blind review, #2507), so retry the imports
+  // once after a settle — post-reload they resolve against the optimized deps.
+  const imports = () => warm.evaluate(async () => { await Promise.allSettled([
    import('/src/routes/app/agents/+page.svelte'),
    import('/src/routes/app/memories/+page.svelte'),
    import('/src/routes/app/agents/[id]/+page.svelte'),
    import('/src/routes/app/agents/[id]/page-fixture'),
    import('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte'),
    import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'),
-  ]); }).catch(() => {});
-  // A mid-import optimizer reload can also kill THIS evaluate; give the
-  // browser the moment vite needs to finish and reload, then close.
+  ]); }).then(() => true, () => false);
+  await imports();
   await warm.waitForLoadState('load').catch(() => {});
+  await imports();
   await warm.close();
  }
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
- // portal#2490: a page kind routes to the pages battery below, never here.
- // The findings fixture is a battery of its own below (it has the injection
-// knobs and a different oracle); keep it out of THIS loop the way the
-// pre-#2490 script's .filter(k => k !== 'findings') did — its first column
-// is not a pixelStrip candidate.
-const componentKinds = (env.cellKind === null || PAGE_KINDS.includes(env.cellKind) ? (env.cellKind === null ? ['alarms', 'runs', 'config'] : []) : [env.cellKind]).filter(k => k !== 'findings');
+ // Which battery runs which kind (blind review, #2507, direct form): a page
+ // kind belongs to the pages battery below, never here; findings is a battery
+ // of its own below (injection knobs, a different oracle, and a first column
+ // that is not a pixelStrip candidate).
+const componentKinds = env.cellKind === null ? ['alarms', 'runs', 'config']
+ : PAGE_KINDS.includes(env.cellKind) || env.cellKind === 'findings' ? []
+ : [env.cellKind];
  for (const width of widths) for (const dark of [false, true]) for (const kind of componentKinds) {
   const page = await newEmulatedPage(browser, width);
   const errors = await watchErrors(page);
@@ -482,15 +483,10 @@ const componentKinds = (env.cellKind === null || PAGE_KINDS.includes(env.cellKin
   const loaderMod = await server.ssrLoadModule('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts');
   const queries = await server.ssrLoadModule('/src/lib/server/queries.ts');
   const comments = await server.ssrLoadModule('/src/lib/server/comments.ts');
-  // Synthetic content — the SAME literals the fixture's PAGE_FIXTURE_VALUES
-  // pins compare against. Keep the two lists in step; a drift fails the pins.
-  const LONG64 = 'LongFixtureNameWithFortyUnbrokenCharacters' + 'W'.repeat(22);
-  const LONG_FIELD = 'fixtureField' + 'F'.repeat(52);
-  const LONG_LOC = 'fixture:edge:' + 'l'.repeat(50);
-  const LONG_TARGET_LOC = 'fixture:target:' + 't'.repeat(49);
-  const ID32 = 'i'.repeat(32);
-  const LONG_ACTOR = 'actor-example.test:fixture-account-with-long-unbroken-id';
-  const LONG_INFO = 'worker-example.test:fixture:identity-with-long-unbroken-suffix';
+  // Synthetic content — loaded FROM the fixture's own PAGE_FIXTURE_VALUES so
+  // the canned map and the in-page pins cannot drift apart (blind review, #2507).
+  const { PAGE_FIXTURE_VALUES: F } = await server.ssrLoadModule('/src/lib/test/fixtures/table-cell-overflow-harness.ts');
+  const { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO } = F;
   const AT = '2026-10-01T00:00:00Z';
   const NODE = {
    id: 'leaf-pk', memoryId: 'mem-A', loc: 'fixture-loc', name: 'Fixture Node', revision: 4,
@@ -540,9 +536,14 @@ const componentKinds = (env.cellKind === null || PAGE_KINDS.includes(env.cellKin
     return { node: { id: 'leaf-pk', revision: 4, memory: { id: 'mem-A', urn: PARENT.graph.urn }, commentSummary: { openThreads: 0, resolvedThreads: 0, comments: 0, viewerOpenThreadId: null } } };
    }
    if (doc === comments.SELF_MEMORY_ACCESS_QUERY) return { effectiveAccess: { canWrite: true, canManage: false } };
-   return { memories: { items: [], total: 0 }, node: null, nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
+   // Unknown document: LOUD, per the server-api stub's own contract ("answers
+   // NOTHING on its own ... a loud failure, not a silent empty list"). A
+   // plausible empty answer here would render an empty panel and never flag
+   // that the loader grew a query this map does not cover.
+   const opName = /(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(String(doc))?.[1] ?? '(unnamed)';
+   throw new Error(`table-cell-fixture: canned GraphQL map has no answer for ${opName} — add it next to the others`);
   };
-  const loaded = await (async () => {
+  return await (async () => {
    // Nothing in this load may reach the network: every read is the canned map
    // above. A stray real fetch names its URL instead of an opaque ECONNREFUSED.
    const realFetch = globalThis.fetch;
@@ -556,21 +557,24 @@ const componentKinds = (env.cellKind === null || PAGE_KINDS.includes(env.cellKin
     throw new Error(`table-cell-fixture: unexpected real fetch during the node loader run: ${u}`);
    };
    try {
-    return await loaderMod.load({
+    const loaded = await loaderMod.load({
      params: { id: 'mem-A', nodeId: 'leaf-pk' },
      locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
      url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk?tab=${tab}`),
      parent: async () => PARENT,
     });
+    // The streamed promises are awaited INSIDE the guard (blind review, #2507):
+    // a streamed branch that fetches must hit the guard's named failure, not
+    // the real network after the finally below restores fetch.
+    const plain = {}; const streamed = {};
+    for (const [k, v] of Object.entries(loaded)) {
+     if (v && typeof v.then === 'function') streamed[k] = await v; else plain[k] = v;
+    }
+    return { parent: PARENT, plain, streamed, tab };
    } finally { globalThis.fetch = realFetch; }
   })();
-  const plain = {}; const streamed = {};
-  for (const [k, v] of Object.entries(loaded)) {
-   if (v && typeof v.then === 'function') streamed[k] = await v; else plain[k] = v;
-  }
-  return { parent: PARENT, plain, streamed, tab };
  }
- const pagesKinds = env.cellKind === null || PAGE_KINDS.includes(env.cellKind) ? (env.cellKind === null ? PAGE_KINDS : [env.cellKind]) : [];
+ const pagesKinds = env.cellKind === null || !PAGE_KINDS.includes(env.cellKind) ? PAGE_KINDS : [env.cellKind];
  for (const kind of pagesKinds) for (const width of widths) for (const dark of [false, true]) {
   const page = await newEmulatedPage(browser, width);
   const errors = await watchErrors(page);
@@ -661,15 +665,22 @@ const componentKinds = (env.cellKind === null || PAGE_KINDS.includes(env.cellKin
      pin('bundled description', [...document.querySelectorAll('tbody span')].find(s => s.textContent === V.LONG_DESCRIPTION) ?? null, V.LONG_DESCRIPTION);
     }
     if (kind === 'node-properties') {
-     const spans = row => row ? [...row.querySelectorAll('td span[title]')] : [];
+     // Structural, not span-order: locate the cell by column index (field=0,
+     // value=2) and read ITS titled span, so a new titled inner span elsewhere
+     // in the row cannot redirect a pin (blind review, #2507).
+     const spanInCell = (row, tdIndex) => row ? (row.children[tdIndex]?.querySelector('span[title]') ?? null) : null;
      const fieldRow = document.querySelector(`[data-testid="typed-property-row"][data-field="${V.LONG_FIELD}"]`);
-     pin('field name title', spans(fieldRow)[0] ?? null, V.LONG_FIELD);
+     pin('field name title', spanInCell(fieldRow, 0), V.LONG_FIELD);
      const objRow = document.querySelector('[data-testid="typed-property-row"][data-field="longObjectField"]');
-     pin('object value title', spans(objRow).at(-1) ?? null, JSON.stringify({ nested: V.LONG64 }));
+     pin('object value title', spanInCell(objRow, 2), JSON.stringify({ nested: V.LONG64 }));
      const missingRow = document.querySelector('[data-testid="typed-property-row"][data-field="requiredButMissing"]');
-     pinStartsWith('missing-required value title', spans(missingRow).at(-1) ?? null, 'missing');
+     pinStartsWith('missing-required value title', spanInCell(missingRow, 2), 'missing');
     }
     if (kind === 'node-history') {
+     // These select BY the title they assert, so the equality below cannot
+     // fail — each is a PRESENCE check (the fix dropped the title, or the
+     // element, entirely on main); the node-properties pins above are the
+     // structural ones (blind review, #2507).
      pin('edited-by info', document.querySelector(`div[title="${V.LONG_INFO}"]`), V.LONG_INFO);
      pin('edge loc', document.querySelector(`code[title="${V.LONG_LOC}"]`), V.LONG_LOC);
      pin('target loc', document.querySelector(`code[title="${V.LONG_TARGET_LOC}"]`), V.LONG_TARGET_LOC);

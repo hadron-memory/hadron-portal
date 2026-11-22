@@ -102,7 +102,7 @@
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
-          <a href="/app/agents/{row.id}" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={row.name}>{row.name}</a>
+          <a href="/app/agents/{row.id}" class="inline-block max-w-full truncate align-bottom font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={row.name}>{row.name}</a>
         {:else if cell.column.id === 'urn'}
           <Urn value={row.urn} type="agent" size={8} />
         {:else if cell.column.id === 'visibility'}

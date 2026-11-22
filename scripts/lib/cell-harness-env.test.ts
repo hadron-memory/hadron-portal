@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error plain .mjs helper shared with the layout script
 import { parseHarnessEnv, injectionEcho, KINDS } from './cell-harness-env.mjs';
 
+// The accepted set, spelled out here on purpose — see the accept test below.
+const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
+
 // portal#2129 rows 1, 6, 8: every env knob is validated before any browser launches.
 describe('parseHarnessEnv', () => {
   it('accepts an empty environment', () => {
@@ -13,11 +16,17 @@ describe('parseHarnessEnv', () => {
   it.each(['', ' ', '0', '-1', 'abc', '390px', 'Infinity', '1e3', '3.5', '100000', '0390'])('rejects CELL_WIDTH=%j', v => {
     expect(() => parseHarnessEnv({ CELL_WIDTH: v })).toThrow(`CELL_WIDTH must be a whole number of pixels from 1 to 99999, got ${JSON.stringify(v)}`);
   });
-  it.each(KINDS)('accepts CELL_KIND=%s', v => {
+  // Literal list, not KINDS: the accept test must fail when a kind joins the
+  // helper's list without anyone choosing to accept it (blind review, #2507) —
+  // it.each(KINDS) could never go red, no matter what KINDS became.
+  it('KINDS is exactly the ten kinds named below', () => {
+    expect(KINDS).toEqual(ALL_KINDS);
+  });
+  it.each(ALL_KINDS)('accepts CELL_KIND=%s', v => {
     expect(parseHarnessEnv({ CELL_KIND: v }).cellKind).toBe(v);
   });
   it.each(['', 'Findings', 'tasks', 'edge-removals'])('rejects CELL_KIND=%j', v => {
-    expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`CELL_KIND must be one of ${KINDS.join(', ')}, got ${JSON.stringify(v)}`);
+    expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`CELL_KIND must be one of ${ALL_KINDS.join(', ')}, got ${JSON.stringify(v)}`);
   });
   describe.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s', name => {
     const key = name === 'CELL_INJECT_POINTER_FAILURE' ? 'injectPointerFailure' : 'injectMissingTrigger';

@@ -2019,9 +2019,12 @@
   // past that the footer returns, so no field is ever hidden without a pager to
   // reach it.
   const TYPED_PROPERTY_PAGE = 100;
-  // The value cell and the value column's search accessor must agree on what a
-  // value "says" — one function, used by both (the cell clips, so the title
-  // carries the same text the filter matches).
+  // One function says what a value "says": the cell's clipped text, the cell's
+  // title, and the value column's search accessor all render it. The accessor
+  // deliberately DIFFERS from the cell text for absent rows — it returns '' so
+  // an absent value never matches a text search — and for a too-deeply-nested
+  // object it now carries the localized "(too deeply nested to show)" text, so
+  // searching "nested" finds those rows (blind review, #2507, said out loud).
   function typedPropertyValueText(r: TypedPropertyRow): string {
     if (!r.present) return r.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—');
     if (typeof r.value === 'object') return displayJson(r.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)');
@@ -2325,9 +2328,10 @@
     // #914: the snapshot's own recorded authorship and validation, never today's.
     { accessorFn: (r) => historyAuthorshipText(r), id: 'authorship', header: t('node.history.col.authorship', 'Authorship'), enableSorting: false, size: 240 },
     { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 260 },
-    // 64px minimum: the 28px (h-7 w-7) ⋯ trigger + the cell's own horizontal
-    // padding must fit without the trigger's focus ring leaving the cell —
-    // the audit's remedy (e) floor for a control column (control + 32px).
+    // 64px: 28px (h-7 w-7) ⋯ trigger + 32px cell horizontal padding (px-4 × 2)
+    // = 60, + 4px buffer so the trigger's focus ring never leaves the cell —
+    // the audit's remedy (e) floor for a control column, rounded to the 8px
+    // step the table's sizing already uses. Was 56 (#2490).
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 64, minSize: 64 },
   ];
   const revisionTable = createSvelteTable<HistoryRow>({
@@ -3898,7 +3902,13 @@
             >
               {#snippet cell(cell, row)}
                 {#if cell.column.id === 'field'}
-                  <span class="block truncate font-mono text-xs text-zinc-700 dark:text-zinc-300" title={row.name}>{row.name}{#if row.required}<span class="text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}</span>
+                  <!-- Flex, not one truncating span: the required '*' must stay a shrink-0
+                       SIBLING of the clipped name, or a long field name ellipsizes the
+                       marker and its "Required" title away with it (blind review, #2507). -->
+                  <span class="flex min-w-0 items-baseline gap-1 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+                    <span class="min-w-0 truncate" title={row.name}>{row.name}</span>
+                    {#if row.required}<span class="shrink-0 text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}
+                  </span>
                 {:else if cell.column.id === 'type'}
                   <span class="text-xs text-zinc-500 dark:text-zinc-400">
                     {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}

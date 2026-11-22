@@ -1347,7 +1347,7 @@
         >
           {#snippet cell(cell, a)}
             {#if cell.column.id === 'name'}
-              <a href="/app/apps/{a.id}" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={a.name}>{a.name}</a>
+              <a href="/app/apps/{a.id}" class="inline-block max-w-full truncate align-bottom font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={a.name}>{a.name}</a>
             {:else if cell.column.id === 'urn'}
               <Urn value={a.urn} type="app" size={10} />
             {:else if cell.column.id === 'org'}
@@ -1437,7 +1437,7 @@
       >
         {#snippet cell(cell, a)}
           {#if cell.column.id === 'name'}
-            <a href="/app/agents/{a.id}" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={a.name}>{a.name}</a>
+            <a href="/app/agents/{a.id}" class="inline-block max-w-full truncate align-bottom font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={a.name}>{a.name}</a>
           {:else if cell.column.id === 'urn'}
             <Urn value={a.urn} type="agent" size={10} />
           {:else if cell.column.id === 'role'}
