@@ -331,11 +331,13 @@
             </form>
           {:else}
             <div class="min-w-0">
-              <a href="/app/memories/{row.channel.memoryId}/nodes/{row.channel.chatRootNodeId}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
+              <div class="flex min-w-0 items-center gap-1">
+              <a href="/app/memories/{row.channel.memoryId}/nodes/{row.channel.chatRootNodeId}" title={row.name} class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
               {#if row.isDefault}
-                <span class="ml-1 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">{t('app.channels.default', 'Team chat')}</span>
+                <span class="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">{t('app.channels.default', 'Team chat')}</span>
               {/if}
-              {#if row.channel.description}<div class="truncate text-xs text-zinc-500 dark:text-zinc-400">{row.channel.description}</div>{/if}
+              </div>
+              {#if row.channel.description}<div title={row.channel.description} class="truncate text-xs text-zinc-500 dark:text-zinc-400">{row.channel.description}</div>{/if}
             </div>
           {/if}
         {:else if cell.column.id === 'address'}

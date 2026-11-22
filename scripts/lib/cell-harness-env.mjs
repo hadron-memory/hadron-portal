@@ -3,12 +3,12 @@
 // runs, config), findings, wake and agent-tasks (each a battery of its own:
 // injection knobs / a different oracle; agent-tasks joined from portal#2502;
 // wake unioned from main's #2501 in #2507's carry), the six route-page kinds
-// of slice 4 (a mounted real page), and the eight Apps route pages (portal#2488,
+// of slice 4 (a mounted real page), and the ten Apps route pages (portal#2488,
 // unioned from main in #2507's carry: real apps pages with the escape-probe
 // oracle). KINDS is derived so CELL_KIND's accepted set and the batteries' kind
 // lists cannot drift, and batteryFor is the ONE routing table: the script never
 // writes a kind list of its own.
-export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
+export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants'];
 // Not exported (blind review #2507, fold): nothing imports it — the tests build
 // ALL_KINDS literally and import KINDS/PAGE_KINDS/APPS_KINDS, the script imports
 // only parseHarnessEnv/injectionEcho/batteryFor. KINDS derives from it below.
