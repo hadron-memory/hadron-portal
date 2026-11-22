@@ -57,12 +57,15 @@ it('submits hidden=false with the hidden row id from the Unhide form', async () 
   const root = await mount();
   const submit = vi.spyOn(HTMLFormElement.prototype,'requestSubmit').mockImplementation(()=>{});
   const items = await menu(root,'hidden');
-  expect(items[0].textContent?.trim()).toBe('Unhide');
-  items[0].click(); await tick(3);
-  const form = root.querySelector<HTMLFormElement>('[data-key-id="hidden"] form[action^="?/visibility"]')!;
+  const unhide = items.find(i => i.textContent?.trim() === 'Unhide');
+  expect(unhide).toBeDefined();
+  unhide!.click(); await tick(3);
+  const form = root.querySelector<HTMLFormElement>('[data-key-id="hidden"] form[action^="?/visibility"]');
+  expect(form).not.toBeNull();
+  expect(submit).toHaveBeenCalledTimes(1);
   expect(submit.mock.contexts[0]).toBe(form);
-  expect(new FormData(form).get('id')).toBe('hidden');
-  expect(new FormData(form).get('hidden')).toBe('false');
+  expect(new FormData(form!).get('id')).toBe('hidden');
+  expect(new FormData(form!).get('hidden')).toBe('false');
 });
 
 it.each([
