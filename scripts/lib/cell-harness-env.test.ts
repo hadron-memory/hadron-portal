@@ -16,7 +16,7 @@ describe('parseHarnessEnv', () => {
   it.each(['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', ...APPS_KINDS, ...ORGS_KINDS])('accepts CELL_KIND=%s', v => {
     expect(parseHarnessEnv({ CELL_KIND: v }).cellKind).toBe(v);
   });
-  it.each(['', 'Findings', 'tasks', 'staff'])('rejects CELL_KIND=%j', v => {
+  it.each(['', 'Findings', 'tasks', 'staff', 'orgs', 'orgs-memories-typo'])('rejects CELL_KIND=%j', v => {
     expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(/^CELL_KIND must be one of /);
     expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`, got ${JSON.stringify(v)}`);
   });

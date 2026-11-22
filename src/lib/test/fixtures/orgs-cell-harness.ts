@@ -1,6 +1,6 @@
 // portal#2491 (#1962 slice 5): the real Orgs-route tables with legal synthetic rows, for the Chromium
 // containment harness (scripts/test-table-cell-overflow-layout.mjs, kind "orgs"). No API, no production data.
-import { mount, unmount } from 'svelte';
+import { mount, tick, unmount } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import OrgsPage from '../../../routes/app/orgs/+page.svelte';
@@ -17,19 +17,34 @@ import { deleteOrgMemorySchema, orgMemorySubscribeSchema, syncOrgMemoriesSchema,
 export type OrgsCellKind = 'orgs-members' | 'orgs-runs' | 'orgs-agents' | 'orgs-subscribed-agents' | 'orgs-apps' | 'orgs-mine' | 'orgs-memories-personal' | 'orgs-memories' | 'orgs-memories-subscriptions';
 
 const LONG_NAME = 'ALongOrganizationNameWithNoSpacesInItAtAll0123456789';
+/** The table the leg probes must be the one the kind names: fail loudly on a wrong tab instead of probing the default twice. */
+async function expectHeaders(target: HTMLElement, kind: string, has: string[], hasNot: string[] = []) {
+  await tick();
+  const heads = [...target.querySelectorAll('thead th')].map((th) => (th.textContent ?? '').replace(/[^\p{L}\s]/gu, '').trim());
+  const missing = has.filter((h) => !heads.some((x) => x.startsWith(h))), extra = hasNot.filter((h) => heads.some((x) => x.startsWith(h)));
+  if (missing.length || extra.length) throw new Error(`orgs-cell-harness: ${kind} did not render its own table (missing ${JSON.stringify(missing)}, unexpected ${JSON.stringify(extra)}, headers ${JSON.stringify(heads)})`);
+}
+
+/** TabRow marks the shown tab `aria-selected` on `id="tab-<item id>"`: the page must be on the tab the kind names. */
+async function expectTab(target: HTMLElement, kind: string, id: string) {
+  await tick();
+  const selected = target.querySelector('button[role="tab"][aria-selected="true"]')?.id;
+  if (selected !== `tab-${id}`) throw new Error(`orgs-cell-harness: ${kind} is on ${JSON.stringify(selected)}, not tab-${id}`);
+}
+
 const list = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `x${i}` }));
 
 const MEMORY_NAME = 'AMemoryNameWithNoBreakPointsAtAll0123456789ABCDEFGHIJ';
 
 async function mountMemories(target: HTMLElement, kind: OrgsCellKind) {
   const memory = (i: number) => ({
-    id: `m${i}`, name: i ? MEMORY_NAME : 'Notes', urn: `hrn:mem:example.test:memory-${i}`, visibility: 'ORGANIZATION', source: { id: 'src' }, readBranch: 'main',
+    id: `m${i}`, name: i === 0 ? 'Notes' : MEMORY_NAME, urn: `hrn:mem:example.test:memory-${i}`, visibility: 'ORGANIZATION', source: { id: 'src' }, readBranch: 'main',
     lastSyncedAt: '2026-11-01T02:04:36Z', vectorIndexEnabled: true, embeddingSource: 'LOCAL', class: 'personal',
   });
   const [subscribeForm, deleteForm, syncAllForm, unsubscribeForm] = await Promise.all(
     [orgMemorySubscribeSchema, deleteOrgMemorySchema, syncOrgMemoriesSchema, unsubscribeOrgMemorySchema].map((schema) => superValidate(zod4(schema as never), { errors: false })),
   );
-  const items = [memory(1), memory(2), memory(3)];
+  const items = [memory(0), memory(1), memory(2)];
   const data = {
     org: { id: 'org1', name: 'Acme', urn: 'hrn:org:example.test:acme', memories: items, subscriptions: items.map((m) => ({ id: `s${m.id}`, role: 'CONTRIBUTOR', memory: m })) },
     systemMemories: [], availableMemories: [], personalMemories: items,
@@ -38,6 +53,9 @@ async function mountMemories(target: HTMLElement, kind: OrgsCellKind) {
     subscribeForm, deleteForm, syncAllForm, unsubscribeForm,
   };
   const instance = mount(MemoriesPage as never, { target, props: { data, form: null } as never });
+  await expectTab(target, kind, kind === 'orgs-memories-personal' ? 'personal' : kind === 'orgs-memories' ? 'org' : 'subscriptions');
+  if (kind === 'orgs-memories-subscriptions') await expectHeaders(target, kind, ['Role', 'From']);
+  else await expectHeaders(target, kind, ['Type', 'Vector index'], ['Role', 'From']);
   return () => unmount(instance);
 }
 
@@ -75,9 +93,15 @@ async function mountAgents(target: HTMLElement, kind: OrgsCellKind) {
   };
   const instance = mount(AgentsPage as never, { target, props: { data, form: null } as never });
   if (kind === 'orgs-subscribed-agents') {
-    const tab = [...target.querySelectorAll('button,[role="tab"]')].find((el) => /subscri/i.test(el.textContent ?? '')) as HTMLElement | undefined;
+    // TabRow gives each tab `id="tab-<item id>"`: the exact tab, never a text match on a button.
+    const tab = target.querySelector<HTMLElement>('button[role="tab"]#tab-subscribed');
     if (!tab) throw new Error('orgs-cell-harness: the Subscribed tab was not found');
     tab.click();
+    await expectTab(target, kind, 'subscribed');
+    await expectHeaders(target, kind, ['Owner', 'Status', 'Since'], ['Role', 'Memories']);
+  } else {
+    await expectTab(target, kind, 'own');
+    await expectHeaders(target, kind, ['Role', 'Memories'], ['Owner', 'Since']);
   }
   return () => unmount(instance);
 }
@@ -121,7 +145,7 @@ export function mountOrgsCellFixture(target: HTMLElement, kind: string): (() => 
   if (kind === 'orgs-apps') return mountApps(target);
   if (kind === 'orgs-members') return mountMembers(target);
   if (kind === 'orgs-runs') return mountRuns(target);
-  if (kind === 'orgs-agents' || kind === 'orgs-subscribed-agents') return mountAgents(target, kind as OrgsCellKind);
-  if (kind.startsWith('orgs-memories')) return mountMemories(target, kind as OrgsCellKind);
+  if (kind === 'orgs-agents' || kind === 'orgs-subscribed-agents') return mountAgents(target, kind);
+  if (kind === 'orgs-memories-personal' || kind === 'orgs-memories' || kind === 'orgs-memories-subscriptions') return mountMemories(target, kind);
   throw new Error(`orgs-cell-harness: no fixture for ${kind}`);
 }

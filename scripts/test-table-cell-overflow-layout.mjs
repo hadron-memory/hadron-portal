@@ -476,10 +476,11 @@ try {
   } finally { await page.close(); }
  }
 
- // portal#2488: the Apps route tables (#1962 slice 2). The REAL route pages are mounted; every cell must keep
+ // portal#2488 and portal#2491: the Apps (#1962 slice 2) and Orgs (slice 5) route tables. The REAL route pages are mounted; every cell must keep
  // its content inside its own box with the containment net OFF, at the declared widths and at the minimum
  // width, so no clip can hide an escape. The probe sees inline `truncate` (which clips nothing) as an escape.
- if (!env.cellKind || APPS_KINDS.includes(env.cellKind) || ORGS_KINDS.includes(env.cellKind)) for (const kind of (env.cellKind ? [env.cellKind] : [...APPS_KINDS, ...ORGS_KINDS])) for (const width of widths) for (const dark of [false, true]) {
+ const TABLE_KINDS = [...APPS_KINDS, ...ORGS_KINDS];
+ if (!env.cellKind || TABLE_KINDS.includes(env.cellKind)) for (const kind of (env.cellKind ? [env.cellKind] : TABLE_KINDS)) for (const width of widths) for (const dark of [false, true]) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
