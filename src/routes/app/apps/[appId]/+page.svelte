@@ -3080,9 +3080,9 @@
     </LiveRegion>
     <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
-      <!-- portal#2376: the region is a flex item of this gap row, so while empty it is
-           out of flow (empty:absolute) and adds no gap; populated, it is the item the span was. -->
-      <LiveRegion class="empty:absolute">
+      <!-- portal#2376, portal#2454: the region is a flex item of this gap row, so while empty it is
+           out of flow (idle:absolute, never empty:absolute: a whitespace text node breaks :empty, portal#2394) and adds no gap; populated, it is the item the span was. -->
+      <LiveRegion class="idle:absolute">
       {#if tabData.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
              selector says so rather than quietly showing a shorter list. -->

@@ -26,7 +26,7 @@
 {:else if party.kind === 'WORKER'}
   <span class="inline-flex max-w-full min-w-0 flex-col">
     <span class="inline-flex min-w-0 items-center gap-1.5">
-      <a href="/app/workers/{party.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{partyName(party)}</a>
+      <a href="/app/workers/{party.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={partyName(party)}>{partyName(party)}</a>
       <WorkerBadge size="xs" />
     </span>
     {#if showUrn && party.urn}

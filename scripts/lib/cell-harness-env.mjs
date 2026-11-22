@@ -1,8 +1,9 @@
 // portal#2129 rows 1, 6, 8: validate every harness env knob before the dev server or a browser starts.
-// portal#2490: the kinds split in two — the four component kinds (an extracted
-// component mount) and the six route-page kinds (a mounted real page). KINDS is
-// derived so CELL_KIND's accepted set and the batteries' kind lists cannot drift.
-export const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings'];
+// portal#2490: the kinds split in two — the component kinds (an extracted
+// component mount; agent-tasks joined from portal#2502) and the six route-page
+// kinds (a mounted real page). KINDS is derived so CELL_KIND's accepted set and
+// the batteries' kind lists cannot drift.
+export const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'agent-tasks'];
 export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
 export const KINDS = [...COMPONENT_KINDS, ...PAGE_KINDS];
 const flag = (env, name) => {
