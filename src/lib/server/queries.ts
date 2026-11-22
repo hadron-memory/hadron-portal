@@ -1886,6 +1886,8 @@ const PROVENANCE_FIELDS = /* GraphQL */ `
   fragment NodeContentValidationFields on NodeContentValidationStatus {
     state
     latestReport {
+      # authorCheck: hadron-server#1332 (closed), already in schema/schema.graphql; null on a report recorded before it.
+      authorCheck
       nodeRevision
       validationTaskRef
       validationTaskRevision

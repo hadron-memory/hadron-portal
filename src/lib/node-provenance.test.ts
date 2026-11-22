@@ -5,6 +5,7 @@
  * carries no report.
  */
 import { describe, expect, it } from 'vitest';
+import { formatPortalDateTime } from '$lib/format-portal-date';
 import {
   authorshipSearchText,
   authorshipText,
@@ -13,6 +14,8 @@ import {
   provenanceById,
   taskLink,
   validationText,
+  authorCheckText,
+  validationHistoryDetail,
   validationView,
   type NodeAuthorship,
   type NodeContentValidationStatus,
@@ -123,6 +126,35 @@ describe('validationView / validationText', () => {
     const v = ok({ state: 'PASS', latestReport: report({ validationTaskRef: null, validationTaskRevision: null }) });
     expect(v.task).toBeNull();
     expect(v.report).not.toBeNull();
+  });
+
+  it('the author check is worded neutrally and never claims independence (server#1332)', () => {
+    const checked = ok({ state: 'PASS', latestReport: report({ authorCheck: 'CHECKED' }) });
+    const unknown = ok({ state: 'PASS', latestReport: report({ authorCheck: 'AUTHOR_UNKNOWN' }) });
+    const legacy = ok({ state: 'PASS', latestReport: report({ authorCheck: null }) });
+    const future = ok({ state: 'PASS', latestReport: report({ authorCheck: 'INDEPENDENT' as never }) });
+    expect(authorCheckText(checked)).toBe('Author compared and differs');
+    expect(authorCheckText(unknown)).toBe('Author not compared');
+    expect(authorCheckText(legacy)).toBe('');
+    expect(authorCheckText(future)).toBe('');
+    expect(authorCheckText(checked)).not.toMatch(/independent/i);
+  });
+
+  it('a History row says when, which task revision and the author check; no report says nothing', () => {
+    const v = ok({ state: 'PASS', latestReport: report({ authorCheck: 'CHECKED' }) });
+    expect(validationHistoryDetail(v)).toBe(`${formatPortalDateTime(AT)} · task revision 2 · Author compared and differs`);
+    // no task revision, no author check: only the time
+    const bare = ok({ state: 'PASS', latestReport: report({ validationTaskRevision: null, validationTaskRef: null }) });
+    expect(validationHistoryDetail(bare)).toBe(formatPortalDateTime(AT));
+    expect(validationHistoryDetail(ok({ state: 'UNVALIDATED', latestReport: null }))).toBe('');
+    // an unparseable time is a dash, never "Invalid Date"
+    expect(validationHistoryDetail(ok({ state: 'PASS', latestReport: report({ reportedAt: 'nope' }) }))).toBe('— · task revision 2');
+  });
+
+  it('a late report for an older revision is that revision\'s own state and reads as a report', () => {
+    const v = ok({ state: 'FAIL', latestReport: report({ nodeRevision: 3, outcome: 'FAIL' }) });
+    expect(v).toMatchObject({ state: 'FAIL', checkedRevision: null });
+    expect(validationHistoryDetail(v)).toBe(`${formatPortalDateTime(AT)} · task revision 2`);
   });
 
   it('a failed read, a missing value or an unknown state is "Couldn\'t load", never a verdict', () => {

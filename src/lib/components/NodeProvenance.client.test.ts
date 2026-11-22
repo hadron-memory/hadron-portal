@@ -109,13 +109,14 @@ describe('NodeProvenanceRows', () => {
       value: prov({
         contentValidation: {
           state: 'FAIL',
-          latestReport: { nodeRevision: 5, validationTaskRef: VALIDATOR, validationTaskRevision: 2, outcome: 'FAIL', reportedAt: AT },
+          latestReport: { nodeRevision: 5, validationTaskRef: VALIDATOR, validationTaskRevision: 2, outcome: 'FAIL', reportedAt: AT, authorCheck: 'AUTHOR_UNKNOWN' },
         },
       }),
     };
     const { target } = mount(NodeProvenanceRows, { result, revision: 5 });
     await tick();
     expect(q(target, 'validation-state')!.textContent!.trim()).toBe("Didn't pass");
+    expect(q(target, 'validation-author-check')!.textContent).toBe('Author not compared');
     expect(q(target, 'validation-advisory')!.textContent).toMatch(/doesn't block editing/);
     expect(q(target, 'validation-advisory')!.textContent).toMatch(/separate from schema validation/);
     expect(target.querySelector('[role="alert"], [aria-invalid="true"], [disabled]')).toBeNull();
