@@ -1,5 +1,5 @@
 /** portal#2454 — the save-result region in the chatbot AI config row goes out of flow with `idle:absolute`. */
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { expectIdleAbsoluteRegion } from '$lib/test/idleAbsoluteRegion';
 import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';

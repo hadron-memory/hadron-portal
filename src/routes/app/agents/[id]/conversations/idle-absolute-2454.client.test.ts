@@ -1,5 +1,5 @@
 /** portal#2454 — the add-conversation result region goes out of flow with `idle:absolute`. */
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, it, vi } from 'vitest';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';

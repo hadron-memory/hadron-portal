@@ -20,5 +20,15 @@ export async function expectIdleAbsoluteRegion(root: Element): Promise<void> {
     expect(region.matches(':empty'), 'a whitespace text node breaks :empty').toBe(false);
     expect(region.classList.contains('idle:absolute'), 'carries idle:absolute').toBe(true);
     expect(region.classList.contains('empty:absolute'), 'does not carry empty:absolute').toBe(false);
+    // The populated half: real content takes the region back into the row (data-idle gone), and clearing it
+    // returns the region to idle. A stale data-idle would overlay the flex row.
+    const speech = document.createElement('span');
+    speech.textContent = 'Saved.';
+    region.append(speech);
+    await tick(2);
+    expect(region.hasAttribute('data-idle'), 'populated: not idle').toBe(false);
+    speech.remove();
+    await tick(2);
+    expect(region.hasAttribute('data-idle'), 'cleared: idle again').toBe(true);
   }
 }

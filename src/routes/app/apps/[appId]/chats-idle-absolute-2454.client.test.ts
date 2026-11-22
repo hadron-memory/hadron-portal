@@ -1,5 +1,5 @@
 /** portal#2454 — the chat-selector status region in the Chats tab's flex row goes out of flow with `idle:absolute`. */
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, it, vi } from 'vitest';
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
