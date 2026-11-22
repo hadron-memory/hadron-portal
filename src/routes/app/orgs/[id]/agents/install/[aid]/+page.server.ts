@@ -21,6 +21,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { classifyGqlError, gqlErrorTextForBranching, extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { CREATE_APP_REFUSALS } from '$lib/server/create-app-refusals';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATIONS_QUERY,
@@ -157,9 +158,6 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     ),
   };
 };
-
-// Existing createApp refusals from the landed server, not a catch-all 4xx rule.
-const CREATE_APP_REFUSALS = ['BAD_USER_INPUT', 'FORBIDDEN', 'UNAUTHENTICATED', 'AGENT_NOT_FOUND', 'ORGANIZATION_NOT_FOUND', 'ORGANIZATION_MISMATCH', 'INSTALL_MEMORIES_REMAIN', 'URN_NOT_QUALIFIED'] as const;
 
 export const actions: Actions = {
   installExisting: async ({ request, params, locals }) => {

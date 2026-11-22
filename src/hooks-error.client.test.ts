@@ -51,3 +51,25 @@ it('logs only bounded GraphQL metadata, never constructor payloads or headers', 
   expect(log).toHaveBeenCalledWith('[portal] unexpected GraphQL error', { status: 500, code: 'INTERNAL_SERVER_ERROR', requestId });
   expect(result).toEqual({ message: 'Something went wrong on our side.', requestId });
 });
+
+// #1397 (Ruth N4): a PAYLOADLESS ClientError — a non-2xx whose body never
+// parsed as GraphQL, so `response` has no `errors` — classifies as transport.
+// The `instanceof ClientError` guard is then the ONLY thing routing it to the
+// bounded log; the else branch would log .message/.stack, and ClientError's
+// constructor embeds the whole {response, request} JSON — query and variables
+// included — in the message. Dropping that guard must fail here.
+it('a payloadless ClientError logs bounded metadata only, never its embedded query or variables', async () => {
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const error = new ClientError(
+    { status: 503, headers: new Headers(), body: 'synthetic-response-body-secret' },
+    { query: 'query PrivateOperation { privateField }', variables: { token: 'synthetic-variable-secret' } },
+  );
+  const result = await handleError({ error, status: 503, message: 'Service Unavailable', event: {} as never });
+  const logged = inspect(log.mock.calls, { depth: 10 });
+  for (const secret of ['PrivateOperation', 'synthetic-variable-secret', 'synthetic-response-body-secret']) {
+    expect(logged).not.toContain(secret);
+  }
+  expect(log).toHaveBeenCalledOnce();
+  expect(log.mock.calls[0][0]).toBe('[portal] unexpected GraphQL error');
+  expect(result).toEqual({ message: 'Something went wrong on our side.' });
+});
