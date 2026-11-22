@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 import { parseHarnessEnv, injectionEcho } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
+import { probeCellEscapes, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
 for (const line of injectionEcho(env)) console.log(line);
@@ -22,7 +23,9 @@ const patchSource = (code, id, from, to, required = true) => {
  return code.replaceAll(from, () => to);
 };
 const assertPatched = () => assert.deepEqual(patchFailures, [], 'every fixture source patch matched');
-const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
+// portal#2488: the real Apps route pages import $app/forms, $app/environment and the public env; same stubs as the client test lane.
+const stub = name => new URL(`../src/lib/test/stubs/${name}.ts`, import.meta.url).pathname;
+const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, resolve: { alias: { '$app/forms': stub('app-forms'), '$app/environment': stub('app-environment'), '$env/dynamic/public': stub('env-dynamic-public') } }, plugins: [{
  name: 'table-cell-fixture', enforce: 'pre', transform(code, id) {
   if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) {
    // Every one of the three imports $app/navigation; only TasksAlarms also imports $app/stores.
@@ -102,6 +105,7 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
+const APPS_KINDS = ['apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
 let browser;
 const failures = [];
 try {
@@ -111,7 +115,7 @@ try {
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
- for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings')) {
+ for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => !['findings', ...APPS_KINDS].includes(k))) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -345,7 +349,6 @@ try {
    }
    // Independent of the severity triggers, so it still runs when one is missing.
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
-   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    await unmountFixture(page);
    assertPatched();
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
@@ -354,6 +357,53 @@ try {
    else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
   } catch (e) {
    if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
+   throw e;
+  } finally { await page.close(); }
+ }
+ // portal#2488: the Apps route tables (#1962 slice 2). The REAL route pages are mounted; every cell must keep
+ // its content inside its own box with the containment net OFF, at the declared widths and at the minimum
+ // width, so no clip can hide an escape. The probe sees inline `truncate` (which clips nothing) as an escape.
+ if (!env.cellKind || APPS_KINDS.includes(env.cellKind)) for (const kind of (env.cellKind ? [env.cellKind] : APPS_KINDS)) for (const width of widths) for (const dark of [false, true]) {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  const leg = `${kind}/${width}/${dark ? 'dark' : 'light'}`;
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async kind => { const { mountAppsCellFixture } = await import('/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = mountAppsCellFixture(document.getElementById('fixture'), kind); }, kind);
+   await page.locator('tbody td').first().waitFor({ timeout: 10000 });
+   await settlePage(page);
+   const legFailuresBefore = failures.length;
+   const net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
+   // Declared widths first, then the table's own minimum (the declared size is a default the reader can drag below).
+   for (const sizing of ['declared', 'minimum']) {
+    if (sizing === 'minimum') await page.evaluate(() => { const t = window.__fixtureTables.at(-1); t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, Math.max(120, c.columnDef.minSize ?? 40)]))); });
+    await settlePage(page);
+    const found = await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX);
+    if (found.length) failures.push(`${leg}/${sizing}: cell content escapes its cell ${JSON.stringify(found)}`);
+    // The table keeps its width inside the page and scrolls internally. (The document's own scrollWidth is not used: the
+    // page's TabRow keeps an invisible fixed measuring clone that widens it on main, with or without a table defect.)
+    const scrollers = await page.locator('[data-testid="data-table-scroller"]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
+    if (!scrollers.length || scrollers.some(r => r > width + 0.5)) failures.push(`${leg}/${sizing}: the table scroller leaves the page ${JSON.stringify(scrollers)}`);
+   }
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   // The control: the same probe must SEE a deliberate escape in this table, or "no escapes" proves nothing.
+   const control = await page.addStyleTag({ content: 'tbody td * { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; display: inline-block !important; max-width: none !important; } tbody td { white-space: nowrap !important; } tbody td span.x{}' });
+   await page.evaluate(() => { document.querySelector('tbody td')?.append(Object.assign(document.createElement('span'), { textContent: 'W'.repeat(120) })); });
+   await settlePage(page);
+   if ((await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX)).length === 0) failures.push(`${leg}: the escape probe did not see a deliberate escape`);
+   await control.evaluate(el => el.remove()); await net.evaluate(el => el.remove());
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+   console.log(failures.length === legFailuresBefore ? `${leg}: every cell stays inside its box; negative control detected` : `${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`);
+  } catch (e) {
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
    throw e;
   } finally { await page.close(); }

@@ -177,17 +177,17 @@
               {#if target?.urn}<Urn value={target.urn} type="worker" size={9} compact linked label={t('app.stops.target-label', 'target worker')} />{/if}
             </div>
           {:else if cell.column.id === 'setBy'}
-            <span class="truncate">{row.setBy}</span>
+            <span class="block max-w-full truncate" title={row.setBy}>{row.setBy}</span>
           {:else if cell.column.id === 'setAt'}
-            <time datetime={row.s.setAt} class="whitespace-nowrap">{fmtRunTime(row.s.setAt)}</time>
+            <time datetime={row.s.setAt}>{fmtRunTime(row.s.setAt)}</time>
           {:else if cell.column.id === 'until'}
-            {#if row.s.until}<time datetime={row.s.until} class="whitespace-nowrap">{fmtRunTime(row.s.until)}</time>{:else}<span class="text-zinc-500">{t('app.stops.until-lifted', 'until lifted')}</span>{/if}
+            {#if row.s.until}<time datetime={row.s.until}>{fmtRunTime(row.s.until)}</time>{:else}<span class="text-zinc-500">{t('app.stops.until-lifted', 'until lifted')}</span>{/if}
           {:else if cell.column.id === 'ended'}
             {#if row.s.endedAt}
-              <span class="whitespace-nowrap">{row.s.endKind === 'EXPIRED' ? t('app.stops.ended.expired', 'Expired') : t('app.stops.ended.lifted', 'Lifted')} {fmtRunTime(row.s.endedAt)}{#if row.s.endKind === 'LIFTED'}{' · '}{actorText(row.s.endedByUserId, row.s.endedByHostKey, data.people)}{/if}</span>
+              <span>{row.s.endKind === 'EXPIRED' ? t('app.stops.ended.expired', 'Expired') : t('app.stops.ended.lifted', 'Lifted')} {fmtRunTime(row.s.endedAt)}{#if row.s.endKind === 'LIFTED'}{' · '}{actorText(row.s.endedByUserId, row.s.endedByHostKey, data.people)}{/if}</span>
             {:else}<span class="text-zinc-400">—</span>{/if}
           {:else if cell.column.id === 'id'}
-            <code class="select-all font-mono text-xs">{row.s.id}</code>
+            <code class="select-all break-all font-mono text-xs">{row.s.id}</code>
           {:else if cell.column.id === 'actions'}
             {#if row.s.live && canLift}
               <button type="button" onclick={() => (lifting = { id: row.s.id, label: liftLabel(row.s) })} class="min-h-11 min-w-11 rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
