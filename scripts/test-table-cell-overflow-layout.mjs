@@ -1027,6 +1027,34 @@ async function loadNodePageData(devServer, tab) {
   } finally { await page.close(); }
  }
 
+ // Shared by the agent-tasks (slice 1) and lib-rows (slice 6) batteries: one oracle, so the two cannot drift.
+const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAll((cells, limit) => cells.flatMap(td => {
+  const box = td.getBoundingClientRect(), found = [];
+  for (const el of td.querySelectorAll('*')) {
+   if (el.closest('.sr-only')) continue;
+   let clipped = false;
+   for (let a = el.parentElement; a && a !== td; a = a.parentElement) { const st = getComputedStyle(a); if (st.overflowX !== 'visible' || st.overflow !== 'visible') { clipped = true; break; } }
+   if (clipped) continue;
+   let px = 0;
+   for (const r of el.getClientRects()) px = Math.max(px, box.left - r.left, r.right - box.right);
+   if (px > limit) found.push({ cell: td.textContent.trim().slice(0, 40), el: `${el.tagName.toLowerCase()}${el.className ? '.' + String(el.className).split(' ')[0] : ''}`, px: Math.round(px) });
+   const st = getComputedStyle(el);
+   if (st.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1 && !el.closest('[title]')) found.push({ cell: td.textContent.trim().slice(0, 40), el: el.tagName.toLowerCase(), px: 0, note: 'ellipsized with no reachable full value' });
+  }
+  // Bare text (a cell that renders a string with no element) is judged by its glyph boxes.
+  const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+  for (let n; (n = walker.nextNode());) {
+   if (!n.textContent.trim() || n.parentElement.closest('.sr-only')) continue;
+   let clipped = false;
+   for (let a = n.parentElement; a && a !== td; a = a.parentElement) { const st = getComputedStyle(a); if (st.overflowX !== 'visible' || st.overflow !== 'visible') { clipped = true; break; } }
+   if (clipped) continue;
+   const range = document.createRange(); range.selectNodeContents(n);
+   let px = 0;
+   for (const r of range.getClientRects()) px = Math.max(px, box.left - r.left, r.right - box.right);
+   if (px > limit) found.push({ cell: td.textContent.trim().slice(0, 40), el: '#text', px: Math.round(px) });
+  }
+  return found;
+ }), ESCAPE_PX);
  // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and
  // legal synthetic data, default column sizes. A cell passes when no element inside it paints outside its
  // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
@@ -1049,33 +1077,6 @@ async function loadNodePageData(devServer, tab) {
    taskRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts')).AGENT_TASK_CELL_ROWS);
   } finally { await rowsPage.close(); }
   assert.ok(taskRows.length >= 7, 'the fixture lists every #2487 row');
-  const taskCellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAll((cells, limit) => cells.flatMap(td => {
-   const box = td.getBoundingClientRect(), found = [];
-   for (const el of td.querySelectorAll('*')) {
-    if (el.closest('.sr-only')) continue;
-    let clipped = false;
-    for (let a = el.parentElement; a && a !== td; a = a.parentElement) { const st = getComputedStyle(a); if (st.overflowX !== 'visible' || st.overflow !== 'visible') { clipped = true; break; } }
-    if (clipped) continue;
-    let px = 0;
-    for (const r of el.getClientRects()) px = Math.max(px, box.left - r.left, r.right - box.right);
-    if (px > limit) found.push({ cell: td.textContent.trim().slice(0, 40), el: `${el.tagName.toLowerCase()}${el.className ? '.' + String(el.className).split(' ')[0] : ''}`, px: Math.round(px) });
-    const st = getComputedStyle(el);
-    if (st.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1 && !el.closest('[title]')) found.push({ cell: td.textContent.trim().slice(0, 40), el: el.tagName.toLowerCase(), px: 0, note: 'ellipsized with no reachable full value' });
-   }
-   // Bare text (a cell that renders a string with no element) is judged by its glyph boxes.
-   const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
-   for (let n; (n = walker.nextNode());) {
-    if (!n.textContent.trim() || n.parentElement.closest('.sr-only')) continue;
-    let clipped = false;
-    for (let a = n.parentElement; a && a !== td; a = a.parentElement) { const st = getComputedStyle(a); if (st.overflowX !== 'visible' || st.overflow !== 'visible') { clipped = true; break; } }
-    if (clipped) continue;
-    const range = document.createRange(); range.selectNodeContents(n);
-    let px = 0;
-    for (const r of range.getClientRects()) px = Math.max(px, box.left - r.left, r.right - box.right);
-    if (px > limit) found.push({ cell: td.textContent.trim().slice(0, 40), el: '#text', px: Math.round(px) });
-   }
-   return found;
-  }), ESCAPE_PX);
   for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) {
    const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
    const errors = await watchErrors(page);
@@ -1093,19 +1094,217 @@ async function loadNodePageData(devServer, tab) {
     // Columns a view hides by default (the roster's Last assigned) still have cells a reader can show.
     await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
     await settlePage(page);
-    const escapes = await taskCellEscapes(page, scope);
+    const escapes = await cellEscapes(page, scope);
     if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/agent-tasks-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
     if (measured) console.log(`${leg}: MEASURED (not failed, #2486 decides)`, escapes);
     else {
      if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
      // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
      await page.locator(`${scope}tbody td`).first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
-     if (!(await taskCellEscapes(page, scope)).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
+     if (!(await cellEscapes(page, scope)).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
      await page.locator('[data-negative]').evaluate(el => el.remove());
      console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
     }
     // A measured row is reported, never failed: its document overflow is logged by the line above, not queued.
     if (!measured && !(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+    await unmountFixture(page);
+    assertPatched();
+    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+   } catch (e) {
+    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-').replaceAll(':', '-')}.png`, fullPage: true }).catch(() => {});
+    throw e;
+   } finally { await page.close(); }
+  }
+ }
+
+
+ // portal#2492 (#1962 slice 6): the real lib/route tables the issue lists as LIKELY AFFECTED, one case per fixed
+ // row, default column sizes, judged by the same escape oracle as agent-tasks. The browser-check rows of the
+ // issue are not here: they are fixed only where #2486 confirms them, and none of them is in this PR.
+ if (battery.lib.length) {
+  const rowsPage = await browser.newPage();
+  let libRows;
+  try {
+   await rowsPage.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+   await rowsPage.goto(new URL('/__cell_fixture', origin).href);
+   libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).LIB_CELL_ROWS);
+  } finally { await rowsPage.close(); }
+  assert.ok(libRows.length >= 5, 'the fixture lists every fixed #2492 row');
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns, anywhereColumns } of libRows) {
+   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+   const errors = await watchErrors(page);
+   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+   const leg = `lib-rows/${listKey}/${width}/${dark ? 'dark' : 'light'}`;
+   try {
+    await page.goto(new URL('/__cell_fixture', origin).href);
+    await page.evaluate(({ css, dark }) => {
+     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+    }, { css, dark });
+    await page.evaluate(async row => { const { mountLibCell } = await import('/src/lib/test/fixtures/lib-cell-harness.ts'); window.stopFixture = mountLibCell(document.getElementById('fixture'), row); }, listKey);
+    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
+    if (prepare) await page.evaluate(async step => { const { prepareLibCell } = await import('/src/lib/test/fixtures/lib-cell-harness.ts'); await prepareLibCell(document.getElementById('fixture'), step); }, prepare);
+    // The cell this row exists to measure must be on the page: a prop mismatch would otherwise pass vacuously.
+    await page.locator(expect).first().waitFor({ timeout: 10000 });
+    await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
+    await settlePage(page);
+    const escapes = await cellEscapes(page, '');
+    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/lib-rows-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
+    if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
+    // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
+    await page.locator('tbody td').first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
+    if (!(await cellEscapes(page, '')).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
+    await page.locator('[data-negative]').evaluate(el => el.remove());
+    console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
+    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+    // Both checks below need the DOM table that belongs to a table INSTANCE (blind delta 2, #2515): the
+    // instance is found by the column ids, the DOM table by its own header texts and column count, never by
+    // DOM order. A template editor mounts three tables, so "the first table" is a guess.
+    const tableOf = ids => page.evaluate(ids => {
+     const t = window.__fixtureTables.find(x => ids.every(id => x.getAllLeafColumns().some(c => c.id === id)));
+     if (!t) return null;
+     const visible = t.getVisibleLeafColumns();
+     const heads = ids.map(id => String(visible.find(c => c.id === id)?.columnDef.header ?? id));
+     const table = [...document.querySelectorAll('table')].find(el => {
+      const ths = [...el.querySelectorAll('thead th')];
+      return ths.length === visible.length && heads.every(h => ths.some(th => th.textContent.includes(h)));
+     });
+     if (!table) return null;
+     // Clear every earlier mark first (blind delta 3, #2515): a mark left on another table would make
+     // querySelector('[data-lib-rows-table]') read the wrong table and pass for the wrong reason.
+     for (const old of document.querySelectorAll('[data-lib-rows-table]')) old.removeAttribute('data-lib-rows-table');
+     table.setAttribute('data-lib-rows-table', '');
+     return { ids: visible.map(c => c.id) };
+    }, ids);
+    // The free-text cells keep `overflow-wrap:anywhere`, judged on the computed style of the element that holds
+    // each cell's text (blind delta, #2515): a column id that stopped matching a component's allow-list would drop
+    // it silently. overflow-wrap inherits, so the text's own parent is the right element to read: a badge or icon
+    // wrapper carrying the class proves nothing about the text. A control (a cell with the class missing) must be reported.
+    if (anywhereColumns.length) {
+     const owner = await tableOf(anywhereColumns);
+     if (!owner) failures.push(`${leg}: no DOM table owns the free-text columns ${JSON.stringify(anywhereColumns)}`);
+     else {
+      const lost = await page.evaluate(({ ids, cols }) => {
+       const lostIn = el => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let texts = 0;
+        for (let n; (n = walker.nextNode());) {
+         if (!n.textContent.trim()) continue;
+         texts++;
+         if (getComputedStyle(n.parentElement).overflowWrap !== 'anywhere') return 'text not wrapping anywhere';
+        }
+        return texts === 0 ? 'no text' : null;
+       };
+       const table = document.querySelector('[data-lib-rows-table]');
+       const out = [];
+       for (const id of ids) {
+        const index = cols.indexOf(id);
+        const cells = index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map(r => r.cells[index]).filter(td => td && td.colSpan === 1);
+        if (!cells.length) { out.push(`${id}: no cell`); continue; }
+        for (const td of cells) { const why = lostIn(td); if (why) out.push(`${id}: ${why}`); }
+       }
+       // Control: the same text with the wrap left at normal must be reported.
+       const probe = document.createElement('div');
+       probe.textContent = 'a-long-token-0123456789';
+       probe.style.overflowWrap = 'normal';
+       document.body.append(probe);
+       const control = lostIn(probe);
+       probe.remove();
+       return { out, control };
+      }, { ids: anywhereColumns, cols: owner.ids });
+      if (lost.out.length) failures.push(`${leg}: free-text cells lost their wrap-anywhere ${JSON.stringify([...new Set(lost.out)])}`);
+      if (!lost.control) failures.push(`${leg}: the wrap-anywhere control (a cell without it) was not reported`);
+     }
+    }
+    // A DATE cell wraps at its spaces and never splits a token (blind review, #2515): with the column
+    // narrowed below one token a token may overflow (the reader widens or scrolls) but must not break
+    // mid-digit. Guards against passing vacuously: every named date column must render a dated cell, the cells
+    // must really be NARROWER than before (judged against their own width before narrowing, not a font-dependent
+    // number), and a control (`overflow-wrap:anywhere` on a date, the regression itself) must be reported as a split.
+    if (dateColumns.length) {
+     const NARROW = 50;
+     const owner = await tableOf(dateColumns);
+     if (!owner) failures.push(`${leg}: no DOM table owns the date columns ${JSON.stringify(dateColumns)}`);
+     else {
+      const split = await page.evaluate(({ ids, NARROW, cols }) => {
+       const t = window.__fixtureTables.find(x => ids.every(id => x.getAllLeafColumns().some(c => c.id === id)));
+       const table = document.querySelector('[data-lib-rows-table]');
+       const datedCells = id => {
+        const index = cols.indexOf(id);
+        return index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map(row => row.cells[index]).filter(td => td && td.colSpan === 1 && /\d/.test(td.textContent));
+       };
+       // Lines of text inside a cell: the distinct line tops of its characters. The cell's own height cannot say
+       // (a row is as tall as its tallest cell), so the text is measured directly.
+       const linesIn = td => {
+        const tops = new Set();
+        const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+        const range = document.createRange();
+        for (let n; (n = walker.nextNode());) {
+         for (let i = 0; i < n.textContent.length; i++) {
+          if (/\s/.test(n.textContent[i])) continue;
+          range.setStart(n, i); range.setEnd(n, i + 1);
+          const rect = range.getClientRects()[0];
+          if (rect) tops.add(Math.round(rect.top / 2));
+         }
+        }
+        return tops.size;
+       };
+       // Before narrowing, each dated cell's width and line count: the narrowed cell must be narrower AND have
+       // WRAPPED onto more lines, because a cell that only shrank proves nothing about whether tokens were split.
+       const before = new Map();
+       for (const id of ids) for (const td of datedCells(id)) before.set(td, { width: td.getBoundingClientRect().width, lines: linesIn(td) });
+       t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, ids.includes(c.id) ? NARROW : (c.columnDef.size ?? 150)])));
+       // Split detector: two characters of ONE whitespace-delimited token on different lines.
+       const splitsIn = root => {
+        const broken = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n; (n = walker.nextNode());) {
+         let top = null, token = '';
+         const range = document.createRange();
+         for (let i = 0; i < n.textContent.length; i++) {
+          const ch = n.textContent[i];
+          if (/\s/.test(ch)) { top = null; token = ''; continue; }
+          range.setStart(n, i); range.setEnd(n, i + 1);
+          const rect = range.getClientRects()[0];
+          if (!rect) continue;
+          if (top !== null && Math.abs(rect.top - top) > 2) { broken.push(`${token}|${ch}`); top = rect.top; token = ch; continue; }
+          top = rect.top; token += ch;
+         }
+        }
+        return broken;
+       };
+       return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const result = { missing: [], wide: [], broken: [], control: [] };
+        for (const id of ids) {
+         const cells = datedCells(id);
+         if (!cells.length) { result.missing.push(id); continue; }
+         for (const td of cells) {
+          const r = td.getBoundingClientRect(), was = before.get(td);
+          if (!was) { result.wide.push(`${id}: a cell appeared after narrowing`); continue; }
+          if (!(r.width < was.width - 10)) result.wide.push(`${id}: ${Math.round(r.width)}px, was ${Math.round(was.width)}px`);
+          const lines = linesIn(td);
+          if (!(lines > was.lines)) result.wide.push(`${id}: did not wrap, ${lines} lines, was ${was.lines}`);
+          for (const x of splitsIn(td)) result.broken.push(`${id}: ${x}`);
+         }
+        }
+        // Control: the regression on purpose, in a narrow box of its own.
+        const box = document.createElement('div');
+        // The content width of a NARROW-px column (cells carry 32px of padding): narrower than any token.
+        box.style.cssText = `position:fixed;left:0;top:0;width:${NARROW - 32}px;overflow-wrap:anywhere;font-size:14px`;
+        box.textContent = 'Nov 21, 2026, 02:03 PM';
+        document.body.append(box);
+        result.control = splitsIn(box);
+        box.remove();
+        resolve(result);
+       })));
+      }, { ids: dateColumns, NARROW, cols: owner.ids });
+      if (split.missing.length) failures.push(`${leg}: date columns that rendered no dated cell ${JSON.stringify(split.missing)}`);
+      if (split.wide.length) failures.push(`${leg}: date cells were not narrowed, the split check measured nothing ${JSON.stringify(split.wide.slice(0, 3))}`);
+      if (split.control.length === 0) failures.push(`${leg}: the split control (overflow-wrap:anywhere) was not detected`);
+      if (split.broken.length) failures.push(`${leg}: a date token splits mid-digit at ${NARROW}px ${JSON.stringify(split.broken.slice(0, 4))}`);
+     }
+    }
     await unmountFixture(page);
     assertPatched();
     if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
