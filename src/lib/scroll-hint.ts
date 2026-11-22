@@ -90,6 +90,9 @@ export function scrollHint(node: HTMLElement, active?: unknown) {
   // mount, on scroll and on window resize.
   const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(mark) : null;
   observer?.observe(node);
+  // The strip's content can change width without the strip's own box changing: a table whose columns
+  // are resized or whose rows reshape, or tabs that wrap in. Watch the content element too (#2461).
+  if (node.firstElementChild) observer?.observe(node.firstElementChild);
   node.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('resize', onScroll);
   reveal();

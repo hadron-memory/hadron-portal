@@ -23,6 +23,7 @@
   import type { PortalCell, PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
   import { untrack, type Snippet } from 'svelte';
+  import { scrollHint } from '$lib/scroll-hint';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
   import TableFrame from './TableFrame.svelte';
@@ -245,7 +246,8 @@
 <!-- Bounded, internally-scrolling container so the page itself doesn't
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
-<div bind:this={scrollerEl} data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {scrollerMaxHeight};">
+<div class="relative">
+<div bind:this={scrollerEl} use:scrollHint data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {scrollerMaxHeight};">
   <table aria-labelledby={labelledBy} class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{phoneEndColumnWidth !== undefined ? ` --phone-end-w: ${phoneEndColumnWidth}px;` : ''}">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
@@ -318,6 +320,10 @@
       {/each}
     </tbody>
   </table>
+</div>
+<!-- #2461: the edge shades that say the table scrolls sideways (see .table-scroll-cue in app.css). -->
+<div aria-hidden="true" data-testid="data-table-scroll-cue-start" class="table-scroll-cue table-scroll-cue-start pointer-events-none absolute inset-y-px left-px w-6 rounded-l-lg transition-opacity"></div>
+<div aria-hidden="true" data-testid="data-table-scroll-cue-end" class="table-scroll-cue table-scroll-cue-end pointer-events-none absolute inset-y-px right-px w-6 rounded-r-lg transition-opacity"></div>
 </div>
 </TableFrame>
 
