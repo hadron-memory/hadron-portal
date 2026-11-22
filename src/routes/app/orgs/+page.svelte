@@ -169,7 +169,7 @@
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
-          <a href="/app/orgs/{row.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
+          <a href="/app/orgs/{row.id}" class="font-medium text-indigo-600 [overflow-wrap:anywhere] hover:underline dark:text-indigo-300">{row.name}</a>
         {:else if cell.column.id === 'urn'}
           <Urn value={row.urn} type="org" size={8} />
         {:else}
