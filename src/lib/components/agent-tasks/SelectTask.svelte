@@ -112,7 +112,7 @@
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'choose'}<button type="button" class="rounded bg-indigo-600 px-2 py-1 text-white" onclick={() => { onselect(row); open = false; }}>{t('app.tasks.picker.select', 'Select')}</button>
           {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />
-        {:else}{String(cell.getValue() ?? '')}{/if}
+        {:else}<span class="[overflow-wrap:anywhere]">{String(cell.getValue() ?? '')}</span>{/if}
         {/snippet}
       </DataTable>
       {#if !exactDone && hasMore}<button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.tasks.picker.more', 'Load more tasks')}</button>{/if}

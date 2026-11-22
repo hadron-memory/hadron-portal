@@ -154,3 +154,29 @@ html:not(.dark) textarea::placeholder {
     transparent
   );
 }
+
+/*
+ * #2461 — a data table wider than its box shows a shade on each edge that has more
+ * columns past it. An overlay, not a mask: a mask makes the scroller a containing
+ * block for fixed descendants and is not hit-testable where it fades out, which
+ * broke the row menus. The overlay is pointer-events-none and neutral (black in
+ * light, white in dark) so it reads on the page, a card or a header alike. The
+ * `scrollHint` action (src/lib/scroll-hint.ts) sets the data-overflow-* marks.
+ */
+.table-scroll-cue {
+  opacity: 0;
+  background: linear-gradient(to left, rgb(0 0 0 / 0.14), transparent);
+}
+.table-scroll-cue-start {
+  background: linear-gradient(to right, rgb(0 0 0 / 0.14), transparent);
+}
+.dark .table-scroll-cue {
+  background: linear-gradient(to left, rgb(255 255 255 / 0.14), transparent);
+}
+.dark .table-scroll-cue-start {
+  background: linear-gradient(to right, rgb(255 255 255 / 0.14), transparent);
+}
+[data-overflow-end] ~ .table-scroll-cue-end,
+[data-overflow-start] ~ .table-scroll-cue-start {
+  opacity: 1;
+}

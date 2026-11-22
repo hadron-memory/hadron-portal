@@ -19,7 +19,7 @@
 
 {#if handle}
   <code
-    class="inline-block max-w-[14rem] shrink-0 truncate rounded bg-zinc-100 px-1.5 py-0.5 align-middle font-mono text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+    class="relative inline-block max-w-[min(14rem,100%)] shrink-0 truncate rounded bg-zinc-100 px-1.5 py-0.5 align-middle font-mono text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
     title={handle}
     data-task-handle
     ><span class="sr-only">{t('app.tasks.handle.prefix', 'Task handle')}&nbsp;</span>{handle}</code

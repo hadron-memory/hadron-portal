@@ -59,6 +59,9 @@ function fakeObserver() {
   return {
     get observed() { return instances.flatMap((i) => [...i.targets]); },
     live() { return instances.flatMap((i) => [...i.targets]); },
+    /** What the FILL machinery watches: everything but the scroller and its table, which the
+     *  scroll cue (#2461) observes in every mode. */
+    fillWatched(scroller: Element) { return instances.flatMap((i) => [...i.targets]).filter((el) => el !== scroller && el !== scroller.firstElementChild); },
     resized(el: Element) { for (const i of instances) if (i.targets.has(el)) i.cb(); },
   };
 }
@@ -113,8 +116,9 @@ describe('DataTable fills the window (portal#2193)', () => {
     const add = vi.spyOn(window, 'addEventListener');
     try {
       const scroller = mountTable({ rows: 60, headerHeight: 120, bounded: true });
-      expect(fake.observed).toEqual([]);
-      expect(add.mock.calls.filter(([type]) => type === 'resize')).toEqual([]);
+      expect(fake.fillWatched(scroller)).toEqual([]);
+      // The scroll cue (#2461) keeps its own single resize listener in every mode; fill adds none.
+      expect(add.mock.calls.filter(([type]) => type === 'resize')).toHaveLength(1);
       expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
       window.dispatchEvent(new Event('resize'));
       flushSync();
@@ -136,7 +140,7 @@ describe('DataTable fills the window (portal#2193)', () => {
       expect(fake.live()).toContain(document.body);
       props.bounded = true;
       flushSync();
-      expect(fake.live()).toEqual([]);
+      expect(fake.fillWatched(scroller)).toEqual([]);
       expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
       // A resize while bounded changes nothing.
       (window as unknown as { innerHeight: number }).innerHeight = 1000;

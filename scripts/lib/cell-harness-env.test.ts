@@ -13,7 +13,7 @@ describe('parseHarnessEnv', () => {
   it.each(['', ' ', '0', '-1', 'abc', '390px', 'Infinity', '1e3', '3.5', '100000', '0390'])('rejects CELL_WIDTH=%j', v => {
     expect(() => parseHarnessEnv({ CELL_WIDTH: v })).toThrow(`CELL_WIDTH must be a whole number of pixels from 1 to 99999, got ${JSON.stringify(v)}`);
   });
-  it.each(['alarms', 'runs', 'config', 'findings', ...APPS_KINDS])('accepts CELL_KIND=%s', v => {
+  it.each(['alarms', 'runs', 'config', 'findings', 'agent-tasks', ...APPS_KINDS])('accepts CELL_KIND=%s', v => {
     expect(parseHarnessEnv({ CELL_KIND: v }).cellKind).toBe(v);
   });
   it.each(['', 'Findings', 'tasks', 'staff'])('rejects CELL_KIND=%j', v => {
@@ -35,7 +35,7 @@ describe('parseHarnessEnv', () => {
 
 describe('injection knobs and CELL_KIND', () => {
   it.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s=1 is rejected for a kind that never reaches the findings leg', name => {
-    for (const kind of ['alarms', 'runs', 'config', ...APPS_KINDS]) {
+    for (const kind of ['alarms', 'runs', 'config', 'agent-tasks', ...APPS_KINDS]) {
       expect(() => parseHarnessEnv({ [name]: '1', CELL_KIND: kind })).toThrow(`${name}=1 only acts on the findings leg, got CELL_KIND=${JSON.stringify(kind)}`);
     }
   });

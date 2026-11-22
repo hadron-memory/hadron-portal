@@ -1,6 +1,6 @@
 // portal#2129 rows 1, 6, 8: validate every harness env knob before the dev server or a browser starts.
 export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
-const KINDS = ['alarms', 'runs', 'config', 'findings', ...APPS_KINDS];
+const KINDS = ['alarms', 'runs', 'config', 'findings', 'agent-tasks', ...APPS_KINDS];
 const flag = (env, name) => {
   if (!(name in env) || env[name] === undefined) return false;
   if (env[name] !== '0' && env[name] !== '1') throw new Error(`${name} must be 0 or 1 when set, got ${JSON.stringify(env[name])}`);
