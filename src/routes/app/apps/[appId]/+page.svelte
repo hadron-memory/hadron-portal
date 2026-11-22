@@ -773,7 +773,7 @@
           const hold = workerHold(worker, data.user?.id);
           if (hold.kind !== 'self' && hold.kind !== 'other') return '';
           const holder = holderForHold(hold, rosterEntry(worker.id)?.heldBy);
-          return holder ? `${holderLabel(holder) ?? t('app.staff.held.you', 'Your name — held by you')} ${holder.urn ?? ''}` : '';
+          return holder ? `${holderLabel(holder) ?? ''} ${holder.urn ?? ''}` : '';
         },
         terminal: (row: Worker) => (row as (typeof staffRows)[number]).terminalAgeSearch,
       },
