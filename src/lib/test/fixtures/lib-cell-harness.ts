@@ -26,7 +26,8 @@ export const LIB_CELL_ROWS = [
 ] as const;
 export type LibCellRow = (typeof LIB_CELL_ROWS)[number]['listKey'];
 
-// Built by length, so the stated contract is the real one (blind review, #2515).
+// Built by construction, not hand-counted (blind review, #2515): each is long enough to overflow its
+// column unbroken. The exact length is not the contract; being longer than the cell is.
 const LONG_NAME = `LongWorkerName${'A'.repeat(40)}`;
 const LONG_ROLE = `a-long-role-token-${'x'.repeat(42)}`;
 const LONG_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.macroEnabled.12';
@@ -61,7 +62,7 @@ export function mountLibCell(target: HTMLElement, row: LibCellRow) {
     id: `g${i}`, appId: 'a1', action: 'a.very.long.grant.action.name.with.no.spaces.at.all.0123456789', holderKind: 'USER', holderId: 'u1',
     values: { scope: 'a-long-unbroken-value-0123456789', hosts: ['host-0123456789-0123456789', 'another-host-0123456789'] },
     reason: 'a-reason-token-with-no-spaces-0123456789-0123456789-0123456789', startsAt: time, expiresAt: time, maxUses: null, useCount: i,
-    createdAt: time, activatedAt: time, revokedAt: null, allows: true,
+    createdAt: time, activatedAt: time, revokedAt: time, allows: true,
     app: { id: 'a1', name: 'Fixture App', urn: 'hrn:app:example.test:fixture' }, appStatus: 'ok',
   }));
   const instance = mount(GrantsPage, { target, props: { data: { grants, user: { id: 'u1' } } } as never });
@@ -70,10 +71,11 @@ export function mountLibCell(target: HTMLElement, row: LibCellRow) {
 
 /** Poll for a value instead of sleeping: a fixed delay flakes on a slow runner. */
 async function until<T>(read: () => T | undefined, what: string): Promise<T> {
-  for (let i = 0; i < 100; i++) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
     const found = read();
     if (found) return found;
-    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    await new Promise((r) => setTimeout(r, 16));
   }
   throw new Error(`lib-rows: ${what} never appeared`);
 }

@@ -26,6 +26,9 @@
   const appLabel = (g: MyGrant) => g.app?.name ?? (g.appStatus === 'unavailable' ? unloaded() : unopenable());
   const shortDate = (v: number) => new Date(v).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const dash = '—';
+  // Free-text columns have no break opportunity (a space-less JSON, an enum token), so they wrap anywhere;
+  // every other cell here is a date or a count and wraps at its spaces. Ids are the column defs' own below.
+  const FREE_TEXT_COLUMNS = new Set(['action', 'reason', 'values']);
     const ms = (iso: string | null) => {
     const v = iso ? new Date(iso).getTime() : NaN;
     return Number.isNaN(v) ? null : v;
@@ -132,7 +135,7 @@
           <span class="block min-w-0 max-w-full">{fmt[cell.column.id](cell.getValue())}</span>
         {:else}
           <!-- portal#2492: Action, Reason and the space-less Values JSON have no break opportunity, so they wrap anywhere inside the cell; a count wraps like a date. -->
-          <span class={['action', 'reason', 'values'].includes(cell.column.id) ? 'block min-w-0 max-w-full [overflow-wrap:anywhere]' : 'block min-w-0 max-w-full'}>{String(cell.getValue() ?? dash)}</span>
+          <span class={FREE_TEXT_COLUMNS.has(cell.column.id) ? 'block min-w-0 max-w-full [overflow-wrap:anywhere]' : 'block min-w-0 max-w-full'}>{String(cell.getValue() ?? dash)}</span>
         {/if}
       {/snippet}
     </DataTable>

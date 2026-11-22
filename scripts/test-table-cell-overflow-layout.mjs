@@ -1160,42 +1160,63 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
     if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
     // A DATE cell wraps at its spaces and never splits a token (blind review, #2515): with the column
     // narrowed below one token a token may overflow (the reader widens or scrolls) but must not break
-    // mid-digit. A leg with date columns that finds none of them fails: nothing measured proves nothing.
+    // mid-digit. Three guards keep this from passing vacuously (blind delta, #2515): every named date
+    // column must render a cell holding a digit, the cells must really be narrowed, and a control
+    // (`overflow-wrap:anywhere` on a date, the regression itself) must be reported as a split.
     if (dateColumns.length) {
-     const split = await page.evaluate(ids => {
+     const NARROW = 50;
+     const split = await page.evaluate(({ ids, NARROW }) => {
       const t = window.__fixtureTables.at(-1);
-      t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, ids.includes(c.id) ? 50 : (c.columnDef.size ?? 150)])));
-      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
-       const cols = t.getVisibleLeafColumns().map(c => c.id);
-       const found = [], broken = [];
-       for (const id of ids) {
-        const index = cols.indexOf(id);
-        if (index < 0) continue;
-        for (const row of document.querySelectorAll('tbody tr')) {
-         const td = row.children[index];
-         if (!td || !td.textContent.trim()) continue;
-         found.push(id);
-         const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
-         for (let n; (n = walker.nextNode());) {
-          let top = null, token = '';
-          const range = document.createRange();
-          for (let i = 0; i < n.textContent.length; i++) {
-           const ch = n.textContent[i];
-           if (/\s/.test(ch)) { top = null; token = ''; continue; }
-           range.setStart(n, i); range.setEnd(n, i + 1);
-           const rect = range.getClientRects()[0];
-           if (!rect) continue;
-           if (top !== null && Math.abs(rect.top - top) > 2) { broken.push(`${id}: ${token}|${ch}`); top = rect.top; token = ch; continue; }
-           top = rect.top; token += ch;
-          }
-         }
+      t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, ids.includes(c.id) ? NARROW : (c.columnDef.size ?? 150)])));
+      // Split detector: two characters of ONE whitespace-delimited token on different lines.
+      const splitsIn = root => {
+       const broken = [];
+       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+       for (let n; (n = walker.nextNode());) {
+        let top = null, token = '';
+        const range = document.createRange();
+        for (let i = 0; i < n.textContent.length; i++) {
+         const ch = n.textContent[i];
+         if (/\s/.test(ch)) { top = null; token = ''; continue; }
+         range.setStart(n, i); range.setEnd(n, i + 1);
+         const rect = range.getClientRects()[0];
+         if (!rect) continue;
+         if (top !== null && Math.abs(rect.top - top) > 2) { broken.push(`${token}|${ch}`); top = rect.top; token = ch; continue; }
+         top = rect.top; token += ch;
         }
        }
-       resolve({ found: [...new Set(found)], broken });
+       return broken;
+      };
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+       const table = document.querySelector('table');
+       const cols = t.getVisibleLeafColumns().map(c => c.id);
+       const result = { missing: [], wide: [], broken: [], control: [] };
+       for (const id of ids) {
+        const index = cols.indexOf(id);
+        // Only cells that really hold a date: an absent value renders as a dash and proves nothing.
+        const cells = index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map(row => row.cells[index]).filter(td => td && td.colSpan === 1 && /\d/.test(td.textContent));
+        if (!cells.length) { result.missing.push(id); continue; }
+        for (const td of cells) {
+         const width = td.getBoundingClientRect().width;
+         if (width > NARROW + 20) result.wide.push(`${id}: ${Math.round(width)}px`);
+         for (const x of splitsIn(td)) result.broken.push(`${id}: ${x}`);
+        }
+       }
+       // Control: the regression on purpose, in a narrow box of its own.
+       const box = document.createElement('div');
+       // The content width of a NARROW-px column (cells carry 32px of padding): narrower than any token.
+       box.style.cssText = `position:fixed;left:0;top:0;width:${NARROW - 32}px;overflow-wrap:anywhere;font-size:14px`;
+       box.textContent = 'Nov 21, 2026, 02:03 PM';
+       document.body.append(box);
+       result.control = splitsIn(box);
+       box.remove();
+       resolve(result);
       })));
-     }, dateColumns);
-     if (split.found.length === 0) failures.push(`${leg}: none of the date columns ${JSON.stringify(dateColumns)} rendered a cell`);
-     if (split.broken.length) failures.push(`${leg}: a date token splits mid-digit at 50px ${JSON.stringify(split.broken.slice(0, 4))}`);
+     }, { ids: dateColumns, NARROW });
+     if (split.missing.length) failures.push(`${leg}: date columns that rendered no dated cell ${JSON.stringify(split.missing)}`);
+     if (split.wide.length) failures.push(`${leg}: date cells were not narrowed, the split check measured nothing ${JSON.stringify(split.wide.slice(0, 3))}`);
+     if (split.control.length === 0) failures.push(`${leg}: the split control (overflow-wrap:anywhere) was not detected`);
+     if (split.broken.length) failures.push(`${leg}: a date token splits mid-digit at ${NARROW}px ${JSON.stringify(split.broken.slice(0, 4))}`);
     }
     await unmountFixture(page);
     assertPatched();
