@@ -22,6 +22,7 @@
   });
   const inputClass = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white';
   // Closed until asked for, but a submission that came back (an error to fix, or the link to what was created) must stay in view.
+  const noAgentRefusal = $derived($message?.type === 'error' && $message.code === 'AGENT_NOT_INSTALLED');
   let open = $state(untrack(() => $message !== undefined || ($errors.name?.length ?? 0) > 0));
 </script>
 <details bind:open class="group max-w-xl" data-testid="app-memory-create">
@@ -29,7 +30,8 @@
     <svg class="h-5 w-5 shrink-0 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
     {t('app.memory.add', 'Add a memory')}
   </summary>
-  {#if !hasAgent}
+  <!-- The refusal below says the same words once a submit came back AGENT_NOT_INSTALLED, so the note steps aside for it. -->
+  {#if !hasAgent && !noAgentRefusal}
     <p id="app-memory-needs-agent" data-testid="app-memory-needs-agent" class="mt-3 max-w-xl text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.needs-agent', 'Install an Agent in this App before adding a memory.')}</p>
   {/if}
   <form method="POST" action="?/createMemory" use:enhance novalidate class="mt-3 max-w-xl space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -45,7 +47,7 @@
       <textarea id="app-memory-description" name="description" bind:value={$form.description} rows="3" class={inputClass} aria-describedby="app-memory-description-help"></textarea>
       <p id="app-memory-description-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.description.help', 'Optional. Shown in the list of App memories.')}</p>
     </div>
-    <button type="submit" disabled={$submitting} aria-describedby={hasAgent ? undefined : 'app-memory-needs-agent'} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-600 disabled:opacity-50">{$submitting ? t('app.memory.creating', 'Creating...') : t('app.memory.create', 'Create memory')}</button>
+    <button type="submit" disabled={$submitting} aria-describedby={hasAgent || noAgentRefusal ? undefined : 'app-memory-needs-agent'} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-600 disabled:opacity-50">{$submitting ? t('app.memory.creating', 'Creating...') : t('app.memory.create', 'Create memory')}</button>
     </fieldset>
   </form>
   <LiveOutcome failed={$message?.type === 'error'}>
