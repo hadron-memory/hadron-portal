@@ -246,7 +246,7 @@
               <span class="text-zinc-400">—</span>
             {/if}
           {:else if cell.column.id === 'created'}
-            <span class="whitespace-nowrap">{fmtRunTime(row.ticker.createdAt)}</span>
+            <span>{fmtRunTime(row.ticker.createdAt)}</span>
           {/if}
         {/snippet}
       </DataTable>

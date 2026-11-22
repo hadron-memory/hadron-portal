@@ -380,6 +380,9 @@ try {
    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
    await settlePage(page);
    const legFailuresBefore = failures.length;
+   // Every column the reader can reveal is revealed: a hidden-by-default column (a Stops Id, a ticker Last tick) is still a cell.
+   await page.evaluate(() => window.__fixtureTables.at(-1).toggleAllColumnsVisible(true));
+   await settlePage(page);
    const net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
    // Declared widths first, then the table's own minimum (the declared size is a default the reader can drag below).
    for (const sizing of ['declared', 'minimum']) {
