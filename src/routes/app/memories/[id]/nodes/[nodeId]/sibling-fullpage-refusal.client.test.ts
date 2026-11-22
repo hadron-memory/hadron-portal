@@ -318,36 +318,143 @@ describe('full-page sibling-form refusals keep the refused draft (portal#2446)',
     await settle();
     expect(field(m.target, 'input[name="extractionRows"]')!.value).toBe(rows);
   });
-  // The claim the flow-sync skip rests on: the refused draft sits in hidden
-  // inputs the reader cannot see, and Save stays disabled until the visible
-  // editor is dirty, so it cannot be resubmitted unseen.
-  it('updateFlow: Save stays disabled after hydration, so the unseen draft cannot be resubmitted', async () => {
-    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
-    serve();
-    const rows = JSON.stringify([{ field: 'kept', shape: 'string', description: 'refused draft' }]);
-    const actionData = await refusedAction('updateFlow', { _kind: 'updateFlow', extractionRows: rows, outputWriteTo: '', outputMode: 'replace' });
-    const { m } = await mountHydrated(actionData);
+});
+
+// portal#2467: the other half of #2446. The refused flow draft is hydrated into the form; the VISIBLE
+// editor (rows, write-to, mode) is seeded from the same refusal on first mount, so the alert and what the
+// reader typed appear together. A real node change still resets it to that node's saved flow. A draft the
+// page cannot read never replaces the saved flow with an empty editor.
+describe('updateFlow: the visible editor shows the refused draft (portal#2467)', () => {
+  const DRAFT_ROWS = [{ field: 'kept', shape: 'number', description: 'refused draft' }];
+  const DRAFT_TARGET = 'hrn:node:acme.com:mem-a:target';
+  const SAVED_TARGET = 'hrn:node:acme.com:mem-a:saved';
+  // A saved flow that differs from every draft below, so "shows the saved flow" and "shows the draft" cannot both pass.
+  const withSavedFlow = () => {
+    stored = { ...NODE, data: { extractionSpec: [{ field: 'saved', shape: 'boolean', description: 'saved row' }], output: { writeTo: SAVED_TARGET, mode: 'replace' } } };
+  };
+  const openFlow = async (m: Mounted<Record<string, unknown>>) => {
     Array.from(m.target.querySelectorAll('button')).find((b) => /^Flow/.test(b.textContent?.trim() ?? ''))!.click();
     flushSync();
     await settle();
-    expect(field(m.target, 'input[name="extractionRows"]')!.value, 'the draft is in the hidden input').toBe(rows);
-    const save = m.target.querySelector<HTMLButtonElement>('form[action="?/updateFlow"] button[type="submit"]')!;
-    expect(save.disabled, 'Save is disabled until the editor is dirty').toBe(true);
+  };
+  const refusal = (rows: string = JSON.stringify(DRAFT_ROWS)) => refusedAction('updateFlow', {
+    _kind: 'updateFlow', extractionRows: rows, outputWriteTo: DRAFT_TARGET, outputMode: 'append',
+  });
+  const saveButton = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLButtonElement>('form[action="?/updateFlow"] button[type="submit"]')!;
 
-    // Positive control: the same button enables once the editor is dirty, so the
-    // disabled state above comes from flowDirty and not from a button that
-    // never enables.
-    const writeTo = m.target.querySelector<HTMLInputElement>('#flow-writeto')!;
-    // Empty is a valid write-to value and so is the URN typed below, so the
-    // field's validity (outputWriteToValid, one of Save's other disjuncts) is the
-    // same before and after: only flowDirty changes.
-    expect(writeTo.value, 'the field starts empty, which is valid').toBe('');
-    expect(writeTo.className, 'and is not marked invalid before the edit').not.toContain('border-red-400');
-    writeTo.value = 'hrn:node:acme.com:mem-a:target';
-    writeTo.dispatchEvent(new Event('input', { bubbles: true }));
-    flushSync();
+  it('shows the refused rows, write-to and mode beside the alert, over a different saved flow', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const actionData = await refusal();
+    expect((actionData as { form?: { message?: { type?: string } } }).form?.message?.type).toBe('error');
+    const { m } = await mountHydrated(actionData);
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the refused field name, not the saved one').toBe('kept');
+    expect((field(m.target, '#flow-shape-0') as HTMLSelectElement).value, 'the refused shape').toBe('number');
+    expect(field(m.target, '#flow-desc-0')!.value, 'the refused description').toBe('refused draft');
+    expect(field(m.target, '#flow-writeto')!.value, 'the refused write-to, not the saved one').toBe(DRAFT_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value, 'the refused mode').toBe('append');
+    expect(field(m.target, '#flow-field-1'), 'no saved row mixed in').toBeNull();
+    // What is shown is what the form submits.
+    expect(field(m.target, 'input[name="extractionRows"]')!.value).toBe(JSON.stringify(DRAFT_ROWS));
+  });
+
+  it('control: with no refusal the editor shows the saved flow', async () => {
+    withSavedFlow();
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const { m } = await mountHydrated(null);
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value).toBe('saved');
+    expect(field(m.target, '#flow-writeto')!.value).toBe(SAVED_TARGET);
+    expect(saveButton(m).disabled, 'nothing to save yet').toBe(true);
+  });
+
+  it('Save is enabled for the shown draft, so the reader can resubmit it without retyping', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const { m } = await mountHydrated(await refusal());
+    await openFlow(m);
+    expect(saveButton(m).disabled).toBe(false);
+  });
+
+  it('the hidden input holds the rows the reader is shown, not the raw draft text (a bad shape)', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const raw = JSON.stringify([{ field: 'kept', shape: 'nope', description: 'd' }]);
+    const { m } = await mountHydrated(await refusal(raw));
+    await openFlow(m);
+    expect((field(m.target, '#flow-shape-0') as HTMLSelectElement).value, 'an unknown shape is shown as string').toBe('string');
+    expect(field(m.target, 'input[name="extractionRows"]')!.value, 'and is submitted as shown')
+      .toBe(JSON.stringify([{ field: 'kept', shape: 'string', description: 'd' }]));
+  });
+
+  it('a draft with a row the editor cannot show is unreadable: the saved flow stays and the refusal stays visible', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal(JSON.stringify([{ shape: 'number', description: 'typed, no name' }])));
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the saved row, not an empty editor').toBe('saved');
+    expect(field(m.target, '#flow-writeto')!.value, 'the saved write-to').toBe(SAVED_TARGET);
+    expect(saveButton(m).disabled, 'nothing differs from the saved flow').toBe(true);
+    expect(m.target.textContent, 'the refusal reason').toContain('Field name is required');
+  });
+
+  it('an empty draft array is every row removed: the editor shows no rows, with the draft’s write-to and mode', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal('[]'));
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0'), 'no rows shown').toBeNull();
+    expect(field(m.target, '#flow-writeto')!.value).toBe(DRAFT_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value).toBe('append');
+  });
+
+  it('a draft whose rows cannot be read leaves the saved rows in the editor, never an empty one', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal('not json'));
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the saved row, not an empty editor').toBe('saved');
+    expect(field(m.target, '#flow-writeto')!.value, 'the saved write-to, not the unreadable draft’s').toBe(SAVED_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value, 'the saved mode, not the draft’s append').toBe('replace');
+    expect(saveButton(m).disabled, 'nothing differs from the saved flow, so nothing to resubmit').toBe(true);
+  });
+
+  it('an unreadable draft keeps the server’s refusal reason visible beside the saved flow', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal('not json'));
+    await openFlow(m);
+    expect(m.target.textContent, 'the schema refusal for the unreadable rows').toContain('Invalid extraction rows');
+    expect(field(m.target, '#flow-field-0')!.value, 'beside the saved row').toBe('saved');
+  });
+
+  it('a real node change resets the editor to the next node’s saved flow', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const { m, props } = await mountHydrated(await refusal());
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the draft is shown before the switch').toBe('kept');
+
+    stored = { ...NODE, id: 'leaf-2', loc: 'bar', name: 'Bar', data: { extractionSpec: [{ field: 'next', shape: 'boolean' }], output: { writeTo: SAVED_TARGET, mode: 'append' } } };
+    const url = 'http://localhost/app/memories/mem-A/nodes/leaf-2';
+    setStubPage(url, { id: 'mem-A', nodeId: 'leaf-2' });
+    const otherParent = { ...PARENT, graphNodes: [...PARENT.graphNodes, { id: 'leaf-2', memoryId: 'mem-A', loc: 'bar', name: 'Bar', nodeType: 'info', tags: [] }] };
+    props.data = { ...otherParent, ...((await load({
+      params: { id: 'mem-A', nodeId: 'leaf-2' }, locals: { token: 'tok' }, url: new URL(url),
+      parent: vi.fn().mockResolvedValue(otherParent),
+    } as never)) as Record<string, unknown>) };
     await settle();
-    expect(writeTo.className, 'and is not marked invalid after the edit either').not.toContain('border-red-400');
-    expect(save.disabled, 'Save enables once the editor is dirty').toBe(false);
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'node B’s own saved row, not node A’s refused one').toBe('next');
+    expect(field(m.target, '#flow-field-1')).toBeNull();
+    expect(field(m.target, '#flow-writeto')!.value).toBe(SAVED_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value).toBe('append');
   });
 });
