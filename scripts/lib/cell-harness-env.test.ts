@@ -17,7 +17,7 @@ describe('parseHarnessEnv', () => {
     expect(parseHarnessEnv({ CELL_KIND: v }).cellKind).toBe(v);
   });
   it.each(['', 'Findings', 'tasks'])('rejects CELL_KIND=%j', v => {
-    expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`CELL_KIND must be alarms, runs, config, findings or agent-tasks, got ${JSON.stringify(v)}`);
+    expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`CELL_KIND must be alarms, runs, config, findings, agent-tasks or orgs, got ${JSON.stringify(v)}`);
   });
   describe.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s', name => {
     const key = name === 'CELL_INJECT_POINTER_FAILURE' ? 'injectPointerFailure' : 'injectMissingTrigger';

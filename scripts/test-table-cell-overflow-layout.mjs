@@ -111,7 +111,7 @@ try {
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
- for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings' && k !== 'agent-tasks')) {
+ for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings' && k !== 'agent-tasks' && k !== 'orgs')) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -364,15 +364,18 @@ try {
  // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
  // to the first cell and must see it, so a leg that finds nothing proves the oracle can see.
  // Rows marked `measured` are the issue's browser-check rows: reported, never failed, fixed only where #2486 confirms.
- if (!env.cellKind || env.cellKind === 'agent-tasks') {
+ for (const { kind: fixtureKind, module: fixtureModule, rows: rowsExport, mount: mountExport } of [
+  { kind: 'agent-tasks', module: 'agent-tasks-cell-harness', rows: 'AGENT_TASK_CELL_ROWS', mount: 'mountAgentTaskCell' },
+  { kind: 'orgs', module: 'orgs-cell-harness', rows: 'ORGS_CELL_ROWS', mount: 'mountOrgsCell' },
+ ]) if (!env.cellKind || env.cellKind === fixtureKind) {
   const rowsPage = await browser.newPage();
   let taskRows;
   try {
    await rowsPage.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
    await rowsPage.goto(new URL('/__cell_fixture', origin).href);
-   taskRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts')).AGENT_TASK_CELL_ROWS);
+   taskRows = await rowsPage.evaluate(async ({ module, rows }) => (await import(`/src/lib/test/fixtures/${module}.ts`))[rows], { module: fixtureModule, rows: rowsExport });
   } finally { await rowsPage.close(); }
-  assert.ok(taskRows.length >= 7, 'the fixture lists every #2487 row');
+  assert.ok(taskRows.length >= (fixtureKind === 'orgs' ? 1 : 7), `the ${fixtureKind} fixture lists every row of its issue`);
   const taskCellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAll((cells, limit) => cells.flatMap(td => {
    const box = td.getBoundingClientRect(), found = [];
    for (const el of td.querySelectorAll('*')) {
@@ -404,7 +407,7 @@ try {
    const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
    const errors = await watchErrors(page);
    await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
-   const leg = `agent-tasks/${listKey}/${width}/${dark ? 'dark' : 'light'}`;
+   const leg = `${fixtureKind}/${listKey}/${width}/${dark ? 'dark' : 'light'}`;
    try {
     await page.goto(new URL('/__cell_fixture', origin).href);
     await page.evaluate(({ css, dark }) => {
@@ -412,13 +415,13 @@ try {
      document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
      document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
     }, { css, dark });
-    await page.evaluate(async row => { const { mountAgentTaskCell } = await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts'); window.stopFixture = mountAgentTaskCell(document.getElementById('fixture'), row); }, listKey);
+    await page.evaluate(async ({ module, mountName, row }) => { const m = await import(`/src/lib/test/fixtures/${module}.ts`); window.stopFixture = m[mountName](document.getElementById('fixture'), row); }, { module: fixtureModule, mountName: mountExport, row: listKey });
     await page.locator(`${scope}tbody td`).first().waitFor({ timeout: 10000 });
     // Columns a view hides by default (the roster's Last assigned) still have cells a reader can show.
     await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
     await settlePage(page);
     const escapes = await taskCellEscapes(page, scope);
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/agent-tasks-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
+    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${fixtureKind}-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
     if (measured) console.log(`${leg}: MEASURED (not failed, #2486 decides)`, escapes);
     else {
      if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
