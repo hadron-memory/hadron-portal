@@ -153,7 +153,7 @@
             <span class="font-medium text-zinc-900 dark:text-white">{row.slot}</span>
           {:else if cell.column.id === 'seat'}
             {#if row.seat}
-              <a href={taskHref(basePath, row.seat)} class="text-indigo-600 hover:underline dark:text-indigo-300">{row.seat.handle ?? t('app.tasks.review.seat-task', 'Seat task')}</a>
+              <a href={taskHref(basePath, row.seat)} class="text-indigo-600 [overflow-wrap:anywhere] hover:underline dark:text-indigo-300">{row.seat.handle ?? t('app.tasks.review.seat-task', 'Seat task')}</a>
               {#if row.seat.assignee}<div class="min-w-0"><PartyLabel party={row.seat.assignee} /></div>{/if}
             {:else}
               <span class="text-zinc-500 dark:text-zinc-400">—</span>

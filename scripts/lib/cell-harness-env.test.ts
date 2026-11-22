@@ -13,11 +13,11 @@ describe('parseHarnessEnv', () => {
   it.each(['', ' ', '0', '-1', 'abc', '390px', 'Infinity', '1e3', '3.5', '100000', '0390'])('rejects CELL_WIDTH=%j', v => {
     expect(() => parseHarnessEnv({ CELL_WIDTH: v })).toThrow(`CELL_WIDTH must be a whole number of pixels from 1 to 99999, got ${JSON.stringify(v)}`);
   });
-  it.each(['alarms', 'runs', 'config', 'findings', 'wake'])('accepts CELL_KIND=%s', v => {
+  it.each(['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks'])('accepts CELL_KIND=%s', v => {
     expect(parseHarnessEnv({ CELL_KIND: v }).cellKind).toBe(v);
   });
   it.each(['', 'Findings', 'tasks'])('rejects CELL_KIND=%j', v => {
-    expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`CELL_KIND must be alarms, runs, config, findings or wake, got ${JSON.stringify(v)}`);
+    expect(() => parseHarnessEnv({ CELL_KIND: v })).toThrow(`CELL_KIND must be alarms, runs, config, findings, wake or agent-tasks, got ${JSON.stringify(v)}`);
   });
   describe.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s', name => {
     const key = name === 'CELL_INJECT_POINTER_FAILURE' ? 'injectPointerFailure' : 'injectMissingTrigger';
@@ -34,7 +34,7 @@ describe('parseHarnessEnv', () => {
 
 describe('injection knobs and CELL_KIND', () => {
   it.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s=1 is rejected for a kind that never reaches the findings leg', name => {
-    for (const kind of ['alarms', 'runs', 'config', 'wake']) {
+    for (const kind of ['alarms', 'runs', 'config', 'wake', 'agent-tasks']) {
       expect(() => parseHarnessEnv({ [name]: '1', CELL_KIND: kind })).toThrow(`${name}=1 only acts on the findings leg, got CELL_KIND=${JSON.stringify(kind)}`);
     }
   });

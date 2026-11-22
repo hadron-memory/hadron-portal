@@ -146,6 +146,10 @@ interface LlmFailureContext { stage: LlmStage; branch: LlmBranch; turn: 'welcome
 
 /** Every field of the line comes out of one of these lists (or an integer), never from the input. */
 export const LOGGABLE_PROVIDERS = ['anthropic', 'openai', 'glm', 'bedrock'] as const satisfies readonly AIProvider[];
+// portal#1998 F9: `satisfies` only proves every entry is a provider; this proves every provider is an
+// entry, so a provider added to AIProvider without a loggable name fails the typecheck, not a log line.
+const _everyProviderIsLoggable: Exclude<AIProvider, (typeof LOGGABLE_PROVIDERS)[number]> extends never ? true : never = true;
+void _everyProviderIsLoggable;
 const LOGGABLE_STAGES = ['config', 'request', 'tool-output'] as const satisfies readonly LlmStage[];
 const LOGGABLE_BRANCHES = ['plain', 'respond'] as const satisfies readonly LlmBranch[];
 const LOGGABLE_TURNS = ['welcome', 'turn'] as const;
