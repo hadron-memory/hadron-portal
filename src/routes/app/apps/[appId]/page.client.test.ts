@@ -2193,7 +2193,7 @@ describe('withheld App rosters (portal#1148)', () => {
   });
 
   it('Human Team: withheld members say so — not "No members yet.", not a failed fetch, no count, no add form', async () => {
-    const panel = await mountTab('members', { agent: { id: 'ag1', name: 'Coordinator', installationPolicy: { maxMembers: 'unlimited', memberRoles: ['member'] } }, agents: [agent] }, { members: [], membersError: false, membersWithheld: true });
+    const panel = await mountTab('members', { agent: { id: 'ag1', urn: 'hrn:agent:acme.com:coordinator', name: 'Coordinator', installationPolicy: { maxMembers: 'unlimited', memberRoles: ['member'] } }, agents: [agent] }, { members: [], membersError: false, membersWithheld: true });
     expect(panel.textContent).toContain('The members of this App aren’t visible to you.');
     expect(panel.textContent).not.toContain('No members yet.');
     expect(panel.textContent).not.toContain('could not be loaded');
