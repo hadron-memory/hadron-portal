@@ -105,7 +105,7 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
-const APPS_KINDS = ['apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
+const APPS_KINDS = ['apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
 let browser;
 const failures = [];
 try {

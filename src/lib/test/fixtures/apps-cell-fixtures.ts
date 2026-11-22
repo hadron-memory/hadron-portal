@@ -1,13 +1,14 @@
 // portal#2488: the real Apps route pages, mounted with legal synthetic data, so the table-cell harness
 // measures the cells production renders and not a copy of them. No API, no app stack.
 import { mount, unmount } from 'svelte';
+import Mine from '../../../routes/app/apps/+page.svelte';
 import Secrets from '../../../routes/app/apps/[appId]/secrets/+page.svelte';
 import Stops from '../../../routes/app/apps/[appId]/stops/+page.svelte';
 import Tasks from '../../../routes/app/apps/[appId]/tasks/+page.svelte';
 import Tickers from '../../../routes/app/apps/[appId]/tickers/+page.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 
-export const APPS_CELL_KINDS = ['apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'] as const;
+export const APPS_CELL_KINDS = ['apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'] as const;
 const app = { id: 'fixture-app', name: 'Team', urn: 'hrn:app:example.test:team', organizationId: null };
 const LONG = 'a'.repeat(63) + '1';
 const at = '2026-11-01T02:04:36Z';
@@ -51,6 +52,15 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string) {
     const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false } };
     const data = { app, tickers: { kind: 'ok', value: [0, 1, 2].map(ticker) }, settings, delivery, subscriberCountPage: 50, loadedAt: at, impersonating: null };
     const instance = mount(Tickers as never, { target, props: { data } } as never);
+    return () => unmount(instance);
+  }
+  if (kind === 'apps-mine') {
+    setStubPage('http://localhost/app/apps', {});
+    const apps = [0, 1, 2].map(i => ({
+      id: `app-${i}`, name: `${LONG}${i}`.slice(0, 64), urn: `hrn:app:example.test:app-${i}`, appType: 'TEAM', description: 'A description that is long enough to need truncating in its own column',
+      agent: { name: `${LONG.slice(0, 40)}-agent` },
+    }));
+    const instance = mount(Mine as never, { target, props: { data: { apps, loadFailed: false } } } as never);
     return () => unmount(instance);
   }
   if (kind === 'apps-tasks') {
