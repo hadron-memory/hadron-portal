@@ -216,3 +216,29 @@ it.each([['null',null],['an empty string',''],['spaces','   ']])('renders %s des
  expect(cells[1]?.[1]).toBe('Real text');
  }finally{m.unmount();}
 });
+
+// portal#2529: a submit refused with AGENT_NOT_INSTALLED answers in the same words as the page's note; show them once.
+const noAgentWords='Install an Agent in this App before adding a memory.';
+const occurrences=(text:string|null,sentence:string)=>text?.split(sentence).length!-1;
+async function mountRefused(hasAgent:boolean,message:Record<string,unknown>){
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const posted={...initial,data:{...initial.data,_kind:'createAppMemory',name:'Notes'},posted:true,message};
+ const m=mountComponent(AppMemoryCreate as never,{initial,hasAgent,result:{form:posted}} as never);
+ await tick();return m;
+}
+it('after a no-Agent refusal the sentence shows once, from the refusal, and the button is not described by a missing note',async()=>{
+ const m=await mountRefused(false,{type:'error',text:noAgentWords,code:'AGENT_NOT_INSTALLED'});
+ try{expect(occurrences(m.target.textContent,noAgentWords)).toBe(1);
+ expect(m.target.querySelector('[data-testid="app-memory-needs-agent"]')).toBeNull();
+ expect(m.target.querySelector('[role=alert]')?.textContent).toContain(noAgentWords);
+ expect(m.target.querySelector('button[type=submit]')?.hasAttribute('aria-describedby')).toBe(false);
+ }finally{m.unmount();}
+});
+it('a different refusal leaves the no-Agent note in place beside it',async()=>{
+ const m=await mountRefused(false,{type:'error',text:'Could not create the memory. Please try again.'});
+ try{expect(occurrences(m.target.textContent,noAgentWords)).toBe(1);
+ const note=m.target.querySelector('[data-testid="app-memory-needs-agent"]');
+ expect(note).not.toBeNull();
+ expect(m.target.querySelector('button[type=submit]')?.getAttribute('aria-describedby')).toBe(note!.id);
+ }finally{m.unmount();}
+});

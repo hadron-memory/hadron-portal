@@ -11,7 +11,9 @@ import { t } from '$lib/i18n/t';
 import { createAppMemorySchema } from './schema';
 
 export interface CreatedAppMemory { id: string; urn: string; name: string }
-export type AppMemoryMessage = App.Superforms.Message & { created?: CreatedAppMemory };
+// code: set only when the refusal's reason is something the page already says (AGENT_NOT_INSTALLED), so the
+// page can show that reason once. Never carries server text.
+export type AppMemoryMessage = App.Superforms.Message & { created?: CreatedAppMemory; code?: 'AGENT_NOT_INSTALLED' };
 
 export interface AppMemoryRow { id: string; urn: string; name: string; description: string | null; appId: string | null }
 export const CREATE_APP_MEMORY_MUTATION = /* GraphQL */ `
@@ -89,6 +91,6 @@ export async function createMemory({ request, params, locals }: { request: Reque
       : code === 'AGENT_NOT_INSTALLED' ? [409, t('app.memory.no-agent', 'Install an Agent in this App before adding a memory.')] as const
       : code === 'BAD_USER_INPUT' ? [400, t('app.memory.invalid', 'Check the memory name and try again.')] as const
       : [500, t('app.memory.failed', 'Could not create the memory. Please try again.')] as const;
-    return message(form, { type: 'error', text: refusal[1] }, { status: refusal[0] });
+    return message(form, { type: 'error', text: refusal[1], ...(code === 'AGENT_NOT_INSTALLED' ? { code } : {}) }, { status: refusal[0] });
   }
 }

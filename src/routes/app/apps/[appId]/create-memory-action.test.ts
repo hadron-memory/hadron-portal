@@ -41,3 +41,9 @@ it('transport errors never leak request or server text',async()=>{
  const result=await submit(valid) as any;
  expect(result.status).toBe(500);expect(JSON.stringify(result)).not.toContain('secret SQL');
 });
+// portal#2529: the no-Agent refusal carries its code so the page can show that reason once; no other refusal does.
+it.each([['AGENT_NOT_INSTALLED','AGENT_NOT_INSTALLED'],['FORBIDDEN',undefined],['INTERNAL_SERVER_ERROR',undefined]])('%s answers with code %s',async(code,expected)=>{
+ request.mockRejectedValue({response:{errors:[{message:'secret SQL',extensions:{code}}]}});
+ const result=await submit(valid) as any;
+ expect(result.data.form.message.code).toBe(expected);
+});

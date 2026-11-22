@@ -3308,6 +3308,12 @@ describe('creating a new App memory (#487)', () => {
     expect(note?.textContent).not.toMatch(/owner|admin|contributor|reader|member|organization/i);
     expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
   });
+  // portal#2529: the sentence is for a known refusal only. While the answer is not known (undefined) neither the form nor the sentence shows.
+  it.each([undefined,null])('shows neither the form nor the sentence while canCreateMemory is %s', async unknown => {
+    const m=await mountPage({...await memoryPage('ADMIN'), canCreateMemory: unknown});
+    expect(m.target.querySelector('[data-testid="app-memory-create-unavailable"]')).toBeNull();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
   it('does not show the sentence to someone who can create', async () => {
     const m=await mountPage(await memoryPage('ADMIN'));
     expect(m.target.querySelector('[data-testid="app-memory-create-unavailable"]')).toBeNull();
