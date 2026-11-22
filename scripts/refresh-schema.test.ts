@@ -26,7 +26,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EXPORTER, RefreshError, TYPEDEFS, parseArgs, readProvenance, refresh } from './refresh-schema.mjs';
+import { EXPORTER, OPTIONAL_IMPORTS, RefreshError, TYPEDEFS, parseArgs, readProvenance, refresh } from './refresh-schema.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Inside the repo, so the fixtures' `graphql` import resolves to the portal's
@@ -165,6 +165,42 @@ describe('the source is a git revision, never the working tree', () => {
     expect(lstatSync(join(server, 'node_modules')).isSymbolicLink()).toBe(true);
     expect(readlinkSync(join(server, 'node_modules'))).toBe(deps);
     expect(readFileSync(join(deps, 'sentinel'), 'utf8')).toBe('do not touch');
+  });
+});
+
+describe('a module typeDefs imports comes along when the revision has it', () => {
+  // hadron-server#4848: typeDefs.ts imports the team-metrics caps by their `.js` spelling.
+  const CAPS = 'export const METRICS_IDS_CAP = 200;\n';
+  const withCaps = `import { METRICS_IDS_CAP } from '../../../lib/agentTasks/teamMetricsCaps.js';
+export const typeDefs: string = \`#graphql
+  type Query {
+    ids: String
+    "at most \${METRICS_IDS_CAP}"
+    capped: String
+  }
+\`;
+`;
+
+  it('exports a typeDefs that imports the caps module', () => {
+    const fx = serverFixture('alpha');
+    const sha = commitFiles(fx.seed, { [TYPEDEFS]: withCaps, [OPTIONAL_IMPORTS[0]]: CAPS }, 'caps');
+    git(fx.seed, 'push', '-q', fx.remote, 'HEAD:refs/heads/main');
+    git(fx.server, 'fetch', '-q', 'origin');
+
+    const portal = portalFixture();
+    run({ portalRoot: portal, server: fx.server, rev: sha });
+    expect(snapshot(portal)).toContain('at most 200');
+  });
+
+  it('still refuses loudly when the revision imports a module nobody copies', () => {
+    const fx = serverFixture('alpha');
+    const sha = commitFiles(fx.seed, { [TYPEDEFS]: withCaps }, 'caps import without the module');
+    git(fx.seed, 'push', '-q', fx.remote, 'HEAD:refs/heads/main');
+    git(fx.server, 'fetch', '-q', 'origin');
+
+    const portal = portalFixture();
+    expect(() => run({ portalRoot: portal, server: fx.server, rev: sha })).toThrow(RefreshError);
+    expect(snapshot(portal)).toContain('the old snapshot');
   });
 });
 

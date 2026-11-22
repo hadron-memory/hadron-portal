@@ -55,6 +55,15 @@ import { fileURLToPath } from 'node:url';
 export const EXPORTER = 'scripts/export-graphql-sdl.mjs';
 export const TYPEDEFS = 'src/api/graphql/schema/typeDefs.ts';
 
+/**
+ * Modules typeDefs.ts imports, when the revision has them. hadron-server's SDL
+ * states the team-metrics caps from `teamMetricsCaps.ts` (hadron-server#4848), a
+ * module with no imports of its own, so it is copied beside the exporter. OPTIONAL
+ * by design: older revisions do not have it, and a revision that needs a module
+ * this list does not name still fails loudly in the exporter (module not found).
+ */
+export const OPTIONAL_IMPORTS = ['src/lib/agentTasks/teamMetricsCaps.ts'];
+
 export const DEFAULT_REV = 'origin/main';
 
 /** A refusal the CLI prints as-is and exits non-zero on — never a stack trace. */
@@ -143,6 +152,14 @@ export function exportSdl(serverDir, sha, workRoot) {
     // node does not map .js to .ts. A one-line module bridges it; importing a
     // .ts file by its real name is what native type stripping supports.
     writeFileSync(join(work, TYPEDEFS.replace(/\.ts$/, '.js')), "export * from './typeDefs.ts';\n");
+    // typeDefs imports these by their `.js` spelling, so each gets the same bridge.
+    for (const path of OPTIONAL_IMPORTS) {
+      if (!tryGit(serverDir, ['cat-file', '-e', `${sha}:${path}`]).ok) continue;
+      const target = join(work, path);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, gitRaw(serverDir, ['show', `${sha}:${path}`]));
+      writeFileSync(join(work, path.replace(/\.ts$/, '.js')), `export * from './${path.split('/').pop()}';\n`);
+    }
 
     const run = spawnSync(process.execPath, [join(work, EXPORTER)], {
       cwd: work,
