@@ -105,7 +105,7 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
-const APPS_KINDS = ['apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
+const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
 let browser;
 const failures = [];
 try {
@@ -376,7 +376,7 @@ try {
     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
    }, { css, dark });
-   await page.evaluate(async kind => { const { mountAppsCellFixture } = await import('/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = mountAppsCellFixture(document.getElementById('fixture'), kind); }, kind);
+   await page.evaluate(async kind => { const { mountAppsCellFixture } = await import('/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await mountAppsCellFixture(document.getElementById('fixture'), kind); }, kind);
    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
    await settlePage(page);
    const legFailuresBefore = failures.length;

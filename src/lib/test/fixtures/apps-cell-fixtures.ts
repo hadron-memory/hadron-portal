@@ -1,6 +1,8 @@
 // portal#2488: the real Apps route pages, mounted with legal synthetic data, so the table-cell harness
 // measures the cells production renders and not a copy of them. No API, no app stack.
 import { mount, unmount } from 'svelte';
+import Detail from '../../../routes/app/apps/[appId]/+page.svelte';
+import { pageData } from '../../../routes/app/apps/[appId]/app-page.fixture';
 import Mine from '../../../routes/app/apps/+page.svelte';
 import Secrets from '../../../routes/app/apps/[appId]/secrets/+page.svelte';
 import Stops from '../../../routes/app/apps/[appId]/stops/+page.svelte';
@@ -8,7 +10,7 @@ import Tasks from '../../../routes/app/apps/[appId]/tasks/+page.svelte';
 import Tickers from '../../../routes/app/apps/[appId]/tickers/+page.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 
-export const APPS_CELL_KINDS = ['apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'] as const;
+export const APPS_CELL_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'] as const;
 const app = { id: 'fixture-app', name: 'Team', urn: 'hrn:app:example.test:team', organizationId: null };
 const LONG = 'a'.repeat(63) + '1';
 const at = '2026-11-01T02:04:36Z';
@@ -30,7 +32,33 @@ const ticker = (i: number) => ({
   createdAt: at, updatedAt: null, reasons: ['READ_TEAM_CHANNEL'], subscribers: { hasNextPage: false, items: [{ id: 's1' }, { id: 's2' }, { id: 's3' }] },
 });
 
-export function mountAppsCellFixture(target: HTMLElement, kind: string) {
+// The App detail page hosts three tables, one per tab. The page is mounted whole, on the tab under test, from the
+// same fixture the page's own mounted tests use, so the cells are the ones production renders.
+async function mountAppDetail(target: HTMLElement, tab: 'staff' | 'agents' | 'keys') {
+  setStubPage(`http://localhost/app/apps/a1?tab=${tab}`, { appId: 'a1' });
+  window.history.replaceState({}, '', `/app/apps/a1?tab=${tab}`);
+  const base = await pageData();
+  const agent = (i: number) => ({ id: `ag${i}`, urn: `hrn:agent:example.test:${LONG.slice(0, 40)}${i}`, name: `${LONG}${i}`.slice(0, 64), personaRole: 'writer' });
+  const worker = (i: number) => ({
+    id: `w${i}`, name: `${LONG}${i}`.slice(0, 64), urn: `hrn:worker:example.test:team:w${i}`, role: 'coordinator', retiredAt: null,
+    memoryId: `mem-${i}`, agent: { id: 'ag-coord', name: 'Coordinator', systemMemoryId: 'mem-sys' }, family: 'claude', hasLiveSession: true,
+    heldByUserId: 'u1', heldAt: at, reportsTo: { kind: 'known', id: 'w0', name: `${LONG}-reports-to`, retired: i === 2 },
+  });
+  const key = (i: number) => ({ id: `k${i}`, label: `router-${i}`, keyPreview: 'hk_ab…yz', createdAt: at, lastUsedAt: null, revokedAt: null });
+  const scopes = [{ scope: 'attention:deliver', hostId: null, grantedAt: at }, { scope: 'host:operate', hostId: `h-${LONG.slice(0, 40)}`, grantedAt: at }];
+  const data = {
+    ...base, user: { id: 'u1' }, initialTab: tab,
+    app: { ...base.app, agentId: 'ag1', agent: agent(1), agents: [1, 2, 3].map(agent), memberCount: 1, availableMemberRoles: [] },
+    staff: [1, 2, 3].map(worker), teamRoster: { kind: 'ok', byWorker: {} },
+    appKeys: { kind: 'ok', keys: [1, 2, 3].map(key) },
+    keyScopes: { kind: 'ok', byKey: { k1: scopes, k2: scopes, k3: scopes } },
+  };
+  const instance = mount(Detail as never, { target, props: { data, form: null } } as never);
+  return () => unmount(instance);
+}
+
+export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => void) | Promise<() => void> {
+  if (kind === 'apps-staff' || kind === 'apps-agents' || kind === 'apps-keys') return mountAppDetail(target, kind.slice(5) as 'staff' | 'agents' | 'keys');
   if (kind === 'apps-secrets') {
     setStubPage('http://localhost/app/apps/fixture-app/secrets', { appId: app.id });
     const instance = mount(Secrets as never, { target, props: { form: null, data: { app, secrets: { kind: 'ok', secrets, total: secrets.length }, signing: 'on', pending: [], impersonating: null } } } as never);
