@@ -173,3 +173,69 @@ describe('Agent member-roles editor (portal#1405)', () => {
     expect(t.textContent).toContain('People who already have a removed role keep it.');
   });
 });
+
+// portal#1417: the whole enhanced-form lifecycle in one run: a refused save, the correction that
+// clears the refusal, the retry that carries the corrected list, and the save that settles. Each
+// step was pinned alone; nothing pinned that they follow one another on a live form.
+describe('Agent member-roles editor: failure, correction, retry, success (portal#1417)', () => {
+  const resultFor = async (roles: string[], message: { type: 'error' | 'success'; text: string }) => {
+    const f = await superValidate({ roles }, zod4(updateAgentMemberRolesSchema), { errors: false, id: 'updateMemberRoles' });
+    f.message = message;
+    return f;
+  };
+  const alert = (t: HTMLElement) => t.querySelector('[role="alert"]');
+
+  it('a refusal clears on the correction, the retry posts the corrected list, and the save settles', async () => {
+    const props = reactiveProps({
+      canManage: true,
+      roles: ['owner', 'member'],
+      initial: await superValidate({ roles: ['owner', 'member'] }, zod4(updateAgentMemberRolesSchema), { errors: false, id: 'updateMemberRoles' }),
+    });
+    const m = mountComponent(AgentMemberRolesEditor as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const t = m.target;
+
+    // 1. Failure: the server refuses the list the person built.
+    await type(t, 'reviewer');
+    addButton(t)!.click();
+    await tick(2);
+    expect(posted(t)).toEqual(['owner', 'member', 'reviewer']);
+    await submitEnhancedWithResult(form(t)!, {
+      type: 'failure', status: 400, data: { form: await resultFor(['owner', 'member', 'reviewer'], { type: 'error', text: 'Could not save the roles.' }) },
+    });
+    await tick(3);
+    expect(alert(t)?.textContent).toContain('Could not save the roles.');
+    // The refused edit is still on the form: the person's work was not thrown away.
+    expect(posted(t)).toEqual(['owner', 'member', 'reviewer']);
+    expect(save(t)!.disabled).toBe(false);
+
+    // 2. Correction: editing the list takes the stale refusal away.
+    removeButton(t, 'reviewer')!.click();
+    await tick(3);
+    await type(t, 'auditor');
+    addButton(t)!.click();
+    await tick(3);
+    expect(alert(t)).toBeNull();
+    expect(posted(t)).toEqual(['owner', 'member', 'auditor']);
+
+    // 3. Retry: the corrected list is what goes out, and it is refused again for a different reason.
+    await submitEnhancedWithResult(form(t)!, {
+      type: 'failure', status: 400, data: { form: await resultFor(['owner', 'member', 'auditor'], { type: 'error', text: 'Try again in a moment.' }) },
+    });
+    await tick(3);
+    expect(alert(t)?.textContent).toContain('Try again in a moment.');
+    expect(alert(t)?.textContent).not.toContain('Could not save the roles.');
+
+    // 4. Success: the server saves, the page re-reads the Agent, and the form settles on the saved list.
+    props.roles = ['owner', 'member', 'auditor'];
+    await submitEnhancedWithResult(form(t)!, {
+      type: 'success', status: 200, data: { form: await resultFor(['owner', 'member', 'auditor'], { type: 'success', text: 'Roles saved.' }) },
+    });
+    await tick(3);
+    expect(alert(t)).toBeNull();
+    expect(t.textContent).toContain('Roles saved.');
+    expect(posted(t)).toEqual(['owner', 'member', 'auditor']);
+    expect(save(t)!.disabled).toBe(true);
+  });
+});
