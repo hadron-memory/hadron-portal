@@ -52,7 +52,7 @@ export function rosterStateLabel(state: string): string {
   }
 }
 
-const CHIP = 'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap';
+const CHIP = 'inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-xs font-medium [overflow-wrap:anywhere]';
 
 /** Tone is a second cue; the label always carries the state. */
 export function rosterStateChipClass(state: string): string {

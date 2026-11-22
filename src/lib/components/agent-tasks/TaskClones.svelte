@@ -129,7 +129,7 @@
     <div class="min-w-0">
       <DataTable {table} listKey="task-clones" searchPlaceholder={t('app.tasks.clones.search', 'Filter loaded clones…')} searchAriaLabel={t('app.tasks.clones.search', 'Filter loaded clones…')} bounded>
         {#snippet cell(cell, row)}
-          {#if cell.column.id === 'title'}<a href={taskHref(basePath, row)} class="text-indigo-700 underline dark:text-indigo-300">{row.title}</a>
+          {#if cell.column.id === 'title'}<a href={taskHref(basePath, row)} class="text-indigo-700 underline [overflow-wrap:anywhere] dark:text-indigo-300">{row.title}</a>
           {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />
           {:else}{String(cell.getValue() ?? '')}{/if}
         {/snippet}
