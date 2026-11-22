@@ -1,6 +1,8 @@
 /**
  * The `teamMetrics` answer as the server returns it (hadron-server#4848,
- * `hrn:node:hadronmemory.com:specs:cor:agt:150`, Proposed). The portal computes nothing from it: every figure on
+ * `hrn:node:hadronmemory.com:specs:cor:agt:150`, Proposed). The field is on hadron-server main: server PR #4848
+ * merged as `8bc5e0cc`, and the committed schema snapshot is exported from `origin/main` (see its first line).
+ * The portal computes nothing from it: every figure on
  * the page is a field here (portal#1856).
  */
 export type MetricsCount = { total: number; ids: string[]; truncated: boolean };

@@ -1,4 +1,4 @@
-# Exported from hadron-server 9689e8a6eacf4bc6bf88aa4ce451d421be2a7040 (9689e8a6eacf4bc6bf88aa4ce451d421be2a7040, 2026-11-22T16:51:54Z) by pnpm gql:schema — do not edit.
+# Exported from hadron-server d26bd1c4145e65ceddf51e44995320654dc0c569 (origin/main, 2026-11-22T19:08:50Z) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -3070,6 +3070,18 @@ type AppRunsPage {
 """
 type AppScopedMemory {
   class: MemoryClass!
+
+  """
+  #4890: the memory's description, carried only where THIS caller could read
+  it through Memory.description — the record gate (canReadMemoryRecord) that
+  Query.memory applies, reused, never the row's own admission. Null when the
+  record gate would refuse the caller; the row is still listed, only the
+  description is withheld. The memory record is never enciphered
+  (hrn:node:hadronmemory.com:specs:cor:sec:040:03 enciphers node content
+  only), so an encrypted memory's description is carried with no key in
+  play, exactly as Memory.description serves it.
+  """
+  description: String
   memoryId: ID!
   memoryUrn: String!
   name: String!
@@ -7753,7 +7765,9 @@ type Memory {
 
   """
   Spec 033 FR-026 — timestamp at which the memory owner accepted the
-  encrypted-memory vector-inversion disclosure. Set when the caller
+  encrypted-memory vector disclosure (plaintext vectors and, when the index
+  includes content passages, the verbatim chunk text stored unencrypted in
+  node_embeddings.chunk_text; #433). Set when the caller
   passes acknowledgeVectorInversionRisk: true on updateMemory for an
   isEncrypted: true memory enabling vectorIndexEnabled for the first
   time. The portal surfaces this readback so the user can confirm
@@ -12527,7 +12541,10 @@ type Mutation {
   requires `acknowledgeVectorInversionRisk: true` in the same call. Without
   the flag, an `EncryptedVectorIndexNotAcknowledgedError` is thrown carrying
   the full four-point disclosure on `error.disclosure` (single source of
-  truth in `FR_026_DISCLOSURE` — see `src/lib/entityRef/errors.ts`). On a
+  truth in `FR_026_DISCLOSURE` — see `src/lib/entityRef/errors.ts`). The
+  disclosure states that the vectors are stored unencrypted and, when the
+  index includes content passages, that the verbatim chunk text is stored
+  unencrypted too, and that revoking removes both. On a
   non-encrypted memory the flag is a no-op.
   """
   updateMemory(acknowledgeVectorInversionRisk: Boolean, category0: String, category1: String, category2: String, chunkOverlap: Int, chunkTokens: Int, data: JSON, description: String, embeddingSource: EmbeddingSource, forceFixedSize: Boolean, heroUrl: String, homeUrl: String, iconUrl: String, license: String, listedOnMarketplace: Boolean, maxRevCount: Int, name: String, orgRef: ID, readBranch: String, ref: ID!, schema: JSON, shortDescription: String, source: String, tags: [String!], urn: String, vectorIndexEnabled: Boolean, visibility: MemoryVisibility, writeBranch: String): Memory!
