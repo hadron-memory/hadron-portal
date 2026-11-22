@@ -1171,6 +1171,9 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
       return ths.length === visible.length && heads.every(h => ths.some(th => th.textContent.includes(h)));
      });
      if (!table) return null;
+     // Clear every earlier mark first (blind delta 3, #2515): a mark left on another table would make
+     // querySelector('[data-lib-rows-table]') read the wrong table and pass for the wrong reason.
+     for (const old of document.querySelectorAll('[data-lib-rows-table]')) old.removeAttribute('data-lib-rows-table');
      table.setAttribute('data-lib-rows-table', '');
      return { ids: visible.map(c => c.id) };
     }, ids);
@@ -1231,7 +1234,26 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
         const index = cols.indexOf(id);
         return index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map(row => row.cells[index]).filter(td => td && td.colSpan === 1 && /\d/.test(td.textContent));
        };
-       const before = Object.fromEntries(ids.map(id => [id, Math.min(...datedCells(id).map(td => td.getBoundingClientRect().width))]));
+       // Lines of text inside a cell: the distinct line tops of its characters. The cell's own height cannot say
+       // (a row is as tall as its tallest cell), so the text is measured directly.
+       const linesIn = td => {
+        const tops = new Set();
+        const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+        const range = document.createRange();
+        for (let n; (n = walker.nextNode());) {
+         for (let i = 0; i < n.textContent.length; i++) {
+          if (/\s/.test(n.textContent[i])) continue;
+          range.setStart(n, i); range.setEnd(n, i + 1);
+          const rect = range.getClientRects()[0];
+          if (rect) tops.add(Math.round(rect.top / 2));
+         }
+        }
+        return tops.size;
+       };
+       // Before narrowing, each dated cell's width and line count: the narrowed cell must be narrower AND have
+       // WRAPPED onto more lines, because a cell that only shrank proves nothing about whether tokens were split.
+       const before = new Map();
+       for (const id of ids) for (const td of datedCells(id)) before.set(td, { width: td.getBoundingClientRect().width, lines: linesIn(td) });
        t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, ids.includes(c.id) ? NARROW : (c.columnDef.size ?? 150)])));
        // Split detector: two characters of ONE whitespace-delimited token on different lines.
        const splitsIn = root => {
@@ -1258,8 +1280,11 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
          const cells = datedCells(id);
          if (!cells.length) { result.missing.push(id); continue; }
          for (const td of cells) {
-          const width = td.getBoundingClientRect().width;
-          if (!(width < before[id] - 10)) result.wide.push(`${id}: ${Math.round(width)}px, was ${Math.round(before[id])}px`);
+          const r = td.getBoundingClientRect(), was = before.get(td);
+          if (!was) { result.wide.push(`${id}: a cell appeared after narrowing`); continue; }
+          if (!(r.width < was.width - 10)) result.wide.push(`${id}: ${Math.round(r.width)}px, was ${Math.round(was.width)}px`);
+          const lines = linesIn(td);
+          if (!(lines > was.lines)) result.wide.push(`${id}: did not wrap, ${lines} lines, was ${was.lines}`);
           for (const x of splitsIn(td)) result.broken.push(`${id}: ${x}`);
          }
         }
