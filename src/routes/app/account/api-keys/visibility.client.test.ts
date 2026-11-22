@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -56,6 +56,7 @@ it('submits the picked id and explicit boolean, blocks duplicate submits while p
 it('submits hidden=false with the hidden row id from the Unhide form', async () => {
   const root = await mount();
   const submit = vi.spyOn(HTMLFormElement.prototype,'requestSubmit').mockImplementation(()=>{});
+  onTestFinished(() => submit.mockRestore());
   const items = await menu(root,'hidden');
   const unhide = items.find(i => i.textContent?.trim() === 'Unhide');
   expect(unhide).toBeDefined();
