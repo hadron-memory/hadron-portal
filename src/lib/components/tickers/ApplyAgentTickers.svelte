@@ -288,7 +288,10 @@
                     <span class="break-words">{row.c.templateName}</span>
                   {:else if cell.column.id === 'every'}
                     {@const label = floorLabel(row.c.effectiveCadenceSeconds, floorSeconds)}
-                    <span class="whitespace-nowrap">{cadenceText(row.c.effectiveCadenceSeconds)}{#if label}&nbsp;({label}){/if}</span>
+                    <!-- portal#2489 (remedy a of the #1962 audit): nowrap plus the non-breaking space
+                         painted "(the App’s floor)" past the 140px Every column. A plain space and
+                         normal wrapping keep the whole value visible in the cell. -->
+                    <span data-testid="wake-apply-every">{cadenceText(row.c.effectiveCadenceSeconds)}{#if label} ({label}){/if}</span>
                   {/if}
                 {/snippet}
               </DataTable>

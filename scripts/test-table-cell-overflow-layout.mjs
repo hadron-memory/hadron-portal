@@ -24,10 +24,13 @@ const patchSource = (code, id, from, to, required = true) => {
 const assertPatched = () => assert.deepEqual(patchFailures, [], 'every fixture source patch matched');
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
  name: 'table-cell-fixture', enforce: 'pre', transform(code, id) {
-  if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) {
-   // Every one of the three imports $app/navigation; only TasksAlarms also imports $app/stores.
+  if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager|ApplyAgentTickers)\.svelte$/.test(id)) {
+   // Every one of the four imports $app/navigation; only TasksAlarms also imports $app/stores, and
+   // only ApplyAgentTickers (mounted by the wake fixture's WakeUpsPanel) imports $app/forms — its
+   // enhance is stubbed inert: the wake legs assert layout, never a submit.
    const navigated = patchSource(code, id, "from '$app/navigation'", "from '$lib/test/stubs/app-navigation'");
-   const patched = patchSource(navigated, id, "from '$app/stores'", "from '$lib/test/stubs/app-stores'", id.endsWith('/TasksAlarms.svelte'));
+   const formed = patchSource(navigated, id, "from '$app/forms'", "from '$lib/test/stubs/app-forms'", id.endsWith('/ApplyAgentTickers.svelte'));
+   const patched = patchSource(formed, id, "from '$app/stores'", "from '$lib/test/stubs/app-stores'", id.endsWith('/TasksAlarms.svelte'));
    // Any other $app/ import (a type import, a new store) would run unstubbed.
    if (/from ['"]\$app\//.test(patched)) patchFailure(`table-cell-fixture: an $app/ import is left unpatched in ${id}`);
    return patched;
@@ -111,7 +114,7 @@ try {
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
- for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings')) {
+ for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings' && k !== 'wake')) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -351,6 +354,91 @@ try {
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
    // The success line only prints for a leg that queued nothing.
    if (failures.length === legFailuresBefore) console.log(`${leg}: severity and text inside their cells (both axes); negative control detected`, clean);
+   else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
+  } catch (e) {
+   if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
+   throw e;
+  } finally { await page.close(); }
+ }
+ // portal#2489 (#1962 audit, slice 3): the worker-wake panels' two pinned cells — the apply receipt's
+ // Every (cadence plus the App's-floor label, worker-wake:apply-created) and the subscriptions' Since
+ // (a full fmtRunTime timestamp, worker-wake:subscriptions) — keep their content inside their cell with
+ // the full value reachable: the floor label wraps in place (remedy a), the timestamp ellipsizes as a
+ // block with its full value in the title (remedy b, the quiet cell's own shape). The oracle is the
+ // td-level one the sizing legs use (glyph boxes of UNCLIPPED text), because an ellipsized cell is
+ // contained by its own overflow — so the nowrap control strips overflow too, proving the oracle can
+ // still see this defect class rather than passing against it.
+ if (!env.cellKind || env.cellKind === 'wake') for (const width of widths) for (const dark of [false, true]) {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  const leg = `wake/${width}/${dark ? 'dark' : 'light'}`;
+  const flagged = x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length > 0);
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async () => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), 'wake'); });
+   await page.locator('[data-testid="wake-since"]').first().waitFor({ timeout: 10000 });
+   const legFailuresBefore = failures.length;
+   await settlePage(page);
+   // Per pinned cell: the owning td's geometry (unclipped glyph boxes and scroll vs client), plus the
+   // reachability facts the acceptance names — the truncated timestamp's title, the wrapped label's text.
+   const cellState = () => page.locator('[data-testid="wake-since"], [data-testid="wake-apply-every"]').evaluateAll(fields => fields.map(f => {
+    const td = f.closest('td'); const rect = td.getBoundingClientRect();
+    const badGlyphs = [];
+    const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode());) {
+     if (!n.textContent.trim()) continue;
+     let clipped = false;
+     for (let a = n.parentElement; a && a !== td; a = a.parentElement) {
+      const st = getComputedStyle(a);
+      if (st.textOverflow === 'ellipsis' || st.position === 'absolute' || st.position === 'fixed' || st.overflow === 'hidden') clipped = true;
+     }
+     if (clipped) continue;
+     const range = document.createRange(); range.selectNodeContents(n);
+     for (const r of range.getClientRects()) if (r.left < rect.left - .5 || r.right > rect.right + .5) badGlyphs.push(n.textContent.slice(0, 40));
+    }
+    return { field: f.dataset.testid, width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs, title: f.getAttribute('title'), text: f.textContent.trim() };
+   }));
+   const clean = await cellState();
+   if (clean.length !== 2) failures.push(`${leg}: both pinned cells must render ${JSON.stringify(clean)}`);
+   else {
+    const out = clean.filter(flagged);
+    if (out.length) failures.push(`${leg}: worker-wake cell escapes its cell ${JSON.stringify(out)}`);
+    const since = clean.find(x => x.field === 'wake-since');
+    if (!since || since.title !== since.text) failures.push(`${leg}: Since keeps its full value in a title ${JSON.stringify(since)}`);
+    const every = clean.find(x => x.field === 'wake-apply-every');
+    // The wrap remedy, not a hidden one: nothing between the Every field and its td may clip or ellipsize.
+    const everyClipped = await page.locator('[data-testid="wake-apply-every"]').evaluate(el => {
+     for (let a = el; a && a.tagName !== 'TD'; a = a.parentElement) { const st = getComputedStyle(a); if (st.textOverflow === 'ellipsis' || st.overflow === 'hidden') return true; }
+     return false;
+    });
+    if (!every || everyClipped || !every.text.includes('(')) failures.push(`${leg}: the floor label stays visible and wrapped in Every ${JSON.stringify(every)}`);
+   }
+   // Where the audit's default-size geometry binds — the table's own scroller scrolls, so columns hold
+   // their declared sizes (a wider container spreads surplus and these cells fit by construction,
+   // DataTable.svelte's max(100%, total) width model) — force the repaired cells back to uncontained
+   // nowrap: the oracle must flag BOTH, or it cannot see this defect class.
+   const binds = await page.locator('[data-testid="wake-since"], [data-testid="wake-apply-every"]').evaluateAll(fields => fields.some(f => { const s = f.closest('[data-testid="data-table-scroller"]'); return s.scrollWidth > s.clientWidth + 1; }));
+   if (binds) {
+    const control = await page.addStyleTag({ content: '[data-testid="wake-since"], [data-testid="wake-apply-every"] { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important }' });
+    await settlePage(page);
+    const dirty = (await cellState()).filter(flagged);
+    if (dirty.length !== 2) failures.push(`${leg}: nowrap control must flag both pinned cells ${JSON.stringify(dirty)}`);
+    await control.evaluate(el => el.remove()); await settlePage(page);
+    if ((await cellState()).some(flagged)) failures.push(`${leg}: nowrap control left escapes behind`);
+   }
+   if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+   if (failures.length === legFailuresBefore) console.log(`${leg}: every and since inside their cells, values reachable${binds ? '; nowrap control flags both' : ' (widened geometry: declared sizes do not bind, control skipped)'}`, clean);
    else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
   } catch (e) {
    if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
