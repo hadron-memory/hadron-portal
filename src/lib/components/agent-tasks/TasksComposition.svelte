@@ -187,7 +187,7 @@
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'coordinator'}
-              <span class="inline-flex flex-wrap items-center gap-1">
+              <span class="inline-flex max-w-full min-w-0 flex-wrap items-center gap-1">
                 {#if row.lane.coordinator}
                   <PartyLabel party={row.lane.coordinator} />
                   {#if row.lane.coordinatorRetired}<span class="text-xs text-zinc-500 dark:text-zinc-400">{retired()}</span>{/if}
@@ -228,7 +228,7 @@
             {#if cell.column.id === 'worker'}
               <PartyLabel party={row.member.worker} />
             {:else if cell.column.id === 'coordinator'}
-              <span class="inline-flex flex-wrap items-center gap-1">
+              <span class="inline-flex max-w-full min-w-0 flex-wrap items-center gap-1">
                 {#if row.lane.coordinator}
                   <PartyLabel party={row.lane.coordinator} showUrn={false} />
                   {#if row.lane.coordinatorRetired}<span class="text-xs text-zinc-500 dark:text-zinc-400">{retired()}</span>{/if}
@@ -239,7 +239,7 @@
             {:else if cell.column.id === 'state'}
               <span class={rosterStateChipClass(row.member.state)} data-roster-state={row.member.state}>{rosterStateLabel(row.member.state)}</span>
             {:else}
-              <span class="block max-w-full truncate">{cell.getValue()}</span>
+              <span class="block max-w-full truncate" title={String(cell.getValue() ?? '')}>{cell.getValue()}</span>
             {/if}
           {/snippet}
         </DataTable>

@@ -239,6 +239,9 @@ jobs:
       - name: Check App Keys tab layout (Generate Key centering, table width)
         run: pnpm test:app-keys-layout
 
+      - name: Check memory share Shared-by cell containment (portal#2509)
+        run: pnpm test:memory-shares-granted-by-layout
+
       - name: Check disabled AI config row menu pointer access
         run: pnpm test:ai-config-row-menu
 

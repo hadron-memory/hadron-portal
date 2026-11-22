@@ -37,7 +37,7 @@
         {#if cell.column.id === 'name'}
           <a href="/app/memories/{memory.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{memory.name}</a>
           <div class="mt-1"><Urn value={memory.urn} type="memory" size={10} /></div>
-        {:else}{memory.description ?? '—'}{/if}
+        {:else}{memory.description?.trim() ? memory.description : '—'}{/if}
       {/snippet}
     </DataTable>
   {/if}

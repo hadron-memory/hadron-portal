@@ -6,6 +6,8 @@
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
+  import SaturationAlarmWakeRoles from './SaturationAlarmWakeRoles.svelte';
+  import { wakeRolesCanManage } from './wake-roles-can-manage';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   // portal#2205: the delete dialog is shared with the worker's own page, so it
@@ -156,7 +158,7 @@
   import { DEFAULT_TAB, READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
-  import { workerHold } from '$lib/worker-hold';
+  import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, chatFullViewFromParams, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
@@ -458,8 +460,9 @@
     // readable only by whoever manages the App, so the column exists only when
     // the server answered the scopes read; for anyone else it isn't there at
     // all, never an empty chip. Read-only: giving and taking back scopes is S7b.
+    // Size 200: the chips wrap (break-all) inside the cell, and the old 90 made every scope a tall one-word column (portal#2488).
     ...(untrack(() => tabData.keyScopes?.kind === 'ok')
-      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 90 } satisfies PortalColumnDef<AppKey>]
+      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 200 } satisfies PortalColumnDef<AppKey>]
       : []),
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
@@ -769,8 +772,8 @@
           // stale projection whose row does not disclose a holder.
           const hold = workerHold(worker, data.user?.id);
           if (hold.kind !== 'self' && hold.kind !== 'other') return '';
-          const holder = rosterEntry(worker.id)?.heldBy;
-          return holder ? `${holder.name ?? holder.handle ?? ''} ${holder.urn ?? ''}` : '';
+          const holder = holderForHold(hold, rosterEntry(worker.id)?.heldBy);
+          return holder ? `${holderLabel(holder) ?? ''} ${holder.urn ?? ''}` : '';
         },
         terminal: (row: Worker) => (row as (typeof staffRows)[number]).terminalAgeSearch,
       },
@@ -3080,9 +3083,9 @@
     </LiveRegion>
     <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
-      <!-- portal#2376: the region is a flex item of this gap row, so while empty it is
-           out of flow (empty:absolute) and adds no gap; populated, it is the item the span was. -->
-      <LiveRegion class="empty:absolute">
+      <!-- portal#2376, portal#2454: the region is a flex item of this gap row, so while empty it is
+           out of flow (idle:absolute, never empty:absolute: a whitespace text node breaks :empty, portal#2394) and adds no gap; populated, it is the item the span was. -->
+      <LiveRegion class="idle:absolute">
       {#if tabData.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
              selector says so rather than quietly showing a shorter list. -->
@@ -3962,10 +3965,10 @@
                    (`hold.kind`) with no holder falls back to the unnamed line,
                    never a guess. `name` is null both withheld and unset, so the
                    handle stands in. -->
-              {@const holder = rosterEntry(worker.id)?.heldBy ?? null}
+              {@const holder = holderForHold(hold, rosterEntry(worker.id)?.heldBy)}
               {#if hold.kind === 'self'}
                 <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                  {holder?.name ?? holder?.handle ?? t('app.staff.held.you', 'Your name — held by you')}
+                  {holderLabel(holder) ?? t('app.staff.held.you', 'Your name — held by you')}
                   {#if hold.since}
                     <span class="font-normal text-zinc-500">· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span>
                   {/if}
@@ -3976,7 +3979,7 @@
               {:else if hold.kind === 'other'}
                 <span class="text-xs text-zinc-500">
                   {#if holder}
-                    {holder.name ?? holder.handle ?? t('app.staff.held.other', 'Held by another member')}
+                    {holderLabel(holder) ?? t('app.staff.held.other', 'Held by another member')}
                   {:else}
                     {t('app.staff.held.other', 'Held by another member')}
                   {/if}
@@ -3997,7 +4000,7 @@
                    claim is what a reader of the roster needs to see. -->
               {@const rt = reportsToOf(worker, staffById)}
               {#if rt.kind === 'known'}
-                <span class="truncate text-xs">
+                <span class="block max-w-full truncate text-xs" title={rt.name ?? undefined}>
                   <a href="/app/workers/{rt.id}" class="text-indigo-600 hover:underline dark:text-indigo-400"
                     >{rt.name ?? t('app.staff.reports-to.unnamed', 'Another worker')}</a
                   >{#if rt.retired}{' '}<span class="text-zinc-500">{t('app.staff.reports-to.retired', '(retired)')}</span>{/if}
@@ -4094,7 +4097,7 @@
           {#snippet cell(cell, agent)}
             {#if cell.column.id === 'name'}
               <div class="min-w-0">
-                <a href="/app/agents/{agent.id}" class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white">{agent.name}</a>
+                <a href="/app/agents/{agent.id}" class="block max-w-full truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white" title={agent.name}>{agent.name}</a>
                 {#if agent.urn}
                   <Urn value={agent.urn} type="agent" size={8} />
                 {/if}
@@ -4312,6 +4315,7 @@
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
+    <h3 id="app-memory-nodes-title" class="mb-2 mt-6 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.memory-node.title', 'Memory nodes')}</h3>
     <MemoryBrowser
       nodes={tabData.appNodes ?? []}
       multiMemory={true}
@@ -4322,8 +4326,12 @@
     />
     {#if data.createMemoryForm && tabData.canCreateMemory === true}
       {#key app.id}
-        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} /></div>
+        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} hasAgent={installedAgents.length > 0} /></div>
       {/key}
+    {:else if data.createMemoryForm && tabData.canCreateMemory === false}
+      <!-- portal#1391: display only. It states no role or membership and no authorization rule the server did not
+           state; the server's createAppMemory gate stays the authority. -->
+      <p data-testid="app-memory-create-unavailable" class="mt-6 text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.create-unavailable', 'Adding a memory isn’t available to you here.')}</p>
     {/if}
     </div>
   {/if}
@@ -4427,7 +4435,7 @@
                 {:else}
                   <span class="flex flex-wrap gap-1" data-testid="key-scopes">
                     {#each scopes as sc (scopeLabel(sc))}
-                      <span class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{scopeLabel(sc)}</span>
+                      <span class="max-w-full break-all rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{scopeLabel(sc)}</span>
                     {/each}
                   </span>
                 {/if}
@@ -4830,6 +4838,14 @@
           />
         {/key}
       {/if}
+
+      <!-- portal#2464: the roles this App's saturation alarms wake. Keyed on the App, so a draft never follows the person to another App. -->
+      {#key app.id}
+        <SaturationAlarmWakeRoles
+          read={tabData.saturationWakeRoles ?? null}
+          canManage={wakeRolesCanManage(data.viewerManages, impersonating)}
+        />
+      {/key}
 
       <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
       <section class="max-w-4xl">

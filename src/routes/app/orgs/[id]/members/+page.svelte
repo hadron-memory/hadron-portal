@@ -77,7 +77,8 @@
   const columns: PortalColumnDef<OrgMember>[] = [
     { accessorFn: memberName, id: 'name', header: t('org-members.column.name', 'Member'), enableHiding: false, size: 280 }, // identity column (name + URN)
     { accessorFn: (m) => m.user.email ?? '', id: 'email', header: t('org-members.column.email', 'Email'), size: 240 },
-    { accessorKey: 'role', header: t('org-members.column.role', 'Role'), size: 150 },
+    // minSize: the native role <select> is about 144px wide, plus the cell's 32px of padding (#2491).
+    { accessorKey: 'role', header: t('org-members.column.role', 'Role'), size: 176, minSize: 176 },
     { id: 'actions', header: t('org-members.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
 

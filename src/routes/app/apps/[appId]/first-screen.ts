@@ -35,6 +35,7 @@ export const READ_GROUP_KEYS = {
   ],
   chatConfigs: ['chatConfigs', 'aiChoices'],
   chatbotConfig: ['chatbotAiConfig'],
+  wakeRoles: ['saturationWakeRoles'],
   worklog: ['worklog', 'worklogTotal', 'worklogPage', 'worklogError', 'worklogFilters'],
   members: ['members', 'membersError', 'membersWithheld'],
   availableAgents: ['availableAgents', 'availableAgentsError', 'subscribedAgentsError'],
@@ -68,7 +69,7 @@ export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
   memory: ['appNodes', 'memoryScope', 'appMemories', 'canManage'],
   keys: ['appKeys', 'keyScopes'],
   'ai-configs': ['aiConfigs'],
-  settings: ['staff', 'chatbotConfig', 'chatConfigs', 'canManage', 'memoryScope'],
+  settings: ['staff', 'chatbotConfig', 'wakeRoles', 'chatConfigs', 'canManage', 'memoryScope'],
   'node-role-templates': ['templates'],
   // The Client tab's plugin grid (canManage) and its key status (appKeys).
   client: ['canManage', 'appKeys'],

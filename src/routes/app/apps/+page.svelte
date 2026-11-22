@@ -85,7 +85,7 @@
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
-          <a href="/app/apps/{row.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
+          <a href="/app/apps/{row.id}" class="block max-w-full truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={row.name}>{row.name}</a>
         {:else if cell.column.id === 'urn'}
           <Urn value={row.urn} type="app" size={8} />
         {:else if cell.column.id === 'agent'}

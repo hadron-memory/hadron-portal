@@ -1886,6 +1886,8 @@ const PROVENANCE_FIELDS = /* GraphQL */ `
   fragment NodeContentValidationFields on NodeContentValidationStatus {
     state
     latestReport {
+      # authorCheck: hadron-server#1332 (closed), already in schema/schema.graphql; null on a report recorded before it.
+      authorCheck
       nodeRevision
       validationTaskRef
       validationTaskRevision
@@ -5820,7 +5822,6 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
         pausedUntil
         currentTask { id title status }
         heldBy { id handle urn name }
-        heldAt
         # portal#1492: state, reason and age only — never the host label or prompt.
         terminal { status reason checkedAt }
       }
@@ -6304,5 +6305,23 @@ export const WITHDRAW_QUESTION_MUTATION = /* GraphQL */ `
   ${QUESTION_CARD_FIELDS}
   mutation WithdrawQuestion($ref: ID!, $reason: String!, $expectedRevision: Int!) {
     withdrawQuestion(ref: $ref, reason: $reason, expectedRevision: $expectedRevision) { ...QuestionCardFields }
+  }
+`;
+
+/**
+ * portal#2464 (hadron-server#4777, hrn:node:hadronmemory.com:specs:cor:agt:060:16): the roles the App's
+ * saturation alarms wake. Its own query, never APP_QUERY, so a refusal or a failed read costs this setting
+ * alone. Readers are whoever may read the App's roster; anyone else gets APP_NOT_FOUND.
+ */
+export const APP_SATURATION_ALARM_WAKE_ROLES_QUERY = /* GraphQL */ `
+  query AppSaturationAlarmWakeRoles($appRef: ID!) {
+    saturationAlarmWakeRoles(appRef: $appRef) { appId roles }
+  }
+`;
+
+/** portal#2464: set the WHOLE list (the empty list clears it). Whoever manages the App. */
+export const SET_SATURATION_ALARM_WAKE_ROLES_MUTATION = /* GraphQL */ `
+  mutation SetSaturationAlarmWakeRoles($appRef: ID!, $roles: [String!]!) {
+    setSaturationAlarmWakeRoles(appRef: $appRef, roles: $roles) { appId roles }
   }
 `;

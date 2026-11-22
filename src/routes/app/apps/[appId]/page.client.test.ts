@@ -404,6 +404,67 @@ describe('Worker agents tab (#1009)', () => {
     expect(names(target)).toEqual([]);
   });
 
+  // portal#1330 — the hold (Worker.heldByUserId) and the holder (roster heldBy) are two reads. A holder whose
+  // id is not the hold's is another read's person: it must neither render nor match a search.
+  it.each(['self', 'other'])('ignores a %s-hold roster holder whose id is not the hold\'s (#1330)', async (kind) => {
+    const target = await mountStaff([worker({ heldByUserId: kind === 'self' ? 'u1' : 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u-other-read', name: 'Wrong Person', handle: 'wrong-person', urn: 'hrn:user:acme.com:wrong-person',
+      } }) },
+    });
+    const text = columnTexts(target, 'Name held by')[0];
+    expect(text).not.toContain('Wrong Person');
+    expect(text).toContain(kind === 'self' ? 'Your name — held by you' : 'Held by another member');
+    expect(target.querySelector('[title="hrn:user:acme.com:wrong-person"]')).toBeNull();
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    for (const q of ['Wrong Person', 'wrong-person', 'hrn:user:acme.com:wrong-person']) {
+      search.value = q;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(2);
+      expect(names(target)).toEqual([]);
+    }
+  });
+
+  it('keeps the self + masked fallback: "held by you", no URN (#1330)', async () => {
+    const target = await mountStaff([worker({ heldByUserId: 'u1' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: null }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Your name — held by you');
+    expect(target.querySelector('tbody tr [title^="hrn:user:"]')).toBeNull();
+  });
+
+  // portal#1330 BLIND P3: the search text must never carry the cell's fallback copy. A matching holder with no
+  // name or handle (only a URN) renders a fallback line, which is not holder identity and not searchable.
+  it.each(['self', 'other'])('does not search the %s fallback copy of a nameless holder (#1330)', async (kind) => {
+    const id = kind === 'self' ? 'u1' : 'u9';
+    const target = await mountStaff([worker({ heldByUserId: id })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: { id, name: null, handle: null, urn: 'hrn:user:acme.com:sample-holder' } }) },
+    });
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    for (const q of ['held by you', 'Your name', 'held by another']) {
+      search.value = q;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(2);
+      expect(names(target)).toEqual([]);
+    }
+    search.value = 'sample-holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual(['Ada']);
+  });
+
+  it('falls back to the handle, in the cell and in search, when the holder name is empty (#1330)', async () => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: { id: 'u9', name: '', handle: 'sample-handle', urn: null } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('sample-handle');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'sample-handle';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual(['Ada']);
+  });
+
   it.each([null, undefined])('does not search an undisclosed holder projection (#1168)', async (heldByUserId) => {
     const target = await mountStaff([worker({ heldByUserId })], {
       kind: 'ok', byWorker: { w1: entry({ heldBy: {
@@ -2193,7 +2254,7 @@ describe('withheld App rosters (portal#1148)', () => {
   });
 
   it('Human Team: withheld members say so — not "No members yet.", not a failed fetch, no count, no add form', async () => {
-    const panel = await mountTab('members', { agent: { id: 'ag1', name: 'Coordinator', installationPolicy: { maxMembers: 'unlimited', memberRoles: ['member'] } }, agents: [agent] }, { members: [], membersError: false, membersWithheld: true });
+    const panel = await mountTab('members', { agent: { id: 'ag1', urn: 'hrn:agent:acme.com:coordinator', name: 'Coordinator', installationPolicy: { maxMembers: 'unlimited', memberRoles: ['member'] } }, agents: [agent] }, { members: [], membersError: false, membersWithheld: true });
     expect(panel.textContent).toContain('The members of this App aren’t visible to you.');
     expect(panel.textContent).not.toContain('No members yet.');
     expect(panel.textContent).not.toContain('could not be loaded');
@@ -3208,21 +3269,60 @@ describe('Cast role follows the selected Agent (#1319)', () => {
 });
 
 describe('creating a new App memory (#487)', () => {
-  async function memoryPage(role: string, installed = true) {
+  // Every case resets the stub page itself (portal#1391): no case leans on the one a sibling left behind.
+  async function memoryPage(role: string, installed = true, members: { role: string; user: { id: string } }[] | null = [{ role, user: { id: 'u1' } }]) {
+    setStubPage('http://localhost/app/apps/a1?tab=memory', { appId: 'a1' });
     const data = await pageData();
-    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members:[{role,user:{id:'u1'}}] }, app: {...data.app, organizationId:'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
+    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: members === null ? null : { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members }, app: {...data.app, organizationId: members === null ? null : 'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
   }
+  const mountPage = async (data: unknown) => { const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();return m; };
   it.each(['OWNER','ADMIN'])('offers creation for an org %s with an installed Agent', async role => {
-    setStubPage('http://localhost/app/apps/a1?tab=memory', {appId:'a1'});
-    const m=mountComponent(Page as never,{data:await memoryPage(role),form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    const m=await mountPage(await memoryPage(role));
     expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
     expect(m.target.textContent).toContain('Project notes');
     expect(m.target.querySelector('[title="hrn:mem:acme.com:notes"]')).not.toBeNull();
     expect(m.target.querySelector('select[name=memoryClass],input[name=memoryRef]')).toBeNull();
   });
   it.each(['CONTRIBUTOR','READER'])('hides creation from org %s even if App.role says OWNER',async role=>{
-    const data=await memoryPage(role);const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    const m=await mountPage(await memoryPage(role));
     expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+  // portal#1391: say what is needed before an attempt, from the install fact the page has (app.agents), not a first-Agent summary.
+  it('says an Agent must be installed before the form is tried, when none is', async () => {
+    const m=await mountPage(await memoryPage('OWNER', false));
+    const note=m.target.querySelector('[data-testid="app-memory-needs-agent"]');
+    expect(note?.textContent).toContain('Install an Agent in this App');
+    expect(m.target.querySelector('form[action="?/createMemory"] button[type="submit"]')?.getAttribute('aria-describedby')).toBe(note?.id);
+    expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
+  });
+  it('does not say it when an Agent is installed', async () => {
+    const m=await mountPage(await memoryPage('OWNER', true));
+    expect(m.target.querySelector('[data-testid="app-memory-needs-agent"]')).toBeNull();
+    expect(m.target.querySelector('form[action="?/createMemory"] button[type="submit"]')?.hasAttribute('aria-describedby')).toBe(false);
+  });
+  // One neutral sentence: no role, no membership, no authorization rule the server did not state.
+  it.each([['a contributor','CONTRIBUTOR',[{role:'CONTRIBUTOR',user:{id:'u1'}}]],['a reader','READER',[{role:'READER',user:{id:'u1'}}]],['an unknown membership','READER',[]],['an App with no organization','READER',null]] as const)('gives %s one neutral sentence and no form', async (_n, role, members) => {
+    const m=await mountPage(await memoryPage(role, true, members as never));
+    const note=m.target.querySelector('[data-testid="app-memory-create-unavailable"]');
+    expect(note?.textContent?.trim()).toBe('Adding a memory isn’t available to you here.');
+    expect(note?.textContent).not.toMatch(/owner|admin|contributor|reader|member|organization/i);
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+  // portal#2529: the sentence is for a known refusal only. While the answer is not known (undefined) neither the form nor the sentence shows.
+  it.each([undefined,null])('shows neither the form nor the sentence while canCreateMemory is %s', async unknown => {
+    const m=await mountPage({...await memoryPage('ADMIN'), canCreateMemory: unknown});
+    expect(m.target.querySelector('[data-testid="app-memory-create-unavailable"]')).toBeNull();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+  it('does not show the sentence to someone who can create', async () => {
+    const m=await mountPage(await memoryPage('ADMIN'));
+    expect(m.target.querySelector('[data-testid="app-memory-create-unavailable"]')).toBeNull();
+  });
+  it('titles the node browser under the memories table', async () => {
+    const m=await mountPage(await memoryPage('ADMIN'));
+    const h=[...m.target.querySelectorAll('h3')].find(x=>x.textContent?.trim()==='Memory nodes');
+    expect(h).toBeTruthy();
+    expect(m.target.querySelector('#app-memory-nodes-title')).toBe(h);
   });
 });
 

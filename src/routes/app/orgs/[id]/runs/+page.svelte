@@ -262,7 +262,7 @@
     >
       {#snippet cell(cell, run)}
         {#if cell.column.id === 'started'}
-          <span class="whitespace-nowrap">{run.started}</span>
+          <span>{run.started}</span>
         {:else if cell.column.id === 'status'}
           <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusChipClass(run.status)}">{runStatusLabel(run.status)}</span>
         {:else if cell.column.id === 'app'}
@@ -275,7 +275,7 @@
         {:else if cell.column.id === 'duration'}
           <span class="whitespace-nowrap">{run.duration}</span>
         {:else if cell.column.id === 'failure'}
-          <span class="font-mono text-xs text-red-600 dark:text-red-400">{run.failure || '—'}</span>
+          <span class="font-mono text-xs [overflow-wrap:anywhere] text-red-600 dark:text-red-400">{run.failure || '—'}</span>
         {:else if cell.column.id === 'actions'}
           <!-- #1020: the same ⋯ menu as every other table, even with one item. -->
           <NodeActionsMenu

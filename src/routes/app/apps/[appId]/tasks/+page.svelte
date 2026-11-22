@@ -441,28 +441,28 @@
             >{t('app.tasks.subtasks.open', 'View subtasks')}</a>
           {:else if cell.column.id === 'startBy'}
             {#if row.task.startBy}
-              <span class="whitespace-nowrap">{fmtRunTime(row.task.startBy)}</span>
+              <span>{fmtRunTime(row.task.startBy)}</span>
             {:else}
               <span class="text-zinc-400">—</span>
             {/if}
           {:else if cell.column.id === 'finishBy'}
             {#if row.task.finishBy}
-              <span class="whitespace-nowrap">{fmtRunTime(row.task.finishBy)}</span>
+              <span>{fmtRunTime(row.task.finishBy)}</span>
             {:else}
               <span class="text-zinc-400">—</span>
             {/if}
           {:else if cell.column.id === 'updated'}
-            <span class="whitespace-nowrap">{fmtRunTime(row.task.updatedAt ?? row.task.createdAt)}</span>
+            <span>{fmtRunTime(row.task.updatedAt ?? row.task.createdAt)}</span>
           {:else if cell.column.id === 'created'}
-            <span class="whitespace-nowrap">{fmtRunTime(row.task.createdAt)}</span>
+            <span>{fmtRunTime(row.task.createdAt)}</span>
           {:else if cell.column.id === 'tags'}
             <span class="flex flex-wrap gap-1">
               {#each row.task.tags as tag (tag)}
-                <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{tag}</span>
+                <span class="max-w-full break-all rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{tag}</span>
               {/each}
             </span>
           {:else if cell.column.id === 'id'}
-            <code class="font-mono text-xs text-zinc-600 dark:text-zinc-300">{row.task.id}</code>
+            <code class="break-all font-mono text-xs text-zinc-600 dark:text-zinc-300">{row.task.id}</code>
           {/if}
         {/snippet}
       </DataTable>

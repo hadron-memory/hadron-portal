@@ -81,11 +81,11 @@
 
   let globalFilter = $state('');
   // §8: at 390px the grid keeps Ticker, State and Every on screen, so the first
-  // three columns fit the 308px phone column together (140 + 84 + 76); the
-  // name truncates and the rest scroll. Pinned in scripts/test-tickers-layout.mjs.
+  // three columns fit the 308px phone column together (132 + 92 + 76); the
+  // name truncates and the rest scroll. scripts/test-tickers-layout.mjs checks that outcome at 390px; the sizes themselves are not pinned there.
   const columns: PortalColumnDef<Row>[] = [
-    { id: 'name', accessorFn: (r) => r.name, header: t('app.tickers.col.ticker', 'Ticker'), enableHiding: false, size: 140 },
-    { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 84 },
+    { id: 'name', accessorFn: (r) => r.name, header: t('app.tickers.col.ticker', 'Ticker'), enableHiding: false, size: 132 },
+    { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 92 },
     { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 76 },
     { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 240 },
     { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 200 },
@@ -246,7 +246,7 @@
               <span class="text-zinc-400">—</span>
             {/if}
           {:else if cell.column.id === 'created'}
-            <span class="whitespace-nowrap">{fmtRunTime(row.ticker.createdAt)}</span>
+            <span>{fmtRunTime(row.ticker.createdAt)}</span>
           {/if}
         {/snippet}
       </DataTable>

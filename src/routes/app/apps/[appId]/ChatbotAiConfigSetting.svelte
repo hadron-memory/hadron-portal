@@ -94,7 +94,7 @@
       {#if canEdit}
         <button type="submit" class={buttonClass} disabled={!dirty || saving}>{t('app.chatbot-ai-config.save', 'Save')}</button>
       {/if}
-      <LiveRegion class="empty:absolute">
+      <LiveRegion class="idle:absolute">
       {#if saved}
         <span class="text-xs text-green-700 dark:text-green-400">{t('app.chatbot-ai-config.saved', 'Saved.')}</span>
       {/if}
