@@ -9,7 +9,10 @@
 // lists cannot drift, and batteryFor is the ONE routing table: the script never
 // writes a kind list of its own.
 export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
-export const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks'];
+// Not exported (blind review #2507, fold): nothing imports it — the tests build
+// ALL_KINDS literally and import KINDS/PAGE_KINDS/APPS_KINDS, the script imports
+// only parseHarnessEnv/injectionEcho/batteryFor. KINDS derives from it below.
+const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks'];
 export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
 export const KINDS = [...COMPONENT_KINDS, ...PAGE_KINDS, ...APPS_KINDS];
 // The component battery's own kinds: findings, wake and agent-tasks are
@@ -26,7 +29,10 @@ const COMPONENT_BATTERY_KINDS = ['alarms', 'runs', 'config'];
 // escape-probe oracle, not the six-kind pages battery's geometry walker.
 export function batteryFor(cellKind) {
   if (cellKind === null) {
-    return { component: COMPONENT_BATTERY_KINDS, findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], pages: PAGE_KINDS, apps: APPS_KINDS };
+    // Copies, not the module constants (blind review #2507, fold): the per-kind
+    // arms below build fresh literals, and a caller mutating the null result's
+    // arrays must not corrupt the constants every later call reads.
+    return { component: [...COMPONENT_BATTERY_KINDS], findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], pages: [...PAGE_KINDS], apps: [...APPS_KINDS] };
   }
   if (cellKind === 'findings') return { component: [], findings: ['findings'], wake: [], agentTasks: [], pages: [], apps: [] };
   if (cellKind === 'wake') return { component: [], findings: [], wake: ['wake'], agentTasks: [], pages: [], apps: [] };

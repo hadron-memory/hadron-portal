@@ -1445,7 +1445,9 @@
           {:else if cell.column.id === 'via'}
             <span class="text-sm text-zinc-600 dark:text-zinc-400">{a.via}</span>
           {:else if cell.column.id === 'description'}
-            <span class="block min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400" title={a.description ?? ''}>{a.description ?? '—'}</span>
+            <!-- ?? undefined drops the attribute when there is no description (#2507, blind
+                 review fold): title="" renders an empty tooltip on hover. -->
+            <span class="block min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400" title={a.description ?? undefined}>{a.description ?? '—'}</span>
           {/if}
         {/snippet}
       </DataTable>

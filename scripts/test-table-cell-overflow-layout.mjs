@@ -66,13 +66,19 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plug
   // EVERY src/ module, AppRunsTable/TasksAlarms/AiServiceConfigManager included,
   // which is why their old dedicated re-check branch is gone: it re-tested the
   // already-rewritten code and so could never fire (blind review, #2507).
-  if (id.startsWith(srcRoot) && /\.(ts|svelte|js|mjs)$/.test(id) && !id.includes('/.svelte-kit/') && !id.includes('/stubs/')) {
+  // (\?.*)? on the extension (blind review #2507, fold): vite ids can carry a
+  // query suffix (?svelte, ?v=…), and the bare anchored extension silently
+  // skipped both the rewrite and the unpatched-import check for those ids.
+  if (id.startsWith(srcRoot) && /\.(ts|svelte|js|mjs)(\?.*)?$/.test(id) && !id.includes('/.svelte-kit/') && !id.includes('/stubs/')) {
    let patched = code;
    for (const [from, to] of Object.entries(STUB_SPECIFIERS)) {
     patched = patched.replaceAll(`'${from}'`, `'$lib/test/stubs/${to}'`).replaceAll(`"${from}"`, `"$lib/test/stubs/${to}"`);
    }
-   // A $app/ or $env/ import the map does not know would run unstubbed.
-   if (/from ['"]\$app\//.test(patched) || /from ['"]\$env\//.test(patched)) patchFailure(`table-cell-fixture: an unpatched $app/$env import is left in ${id}`);
+   // A $app/ or $env/ import the map does not know would run unstubbed — in
+   // its static AND dynamic forms (blind review #2507, fold): import('$app/forms')
+   // escapes a from-only pattern.
+   if (/from ['"]\$app\//.test(patched) || /import\(['"]\$app\//.test(patched)
+    || /from ['"]\$env\//.test(patched) || /import\(['"]\$env\//.test(patched)) patchFailure(`table-cell-fixture: an unpatched $app/$env import is left in ${id}`);
    code = patched;
   }
   // Expose only the fixture's actual table objects, no production test API.
@@ -227,20 +233,26 @@ try {
   // A mid-import optimizer reload can kill this evaluate and resolve
   // waitForLoadState immediately (blind review, #2507), so retry the imports
   // once after a settle — post-reload they resolve against the optimized deps.
-  // The result is CHECKED: a silently-swallowed failure here (a typo'd or
-  // removed path) would make warming a no-op and let the flake this block
-  // prevents reappear on the first leg (blind review, #2507).
-  const imports = () => warm.evaluate(async () => { await Promise.allSettled([
-   import('/src/routes/app/agents/+page.svelte'),
-   import('/src/routes/app/memories/+page.svelte'),
-   import('/src/routes/app/agents/[id]/+page.svelte'),
-   import('/src/routes/app/agents/[id]/page-fixture'),
-   import('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte'),
-   import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'),
-  ]); }).then(() => true, () => false);
+  // The SETTLED RESULTS are judged, and a warm-up whose imports still reject
+  // after the retry FAILS the run (blind review #2507, fold): allSettled
+  // RESOLVES even when every import rejects, so the old boolean "did the
+  // evaluate survive" could never see a typo'd or removed path — a no-op
+  // warm-up silently reintroduces the flake this block exists to prevent.
+  const imports = () => warm.evaluate(async () => {
+   const rs = await Promise.allSettled([
+    import('/src/routes/app/agents/+page.svelte'),
+    import('/src/routes/app/memories/+page.svelte'),
+    import('/src/routes/app/agents/[id]/+page.svelte'),
+    import('/src/routes/app/agents/[id]/page-fixture'),
+    import('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte'),
+    import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'),
+   ]);
+   return rs.filter(r => r.status === 'rejected').map(r => String(r.reason));
+  }).catch(err => [`the warm-up evaluate itself failed: ${String(err)}`]);
   await imports();
   await warm.waitForLoadState('load').catch(() => {});
-  if (!(await imports())) console.error('warm-up: the page-graph imports still fail after the retry — the first page leg may hit the mid-import optimizer reload this block exists to prevent');
+  const rejected = await imports();
+  if (rejected.length) failures.push(`warm-up: page-graph imports still rejecting after the settle retry — the first page leg would hit the mid-import optimizer reload this block exists to prevent: ${rejected.join(' | ')}`);
   await warm.close();
  }
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
@@ -674,7 +686,10 @@ async function loadNodePageData(devServer, tab) {
    // switch off" when the server is unreachable; the stub api's reserved
    // .invalid origin answers it synthetically here so the degradation path is
    // exercised without any network at all.
-   if (u === 'http://fixture.invalid/capabilities') return new Response('unavailable', { status: 503 });
+   // Promise-wrapped (blind review #2507, fold): fetch's contract returns a
+   // Promise; the bare Response happened to work under await but breaks any
+   // .then/.catch chaining on the result.
+   if (u === 'http://fixture.invalid/capabilities') return Promise.resolve(new Response('unavailable', { status: 503 }));
    throw new Error(`table-cell-fixture: unexpected real fetch during the node loader run: ${u}`);
   };
   try {
@@ -732,6 +747,12 @@ async function loadNodePageData(devServer, tab) {
    // the real tab strip, clicked like a reader would. At phone widths TabRow
    // moves its overflow tabs into the real "More ▾" menu — driven through the
    // same buttons a reader gets, never by poking the tab state directly.
+   // Locale assumption, pinned (blind review #2507): the accessible-name
+   // selections here and the t() fallback strings pinned below hold because
+   // t() is the v1 i18n boundary that ALWAYS returns its English defaultText
+   // (src/lib/i18n/t.ts) — no locale resolution exists to drift yet. Wiring a
+   // real i18n library behind t() makes these locale-sensitive; they will
+   // fail loudly here, not silently pass.
    if (kind === 'agent-apps' || kind === 'agent-bundled') {
     const label = kind === 'agent-apps' ? 'Apps' : 'Bundled agents';
     const tab = page.getByRole('tab', { name: label, exact: true }).first();
@@ -753,28 +774,22 @@ async function loadNodePageData(devServer, tab) {
    await page.locator('tbody td').first().waitFor({ timeout: 15000 });
    if (kind === 'node-history') await page.getByRole('heading', { name: 'Removed edges' }).waitFor({ timeout: 15000 });
    await settlePage(page);
+   // Fonts settled once before any measured read (blind review #2507, fold):
+   // the geometry reads below are font-metric sensitive, and pixelStrip waits
+   // document.fonts.ready for exactly this race — a late webfont swapping in
+   // mid-leg changes the measured glyph boxes and queues a false escape.
+   await page.evaluate(() => document.fonts.ready);
+   // The shared td-level oracle, injected the way the component and wake
+   // batteries already do it: readEscapes calls window.__tdGeometry so its
+   // definition cannot drift from the one flaggedCell judges by (blind
+   // review #2507, fold — this battery had kept a verbatim inline copy).
+   await page.evaluate(`window.__tdGeometry = ${tdGeometry.toString()}`);
    if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}-default.png`, fullPage: true });
    assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), width === 390, `${leg}: actual pointer mode`);
    // net OFF: production containment must be the only thing stopping an escape.
    const net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
    await settlePage(page);
-   const readEscapes = () => page.locator('tbody td').evaluateAll(cells => cells.map(td => {
-    const rect = td.getBoundingClientRect();
-    const badGlyphs = [];
-    const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
-    for (let n; (n = walker.nextNode());) {
-     if (!n.textContent.trim()) continue;
-     let clipped = false;
-     for (let a = n.parentElement; a && a !== td; a = a.parentElement) {
-      const st = getComputedStyle(a);
-      if (st.textOverflow === 'ellipsis' || st.position === 'absolute' || st.position === 'fixed' || st.overflow === 'hidden') clipped = true;
-     }
-     if (clipped) continue;
-     const range = document.createRange(); range.selectNodeContents(n);
-     for (const r of range.getClientRects()) if (r.left < rect.left - .5 || r.right > rect.right + .5) badGlyphs.push(n.textContent.slice(0, 40));
-    }
-    return { text: td.textContent.slice(0, 50), width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
-   }));
+   const readEscapes = () => page.locator('tbody td').evaluateAll(cells => cells.map(td => ({ text: td.textContent.slice(0, 50), ...window.__tdGeometry(td) })));
    const clean = await readEscapes();
    const cleanOut = clean.filter(flaggedCell);
    if (cleanOut.length) failures.push(`${leg}: net-off ${JSON.stringify(cleanOut)}`);
@@ -980,7 +995,10 @@ async function loadNodePageData(devServer, tab) {
     const scrollers = await page.locator('[data-testid="data-table-scroller"]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
     if (!scrollers.length || scrollers.some(r => r > width + 0.5)) failures.push(`${leg}/${sizing}: the table scroller leaves the page ${JSON.stringify(scrollers)}`);
    }
-   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   // __cellShot, like every CELL_SHOTS site on an emulated page (blind review
+   // #2507, fold): a fullPage capture wipes the pinned emulation; this battery's
+   // pages come from newEmulatedPage, so the re-pin wrapper applies here too.
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    // The control: the same probe must SEE a deliberate escape in this table, or "no escapes" proves nothing.
    const control = await page.addStyleTag({ content: 'tbody td * { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; display: inline-block !important; max-width: none !important; } tbody td { white-space: nowrap !important; }' });
    await page.evaluate(() => { document.querySelector('tbody td')?.append(Object.assign(document.createElement('span'), { textContent: 'W'.repeat(120) })); });
@@ -998,7 +1016,7 @@ async function loadNodePageData(devServer, tab) {
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
    console.log(failures.length === legFailuresBefore ? `${leg}: every cell stays inside its box; negative control detected` : `${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`);
   } catch (e) {
-   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
    throw e;
   } finally { await page.close(); }
  }
@@ -1008,7 +1026,15 @@ async function loadNodePageData(devServer, tab) {
  // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
  // to the first cell and must see it, so a leg that finds nothing proves the oracle can see.
  // Rows marked `measured` are the issue's browser-check rows: reported, never failed, fixed only where #2486 confirms.
- if (!env.cellKind || env.cellKind === 'agent-tasks') {
+ // Routed through the one table like every other battery (blind review #2507, fold): this was the last
+ // hand-written env-kind conditional — batteryFor's agentTasks entry is ['agent-tasks'] exactly for a
+ // full run or CELL_KIND=agent-tasks and [] otherwise, so the field is consumed here, not merely pinned
+ // by the table test.
+ if (battery.agentTasks.length) {
+  // Bare pages by design (portal#2487, blind review #2507 fold): this battery pins no
+  // emulation and asserts no pointer mode — its oracle is box geometry — so its
+  // CELL_SHOTS captures need no __cellShot re-pin (the wipe class is a fullPage
+  // capture followed by an emulation read; there is no emulation read here).
   const rowsPage = await browser.newPage();
   let taskRows;
   try {
