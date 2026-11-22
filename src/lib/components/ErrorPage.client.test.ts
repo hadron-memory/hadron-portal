@@ -2,7 +2,7 @@ import {afterEach,it,expect,vi} from 'vitest';
 import {mountComponent,tick} from '$lib/test/mountComponent';
 import {page,resetStubPage} from '$lib/test/stubs/app-stores';
 import ErrorPage from './ErrorPage.svelte';
-afterEach(()=>{resetStubPage();vi.unstubAllGlobals();});
+afterEach(()=>{resetStubPage();vi.unstubAllGlobals();vi.useRealTimers();});
 it('renders a generic error request id as selectable text outside the heading',async()=>{
  const requestId='a4451409-72f6-4f08-b90b-f8db328e8c58';
  page.update(p=>({...p,status:500,error:Object.assign(new Error('Something went wrong on our side.'),{requestId})}));
@@ -37,11 +37,24 @@ it('tells the reader when to include the request id in a report',async()=>{
  const m=mountComponent(ErrorPage,{});try{await tick();expect(m.target.textContent).toContain('Include this ID if you report the problem.');}finally{m.unmount();}
 });
 // #1397 (Uma P3): an explicit copy affordance beside the id, mirroring the
-// Urn chip's (copyText, confirm state on the button, plain-verb name).
-it('copies the request id from the copy button',async()=>{
+// Urn chip's (copyText, confirm state on the button, plain-verb name). Both
+// directions: the write happened AND the confirm state reached the accessible
+// name, then reset after two seconds — a silent icon swap says nothing to
+// assistive tech, and a one-directional pin passes on a broken confirm path.
+it('copies the request id and confirms on the button before resetting',async()=>{
  const requestId='a4451409-72f6-4f08-b90b-f8db328e8c58';
  const writeText=vi.fn(()=>Promise.resolve());
  vi.stubGlobal('navigator',{clipboard:{writeText}});
+ vi.useFakeTimers();
  page.update(p=>({...p,status:500,error:Object.assign(new Error('Something went wrong on our side.'),{requestId})}));
- const m=mountComponent(ErrorPage,{});try{await tick();const copy=m.target.querySelector<HTMLButtonElement>('button[aria-label="Copy request ID"]');expect(copy).not.toBeNull();copy!.click();await tick();expect(writeText).toHaveBeenCalledWith(requestId);}finally{m.unmount();}
+ const m=mountComponent(ErrorPage,{});try{await tick();const copy=m.target.querySelector<HTMLButtonElement>('button[aria-label="Copy request ID"]');expect(copy).not.toBeNull();copy!.click();await vi.advanceTimersByTimeAsync(0);expect(writeText).toHaveBeenCalledWith(requestId);expect(copy!.getAttribute('aria-label')).toBe('Copied');expect(copy!.getAttribute('title')).toBe('Copied');await vi.advanceTimersByTimeAsync(2000);expect(copy!.getAttribute('aria-label')).toBe('Copy request ID');}finally{m.unmount();}
+});
+// #1397: below 500 the body is route copy (routes throw error(401, 'Sign in
+// to continue.') — normally pre-empted by the signin redirect, but the
+// boundary must hold the register if one reaches it), so the heading stays
+// neutral: "That didn't work" over an instruction to sign in reads like a
+// failed action, not auth.
+it('a 401 heading stays neutral over route copy',async()=>{
+ page.update(p=>({...p,status:401,error:new Error('Sign in to continue.')}));
+ const m=mountComponent(ErrorPage,{});try{await tick();expect(m.target.querySelector('h1')?.textContent).toContain('Something went wrong');expect(m.target.querySelector('h1')?.textContent).not.toContain('didn’t');expect(m.target.textContent).toContain('Sign in to continue.');}finally{m.unmount();}
 });

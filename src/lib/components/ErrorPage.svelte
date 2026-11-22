@@ -28,7 +28,11 @@
         // #1397 (Uma P3): at 500+ the body line below is the fixed localized
         // envelope ("Something went wrong on our side." — the contract Ruth's
         // §10 review froze), so the heading must not say the same thing twice.
-        return t('app.error.generic', 'That didn’t work');
+        // Below 500 the body is route copy (a 401 "Sign in to continue."),
+        // where the plainer neutral heading keeps the right register.
+        return $page.status >= 500
+          ? t('app.error.server', 'That didn’t work')
+          : t('app.error.generic', 'Something went wrong');
     }
   });
 
@@ -36,9 +40,14 @@
   // id. Confirm only a copy that happened; copyText never throws (no
   // clipboard outside secure contexts), so a refusal just leaves the text
   // selectable — select-all keeps one-click copy working regardless.
-  const copyName = t('error.request-id.copy', 'Copy request ID');
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  // The accessible name carries the confirm state, not only the icon swap —
+  // a reader querying the button after activating it learns the copy happened
+  // (the visible checkmark alone says nothing to assistive tech).
+  const copyName = $derived(copied
+    ? t('error.request-id.copied', 'Copied')
+    : t('error.request-id.copy', 'Copy request ID'));
   $effect(() => () => clearTimeout(copiedTimer));
   async function copyRequestId(id: string) {
     if (!(await copyText(id))) return;

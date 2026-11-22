@@ -16,11 +16,14 @@ function fault(code: string | null) {
 }
 /** A typed refusal with intentional server copy (#1397 known-refusal
  *  controls): the message IS the product text a known list opts into, while
- *  the carrier's response body, query and variables never are. */
+ *  the carrier's response body, query and variables never are. It carries the
+ *  same requestId extension the internal fault does, so the sweep below
+ *  guards an id leak that could actually happen — without it, the
+ *  not.toContain(requestId) assertion pins nothing. */
 function refusal(code: string, message: string) {
   return new ClientError({
     status: 500, headers: new Headers(), body: 'synthetic refusal body',
-    errors: [new GraphQLError(message, { extensions: { code } })],
+    errors: [new GraphQLError(message, { extensions: { code, requestId } })],
   }, { query: 'mutation PrivateOperation { fixture }', variables: { token: 'synthetic-variable-secret' } });
 }
 function event(fields: Record<string, string> = {}) {
@@ -134,6 +137,29 @@ for (const sink of sinks) {
     else expect(text).not.toContain(requestId);
   });
 }
+
+// #1397: queueing a sink's reads (runSink above) makes the FAULTING call the
+// write, exactly as in production — but the pre-refactor suite also covered
+// the sink whose READ itself faults (conversation position's NODE_DATA_BY_LOC
+// before its mutation). That failed-read path through savePosition's catch
+// keeps its own pin here; expectCalls does not apply because the write never
+// runs.
+it.each(['INTERNAL_SERVER_ERROR', 'UNKNOWN_FAULT', null])('conversation position read fault suppresses %s payload text', async (code) => {
+  request.mockRejectedValue(fault(code));
+  const { actions } = await import('../../routes/app/agents/[id]/conversations/+page.server');
+  const result = await actions.savePosition!(event({ systemMemoryId: 'fixture-memory', loc: 'fixture', x: '1', y: '2' }));
+  expect(request).toHaveBeenCalledTimes(1);
+  const safeText = code === 'INTERNAL_SERVER_ERROR'
+    ? `Something went wrong on our side. Request ID: ${requestId}`
+    : code === 'UNKNOWN_FAULT' ? 'Something went wrong on our side.' : 'Failed to save position';
+  expect(result).toEqual(expect.objectContaining({ status: 500, data: { error: safeText } }));
+  const text = JSON.stringify(result);
+  for (const secret of ['SELECT private', '/srv/private.ts', 'PrivateOperation', 'synthetic-variable-secret', 'synthetic response body']) {
+    expect(text).not.toContain(secret);
+  }
+  if (code === 'INTERNAL_SERVER_ERROR') expect(text).toContain(requestId);
+  else expect(text).not.toContain(requestId);
+});
 
 // The opt-in direction (#1397 known-refusal controls): a code on the route's
 // OWN known list is an intentional, pre-commit refusal, so its server message
