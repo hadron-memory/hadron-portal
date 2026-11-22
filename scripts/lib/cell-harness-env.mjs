@@ -1,7 +1,7 @@
 // portal#2129 rows 1, 6, 8: validate every harness env knob before the dev server or a browser starts.
 export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
 // portal#2491: the Orgs route tables (#1962 slice 5), one kind per table, probed like the Apps kinds.
-export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions'];
+export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions'];
 const KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', ...APPS_KINDS, ...ORGS_KINDS];
 const flag = (env, name) => {
   if (!(name in env) || env[name] === undefined) return false;

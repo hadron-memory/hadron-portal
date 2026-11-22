@@ -8,10 +8,13 @@ import AppsPage from '../../../routes/app/orgs/[id]/apps/+page.svelte';
 import { deleteOrgAppSchema } from '../../../routes/app/orgs/[id]/apps/schema';
 import AgentsPage from '../../../routes/app/orgs/[id]/agents/+page.svelte';
 import { orgAgentSubscribeSchema, orgAgentUnsubscribeSchema } from '../../../routes/app/orgs/[id]/agents/schema';
+import RunsPage from '../../../routes/app/orgs/[id]/runs/+page.svelte';
+import MembersPage from '../../../routes/app/orgs/[id]/members/+page.svelte';
+import { addOrgMemberSchema, impersonateMemberSchema, inviteMemberSchema, leaveOrgSchema, removeOrgMemberSchema, updateOrgMemberSchema } from '../../../routes/app/orgs/[id]/members/schema';
 import MemoriesPage from '../../../routes/app/orgs/[id]/memories/+page.svelte';
 import { deleteOrgMemorySchema, orgMemorySubscribeSchema, syncOrgMemoriesSchema, unsubscribeOrgMemorySchema } from '../../../routes/app/orgs/[id]/memories/schema';
 
-export type OrgsCellKind = 'orgs-agents' | 'orgs-subscribed-agents' | 'orgs-apps' | 'orgs-mine' | 'orgs-memories-personal' | 'orgs-memories' | 'orgs-memories-subscriptions';
+export type OrgsCellKind = 'orgs-members' | 'orgs-runs' | 'orgs-agents' | 'orgs-subscribed-agents' | 'orgs-apps' | 'orgs-mine' | 'orgs-memories-personal' | 'orgs-memories' | 'orgs-memories-subscriptions';
 
 const LONG_NAME = 'ALongOrganizationNameWithNoSpacesInItAtAll0123456789';
 const list = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `x${i}` }));
@@ -79,6 +82,33 @@ async function mountAgents(target: HTMLElement, kind: OrgsCellKind) {
   return () => unmount(instance);
 }
 
+function mountRuns(target: HTMLElement) {
+  const run = (i: number) => ({
+    id: `r${i}`, appId: `app${i}`, status: i === 1 ? 'FAILED' : 'SUCCEEDED', triggerKind: 'SCHEDULE', eventData: { scheduleName: 'a-schedule-name-with-no-break-points-0123456789' },
+    entryNodeUrn: 'hrn:node:example.test:memory:flows:a-very-long-flow-entry-node-name-with-no-break-points-0123456789', createdAt: '2026-11-01T02:04:36Z',
+    startedAt: '2026-11-01T02:04:36Z', finishedAt: '2026-11-01T02:09:41Z', failure: { code: 'A_FAILURE_CODE_WITH_NO_BREAK_POINTS_AT_ALL_0123456789', message: 'boom' },
+  });
+  const runs = [1, 2, 3].map(run);
+  const data = { org: { id: 'org1', name: 'Acme', urn: 'hrn:org:example.test:acme' }, runs, appNames: Object.fromEntries(runs.map((r, i) => [r.appId, i === 0 ? 'AnAppNameWithNoBreakPointsAtAll0123456789ABCDEFGHIJ' : `App ${i}`])), failed: false, truncated: false, total: 3 };
+  const instance = mount(RunsPage as never, { target, props: { data } as never });
+  return () => unmount(instance);
+}
+
+async function mountMembers(target: HTMLElement) {
+  const [addForm, impersonateForm, inviteForm, leaveForm, removeForm, updateForm] = await Promise.all(
+    [addOrgMemberSchema, impersonateMemberSchema, inviteMemberSchema, leaveOrgSchema, removeOrgMemberSchema, updateOrgMemberSchema].map((schema) => superValidate(zod4(schema as never), { errors: false })),
+  );
+  // The caller is an OWNER, so every other row shows the role <select> and the row menu: the widest legal row.
+  const member = (i: number, role: string) => ({
+    id: `mem${i}`, role, canInvite: true, createdAt: '2026-11-01T02:04:36Z',
+    user: { id: `u${i}`, handle: i === 0 ? 'owner' : `a-handle-with-no-break-points-${i}-0123456789`, name: i === 0 ? 'Owner' : 'AMemberNameWithNoBreakPointsAtAll0123456789ABCDEFGHIJ', githubUsername: null, email: `a-very-long-local-part-with-no-break-points-${i}@example.test`, avatarUrl: null },
+  });
+  const members = [member(0, 'OWNER'), member(1, 'ADMIN'), member(2, 'MEMBER'), member(3, 'MEMBER')];
+  const data = { org: { id: 'org1', name: 'Acme', urn: 'hrn:org:example.test:acme', members }, currentUserId: 'u0', isImpersonating: false, addForm, impersonateForm, inviteForm, leaveForm, removeForm, updateForm };
+  const instance = mount(MembersPage as never, { target, props: { data, form: null } as never });
+  return () => unmount(instance);
+}
+
 export function mountOrgsCellFixture(target: HTMLElement, kind: string): (() => void) | Promise<() => void> {
   if (kind === 'orgs-mine') {
     const orgs = [LONG_NAME, 'Acme', 'Globex'].map((name, i) => ({
@@ -89,6 +119,8 @@ export function mountOrgsCellFixture(target: HTMLElement, kind: string): (() => 
     return () => unmount(instance);
   }
   if (kind === 'orgs-apps') return mountApps(target);
+  if (kind === 'orgs-members') return mountMembers(target);
+  if (kind === 'orgs-runs') return mountRuns(target);
   if (kind === 'orgs-agents' || kind === 'orgs-subscribed-agents') return mountAgents(target, kind as OrgsCellKind);
   if (kind.startsWith('orgs-memories')) return mountMemories(target, kind as OrgsCellKind);
   throw new Error(`orgs-cell-harness: no fixture for ${kind}`);
