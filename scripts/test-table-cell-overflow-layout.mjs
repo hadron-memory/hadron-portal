@@ -1130,7 +1130,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).LIB_CELL_ROWS);
   } finally { await rowsPage.close(); }
   assert.ok(libRows.length >= 5, 'the fixture lists every fixed #2492 row');
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns } of libRows) {
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns, anywhereColumns } of libRows) {
    const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
    const errors = await watchErrors(page);
    await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -1158,6 +1158,29 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
     await page.locator('[data-negative]').evaluate(el => el.remove());
     console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
     if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+    // The free-text cells keep `overflow-wrap:anywhere`, judged on the computed style of the cell's content (blind
+    // delta, #2515): a column id that stopped matching a component's allow-list would drop it silently, and only a
+    // fixture with a long token in that very column would notice. Header text is the id here, so read it off the table.
+    if (anywhereColumns.length) {
+     const lost = await page.evaluate(ids => {
+      // TemplatesManager builds three tables; the one on screen first is the templates table, so pick the table that owns the ids.
+      const t = window.__fixtureTables.find(x => ids.every(id => x.getAllLeafColumns().some(c => c.id === id))) ?? window.__fixtureTables.at(-1);
+      const cols = t.getVisibleLeafColumns().map(c => c.id);
+      const table = document.querySelector('table');
+      const out = [];
+      for (const id of ids) {
+       const index = cols.indexOf(id);
+       const cells = index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map(r => r.cells[index]).filter(Boolean);
+       if (!cells.length) { out.push(`${id}: no cell`); continue; }
+       for (const td of cells) {
+        const wraps = [td, ...td.querySelectorAll('*')].some(el => getComputedStyle(el).overflowWrap === 'anywhere');
+        if (!wraps) out.push(`${id}: no overflow-wrap:anywhere`);
+       }
+      }
+      return out;
+     }, anywhereColumns);
+     if (lost.length) failures.push(`${leg}: free-text cells lost their wrap-anywhere ${JSON.stringify([...new Set(lost)])}`);
+    }
     // A DATE cell wraps at its spaces and never splits a token (blind review, #2515): with the column
     // narrowed below one token a token may overflow (the reader widens or scrolls) but must not break
     // mid-digit. Three guards keep this from passing vacuously (blind delta, #2515): every named date

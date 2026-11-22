@@ -14,15 +14,18 @@ import GrantsPage from '../../../routes/app/account/grants/+page.svelte';
  * The rows of #2492 this PR fixes, by listKey. `prepare` names a step a reader performs before the
  * cell exists (an inline confirm replaces the Actions cell content).
  */
+// `anywhereColumns` names the FREE-TEXT cells of a row, which must keep `overflow-wrap:anywhere`: a column id
+// that stops matching the component's allow-list would silently drop it (blind delta, #2515), and the
+// battery fails on the computed style, not the class name.
 // `dateColumns` names the DATE cells of a row: they must wrap at their spaces and never split a token
 // (blind review, #2515), checked by the battery with the column narrowed below one token.
 export const LIB_CELL_ROWS = [
-  { listKey: 'user:held-workers', prepare: null, dateColumns: [] as string[], expect: 'tbody a[href^="/app/workers/"]' },
-  { listKey: 'memory:assets', prepare: null, dateColumns: ['uploaded'], expect: 'tbody button[aria-label^="Actions for"]' },
-  { listKey: 'memory:assets:delete-confirm', prepare: 'asset-delete-confirm', dateColumns: [] as string[], expect: 'tbody button:has-text("Cancel")' },
+  { listKey: 'user:held-workers', prepare: null, anywhereColumns: [] as string[], dateColumns: [] as string[], expect: 'tbody a[href^="/app/workers/"]' },
+  { listKey: 'memory:assets', prepare: null, anywhereColumns: ['mimeType'], dateColumns: ['uploaded'], expect: 'tbody button[aria-label^="Actions for"]' },
+  { listKey: 'memory:assets:delete-confirm', prepare: 'asset-delete-confirm', anywhereColumns: [] as string[], dateColumns: [] as string[], expect: 'tbody button:has-text("Cancel")' },
   // The widest cell of this table, the four-button Actions cell, only renders for a writable owner.
-  { listKey: 'node-role-templates:USER', prepare: null, dateColumns: [] as string[], expect: 'tbody button:has-text("Apply to several memories")' },
-  { listKey: 'account:grants', prepare: null, dateColumns: ['createdAt', 'activatedAt', 'startsAt', 'expiresAt', 'revokedAt'], expect: 'tbody [data-testid="my-grant-row"]' },
+  { listKey: 'node-role-templates:USER', prepare: null, anywhereColumns: ['name', 'description'], dateColumns: [] as string[], expect: 'tbody button:has-text("Apply to several memories")' },
+  { listKey: 'account:grants', prepare: null, anywhereColumns: ['action', 'reason', 'values'], dateColumns: ['createdAt', 'activatedAt', 'startsAt', 'expiresAt', 'revokedAt'], expect: 'tbody [data-testid="my-grant-row"]' },
 ] as const;
 export type LibCellRow = (typeof LIB_CELL_ROWS)[number]['listKey'];
 
