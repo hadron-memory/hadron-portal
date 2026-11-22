@@ -51,6 +51,7 @@ const h = vi.hoisted(() => {
     ChatAiConfigChoices: () => ({ chatAiConfigChoices: [] }),
     ResolveAiServiceConfigs: () => ({ resolveAiServiceConfigs: [] }),
     AppChatbotAiConfig: () => ({ app: { chatbotAiConfigId: null } }),
+    AppSaturationAlarmWakeRoles: () => ({ saturationAlarmWakeRoles: { appId: 'a1', roles: [] } }),
     AppNodesPage: () => ({ appNodesPage: emptyPage }),
     Workers: () => ({ workers: { items: [{ id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null }], total: 1 } }),
     TeamChatMessages: () => ({ teamChatMessages: { items: [], total: 0 } }),
@@ -130,7 +131,7 @@ const TAB_OPS: Record<string, string[]> = {
   memory: ['AppNodesPage', 'AppMemoryScope', 'SelfCanManage'],
   keys: ['AppKeys', 'AppKeyScopes'],
   'ai-configs': ['AiServiceConfigs'],
-  settings: ['Workers', 'AppChatbotAiConfig', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'SelfCanManage', 'AppMemoryScope'],
+  settings: ['Workers', 'AppChatbotAiConfig', 'AppSaturationAlarmWakeRoles', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'SelfCanManage', 'AppMemoryScope'],
   'node-role-templates': ['RoleTemplates', 'AppViewerManages', 'ConfigMemoryChoices'],
   client: ['SelfCanManage', 'AppKeys'],
 };
