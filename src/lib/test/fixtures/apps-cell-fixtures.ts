@@ -119,7 +119,7 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => 
     setStubPage('http://localhost/app/apps/app-example/grants', { appId: 'app-example' });
     const base = grantsFixture();
     const grants = [0, 1, 2].map(i => ({ ...fixtureGrant, id: `grant-${i}`, holderId: `worker-${i}`, reason: `${LONG}${LONG} reason ${i}`, action: i === 0 ? 'bootprompt.compile.approve' : 'schedule.create', values: { entryNode: `${LONG}-node-${i}` } }));
-    const holders = Object.fromEntries(grants.map(g => [`WORKER:${g.holderId}`, { id: g.holderId, name: `${LONG}${g.holderId}`.slice(0, 64), urn: `hrn:worker:example.test:team:${LONG.slice(0, 40)}${g.holderId}` }]));
+    const holders = Object.fromEntries(grants.map(g => [`WORKER:${g.holderId}`, { id: g.holderId, name: `${LONG.slice(0, 55)}-${g.holderId}`, urn: `hrn:worker:example.test:team:${LONG.slice(0, 40)}${g.holderId}` }]));
     const data = { ...base, grants: { items: grants, total: grants.length }, holders };
     const instance = mount(Grants as never, { target, props: { data, form: null } } as never);
     return () => unmount(instance);
@@ -133,7 +133,7 @@ async function mountChannels(target: HTMLElement) {
   setStubPage('http://localhost/app/apps/app-example/channels', { appId: 'app-example' });
   const shared = { id: 'mem-shared', urn: `hrn:mem:example.test:${LONG.slice(0, 40)}-team-shared`, name: `${LONG} shared chats` };
   const channel = (i: number) => ({
-    id: `ch-${i}`, name: `${LONG}${i}`.slice(0, 64), description: `${LONG}${LONG} what this channel is for`, kind: 'CHAT', loc: `chats:c${i}`,
+    id: `ch-${i}`, name: `${LONG.slice(0, 62)}-${i}`, description: `${LONG}${LONG} what this channel is for`, kind: 'CHAT', loc: `chats:c${i}`,
     chatRootUrn: i === 2 ? null : `hrn:node:example.test:${LONG.slice(0, 40)}-team-shared:chats:${LONG.slice(0, 40)}${i}`, chatRootNodeId: `root-${i}`,
     lastSeq: 12, lastMessageAt: null, createdAt: at, memoryId: 'mem-shared', memory: i === 1 ? null : shared,
   });
