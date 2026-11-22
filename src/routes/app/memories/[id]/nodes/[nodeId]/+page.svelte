@@ -2044,10 +2044,21 @@
   // past that the footer returns, so no field is ever hidden without a pager to
   // reach it.
   const TYPED_PROPERTY_PAGE = 100;
+  // One function says what a value "says": the cell's clipped text, the cell's
+  // title, and the value column's search accessor all render it. The accessor
+  // deliberately DIFFERS from the cell text for absent rows — it returns '' so
+  // an absent value never matches a text search — and for a too-deeply-nested
+  // object it now carries the localized "(too deeply nested to show)" text, so
+  // searching "nested" finds those rows (blind review, #2507, said out loud).
+  function typedPropertyValueText(r: TypedPropertyRow): string {
+    if (!r.present) return r.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—');
+    if (typeof r.value === 'object') return displayJson(r.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)');
+    return String(r.value);
+  }
   const typedPropertyColumns: PortalColumnDef<TypedPropertyRow>[] = [
     { accessorKey: 'name', id: 'field', header: t('node.properties.col-field', 'Field'), enableHiding: false, size: 200 },
     { accessorKey: 'type', header: t('node.properties.col-type', 'Type'), size: 140 },
-    { accessorFn: (r) => (r.present ? (typeof r.value === 'object' ? displayJson(r.value, { compact: true }) ?? '' : String(r.value)) : ''), id: 'value', header: t('node.properties.col-value', 'Value'), size: 320 },
+    { accessorFn: (r) => (r.present ? typedPropertyValueText(r) : ''), id: 'value', header: t('node.properties.col-value', 'Value'), size: 320 },
   ];
   const typedPropertyTable = createSvelteTable<TypedPropertyRow>({
     get data() {
@@ -2342,7 +2353,11 @@
     // #914: the snapshot's own recorded authorship and validation, never today's.
     { accessorFn: (r) => historyAuthorshipText(r), id: 'authorship', header: t('node.history.col.authorship', 'Authorship'), enableSorting: false, size: 240 },
     { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 260 },
-    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
+    // 64px: 28px (h-7 w-7) ⋯ trigger + 32px cell horizontal padding (px-4 × 2)
+    // = 60, + 4px buffer so the trigger's focus ring never leaves the cell —
+    // the audit's remedy (e) floor for a control column, rounded to the 8px
+    // step the table's sizing already uses. Was 56 (#2490).
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 64, minSize: 64 },
   ];
   const revisionTable = createSvelteTable<HistoryRow>({
     get data() {
@@ -3912,19 +3927,30 @@
             >
               {#snippet cell(cell, row)}
                 {#if cell.column.id === 'field'}
-                  <span class="font-mono text-xs text-zinc-700 dark:text-zinc-300">{row.name}{#if row.required}<span class="text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}</span>
+                  <!-- Flex, not one truncating span: the required '*' must stay a shrink-0
+                       SIBLING of the clipped name, or a long field name ellipsizes the
+                       marker and its "Required" title away with it (blind review, #2507). -->
+                  <span class="flex min-w-0 items-baseline gap-1 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+                    <span class="min-w-0 truncate" title={row.name}>{row.name}</span>
+                    {#if row.required}<span class="shrink-0 text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}
+                  </span>
                 {:else if cell.column.id === 'type'}
                   <span class="text-xs text-zinc-500 dark:text-zinc-400">
                     {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}
                   </span>
                 {:else}
-                  <span class="font-mono text-xs text-zinc-900 dark:text-white">
+                  <!-- The branch choice stays here (absent renders italic amber),
+                       but the TEXT inside every branch comes from the one helper,
+                       so the cell, the title, and the filter can't drift apart.
+                       Resolved ONCE per cell: the helper can run displayJson on a
+                       large object, and a render called it two to three times
+                       (blind review, #2507). -->
+                  {@const text = typedPropertyValueText(row)}
+                  <span class="block truncate font-mono text-xs text-zinc-900 dark:text-white" title={text}>
                     {#if !row.present}
-                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
-                    {:else if typeof row.value === 'object'}
-                      {displayJson(row.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)')}
+                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{text}</span>
                     {:else}
-                      {String(row.value)}
+                      {text}
                     {/if}
                   </span>
                 {/if}
@@ -4515,9 +4541,9 @@
                 <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{formatPortalDateTime(r.createdAt)}</span>
               {:else if cell.column.id === 'edge'}
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-zinc-700 dark:text-zinc-300">{r.edgeName ?? '—'}</span>
+                  <span class="block truncate text-zinc-700 dark:text-zinc-300" title={r.edgeName ?? undefined}>{r.edgeName ?? '—'}</span>
                   {#if r.edgeLoc}
-                    <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.edgeLoc}</code>
+                    <code class="block truncate text-xs text-zinc-500 dark:text-zinc-400" title={r.edgeLoc}>{r.edgeLoc}</code>
                   {:else}
                     <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld-edge', 'Not shown')}</span>
                   {/if}
@@ -4525,20 +4551,22 @@
               {:else if cell.column.id === 'target'}
                 <div class="flex flex-col gap-0.5">
                   {#if r.targetLoc}
-                    <code class="text-xs text-zinc-600 dark:text-zinc-400">{r.targetLoc}</code>
+                    <code class="block truncate text-xs text-zinc-600 dark:text-zinc-400" title={r.targetLoc}>{r.targetLoc}</code>
                   {:else}
                     <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld', "Not shown: it was in a memory you can't read.")}</span>
                   {/if}
                   <!-- The stable id is the one handle that outlives the delete. -->
-                  <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.targetId}</code>
+                  <code class="block truncate text-xs text-zinc-500 dark:text-zinc-400" title={r.targetId}>{r.targetId}</code>
                 </div>
               {:else if cell.column.id === 'reason'}
                 <span class="text-zinc-600 dark:text-zinc-400" title={r.reason}>{removalReasonText(r)}</span>
               {:else if cell.column.id === 'removedBy'}
                 {#if r.removedBy}
                   <!-- removedBy is a bare actor id (no resolution field in the
-                       SDL) — shown verbatim rather than guessed at. -->
-                  <code class="text-xs text-zinc-500 dark:text-zinc-400" title={t('node.history.removals.removed-by-title', 'The actor id a soft delete would record (a user, app or client)')}>{r.removedBy}</code>
+                       SDL) — shown verbatim rather than guessed at. The title
+                       carries both the full id and the help text, since the
+                       clipped code can no longer be read in place. -->
+                  <code class="block truncate text-xs text-zinc-500 dark:text-zinc-400" title={[r.removedBy, t('node.history.removals.removed-by-title', 'The actor id a soft delete would record (a user, app or client)')].join(' — ')}>{r.removedBy}</code>
                 {:else}
                   <span class="text-zinc-400">—</span>
                 {/if}
