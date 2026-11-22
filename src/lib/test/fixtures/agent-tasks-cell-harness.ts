@@ -12,7 +12,12 @@ import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
 import TasksComposition from '$lib/components/agent-tasks/TasksComposition.svelte';
 import TasksRoster from '$lib/components/agent-tasks/TasksRoster.svelte';
 
-/** The rows of #2487, by listKey. A `measured` row is reported, never failed; none is left (the two browser-check rows were measured and are enforced below). */
+/**
+ * The rows of #2487, by listKey, consumed by scripts/test-table-cell-overflow-layout.mjs (real Chromium, kind
+ * "agent-tasks": cells are measured by box, so jsdom is not involved). `measured: true` means report-only,
+ * never failed; no row is report-only now. `tasks:immutable-findings` was measured clean (no component fix was
+ * needed) and is enforced as a regression pin; `app-tasks:composition-lanes` failed red on main and is fixed.
+ */
 export const AGENT_TASK_CELL_ROWS = [
   { listKey: 'task-picker:open', measured: false, scope: '' },
   { listKey: 'task-clones', measured: false, scope: '' },
@@ -49,9 +54,15 @@ export function mountAgentTaskCell(target: HTMLElement, row: AgentTaskCellRow) {
     const items = [1, 2].map(i => ({ id: `F${i}-${'x'.repeat(40)}`, severity: 'a-severity-label-with-no-spaces-0123456789', text: `${LONG_TITLE} ${LONG_TITLE} and then some prose` }));
     const real = globalThis.fetch;
     const dispositions = items.map(f => ({ findingId: f.id, disposition: 'deferred', reference: { kind: 'ISSUE', target: 'https://github.com/hadron-memory/hadron-portal/issues/2487', label: LONG_TITLE } }));
-    globalThis.fetch = (async () => new Response(JSON.stringify({ kind: 'ok', items: dispositions, total: dispositions.length }), { headers: { 'content-type': 'application/json' } })) as typeof fetch;
-    const instance = mount(TaskFindings, { target, props: { appId: 'fixture', taskId: 'fixture-task', canWrite: true, initial: { kind: 'page', page: { taskId: 'fixture-task', offset: 0, items, total: 2, hasMore: false } } } as never });
-    return () => { unmount(instance); globalThis.fetch = real; };
+    // Only the dispositions read is answered; any other request fails loudly instead of getting a wrong-shaped page.
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (!String(input instanceof Request ? input.url : input).endsWith('/dispositions')) throw new Error(`agent-tasks-cell-harness: unexpected fetch ${String(input)}`);
+      return new Response(JSON.stringify({ kind: 'ok', items: dispositions, total: dispositions.length }), { headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    try {
+      const instance = mount(TaskFindings, { target, props: { appId: 'fixture', taskId: 'fixture-task', canWrite: true, initial: { kind: 'page', page: { taskId: 'fixture-task', offset: 0, items, total: 2, hasMore: false } } } as never });
+      return () => { unmount(instance); globalThis.fetch = real; };
+    } catch (error) { globalThis.fetch = real; throw error; }
   }
   if (row === 'task-clones') {
     const instance = mount(TaskClones, { target, props: { appId: 'fixture', taskId: 'fixture-task', basePath: '/app/apps/fixture', initial: { kind: 'ok', value: { items: [choice(1), choice(2)], total: 2, hasMore: false } } } as never });
