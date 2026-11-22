@@ -239,3 +239,29 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     expectNoSentinel(line);
   });
 });
+
+// portal#1998 F9: the unwrap in providerCallError rests on two things the installed SDK must keep:
+// RetryError.isInstance and its lastError. Pinned against the real exports, so an SDK upgrade that
+// renames either fails here instead of silently logging `status=none` for every retried failure.
+describe('#1998 the SDK contract providerCallError relies on', () => {
+  it('RetryError.isInstance recognises a RetryError and exposes the last attempt', async () => {
+    const { RetryError, APICallError } = await import('ai');
+    const last = new APICallError({ message: 'm', url: 'u', requestBodyValues: {}, statusCode: 503 });
+    const wrapped = new RetryError({ message: 'm', reason: 'maxRetriesExceeded', errors: [new Error('first'), last] });
+    expect(typeof RetryError.isInstance).toBe('function');
+    expect(RetryError.isInstance(wrapped)).toBe(true);
+    expect(RetryError.isInstance(new Error('plain'))).toBe(false);
+    expect(wrapped.lastError).toBe(last);
+    expect(APICallError.isInstance(wrapped.lastError)).toBe(true);
+  });
+  it('a retried failure is logged with its LAST attempt’s status: first a 429, last a 503', async () => {
+    // The SDK retries; the first attempt is a 429 and every later one a 503, so reading the first
+    // attempt (errors[0]) instead of the last would log 429 and fail here.
+    let attempt = 0;
+    const f = stubFetch(() => providerError(attempt++ === 0 ? 429 : 503)());
+    await fail();
+    expect(f.mock.calls.length, 'the SDK retried, so there was more than one attempt').toBeGreaterThan(1);
+    expect(lines().join('\n')).toMatch(/status=503/);
+    expect(lines().join('\n')).not.toMatch(/status=429/);
+  });
+});
