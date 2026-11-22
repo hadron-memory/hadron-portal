@@ -524,10 +524,11 @@ try {
    await page.locator('[data-testid="wake-since"]').first().waitFor({ timeout: 10000 });
    const legFailuresBefore = failures.length;
    await settlePage(page);
-   // Fonts settled before the measured read, as the pages battery does (blind
-   // review #2507, delta fold): settlePage waits rAFs, not fonts, and the
-   // glyph-rect oracle here is font-metric sensitive — a late webfont swap
-   // mid-leg queues a false escape.
+   // settlePage already settles fonts, bounded (portal#2125: a font that never
+   // settles must not stall a leg forever). This explicit wait is the same
+   // unbounded belt-and-braces the pages battery carries (blind review #2507,
+   // delta fold): it covers the >5s tail before the glyph-rect oracle's
+   // measured read, where a late webfont swap would queue a false escape.
    await page.evaluate(() => document.fonts.ready);
    // Per pinned cell: the owning td's geometry (the shared td-level oracle), plus the reachability
    // facts the acceptance names — the truncated timestamp's title, the wrapped label's text.
