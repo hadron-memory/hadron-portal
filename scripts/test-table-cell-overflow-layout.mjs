@@ -1,8 +1,13 @@
 // #1942: real components/CSS, synthetic data only. No production or backend.
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// portal#2490: the six route-page kinds. Everything else is a component kind.
+const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
 import { parseHarnessEnv, injectionEcho } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
@@ -22,18 +27,55 @@ const patchSource = (code, id, from, to, required = true) => {
  return code.replaceAll(from, () => to);
 };
 const assertPatched = () => assert.deepEqual(patchFailures, [], 'every fixture source patch matched');
+// portal#2490: route-page kinds mount real PAGES. Their module graph reaches
+// `$app/*` and `$env/*` (no implementation outside a running SvelteKit app)
+// and the node page's loader (`$lib/server/api` reads `$env/dynamic/private`;
+// SvelteKit additionally forbids `$lib/server` in the client environment, so
+// the loader runs node-side — see the pages battery). Specifiers are rewritten
+// in transform, in EVERY module under src/ and in BOTH dev-server environments:
+// resolver-hook ordering could not be relied on (SvelteKit's own $lib
+// resolution answered first in the SSR graph, handing the loader a real
+// GraphQLClient). `api`/`guards` are the browser equivalent of the vitest
+// client lane's vi.mock: the loader's every request is answered by the
+// harness's canned map. Same stub files that lane aliases to.
+const STUB_SPECIFIERS = {
+  '$app/navigation': 'app-navigation',
+  '$app/environment': 'app-environment',
+  '$app/stores': 'app-stores',
+  '$app/state': 'app-state',
+  '$app/forms': 'app-forms',
+  '$env/dynamic/public': 'env-dynamic-public',
+  '$lib/server/api': 'server-api',
+  '$lib/server/guards': 'server-guards',
+};
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{
- name: 'table-cell-fixture', enforce: 'pre', transform(code, id) {
+ name: 'table-cell-fixture', enforce: 'pre',
+ transform(code, id) {
+  // portal#2490: rewrite the no-browser specifiers everywhere under src/ (the
+  // fixture's own page mounts, their transitive imports, and the node loader's
+  // graph — the latter via the dev server's SSR environment). This subsumes the
+  // per-component $app patches this plugin used to make (same stub files);
+  // an $app/$env import the map does not know still fails loudly below.
+  const srcRoot = path.resolve(__dirname, '../src');
+  if (id.startsWith(srcRoot) && /\.(ts|svelte|js|mjs)$/.test(id) && !id.includes('/.svelte-kit/') && !id.includes('/stubs/')) {
+   let patched = code;
+   for (const [from, to] of Object.entries(STUB_SPECIFIERS)) {
+    patched = patched.replaceAll(`'${from}'`, `'$lib/test/stubs/${to}'`).replaceAll(`"${from}"`, `"$lib/test/stubs/${to}"`);
+   }
+   // A $app/ or $env/ import the map does not know would run unstubbed.
+   if (/from ['"]\$app\//.test(patched) || /from ['"]\$env\//.test(patched)) patchFailure(`table-cell-fixture: an unpatched $app/$env import is left in ${id}`);
+   code = patched;
+  }
   if (/\/(AppRunsTable|TasksAlarms|AiServiceConfigManager)\.svelte$/.test(id)) {
-   // Every one of the three imports $app/navigation; only TasksAlarms also imports $app/stores.
-   const navigated = patchSource(code, id, "from '$app/navigation'", "from '$lib/test/stubs/app-navigation'");
-   const patched = patchSource(navigated, id, "from '$app/stores'", "from '$lib/test/stubs/app-stores'", id.endsWith('/TasksAlarms.svelte'));
-   // Any other $app/ import (a type import, a new store) would run unstubbed.
-   if (/from ['"]\$app\//.test(patched)) patchFailure(`table-cell-fixture: an $app/ import is left unpatched in ${id}`);
-   return patched;
+   // The generic rewrite above already carries the three components' $app
+   // imports to the stubs; this branch stays as the loud guard that they DID
+   // resolve through this plugin (a stale path here means a silently
+   // unpatched component).
+   if (/from ['"]\$app\//.test(code)) patchFailure(`table-cell-fixture: an $app/ import is left unpatched in ${id}`);
   }
   // Expose only the fixture's actual table objects, no production test API.
-  if (id.endsWith('/createSvelteTable.svelte.ts')) return patchSource(code, id, 'return createTable(withFeatures(options));', 'const fixtureTable = createTable(withFeatures(options)); globalThis.__fixtureTables ??= []; globalThis.__fixtureTables.push(fixtureTable); return fixtureTable;');
+  if (id.endsWith('/createSvelteTable.svelte.ts')) code = patchSource(code, id, 'return createTable(withFeatures(options));', 'const fixtureTable = createTable(withFeatures(options)); globalThis.__fixtureTables ??= []; globalThis.__fixtureTables.push(fixtureTable); return fixtureTable;');
+  return code;
  }
 }] });
 // A browser console error fails the run like a pageerror. The fixture has no favicon, so it is answered
@@ -44,6 +86,33 @@ const watchErrors = async page => {
  page.on('pageerror', e => errors.push(e.message));
  page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
  return errors;
+};
+// A page at the width under test, with touch + the pointer media feature
+// PINNED, and a screenshot wrapper that RE-PINS after every shot. Root cause
+// found on the node-page 390 legs (failed the same four legs on two full
+// runs, passed in single-kind runs): Chromium's beyond-viewport capture —
+// fullPage screenshots of tall pages — WIPES device emulation (pointer media
+// feature AND touch both read gone afterwards). The node pages at 390 are the
+// tallest legs, so only their post-screenshot pointer-mode assert tripped.
+// Screenshots go through __cellShot so the emulation the oracle assumes is
+// restored before the next check; the asserts stay.
+const newEmulatedPage = async (browser, width) => {
+ const coarse = width === 390;
+ const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: coarse });
+ const cdp = await page.context().newCDPSession(page);
+ const pin = async () => {
+  if (coarse) await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+  await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'pointer', value: coarse ? 'coarse' : 'fine' }] });
+ };
+ await pin();
+ page.__cellPin = pin;
+ page.__cellShot = async opts => {
+  const buf = await page.screenshot(opts);
+  await pin();
+  await page.evaluate(() => new Promise(res => requestAnimationFrame(() => res())));
+  return buf;
+ };
+ return page;
 };
 // Unmount the fixture through its own teardown before the page closes, so a teardown error fails the run
 // instead of being hidden by the closing page. A missing hook is itself a failure.
@@ -60,6 +129,11 @@ const unmountFixture = async page => {
 // the final check is that the production containment stops the deliberate escape once it is gone. The caller
 // must not remove it again and must add a fresh one before the next call.
 async function pixelStrip(page, kind, net) {
+ // portal#2490: the strip compares TEXT pixels, so webfonts must be loaded
+ // first — under the wider module graph of the page-mount battery the font
+ // sometimes landed between shots and the compare saw text/no-text instead
+ // of visible/hidden. Fonts settled once, before any shot, is deterministic.
+ await page.evaluate(() => document.fonts.ready);
  const column = kind === 'runs' ? 5 : 0;
  const cell = page.locator('tbody tr').first().locator('td').nth(column);
  const next = page.locator('tbody tr').first().locator('td').nth(column + 1);
@@ -108,11 +182,41 @@ try {
  await server.listen(); const origin = server.resolvedUrls.local[0];
  const css = await (await fetch(new URL('/src/app.css?direct', origin))).text();
  browser = await chromium.launch({ headless: true });
+ // portal#2490: warm the CLIENT dep optimizer with the six page graphs before
+ // any timed leg. The pages' dynamic imports are only discovered at request
+ // time (the fixture's stub rewrite runs in the transform pipeline, which the
+ // dep scanner does not see), and vite's first discovery of a new dependency
+ // re-optimizes and force-reloads the page — destroying the mount evaluate's
+ // execution context mid-import. Seen exactly once per cold cache, on the
+ // first page leg. Warming on a throwaway page makes that reload happen here.
+ {
+  const warm = await newEmulatedPage(browser, 1280);
+  await warm.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>warm</title>' }));
+  await warm.goto(new URL('/__cell_fixture', origin).href);
+  await warm.evaluate(async () => { await Promise.allSettled([
+   import('/src/routes/app/agents/+page.svelte'),
+   import('/src/routes/app/memories/+page.svelte'),
+   import('/src/routes/app/agents/[id]/+page.svelte'),
+   import('/src/routes/app/agents/[id]/page-fixture'),
+   import('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte'),
+   import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'),
+  ]); }).catch(() => {});
+  // A mid-import optimizer reload can also kill THIS evaluate; give the
+  // browser the moment vite needs to finish and reload, then close.
+  await warm.waitForLoadState('load').catch(() => {});
+  await warm.close();
+ }
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
  const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
- for (const width of widths) for (const dark of [false, true]) for (const kind of (env.cellKind ? [env.cellKind] : ['alarms', 'runs', 'config']).filter(k => k !== 'findings')) {
-  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+ // portal#2490: a page kind routes to the pages battery below, never here.
+ // The findings fixture is a battery of its own below (it has the injection
+// knobs and a different oracle); keep it out of THIS loop the way the
+// pre-#2490 script's .filter(k => k !== 'findings') did — its first column
+// is not a pixelStrip candidate.
+const componentKinds = (env.cellKind === null || PAGE_KINDS.includes(env.cellKind) ? (env.cellKind === null ? ['alarms', 'runs', 'config'] : []) : [env.cellKind]).filter(k => k !== 'findings');
+ for (const width of widths) for (const dark of [false, true]) for (const kind of componentKinds) {
+  const page = await newEmulatedPage(browser, width);
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   await page.route('**/api/ai-configs', r => r.fulfill({ contentType: 'application/json', body: '{"endpoints":[]}' }));
@@ -123,7 +227,7 @@ try {
     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
    }, { css, dark });
-   await page.evaluate(async kind => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), kind); }, kind);
+   await page.evaluate(async kind => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = await mountOverflowFixture(document.getElementById('fixture'), kind); }, kind);
    await page.locator('tbody td').first().waitFor();
    if (kind === 'alarms') {
     const action = await page.locator('form').first().getAttribute('action');
@@ -131,7 +235,7 @@ try {
     assert.equal(target.searchParams.get('alarmBefore'), 'fixture-page-boundary', 'Alarms fixture supplies the current route slice to the real native form');
     assert.equal(target.searchParams.getAll('/acknowledgeAlarm').length, 1, 'one intended named action');
    }
-   if (process.env.CELL_SHOTS) await page.screenshot({path:`${process.env.CELL_SHOTS}/${kind}-${width}-${dark?'dark':'light'}-default.png`,fullPage:true});
+   if (process.env.CELL_SHOTS) await page.__cellShot({path:`${process.env.CELL_SHOTS}/${kind}-${width}-${dark?'dark':'light'}-default.png`,fullPage:true});
    assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), width === 390, 'actual pointer mode');
    let net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
    for (const zoom of [1, 2]) {
@@ -267,7 +371,7 @@ try {
     await copy.scrollIntoViewIfNeeded(); await copy.click(); assert.deepEqual(await page.evaluate(()=>window.copied),['hrn:node:example.test:fixture:forty-character-unbroken-loc-ABCDEFGHIJKLMN']);
     if (width===390) {const reveal=page.getByRole('button',{name:/Show full URN/}); await reveal.click(); assert.equal(await reveal.getAttribute('aria-expanded'),'true');}
    }
-   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${kind}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${kind}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
    await unmountFixture(page);
    assertPatched();
    assert.deepEqual(errors, [], 'no browser errors');
@@ -275,7 +379,7 @@ try {
 
   } catch (e) {
    if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
-   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${kind}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true }).catch(() => {});
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/FAILED-${kind}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true }).catch(() => {});
    throw e;
   } finally { await page.close(); }
  }
@@ -283,7 +387,7 @@ try {
  // Severity (six revealed markers, and an 80-character plain label) and text stay inside their cells
  // (#2115 QA F1, #2119). The control strips severity's wrap and must see the overflow.
  if (!env.cellKind || env.cellKind === 'findings') for (const width of widths) for (const dark of [false, true]) {
-  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+  const page = await newEmulatedPage(browser, width);
   const errors = await watchErrors(page);
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   const leg = `findings/${width}/${dark ? 'dark' : 'light'}`;
@@ -294,7 +398,7 @@ try {
     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
    }, { css, dark });
-   await page.evaluate(async () => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = mountOverflowFixture(document.getElementById('fixture'), 'findings'); });
+   await page.evaluate(async () => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = await mountOverflowFixture(document.getElementById('fixture'), 'findings'); });
    // Bounded: no severity field at all is a loud abort (a thrown timeout), not a hang.
    await page.locator('[data-testid="finding-severity"]').first().waitFor({ timeout: 10000 });
    // Fonts first: a late webfont would change the measured glyph boxes (portal#2125 item 5).
@@ -345,7 +449,7 @@ try {
    }
    // Independent of the severity triggers, so it still runs when one is missing.
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
-   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    await unmountFixture(page);
    assertPatched();
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
@@ -354,8 +458,316 @@ try {
    else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
   } catch (e) {
    if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
-   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
    throw e;
+  } finally { await page.close(); }
+ }
+ // ══ portal#2490 (slice 4): route-pages battery ════════════════════════════
+ // The same net-off geometry oracle and negative-control discipline as the
+ // batteries above, run against the REAL route pages — the containment defect
+ // lives in each page's own cell snippet, so the fixture mounts the page.
+ // Findings-style: a failing check queues into `failures` and the leg's other
+ // checks still run.
+ // The node page's data comes from its REAL loader: SvelteKit forbids
+ // `$lib/server` in the client environment, so the loader runs here, node-side,
+ // in the dev server's SSR module graph — its gqlClient answered by the canned
+ // map below, keyed by the same query constants the loader imports (the
+ // browser-harness equivalent of the client lane's vi.mock). The loader's
+ // streamed promises are awaited here and re-created browser-side by
+ // mountLoadedNodePage, which is what a streamed navigation hands the client
+ // once they land.
+ const NODE_TABS = { 'node-properties': 'properties', 'node-history': 'history' };
+ const nodeLoadedByKind = {};
+ async function loadNodePageData(server, tab) {
+  const loaderMod = await server.ssrLoadModule('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts');
+  const queries = await server.ssrLoadModule('/src/lib/server/queries.ts');
+  const comments = await server.ssrLoadModule('/src/lib/server/comments.ts');
+  // Synthetic content — the SAME literals the fixture's PAGE_FIXTURE_VALUES
+  // pins compare against. Keep the two lists in step; a drift fails the pins.
+  const LONG64 = 'LongFixtureNameWithFortyUnbrokenCharacters' + 'W'.repeat(22);
+  const LONG_FIELD = 'fixtureField' + 'F'.repeat(52);
+  const LONG_LOC = 'fixture:edge:' + 'l'.repeat(50);
+  const LONG_TARGET_LOC = 'fixture:target:' + 't'.repeat(49);
+  const ID32 = 'i'.repeat(32);
+  const LONG_ACTOR = 'actor-example.test:fixture-account-with-long-unbroken-id';
+  const LONG_INFO = 'worker-example.test:fixture:identity-with-long-unbroken-suffix';
+  const AT = '2026-10-01T00:00:00Z';
+  const NODE = {
+   id: 'leaf-pk', memoryId: 'mem-A', loc: 'fixture-loc', name: 'Fixture Node', revision: 4,
+   nodeType: 'info', alias: null, description: null, content: 'body', abstract: null,
+   tokens: null, tags: [], seq: null, data: null, ownerRepo: null, isRunnable: false,
+   objectType: 'competitor',
+   properties: { [LONG_FIELD]: LONG64, longObjectField: { nested: LONG64 }, plain: 'short' },
+   createdAt: AT, updatedAt: AT, outgoingEdges: [], incomingEdges: [],
+   memory: { id: 'mem-A', urn: 'hrn:mem:example.test:mem-a', name: 'Mem A', appId: null },
+  };
+  const PARENT = {
+   graph: {
+    id: 'mem-A', urn: 'hrn:mem:example.test:mem-a', name: 'Mem A', class: 'knowledge', isEncrypted: false,
+    schema: { objectTypes: { competitor: { fields: {
+     [LONG_FIELD]: { type: 'text', required: true },
+     longObjectField: { type: 'text' },
+     requiredButMissing: { type: 'text', required: true },
+     plain: { type: 'text' },
+    } } } },
+   },
+   graphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'fixture-loc', name: 'Fixture Node', nodeType: 'info', tags: [] }],
+   isConsumerMode: false, activeOrgId: 'org-1', user: { id: 'u1' },
+  };
+  const revision = (over = {}) => ({
+   id: 'rev-1', revNo: 2, nodeId: 'leaf-pk', loc: 'fixture-loc', name: 'Fixture Node', alias: null,
+   description: null, tags: [], revLabel: 'fixture label', changedFields: ['content'], createdAt: AT,
+   editedByUser: null, editedByInfo: null, editedByWorker: null, editedByAgent: null, ...over,
+  });
+  globalThis.__fixtureGql = async doc => {
+   if (doc === queries.NODE_BY_ID_QUERY || doc === queries.NODE_QUERY) return { node: NODE };
+   if (doc === queries.NODE_REVISIONS_PAGE_QUERY) {
+    return { nodeRevisionsPage: { items: [
+     revision({ id: 'rev-1', editedByInfo: LONG_INFO }),
+     revision({ id: 'rev-2', revNo: 1, editedByUser: { handle: 'fixture-user', urn: 'hrn:user:example.test:fixture:user' }, changedFields: [] }),
+    ], total: 2, hasMore: false } };
+   }
+   if (doc === queries.NODE_EDGE_REMOVALS_QUERY) {
+    return { nodeEdgeRemovals: [
+     { id: 'rm-1', edgeName: 'depends on', edgeLoc: LONG_LOC, targetLoc: LONG_TARGET_LOC, targetId: ID32, reason: 'TARGET_HARD_DELETED', removedBy: LONG_ACTOR, createdAt: AT },
+     { id: 'rm-2', edgeName: 'relates to', edgeLoc: null, targetLoc: null, targetId: 'j'.repeat(32), reason: 'TARGET_HARD_DELETED', removedBy: null, createdAt: AT },
+    ] };
+   }
+   if (doc === queries.NODE_REVISIONS_PROVENANCE_PAGE_QUERY) return { nodeRevisionsPage: { items: [] } };
+   if (doc === queries.NODE_CHILDREN_QUERY) return { findNodes: { hits: [] } };
+   if (doc === comments.COMMENT_THREADS_QUERY) return { commentThreads: { total: 0, items: [] } };
+   if (doc === comments.NODE_COMMENT_SUMMARY_QUERY) {
+    return { node: { id: 'leaf-pk', revision: 4, memory: { id: 'mem-A', urn: PARENT.graph.urn }, commentSummary: { openThreads: 0, resolvedThreads: 0, comments: 0, viewerOpenThreadId: null } } };
+   }
+   if (doc === comments.SELF_MEMORY_ACCESS_QUERY) return { effectiveAccess: { canWrite: true, canManage: false } };
+   return { memories: { items: [], total: 0 }, node: null, nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
+  };
+  const loaded = await (async () => {
+   // Nothing in this load may reach the network: every read is the canned map
+   // above. A stray real fetch names its URL instead of an opaque ECONNREFUSED.
+   const realFetch = globalThis.fetch;
+   globalThis.fetch = (input, init) => {
+    const u = typeof input === 'string' ? input : input?.url ?? String(input);
+    // signing-capability's /capabilities probe is DESIGNED to degrade to "every
+    // switch off" when the server is unreachable; the stub api's reserved
+    // .invalid origin answers it synthetically here so the degradation path is
+    // exercised without any network at all.
+    if (u === 'http://fixture.invalid/capabilities') return new Response('unavailable', { status: 503 });
+    throw new Error(`table-cell-fixture: unexpected real fetch during the node loader run: ${u}`);
+   };
+   try {
+    return await loaderMod.load({
+     params: { id: 'mem-A', nodeId: 'leaf-pk' },
+     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
+     url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk?tab=${tab}`),
+     parent: async () => PARENT,
+    });
+   } finally { globalThis.fetch = realFetch; }
+  })();
+  const plain = {}; const streamed = {};
+  for (const [k, v] of Object.entries(loaded)) {
+   if (v && typeof v.then === 'function') streamed[k] = await v; else plain[k] = v;
+  }
+  return { parent: PARENT, plain, streamed, tab };
+ }
+ const pagesKinds = env.cellKind === null || PAGE_KINDS.includes(env.cellKind) ? (env.cellKind === null ? PAGE_KINDS : [env.cellKind]) : [];
+ for (const kind of pagesKinds) for (const width of widths) for (const dark of [false, true]) {
+  const page = await newEmulatedPage(browser, width);
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  const leg = `${kind}/${width}/${dark ? 'dark' : 'light'}`;
+  const legFailuresBefore = failures.length;
+  try {
+   let nodePayload = null;
+   if (NODE_TABS[kind]) {
+    nodeLoadedByKind[kind] ??= await loadNodePageData(server, NODE_TABS[kind]);
+    nodePayload = nodeLoadedByKind[kind];
+   }
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   if (nodePayload) {
+    await page.evaluate(async payload => { const { mountLoadedNodePage } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = await mountLoadedNodePage(document.getElementById('fixture'), payload); }, nodePayload);
+   } else {
+    await page.evaluate(async kind => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = await mountOverflowFixture(document.getElementById('fixture'), kind); }, kind);
+   }
+   // The agent page opens on its Profile tab; the cells under test are behind
+   // the real tab strip, clicked like a reader would. At phone widths TabRow
+   // moves its overflow tabs into the real "More ▾" menu — driven through the
+   // same buttons a reader gets, never by poking the tab state directly.
+   if (kind === 'agent-apps' || kind === 'agent-bundled') {
+    const label = kind === 'agent-apps' ? 'Apps' : 'Bundled agents';
+    const tab = page.getByRole('tab', { name: label, exact: true }).first();
+    if (await tab.isVisible()) await tab.click();
+    else {
+     await page.getByRole('button', { name: /More/ }).click();
+     await page.getByRole('menuitem', { name: label, exact: true }).click();
+    }
+   }
+   await page.locator('tbody td').first().waitFor({ timeout: 15000 });
+   if (kind === 'node-history') await page.getByRole('heading', { name: 'Removed edges' }).waitFor({ timeout: 15000 });
+   await settlePage(page);
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}-default.png`, fullPage: true });
+   assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), width === 390, `${leg}: actual pointer mode`);
+   // net OFF: production containment must be the only thing stopping a escape.
+   const net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
+   await settlePage(page);
+   const readEscapes = () => page.locator('tbody td').evaluateAll(cells => cells.map(td => {
+    const rect = td.getBoundingClientRect();
+    const badGlyphs = [];
+    const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode());) {
+     if (!n.textContent.trim()) continue;
+     let clipped = false;
+     for (let a = n.parentElement; a && a !== td; a = a.parentElement) {
+      const st = getComputedStyle(a);
+      if (st.textOverflow === 'ellipsis' || st.position === 'absolute' || st.position === 'fixed' || st.overflow === 'hidden') clipped = true;
+     }
+     if (clipped) continue;
+     const range = document.createRange(); range.selectNodeContents(n);
+     for (const r of range.getClientRects()) if (r.left < rect.left - .5 || r.right > rect.right + .5) badGlyphs.push(n.textContent.slice(0, 40));
+    }
+    return { text: td.textContent.slice(0, 50), width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
+   }));
+   const clean = await readEscapes();
+   const cleanOut = clean.filter(x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length));
+   if (cleanOut.length) failures.push(`${leg}: net-off ${JSON.stringify(cleanOut)}`);
+   // TITLE pins: the truncate idiom's other half — the full value stays
+   // reachable. On main these titles do not exist, so every pin is red there.
+   const pinFailures = await page.evaluate(async ({ kind }) => {
+    const { PAGE_FIXTURE_VALUES: V } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts');
+    const out = [];
+    const pin = (label, el, expected) => {
+     if (!el) { out.push(`${label}: element not found`); return; }
+     const title = el.getAttribute('title');
+     if (title !== expected) out.push(`${label}: title ${JSON.stringify(title)} !== ${JSON.stringify(expected)}`);
+    };
+    const pinStartsWith = (label, el, prefix) => {
+     if (!el) { out.push(`${label}: element not found`); return; }
+     if (!(el.getAttribute('title') ?? '').startsWith(prefix)) out.push(`${label}: title does not carry ${JSON.stringify(prefix)}`);
+    };
+    if (kind === 'agents-mine') pin('name link', document.querySelector('a[href="/app/agents/agent-fixture"]'), V.LONG64);
+    if (kind === 'memories-mine') pin('name link', document.querySelector('a[href="/app/memories/mem-fixture"]'), V.LONG64);
+    if (kind === 'agent-apps') {
+     pin('app name link', document.querySelector('a[href="/app/apps/app-fixture"]'), V.LONG64);
+     const orgSpan = [...document.querySelectorAll('tbody span')].find(s => (s.getAttribute('title') ?? '').startsWith('FixtureOrg'));
+     if (!orgSpan) out.push('org cell: no title carrying the org name');
+    }
+    if (kind === 'agent-bundled') {
+     pin('bundled name link', document.querySelector('a[href="/app/agents/bundled-fixture"]'), V.LONG64);
+     pin('bundled description', [...document.querySelectorAll('tbody span')].find(s => s.textContent === V.LONG_DESCRIPTION) ?? null, V.LONG_DESCRIPTION);
+    }
+    if (kind === 'node-properties') {
+     const spans = row => row ? [...row.querySelectorAll('td span[title]')] : [];
+     const fieldRow = document.querySelector(`[data-testid="typed-property-row"][data-field="${V.LONG_FIELD}"]`);
+     pin('field name title', spans(fieldRow)[0] ?? null, V.LONG_FIELD);
+     const objRow = document.querySelector('[data-testid="typed-property-row"][data-field="longObjectField"]');
+     pin('object value title', spans(objRow).at(-1) ?? null, JSON.stringify({ nested: V.LONG64 }));
+     const missingRow = document.querySelector('[data-testid="typed-property-row"][data-field="requiredButMissing"]');
+     pinStartsWith('missing-required value title', spans(missingRow).at(-1) ?? null, 'missing');
+    }
+    if (kind === 'node-history') {
+     pin('edited-by info', document.querySelector(`div[title="${V.LONG_INFO}"]`), V.LONG_INFO);
+     pin('edge loc', document.querySelector(`code[title="${V.LONG_LOC}"]`), V.LONG_LOC);
+     pin('target loc', document.querySelector(`code[title="${V.LONG_TARGET_LOC}"]`), V.LONG_TARGET_LOC);
+     pin('target id', document.querySelector(`code[title="${V.ID32}"]`), V.ID32);
+     pinStartsWith('removed-by merged title', document.querySelector(`code[title^="${V.LONG_ACTOR}"]`), V.LONG_ACTOR);
+    }
+    return out;
+   }, { kind });
+   failures.push(...pinFailures.map(m => `${leg}: ${m}`));
+   if (kind === 'node-history') {
+    // The ⋯ trigger must sit inside its cell at DEFAULT sizing (the audit's
+    // remedy (e): a 28px control + its padding needs a 64px column), and the
+    // resize separator must expose that floor.
+    const trigger = await page.evaluate(() => {
+     const btn = document.querySelector('button[aria-label="Revision actions"]');
+     if (!btn) return { missing: true };
+     const r = btn.getBoundingClientRect(); const c = btn.closest('td').getBoundingClientRect();
+     const table = btn.closest('table');
+     const idx = [...btn.closest('td').parentElement.children].indexOf(btn.closest('td'));
+     const th = [...table.querySelectorAll('thead th')].find(h => h.cellIndex === idx);
+     const minimum = th?.querySelector('[role="separator"]')?.getAttribute('aria-valuemin') ?? null;
+     return { missing: false, inside: r.left >= c.left - .5 && r.right <= c.right + .5 && r.top >= c.top - .5 && r.bottom <= c.bottom + .5, column: c.width, minimum: minimum === null ? null : Number(minimum) };
+    });
+    if (trigger.missing) failures.push(`${leg}: revision actions trigger not found`);
+    else {
+     if (!trigger.inside) failures.push(`${leg}: ⋯ trigger escapes its ${trigger.column}px actions cell at default sizing`);
+     if (trigger.minimum === null || trigger.minimum < 64) failures.push(`${leg}: actions column resize minimum ${trigger.minimum} < 64`);
+    }
+   }
+   // Negative control: a deliberately uncontained span in the target table's
+   // first cell must be seen by this same oracle, or a green leg proves nothing.
+   const controlTarget = kind === 'node-properties' ? '[data-testid="typed-property-row"] td' : 'tbody td';
+   const sawControl = await page.evaluate(async selector => {
+    const td = document.querySelector(selector);
+    if (!td) return false;
+    const n = document.createElement('span'); n.dataset.negativeText = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(100); td.append(n);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return true;
+   }, controlTarget);
+   if (!sawControl) failures.push(`${leg}: negative control had no cell to target`);
+   else {
+    const dirty = (await readEscapes()).filter(x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length));
+    if (!dirty.length) failures.push(`${leg}: negative control not detected by the oracle`);
+    await page.evaluate(() => document.querySelector('[data-negative-text]')?.remove());
+    const after = (await readEscapes()).filter(x => x.width >= 119 && (x.scroll > x.client + 1 || x.badGlyphs.length));
+    if (after.length) failures.push(`${leg}: clean after negative control cleanup ${JSON.stringify(after)}`);
+   }
+   await net.evaluate(el => el.remove());
+   await settlePage(page);
+   // A page mount carries real page chrome, unlike the component batteries.
+   // TabRow keeps an INVISIBLE aria-hidden w-max measurement strip (its
+   // overflow calculator) which pads documentElement.scrollWidth without any
+   // reader seeing it — that scaffolding is the tab-strip slice's territory,
+   // not this slice's. What must not happen is VISIBLE content wider than the
+   // viewport: measured as elements that paint (visibility ≠ hidden, boxes
+   // exist) beyond innerWidth, outside the tables' own scrollers.
+   //
+   // portal#2490 scoping: this battery FAILS only for visible overflow inside
+   // a mounted <table> — the surface this slice fixes. Overflow in other page
+   // chrome is real (e.g. NodeStorageForm's PropertiesEditor label, whose
+   // unbroken 64-char field name has no truncate) but belongs to audit rows
+   // this slice did not measure — per the #2490 discipline those stay open
+   // and unfixed-blind, so the harness reports them without failing the leg.
+   const scan = async insideTables => (await page.evaluate(insideTablesFlag => [...document.querySelectorAll('body *')].filter(el => {
+    const r = el.getBoundingClientRect();
+    if (!(r.width > 0) || r.right <= innerWidth + 0.5) return false;
+    if (!!el.closest('table') !== insideTablesFlag) return false;
+    for (let a = el; a && a !== document.body; a = a.parentElement) {
+     const st = getComputedStyle(a);
+     if (/(auto|scroll|hidden|clip)/.test(st.overflowX)) return false;
+     if (st.visibility === 'hidden' || !a.getClientRects().length) return false;
+    }
+    return true;
+   }).slice(0, 5).map(el => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)}«${(el.textContent ?? '').trim().slice(0, 40)}»`), insideTables));
+   const inTables = await scan(true);
+   if (inTables.length) failures.push(`${leg}: visible document overflow inside a table ${JSON.stringify(inTables)}`);
+   const outsideTables = await scan(false);
+   if (outsideTables.length) console.log(`${leg}: NOTE out-of-slice visible overflow (open audit row, not a failure here): ${JSON.stringify(outsideTables)}`);
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+   if (failures.length === legFailuresBefore) console.log(`${leg}: page cells contained, titles pinned, negative control detected`);
+   else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`);
+  } catch (e) {
+   if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
+   // What the page actually rendered when a leg crashed: the first characters
+   // of body text, so a missing tab or an empty panel is readable from the log.
+   const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 600)).catch(() => '(page gone)');
+   console.error(`${leg}: crashed with body text: ${JSON.stringify(bodyText)}`);
+   const envProbe = await page.evaluate(() => ({
+    coarse: matchMedia('(pointer: coarse)').matches,
+    maxTouchPoints: navigator.maxTouchPoints,
+    metas: [...document.querySelectorAll('meta')].map(m => `${m.name}=${m.content}`).join('|'),
+   })).catch(e => `(probe failed: ${e?.message})`);
+   console.error(`${leg}: environment ${JSON.stringify(envProbe)}`);
+   failures.push(`${leg}: leg crashed ${e?.message ?? e}`);
   } finally { await page.close(); }
  }
  assert.deepEqual(failures, []);

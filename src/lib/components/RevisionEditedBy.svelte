@@ -21,7 +21,7 @@
     {#if view.user.handle}<div class="truncate"><RevisionEditor handle={view.user.handle} urn={view.user.urn} /></div>{/if}
     {#if view.user.urn}<Urn value={view.user.urn} type="user" size={9} />{/if}
   {:else}
-    <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{view.info ?? '—'}</span>
+    <div class="truncate text-zinc-500 dark:text-zinc-400" title={view.info ?? undefined}>{view.info ?? '—'}</div>
   {/if}
   {#if view.worker}
     <div data-testid="revision-worker" class="mt-1 min-w-0">
