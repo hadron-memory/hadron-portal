@@ -6306,3 +6306,21 @@ export const WITHDRAW_QUESTION_MUTATION = /* GraphQL */ `
     withdrawQuestion(ref: $ref, reason: $reason, expectedRevision: $expectedRevision) { ...QuestionCardFields }
   }
 `;
+
+/**
+ * portal#2464 (hadron-server#4777, hrn:node:hadronmemory.com:specs:cor:agt:060:16): the roles the App's
+ * saturation alarms wake. Its own query, never APP_QUERY, so a refusal or a failed read costs this setting
+ * alone. Readers are whoever may read the App's roster; anyone else gets APP_NOT_FOUND.
+ */
+export const APP_SATURATION_ALARM_WAKE_ROLES_QUERY = /* GraphQL */ `
+  query AppSaturationAlarmWakeRoles($appRef: ID!) {
+    saturationAlarmWakeRoles(appRef: $appRef) { appId roles }
+  }
+`;
+
+/** portal#2464: set the WHOLE list (the empty list clears it). Whoever manages the App. */
+export const SET_SATURATION_ALARM_WAKE_ROLES_MUTATION = /* GraphQL */ `
+  mutation SetSaturationAlarmWakeRoles($appRef: ID!, $roles: [String!]!) {
+    setSaturationAlarmWakeRoles(appRef: $appRef, roles: $roles) { appId roles }
+  }
+`;

@@ -6,6 +6,7 @@
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
+  import SaturationAlarmWakeRoles from './SaturationAlarmWakeRoles.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   // portal#2205: the delete dialog is shared with the worker's own page, so it
@@ -4831,6 +4832,14 @@
           />
         {/key}
       {/if}
+
+      <!-- portal#2464: the roles this App's saturation alarms wake. Keyed on the App, so a draft never follows the person to another App. -->
+      {#key app.id}
+        <SaturationAlarmWakeRoles
+          read={tabData.saturationWakeRoles ?? null}
+          canManage={data.viewerManages?.kind === 'known' && data.viewerManages.manages && !impersonating}
+        />
+      {/key}
 
       <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
       <section class="max-w-4xl">
