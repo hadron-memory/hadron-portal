@@ -490,7 +490,8 @@
         </span>
       {/if}
     {:else if cell.column.id === 'uploaded'}
-      <span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{row.uploaded}</span>
+      <!-- portal#2492 (blind review): a date wraps at its spaces only. `anywhere` would let a narrowed column split a time mid-digit. -->
+      <span class="block min-w-0 max-w-full">{row.uploaded}</span>
     {:else if cell.column.id === 'actions'}
       {#if pendingDelete === row.id}
         <!-- Inline two-step confirm, matching hrn:node:hadronmemory.com:hadron-portal:conventions:soft-delete-flow:

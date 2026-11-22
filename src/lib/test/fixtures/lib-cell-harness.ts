@@ -15,19 +15,21 @@ import GrantsPage from '../../../routes/app/account/grants/+page.svelte';
  * cell exists (an inline confirm replaces the Actions cell content).
  */
 export const LIB_CELL_ROWS = [
-  { listKey: 'user:held-workers', prepare: null },
-  { listKey: 'memory:assets', prepare: null },
-  { listKey: 'memory:assets:delete-confirm', prepare: 'asset-delete-confirm' },
-  { listKey: 'node-role-templates:USER', prepare: null },
-  { listKey: 'account:grants', prepare: null },
+  { listKey: 'user:held-workers', prepare: null, expect: 'tbody a[href^="/app/workers/"]' },
+  { listKey: 'memory:assets', prepare: null, expect: 'tbody button[aria-label^="Actions for"]' },
+  { listKey: 'memory:assets:delete-confirm', prepare: 'asset-delete-confirm', expect: 'tbody button:has-text("Cancel")' },
+  // The widest cell of this table, the four-button Actions cell, only renders for a writable owner.
+  { listKey: 'node-role-templates:USER', prepare: null, expect: 'tbody button:has-text("Apply to several memories")' },
+  { listKey: 'account:grants', prepare: null, expect: 'tbody [data-testid="my-grant-row"]' },
 ] as const;
 export type LibCellRow = (typeof LIB_CELL_ROWS)[number]['listKey'];
 
-const LONG_NAME = 'LongWorkerNameWithFortyUnbrokenCharactersABCD';
-const LONG_ROLE = 'a-very-long-role-token-with-no-spaces-in-it-at-all-0123456789';
+// Built by length, so the stated contract is the real one (blind review, #2515).
+const LONG_NAME = `LongWorkerName${'A'.repeat(40)}`;
+const LONG_ROLE = `a-long-role-token-${'x'.repeat(42)}`;
 const LONG_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.macroEnabled.12';
-const LONG_UPLOADER = 'UploaderNameWithFortyUnbrokenCharactersABCDEFGH';
-const NAME_64 = 'TemplateNameWithSixtyFourUnbrokenCharactersABCDEFGHIJKLMNOPQRSTUV01';
+const LONG_UPLOADER = `Uploader${'B'.repeat(40)}`;
+const NAME_64 = `Template${'C'.repeat(56)}`;
 const TOKEN = 'a-description-token-with-no-spaces-0123456789-0123456789-0123456789';
 const time = '2026-11-01T02:04:36Z';
 
@@ -64,17 +66,24 @@ export function mountLibCell(target: HTMLElement, row: LibCellRow) {
   return () => unmount(instance);
 }
 
+/** Poll for a value instead of sleeping: a fixed delay flakes on a slow runner. */
+async function until<T>(read: () => T | undefined, what: string): Promise<T> {
+  for (let i = 0; i < 100; i++) {
+    const found = read();
+    if (found) return found;
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+  }
+  throw new Error(`lib-rows: ${what} never appeared`);
+}
+
 /** The step a row's `prepare` names, run once the table has mounted. */
 export async function prepareLibCell(target: HTMLElement, step: string) {
   if (step === 'asset-delete-confirm') {
     const trigger = target.querySelector<HTMLButtonElement>('button[aria-label^="Actions for"]');
     if (!trigger) throw new Error('lib-rows: the asset row menu trigger is missing');
     trigger.click();
-    await new Promise((r) => setTimeout(r, 50));
-    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => /delete/i.test(b.textContent ?? ''));
-    if (!item) throw new Error('lib-rows: the asset Delete menu item is missing');
+    const item = await until(() => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => /delete/i.test(b.textContent ?? '')), 'the asset Delete menu item');
     item.click();
-    await new Promise((r) => setTimeout(r, 50));
     return;
   }
   throw new Error(`lib-rows: unknown prepare step ${step}`);

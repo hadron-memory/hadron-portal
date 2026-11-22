@@ -1130,7 +1130,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).LIB_CELL_ROWS);
   } finally { await rowsPage.close(); }
   assert.ok(libRows.length >= 5, 'the fixture lists every fixed #2492 row');
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare } of libRows) {
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect } of libRows) {
    const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
    const errors = await watchErrors(page);
    await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
@@ -1145,6 +1145,8 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
     await page.evaluate(async row => { const { mountLibCell } = await import('/src/lib/test/fixtures/lib-cell-harness.ts'); window.stopFixture = mountLibCell(document.getElementById('fixture'), row); }, listKey);
     await page.locator('tbody td').first().waitFor({ timeout: 10000 });
     if (prepare) await page.evaluate(async step => { const { prepareLibCell } = await import('/src/lib/test/fixtures/lib-cell-harness.ts'); await prepareLibCell(document.getElementById('fixture'), step); }, prepare);
+    // The cell this row exists to measure must be on the page: a prop mismatch would otherwise pass vacuously.
+    await page.locator(expect).first().waitFor({ timeout: 10000 });
     await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
     await settlePage(page);
     const escapes = await cellEscapes(page, '');
