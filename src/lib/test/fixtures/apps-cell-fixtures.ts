@@ -21,7 +21,7 @@ const secrets = Array.from({ length: 3 }, (_, i) => ({
 }));
 const signal = (i: number) => ({
   id: `stop-${i}-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdef`, level: 'PAUSE', scope: 'WORKER', targetWorkerId: 'w1', targetHostId: null,
-  setAt: at, until: i === 0 ? null : '2026-12-31T23:59:59Z', setByUserId: null, setByHostKey: true,
+  setAt: at, until: i === 0 ? null : '2026-12-31T23:59:59Z', setByUserId: 'u-long', setByHostKey: false,
   live: i === 0, endedAt: i === 0 ? null : '2026-11-02T03:04:05Z', endKind: i === 0 ? null : 'LIFTED',
   endedByUserId: null, endedByHostKey: true,
 });
@@ -69,7 +69,7 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => 
     const data = {
       app, page: { kind: 'ok', value: { signals: [0, 1, 2].map(signal), pageInfo: { hasNextPage: false, endCursor: null } } },
       live: { signals: [], complete: true }, manages: 'yes', workers: [{ id: 'w1', name: 'Gaby', urn: 'hrn:worker:example.test:team:gaby' }],
-      people: {}, after: null, loadedAt: at, impersonating: null,
+      people: { 'u-long': `${LONG}-a-person-with-an-unbroken-name` }, after: null, loadedAt: at, impersonating: null,
     };
     const instance = mount(Stops as never, { target, props: { data } } as never);
     return () => unmount(instance);
