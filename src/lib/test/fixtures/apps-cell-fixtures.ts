@@ -10,7 +10,6 @@ import Tasks from '../../../routes/app/apps/[appId]/tasks/+page.svelte';
 import Tickers from '../../../routes/app/apps/[appId]/tickers/+page.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 
-export const APPS_CELL_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'] as const;
 const app = { id: 'fixture-app', name: 'Team', urn: 'hrn:app:example.test:team', organizationId: null };
 const LONG = 'a'.repeat(63) + '1';
 const at = '2026-11-01T02:04:36Z';
@@ -49,7 +48,11 @@ async function mountAppDetail(target: HTMLElement, tab: 'staff' | 'agents' | 'ke
   const data = {
     ...base, user: { id: 'u1' }, initialTab: tab,
     app: { ...base.app, agentId: 'ag1', agent: agent(1), agents: [1, 2, 3].map(agent), memberCount: 1, availableMemberRoles: [] },
-    staff: [1, 2, 3].map(worker), teamRoster: { kind: 'ok', byWorker: {} },
+    staff: [1, 2, 3].map(worker), teamRoster: { kind: 'ok', byWorker: Object.fromEntries([1, 2, 3].map((i) => [`w${i}`, {
+      worker: { id: `w${i}` }, checkStatus: { status: 'RUNNING', pendingReason: null }, pausedUntil: null,
+      terminal: { status: 'IDLE', reason: null, checkedAt: new Date().toISOString(), lastTurnAt: new Date().toISOString() },
+      currentTask: { id: `t${i}`, title: `${LONG.slice(0, 50)} task ${i}`, status: 'RUNNING', handle: `AT0.${i}` }, heldBy: null, heldAt: null,
+    }])) },
     appKeys: { kind: 'ok', keys: [1, 2, 3].map(key) },
     keyScopes: { kind: 'ok', byKey: { k1: scopes, k2: scopes, k3: scopes } },
   };

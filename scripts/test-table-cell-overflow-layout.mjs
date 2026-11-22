@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 import { parseHarnessEnv, injectionEcho } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
+import { APPS_KINDS } from './lib/cell-harness-env.mjs';
 import { probeCellEscapes, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
@@ -105,7 +106,6 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
-const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
 let browser;
 const failures = [];
 try {
@@ -349,6 +349,7 @@ try {
    }
    // Independent of the severity triggers, so it still runs when one is missing.
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    await unmountFixture(page);
    assertPatched();
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
@@ -383,6 +384,15 @@ try {
    // Every column the reader can reveal is revealed: a hidden-by-default column (a Stops Id, a ticker Last tick) is still a cell.
    await page.evaluate(() => window.__fixtureTables.at(-1).toggleAllColumnsVisible(true));
    await settlePage(page);
+   // A leg that renders nothing proves nothing: rows are present, every column is revealed, and every column carries content in some row.
+   const rendered = await page.evaluate(() => {
+    const t = window.__fixtureTables.at(-1);
+    const heads = [...document.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    const rows = [...document.querySelectorAll('tbody tr')];
+    const empty = heads.filter((h, i) => h && !rows.some(r => { const td = r.children[i]; return td && (td.textContent.trim() || td.querySelector('svg,img,button,a,input')); }));
+    return { rows: rows.length, hidden: t.getAllLeafColumns().filter(c => !c.getIsVisible()).map(c => c.id), empty };
+   });
+   if (rendered.rows < 3 || rendered.hidden.length || rendered.empty.length) failures.push(`${leg}: the fixture did not render what the probe measures ${JSON.stringify(rendered)}`);
    const net = await page.addStyleTag({ content: 'td { overflow: visible !important; }' });
    // Declared widths first, then the table's own minimum (the declared size is a default the reader can drag below).
    for (const sizing of ['declared', 'minimum']) {
@@ -397,10 +407,16 @@ try {
    }
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
    // The control: the same probe must SEE a deliberate escape in this table, or "no escapes" proves nothing.
-   const control = await page.addStyleTag({ content: 'tbody td * { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; display: inline-block !important; max-width: none !important; } tbody td { white-space: nowrap !important; } tbody td span.x{}' });
+   const control = await page.addStyleTag({ content: 'tbody td * { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; display: inline-block !important; max-width: none !important; } tbody td { white-space: nowrap !important; }' });
    await page.evaluate(() => { document.querySelector('tbody td')?.append(Object.assign(document.createElement('span'), { textContent: 'W'.repeat(120) })); });
    await settlePage(page);
    if ((await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX)).length === 0) failures.push(`${leg}: the escape probe did not see a deliberate escape`);
+   // The headline case: an INLINE `truncate` element (overflow:hidden clips nothing on an inline box), real utility classes and no
+   // display override. Without it, deleting the probe's inline rule would leave every leg green.
+   await control.evaluate(el => el.remove());
+   await page.evaluate(() => { document.querySelector('tbody td').replaceChildren(Object.assign(document.createElement('span'), { className: 'truncate', textContent: 'W'.repeat(120) })); });
+   await settlePage(page);
+   if ((await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX)).length === 0) failures.push(`${leg}: the escape probe did not see an inline truncate escape`);
    await control.evaluate(el => el.remove()); await net.evaluate(el => el.remove());
    await unmountFixture(page);
    assertPatched();
