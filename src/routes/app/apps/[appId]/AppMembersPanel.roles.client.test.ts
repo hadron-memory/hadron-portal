@@ -101,6 +101,8 @@ describe('App members panel: the linked Agent shows its URN (portal#1417)', () =
     const line = paragraphWith(target, 'Roles below are defined by the linked Agent');
     expect(line).not.toBeNull();
     expect(chips(line)).toHaveLength(1);
+    // A long URN is clipped by its wrapper, not left to push the line past the panel.
+    expect(chips(line)[0].closest('span.block')?.classList.contains('overflow-hidden')).toBe(true);
     const link = line!.querySelector('a[href="/app/agents/ag1"]')!;
     expect(link.textContent).toBe('One');
     // Below the name: the chip follows the link in document order.
@@ -112,6 +114,8 @@ describe('App members panel: the linked Agent shows its URN (portal#1417)', () =
     const line = paragraphWith(target, 'This App offers no member roles yet.');
     expect(line).not.toBeNull();
     expect(chips(line)).toHaveLength(1);
+    // A long URN is clipped by its wrapper, not left to push the line past the panel.
+    expect(chips(line)[0].closest('span.block')?.classList.contains('overflow-hidden')).toBe(true);
     const link = line!.querySelector('a[href="/app/agents/ag1"]')!;
     expect(link.textContent).toBe('One');
     expect(link.compareDocumentPosition(chips(line)[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

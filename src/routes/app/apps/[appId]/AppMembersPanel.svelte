@@ -188,7 +188,7 @@
       <p class="mt-1 text-sm text-zinc-500">
         Roles below are defined by the linked Agent
         <a href="/app/agents/{app.agent.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{app.agent.name}</a>.
-        <span class="mt-1 block"><Urn value={app.agent.urn} type="agent" size={8} /></span>
+        <span class="mt-1 block min-w-0 max-w-full overflow-hidden"><Urn value={app.agent.urn} type="agent" size={8} /></span>
       </p>
     {:else if agentsWithheld}
       <!-- announced by the region above -->
@@ -291,7 +291,7 @@
               {t('app-members.add.no-roles', 'This App offers no member roles yet.')}
               {t('app-members.add.no-roles-next', 'An owner or admin of the Agent can add roles on')}
               <a href="/app/agents/{app.agent.id}" class="underline">{app.agent.name}</a>.
-              <span class="mt-1 block"><Urn value={app.agent.urn} type="agent" size={8} /></span>
+              <span class="mt-1 block min-w-0 max-w-full overflow-hidden"><Urn value={app.agent.urn} type="agent" size={8} /></span>
             </p>
           {/if}
           {#if addActionError}
