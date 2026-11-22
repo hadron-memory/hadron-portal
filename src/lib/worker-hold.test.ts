@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isHeld, workerHold } from './worker-hold';
+import { holderForHold, holderLabel, isHeld, workerHold } from './worker-hold';
 
 describe('workerHold', () => {
   it('reports unselected when the field is absent from the projection', () => {
@@ -106,5 +106,32 @@ describe('workerHold — holderId (#825)', () => {
     // a `min(1)`-less schema and assert a holder nobody has.
     expect(workerHold({ heldByUserId: null }, 'u1')).not.toHaveProperty('holderId');
     expect(workerHold({}, 'u1')).not.toHaveProperty('holderId');
+  });
+});
+
+describe('holderForHold (#1330)', () => {
+  const holder = { id: 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder' };
+  it('returns the holder only when its id is the hold\'s', () => {
+    expect(holderForHold(workerHold({ heldByUserId: 'u9' }, 'u1'), holder)).toBe(holder);
+    expect(holderForHold(workerHold({ heldByUserId: 'u1' }, 'u1'), { ...holder, id: 'u1' })).toMatchObject({ id: 'u1' });
+  });
+  it.each([['other', 'u9', 'u8'], ['self', 'u1', 'u9']])('drops a %s-hold holder from another read', (_k, held, other) => {
+    expect(holderForHold(workerHold({ heldByUserId: held }, 'u1'), { ...holder, id: other })).toBeNull();
+  });
+  it.each([null, undefined])('is null for a masked or absent holder (%s)', h => {
+    expect(holderForHold(workerHold({ heldByUserId: 'u9' }, 'u1'), h)).toBeNull();
+  });
+  it.each([{ heldByUserId: null }, {}])('is null when no hold is known (%j)', w => {
+    expect(holderForHold(workerHold(w, 'u1'), holder)).toBeNull();
+  });
+});
+
+describe('holderLabel (#1330)', () => {
+  it('prefers the name, then the handle, treating blank as unset', () => {
+    expect(holderLabel({ name: 'Ada', handle: 'ada' })).toBe('Ada');
+    expect(holderLabel({ name: '', handle: 'ada' })).toBe('ada');
+    expect(holderLabel({ name: '  ', handle: 'ada' })).toBe('ada');
+    expect(holderLabel({ name: null, handle: null })).toBeNull();
+    expect(holderLabel(null)).toBeNull();
   });
 });

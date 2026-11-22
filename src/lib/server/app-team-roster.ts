@@ -35,7 +35,6 @@ export type RosterEntry = {
   /** hadron-server#2223 — who holds the worker's name. Null for nobody, a deleted
    *  holder, or a reader behind the working-state gate: those three are not told apart. */
   heldBy: RosterHolder | null;
-  heldAt: string | null;
 };
 
 /** A sanitized holder identity. `name` is null when withheld AND when unset. */

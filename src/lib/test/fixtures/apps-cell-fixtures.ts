@@ -57,7 +57,7 @@ async function mountAppDetail(target: HTMLElement, tab: 'staff' | 'agents' | 'ke
     staff: [1, 2, 3].map(worker), teamRoster: { kind: 'ok', byWorker: Object.fromEntries([1, 2, 3].map((i) => [`w${i}`, {
       worker: { id: `w${i}` }, checkStatus: { status: 'RUNNING', pendingReason: null }, pausedUntil: null,
       terminal: { status: 'IDLE', reason: null, checkedAt: new Date().toISOString(), lastTurnAt: new Date().toISOString() },
-      currentTask: { id: `t${i}`, title: `${LONG.slice(0, 50)} task ${i}`, status: 'RUNNING', handle: `AT0.${i}` }, heldBy: null, heldAt: null,
+      currentTask: { id: `t${i}`, title: `${LONG.slice(0, 50)} task ${i}`, status: 'RUNNING', handle: `AT0.${i}` }, heldBy: null,
     }])) },
     appKeys: { kind: 'ok', keys: [1, 2, 3].map(key) },
     keyScopes: { kind: 'ok', byKey: { k1: scopes, k2: scopes, k3: scopes } },
