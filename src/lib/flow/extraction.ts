@@ -89,13 +89,17 @@ export function rowsFromNodeData(data: unknown): ExtractionRow[] {
 /**
  * Editor rows from a refused draft's JSON text (the `extractionRows` form field), or null when the text is
  * not a parseable array. Null is not "no rows": an empty array is a draft where the reader removed every
- * row, null is a draft the page cannot read, and only the first may override the saved rows.
+ * row, null is a draft the page cannot read (not an array, or an entry the editor cannot show), and only the first may override the saved rows.
  */
 export function rowsFromDraftJson(text: unknown): ExtractionRow[] | null {
   if (typeof text !== 'string') return null;
   try {
     const parsed: unknown = JSON.parse(text);
-    return Array.isArray(parsed) ? rowsFromNodeData({ extractionSpec: parsed }) : null;
+    if (!Array.isArray(parsed)) return null;
+    const rows = rowsFromNodeData({ extractionSpec: parsed });
+    // An entry the normalizer drops (no string field name) is typing the editor cannot show, so the draft
+    // is unreadable, not a shorter one: seeding `[]` here would hide what the reader typed.
+    return rows.length === parsed.length ? rows : null;
   } catch {
     return null;
   }

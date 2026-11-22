@@ -379,16 +379,38 @@ describe('updateFlow: the visible editor shows the refused draft (portal#2467)',
     expect(saveButton(m).disabled).toBe(false);
   });
 
-  it('the hidden input holds the rows the reader is shown, not the raw draft text (a bad shape and an unnamed row)', async () => {
+  it('the hidden input holds the rows the reader is shown, not the raw draft text (a bad shape)', async () => {
     setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
     serve();
-    const raw = JSON.stringify([{ field: 'kept', shape: 'nope', description: 'd' }, { shape: 'number' }]);
+    const raw = JSON.stringify([{ field: 'kept', shape: 'nope', description: 'd' }]);
     const { m } = await mountHydrated(await refusal(raw));
     await openFlow(m);
     expect((field(m.target, '#flow-shape-0') as HTMLSelectElement).value, 'an unknown shape is shown as string').toBe('string');
-    expect(field(m.target, '#flow-field-1'), 'the unnamed row is not shown').toBeNull();
-    expect(field(m.target, 'input[name="extractionRows"]')!.value, 'and is not submitted either')
+    expect(field(m.target, 'input[name="extractionRows"]')!.value, 'and is submitted as shown')
       .toBe(JSON.stringify([{ field: 'kept', shape: 'string', description: 'd' }]));
+  });
+
+  it('a draft with a row the editor cannot show is unreadable: the saved flow stays and the refusal stays visible', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal(JSON.stringify([{ shape: 'number', description: 'typed, no name' }])));
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the saved row, not an empty editor').toBe('saved');
+    expect(field(m.target, '#flow-writeto')!.value, 'the saved write-to').toBe(SAVED_TARGET);
+    expect(saveButton(m).disabled, 'nothing differs from the saved flow').toBe(true);
+    expect(m.target.textContent, 'the refusal reason').toContain('Field name is required');
+  });
+
+  it('an empty draft array is every row removed: the editor shows no rows, with the draft’s write-to and mode', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal('[]'));
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0'), 'no rows shown').toBeNull();
+    expect(field(m.target, '#flow-writeto')!.value).toBe(DRAFT_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value).toBe('append');
   });
 
   it('a draft whose rows cannot be read leaves the saved rows in the editor, never an empty one', async () => {

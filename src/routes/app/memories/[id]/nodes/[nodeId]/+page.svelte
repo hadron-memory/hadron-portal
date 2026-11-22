@@ -712,17 +712,20 @@
   // A draft the page cannot read (rows missing or not a JSON array) seeds nothing: the editor shows
   // the saved flow, rows and write-to and mode together, because an empty editor over a saved flow,
   // with Save enabled, would wipe it in one click.
-  let refusedFlowDraft = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow')?.data ?? null);
+  const initialFlowDraft = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow')?.data ?? null);
+  // Read once: whether the draft is readable decides both the seeding and the re-sync below, so the two
+  // can never disagree.
+  const initialDraftRows = initialFlowDraft ? rowsFromDraftJson(initialFlowDraft.extractionRows) : null;
+  let refusedFlowDraft = initialDraftRows ? initialFlowDraft : null;
   // Only a draft the editor really seeded from needs the hidden-input re-sync; an unreadable one seeds
   // nothing, and rewriting the form then would drop the server's refusal text from beside the editor.
-  const seededFromRefusal = refusedFlowDraft !== null && rowsFromDraftJson(refusedFlowDraft.extractionRows) !== null;
+  const seededFromRefusal = refusedFlowDraft !== null;
   $effect(() => {
     const stored = node.data;
     const draft = refusedFlowDraft;
     refusedFlowDraft = null;
-    const draftRows = draft ? rowsFromDraftJson(draft.extractionRows) : null;
-    if (draft && draftRows) {
-      flowRows = draftRows;
+    if (draft && initialDraftRows) {
+      flowRows = initialDraftRows;
       outputWriteTo = typeof draft.outputWriteTo === 'string' ? draft.outputWriteTo : '';
       outputMode = draft.outputMode === 'append' ? 'append' : 'replace';
       return;

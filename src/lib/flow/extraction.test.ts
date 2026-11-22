@@ -83,9 +83,9 @@ describe('rowsFromDraftJson (portal#2467)', () => {
   it('an empty array is a draft with every row removed, not an unreadable one', () => {
     expect(rowsFromDraftJson('[]')).toEqual([]);
   });
-  it('drops an entry with no usable field name', () => {
-    expect(rowsFromDraftJson(JSON.stringify([{ shape: 'number' }, { field: 5 }, { field: 'ok' }])))
-      .toEqual([{ field: 'ok', shape: 'string', description: '' }]);
+  it('reads a draft with an entry the editor cannot show as unreadable, so typed rows are never hidden', () => {
+    expect(rowsFromDraftJson(JSON.stringify([{ shape: 'number' }, { field: 5 }, { field: 'ok' }]))).toBeNull();
+    expect(rowsFromDraftJson(JSON.stringify([{ shape: 'number', description: 'd' }]))).toBeNull();
   });
   it.each([['not json'], [undefined], [null], [42], ['{"field":"a"}'], ['"x"']])('reads %j as unreadable (null), never throws', (input) => {
     expect(rowsFromDraftJson(input)).toBeNull();
