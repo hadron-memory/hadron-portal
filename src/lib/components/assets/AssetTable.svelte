@@ -469,7 +469,8 @@
         <span class="block truncate font-mono text-xs text-zinc-500" title={row.memory}>{row.memory}</span>
       {/if}
     {:else if cell.column.id === 'mimeType'}
-      <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.mimeType}</span>
+      <!-- portal#2492: a long vendor MIME type has no break opportunity, so wrap anywhere inside the cell. -->
+      <span class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.mimeType}</span>
     {:else if cell.column.id === 'size'}
       <span class="whitespace-nowrap tabular-nums">{fmtSize(row.sizeBytes)}</span>
     {:else if cell.column.id === 'scanStatus'}
@@ -489,12 +490,14 @@
         </span>
       {/if}
     {:else if cell.column.id === 'uploaded'}
-      <span class="whitespace-nowrap">{row.uploaded}</span>
+      <!-- portal#2492 (blind review): a date wraps at its spaces only. `anywhere` would let a narrowed column split a time mid-digit. -->
+      <span class="block min-w-0 max-w-full">{row.uploaded}</span>
     {:else if cell.column.id === 'actions'}
       {#if pendingDelete === row.id}
         <!-- Inline two-step confirm, matching hrn:node:hadronmemory.com:hadron-portal:conventions:soft-delete-flow:
              the affordance expands in place rather than opening a modal. -->
-        <div class="flex items-center gap-1.5 whitespace-nowrap">
+        <!-- portal#2492: Delete and Cancel wrap onto a second line in a narrow column instead of painting out of it. -->
+        <div class="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onclick={() => confirmDelete(row)}
@@ -540,7 +543,7 @@
         </div>
       {/if}
     {:else}
-      {cell.getValue() ?? '—'}
+      <span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{cell.getValue() ?? '—'}</span>
     {/if}
   {/snippet}
 </DataTable>

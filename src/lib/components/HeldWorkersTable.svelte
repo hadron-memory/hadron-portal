@@ -178,7 +178,9 @@
 >
   {#snippet cell(c, w)}
     {#if c.column.id === 'name'}
-      <a href="/app/workers/{w.id}" class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white">{workerLabel(w.name, { context: 'org-wide', appSlugOrUrn: w.appUrn })}</a>
+      {@const label = workerLabel(w.name, { context: 'org-wide', appSlugOrUrn: w.appUrn })}
+      <!-- portal#2492: `truncate` on an inline <a> sets nowrap but never ellipsizes, so a long qualified label painted out of its cell. Block-level, with the full label in a title. -->
+      <a href="/app/workers/{w.id}" class="block truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white" title={label}>{label}</a>
     {:else if c.column.id === 'state'}
       {@const state = heldWorkerState(w)}
       {#if state === 'active'}
@@ -190,7 +192,7 @@
       {/if}
     {:else if c.column.id === 'role'}
       {#if w.role}
-        <span class="truncate">{w.role}</span>
+        <span class="block truncate" title={w.role}>{w.role}</span>
       {:else}
         <span class="text-zinc-500">{t('user.workers.no-role', 'No role')}</span>
       {/if}
@@ -211,7 +213,8 @@
       {/if}
     {:else}
       {@const text = searchableText(fmt, c.column.id, c.getValue())}
-      <span class="block truncate">{text === '' ? '—' : text}</span>
+      <!-- portal#2492: the date ellipsizes in a narrow column, so its full value stays in a title. -->
+      <span class="block truncate" title={text === '' ? undefined : text}>{text === '' ? '—' : text}</span>
     {/if}
   {/snippet}
 </DataTable>
