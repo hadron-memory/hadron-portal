@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -51,6 +51,22 @@ it('submits the picked id and explicit boolean, blocks duplicate submits while p
   await deferred.finish({type:'failure',status:500,data:{visibility:{type:'error',text:'KEY_ACTIVE',id:'revoked'}}}); await tick(2);
   expect(root.querySelector('[role="alert"]')?.textContent).toContain('KEY_ACTIVE');
   expect(root.querySelector('[data-key-id="revoked"]')).not.toBeNull();
+});
+
+it('submits hidden=false with the hidden row id from the Unhide form', async () => {
+  const root = await mount();
+  const submit = vi.spyOn(HTMLFormElement.prototype,'requestSubmit').mockImplementation(()=>{});
+  onTestFinished(() => submit.mockRestore());
+  const items = await menu(root,'hidden');
+  const unhide = items.find(i => i.textContent?.trim() === 'Unhide');
+  expect(unhide).toBeDefined();
+  unhide!.click(); await tick(3);
+  const form = root.querySelector<HTMLFormElement>('[data-key-id="hidden"] form[action^="?/visibility"]');
+  expect(form).not.toBeNull();
+  expect(submit).toHaveBeenCalledTimes(1);
+  expect(submit.mock.contexts[0]).toBe(form);
+  expect(new FormData(form!).get('id')).toBe('hidden');
+  expect(new FormData(form!).get('hidden')).toBe('false');
 });
 
 it.each([

@@ -42,6 +42,12 @@ describe('#1011 hidden UserApiKey wire', () => {
     const result = await actions.visibility(action({id:'x',hidden:'true'}));
     expect(result).toMatchObject({ status: 500, data: { visibility: { type: 'error', text: code } } });
   });
+  it.each(['INTERNAL_SERVER_ERROR', 'toString', 'SOME_NEW_CODE'])('shows only the fixed fallback copy for the non-allowlisted code %s', async code => {
+    request.mockRejectedValueOnce({ response: { errors: [{ message: 'synthetic-server-diagnostic', extensions: { code } }] } });
+    const result = await actions.visibility(action({id:'x',hidden:'true'}));
+    expect(result).toMatchObject({ status: 500, data: { visibility: { type: 'error', text: 'Could not change key visibility. Try again.' } } });
+    expect(JSON.stringify(result)).not.toContain('synthetic-server-diagnostic');
+  });
   it('does not expose transport diagnostics', async () => {
     request.mockRejectedValueOnce(new Error('Authorization: synthetic-private-value'));
     const result = await actions.visibility(action({id:'x',hidden:'true'}));
