@@ -177,11 +177,34 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
-// The strict escape oracle starts at the 120px sizing step (blind review,
-// #2507, named): below it a reader is expected to widen the column (the 40px
-// minimum case), so narrower cells are judged by the resize pass, not the
-// net-off scan. 119, not 120, to keep a rounding-boundary cell inside.
-const STRICT_ORACLE_MIN_CELL_PX = 119;
+// The strict no-clipping oracle applies from this measured width up (blind review, #2507, named):
+// the sizing legs hold every declared minimum at 120px (the drag legs assert aria-valuemin >= 120),
+// so 119px is that floor within 1px of sub-pixel tolerance — narrower restored text columns are
+// intentionally recoverable by widening instead (the 40px legs).
+const STRICT_CELL_MIN_PX = 119;
+const flaggedCell = x => x.width >= STRICT_CELL_MIN_PX && (x.scroll > x.client + 1 || x.badGlyphs.length > 0);
+// Shared td-level oracle — glyph boxes of UNCLIPPED text vs the owning td, plus scroll-vs-client
+// (unioned from main's #2501, which introduced the wake pass that shares it). evaluateAll callbacks
+// cannot close over Node scope and Playwright refuses functions as evaluate arguments, so this one
+// definition is injected into the page once per leg (the battery setups below) as
+// window.__tdGeometry and every leg's oracle calls it there — the definitions cannot drift apart.
+const tdGeometry = td => {
+ const rect = td.getBoundingClientRect();
+ const badGlyphs = [];
+ const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+ for (let n; (n = walker.nextNode());) {
+  if (!n.textContent.trim()) continue;
+  let clipped = false;
+  for (let a = n.parentElement; a && a !== td; a = a.parentElement) {
+   const st = getComputedStyle(a);
+   if (st.textOverflow === 'ellipsis' || st.position === 'absolute' || st.position === 'fixed' || st.overflow === 'hidden') clipped = true;
+  }
+  if (clipped) continue;
+  const range = document.createRange(); range.selectNodeContents(n);
+  for (const r of range.getClientRects()) if (r.left < rect.left - .5 || r.right > rect.right + .5) badGlyphs.push(n.textContent.slice(0, 40));
+ }
+ return { width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
+};
 let browser;
 const failures = [];
 try {
@@ -240,6 +263,9 @@ try {
     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
    }, { css, dark });
    await page.evaluate(async kind => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = await mountOverflowFixture(document.getElementById('fixture'), kind); }, kind);
+   // One-shot injection is sound because no leg reloads or navigates after setup (portal#2501 BLIND
+   // P3): every later evaluate lands on the same document. A navigating leg needs addInitScript instead.
+   await page.evaluate(`window.__tdGeometry = ${tdGeometry.toString()}`);
    await page.locator('tbody td').first().waitFor();
    if (kind === 'alarms') {
     const action = await page.locator('form').first().getAttribute('action');
@@ -262,25 +288,9 @@ try {
      }, sizing);
      await settlePage(page);
      // At 40px, noninteractive text is intentionally recoverable by widening.
-     // The 120px and wider oracle is strict: no clipping may mask a repair.
-     const geometry = await page.locator('tbody td').evaluateAll(cells => cells.map(td => {
-      const rect = td.getBoundingClientRect();
-      const badGlyphs = [];
-      const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
-      for (let n; (n = walker.nextNode());) {
-       if (!n.textContent.trim()) continue;
-       let clipped = false;
-       for (let a = n.parentElement; a && a !== td; a = a.parentElement) {
-        const st = getComputedStyle(a);
-        if (st.textOverflow === 'ellipsis' || st.position === 'absolute' || st.position === 'fixed' || st.overflow === 'hidden') clipped = true;
-       }
-       if (clipped) continue;
-       const range = document.createRange(); range.selectNodeContents(n);
-       for (const r of range.getClientRects()) if (r.left < rect.left - .5 || r.right > rect.right + .5) badGlyphs.push(n.textContent.slice(0, 40));
-      }
-      return { text: td.textContent.slice(0, 50), width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
-     }));
-     const overflow = geometry.filter(x => x.width >= STRICT_ORACLE_MIN_CELL_PX && (x.scroll > x.client + 1 || x.badGlyphs.length));
+     // The STRICT_CELL_MIN_PX and wider oracle is strict: no clipping may mask a repair.
+     const geometry = await page.locator('tbody td').evaluateAll(cells => cells.map(td => ({ text: td.textContent.slice(0, 50), ...window.__tdGeometry(td) })));
+     const overflow = geometry.filter(flaggedCell);
      if (overflow.length) failures.push(`${kind}/${width}/${dark}/${zoom}/${sizing}: net-off ${JSON.stringify(overflow)}`);
 
      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${kind}/${width}/${dark}/${zoom}/${sizing}: internal scroller, not document overflow ${await page.evaluate(()=>document.documentElement.scrollWidth)}`);
@@ -467,6 +477,101 @@ try {
    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
    // The success line only prints for a leg that queued nothing.
    if (failures.length === legFailuresBefore) console.log(`${leg}: severity and text inside their cells (both axes); negative control detected`, clean);
+   else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
+  } catch (e) {
+   if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-')}.png`, fullPage: true }).catch(() => {});
+   throw e;
+  } finally { await page.close(); }
+ }
+ // portal#2489 (#1962 audit, slice 3; unioned from main's #2501 in the #2507 carry): the worker-wake
+ // panels' two pinned cells — the apply receipt's Every (cadence plus the App's-floor label,
+ // worker-wake:apply-created) and the subscriptions' Since (a full fmtRunTime timestamp,
+ // worker-wake:subscriptions) — keep their content inside their cell with the full value reachable
+ // (title reach needs a hover pointer; touch cannot hover — portal#2501 BLIND P3): the floor label
+ // wraps in place (remedy a), the timestamp ellipsizes as a block with its full value in the title
+ // (remedy b, the quiet cell's own shape). The oracle is the td-level one the sizing legs use (glyph
+ // boxes of UNCLIPPED text), because an ellipsized cell is contained by its own overflow — so the
+ // nowrap control strips overflow too, proving the oracle can still see this defect class rather
+ // than passing against it.
+ if (battery.wake.length) for (const width of widths) for (const dark of [false, true]) {
+  const page = await newEmulatedPage(browser, width);
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  const leg = `wake/${width}/${dark ? 'dark' : 'light'}`;
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async () => { const { mountOverflowFixture } = await import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'); window.stopFixture = await mountOverflowFixture(document.getElementById('fixture'), 'wake'); });
+   // One-shot injection is sound because no leg reloads or navigates after setup (portal#2501 BLIND P3).
+   await page.evaluate(`window.__tdGeometry = ${tdGeometry.toString()}`);
+   await page.locator('[data-testid="wake-since"]').first().waitFor({ timeout: 10000 });
+   const legFailuresBefore = failures.length;
+   await settlePage(page);
+   // Per pinned cell: the owning td's geometry (the shared td-level oracle), plus the reachability
+   // facts the acceptance names — the truncated timestamp's title, the wrapped label's text.
+   // A field outside a td (markup change) is a loud named failure, not a TypeError out of the oracle
+   // (portal#2501 BLIND P3) — the same treatment the missing-scroller check gives its null below.
+   const cellState = () => page.locator('[data-testid="wake-since"], [data-testid="wake-apply-every"]').evaluateAll(fields => fields.map(f => { const td = f.closest('td'); return { field: f.dataset.testid, ...(td === null ? { td: null } : window.__tdGeometry(td)), title: f.getAttribute('title'), text: f.textContent.trim() }; }));
+   const clean = await cellState();
+   if (clean.length !== 2) failures.push(`${leg}: both pinned cells must render ${JSON.stringify(clean)}`);
+   else {
+    const tdMissing = clean.filter(x => x.td === null).map(x => x.field);
+    if (tdMissing.length) failures.push(`${leg}: pinned cell has no td ancestor ${JSON.stringify(tdMissing)}`);
+    const out = clean.filter(flaggedCell);
+    if (out.length) failures.push(`${leg}: worker-wake cell escapes its cell ${JSON.stringify(out)}`);
+    const since = clean.find(x => x.field === 'wake-since');
+    if (!since || since.title !== since.text) failures.push(`${leg}: Since is missing its full value in a title ${JSON.stringify(since)}`);
+    const every = clean.find(x => x.field === 'wake-apply-every');
+    // The wrap remedy, not a hidden one: nothing between the Every field and its td may clip or ellipsize.
+    const everyClipped = await page.locator('[data-testid="wake-apply-every"]').evaluate(el => {
+     for (let a = el; a && a.tagName !== 'TD'; a = a.parentElement) { const st = getComputedStyle(a); if (st.textOverflow === 'ellipsis' || st.overflow === 'hidden') return true; }
+     return false;
+    });
+    // 'min (' with a PLAIN space is the wording oracle on purpose: an &nbsp; there cannot break and
+    // would silently regress the wrap remedy (portal#2501 BLIND P3).
+    if (!every || everyClipped || !every.text.includes('min (')) failures.push(`${leg}: the floor label is not visible-and-wrapped in Every ${JSON.stringify(every)}`);
+   }
+   // Where the audit's default-size geometry binds — the table's own scroller scrolls, so columns hold
+   // their declared sizes (a wider container spreads surplus and these cells fit by construction,
+   // DataTable.svelte's max(100%, total) width model) — force the repaired cells back to uncontained
+   // nowrap. Binding is PER CELL: the two cells sit in different tables with different column sets,
+   // so at a width where only one scroller overflows, only that cell is forced to escape — asserting
+   // the other would fail the control for the wrong reason (portal#2501 BLIND P2).
+   const bindsByCell = await page.locator('[data-testid="wake-since"], [data-testid="wake-apply-every"]').evaluateAll(fields => Object.fromEntries(fields.map(f => {
+    const s = f.closest('[data-testid="data-table-scroller"]');
+    return [f.dataset.testid, s === null ? null : s.scrollWidth > s.clientWidth + 1];
+   })));
+   // A null is a markup change (no scroller ancestor): a loud named failure, not a TypeError on null.
+   const scrollerMissing = Object.entries(bindsByCell).filter(([, binds]) => binds === null).map(([field]) => field);
+   if (scrollerMissing.length) failures.push(`${leg}: pinned cell has no data-table-scroller ancestor ${JSON.stringify(scrollerMissing)}`);
+   const boundCells = Object.entries(bindsByCell).filter(([, binds]) => binds === true).map(([field]) => field);
+   // The audit's phone width must exercise the control (portal#2501 BLIND P3): a reverted fix could
+   // otherwise hide behind widened geometry — legs green, control skipped, pass vacuous. Measured:
+   // both pinned cells bind at 390 today; 1280 legitimately widens into the skip branch.
+   if (width === 390 && !boundCells.length) failures.push(`${leg}: no pinned cell binds at 390 — widened geometry, the nowrap control never ran`);
+   if (boundCells.length) {
+    const control = await page.addStyleTag({ content: '[data-testid="wake-since"], [data-testid="wake-apply-every"] { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important }' });
+    await settlePage(page);
+    const dirty = (await cellState()).filter(flaggedCell).map(x => x.field);
+    // Every cell whose scroller bound must be seen escaping. Extra flags are legitimate: forcing
+    // nowrap can itself push a table from surplus-spread into binding, and that escape is the
+    // control's own doing — the "left escapes behind" check below still gates a stuck page.
+    const unflaggedBound = boundCells.filter(b => !dirty.includes(b));
+    if (unflaggedBound.length) failures.push(`${leg}: nowrap control must flag the scroller-bound cells ${JSON.stringify({ bound: boundCells, flagged: dirty })}`);
+    await control.evaluate(el => el.remove()); await settlePage(page);
+    if ((await cellState()).some(flaggedCell)) failures.push(`${leg}: nowrap control left escapes behind`);
+   }
+   if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+   if (process.env.CELL_SHOTS) await page.__cellShot({ path: `${process.env.CELL_SHOTS}/${leg.replaceAll('/', '-')}.png`, fullPage: true });
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+   if (failures.length === legFailuresBefore) console.log(`${leg}: every and since inside their cells, values present — title reach is hover-only, touch cannot hover${boundCells.length ? `; nowrap control flags ${boundCells.join(' and ')}` : ' (widened geometry: declared sizes do not bind, control skipped)'}`, clean);
    else console.log(`${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`, clean);
   } catch (e) {
    if (patchFailures.length) console.error(`patch failures: ${patchFailures.join('; ')}`);
@@ -671,7 +776,7 @@ async function loadNodePageData(devServer, tab) {
     return { text: td.textContent.slice(0, 50), width: rect.width, scroll: td.scrollWidth, client: td.clientWidth, badGlyphs };
    }));
    const clean = await readEscapes();
-   const cleanOut = clean.filter(x => x.width >= STRICT_ORACLE_MIN_CELL_PX && (x.scroll > x.client + 1 || x.badGlyphs.length));
+   const cleanOut = clean.filter(flaggedCell);
    if (cleanOut.length) failures.push(`${leg}: net-off ${JSON.stringify(cleanOut)}`);
    // TITLE pins: the truncate idiom's other half — the full value stays
    // reachable. On main these titles do not exist, so every pin is red there.
@@ -757,10 +862,10 @@ async function loadNodePageData(devServer, tab) {
    }, controlTarget);
    if (!sawControl) failures.push(`${leg}: negative control had no cell to target`);
    else {
-    const dirty = (await readEscapes()).filter(x => x.width >= STRICT_ORACLE_MIN_CELL_PX && (x.scroll > x.client + 1 || x.badGlyphs.length));
+    const dirty = (await readEscapes()).filter(flaggedCell);
     if (!dirty.length) failures.push(`${leg}: negative control not detected by the oracle`);
     await page.evaluate(() => document.querySelector('[data-negative-text]')?.remove());
-    const after = (await readEscapes()).filter(x => x.width >= STRICT_ORACLE_MIN_CELL_PX && (x.scroll > x.client + 1 || x.badGlyphs.length));
+    const after = (await readEscapes()).filter(flaggedCell);
     if (after.length) failures.push(`${leg}: clean after negative control cleanup ${JSON.stringify(after)}`);
    }
    await net.evaluate(el => el.remove());

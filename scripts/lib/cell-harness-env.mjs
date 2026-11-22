@@ -1,18 +1,20 @@
 // portal#2129 rows 1, 6, 8: validate every harness env knob before the dev server or a browser starts.
 // portal#2490: the kinds split into batteries — the component mount (alarms,
-// runs, config), findings and agent-tasks (each a battery of its own: injection
-// knobs / a different oracle; agent-tasks joined from portal#2502), the six
-// route-page kinds of slice 4 (a mounted real page), and the eight Apps route
-// pages (portal#2488, unioned from main in #2507's carry: real apps pages with
-// the escape-probe oracle). KINDS is derived so CELL_KIND's accepted set and
-// the batteries' kind lists cannot drift, and batteryFor is the ONE routing
-// table: the script never writes a kind list of its own.
+// runs, config), findings, wake and agent-tasks (each a battery of its own:
+// injection knobs / a different oracle; agent-tasks joined from portal#2502;
+// wake unioned from main's #2501 in #2507's carry), the six route-page kinds
+// of slice 4 (a mounted real page), and the eight Apps route pages (portal#2488,
+// unioned from main in #2507's carry: real apps pages with the escape-probe
+// oracle). KINDS is derived so CELL_KIND's accepted set and the batteries' kind
+// lists cannot drift, and batteryFor is the ONE routing table: the script never
+// writes a kind list of its own.
 export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks'];
-export const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'agent-tasks'];
+export const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks'];
 export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
 export const KINDS = [...COMPONENT_KINDS, ...PAGE_KINDS, ...APPS_KINDS];
-// The component battery's own kinds: findings and agent-tasks are COMPONENT_KINDS
-// (CELL_KIND accepts them) but mount through their own batteries, not this one.
+// The component battery's own kinds: findings, wake and agent-tasks are
+// COMPONENT_KINDS (CELL_KIND accepts them) but mount through their own
+// batteries, not this one.
 const COMPONENT_BATTERY_KINDS = ['alarms', 'runs', 'config'];
 // Which battery owns a CELL_KIND, and with which kinds (blind review, #2507):
 // null runs every battery at its full list; any specific kind routes to exactly
@@ -24,13 +26,14 @@ const COMPONENT_BATTERY_KINDS = ['alarms', 'runs', 'config'];
 // escape-probe oracle, not the six-kind pages battery's geometry walker.
 export function batteryFor(cellKind) {
   if (cellKind === null) {
-    return { component: COMPONENT_BATTERY_KINDS, findings: ['findings'], agentTasks: ['agent-tasks'], pages: PAGE_KINDS, apps: APPS_KINDS };
+    return { component: COMPONENT_BATTERY_KINDS, findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], pages: PAGE_KINDS, apps: APPS_KINDS };
   }
-  if (cellKind === 'findings') return { component: [], findings: ['findings'], agentTasks: [], pages: [], apps: [] };
-  if (cellKind === 'agent-tasks') return { component: [], findings: [], agentTasks: ['agent-tasks'], pages: [], apps: [] };
-  if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], agentTasks: [], pages: [cellKind], apps: [] };
-  if (APPS_KINDS.includes(cellKind)) return { component: [], findings: [], agentTasks: [], pages: [], apps: [cellKind] };
-  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], agentTasks: [], pages: [], apps: [] };
+  if (cellKind === 'findings') return { component: [], findings: ['findings'], wake: [], agentTasks: [], pages: [], apps: [] };
+  if (cellKind === 'wake') return { component: [], findings: [], wake: ['wake'], agentTasks: [], pages: [], apps: [] };
+  if (cellKind === 'agent-tasks') return { component: [], findings: [], wake: [], agentTasks: ['agent-tasks'], pages: [], apps: [] };
+  if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], pages: [cellKind], apps: [] };
+  if (APPS_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], pages: [], apps: [cellKind] };
+  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], wake: [], agentTasks: [], pages: [], apps: [] };
   throw new Error(`batteryFor: unknown kind ${JSON.stringify(cellKind)} — parseHarnessEnv validates the accepted set first`);
 }
 const flag = (env, name) => {
