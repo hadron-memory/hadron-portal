@@ -54,6 +54,7 @@
   listKey="app:team-metrics:projects"
   bind:globalFilter
   contentHeight
+  showPageSize={false}
   fitOnPhone
   phoneHiddenColumns={['children']}
   searchPlaceholder={t('team-metrics.projects.search', 'Search projects…')}

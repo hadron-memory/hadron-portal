@@ -56,6 +56,7 @@
   listKey="app:team-metrics:started-owned"
   bind:globalFilter
   contentHeight
+  showPageSize={false}
   phoneHiddenColumns={['projectNames']}
   searchPlaceholder={t('team-metrics.owners.search', 'Search owners and projects…')}
   searchAriaLabel={t('team-metrics.owners.search.aria', 'Search started tasks by owner or project')}

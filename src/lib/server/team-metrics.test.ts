@@ -71,10 +71,10 @@ describe('loadTeamMetrics', () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
-  it('a refused window whose fallback read is an outage is invalid with no metrics, never failed (#2535)', async () => {
-    const request = vi.fn().mockRejectedValueOnce(refused('BAD_USER_INPUT')).mockRejectedValueOnce(new Error('boom'));
+  it.each([['an outage', new Error('boom'), 'failed'], ['a refusal', refused('FORBIDDEN'), 'hidden']])('a refused window whose fallback read is %s is that state, never an input error over nothing (#2535)', async (_n, err, kind) => {
+    const request = vi.fn().mockRejectedValueOnce(refused('BAD_USER_INPUT')).mockRejectedValueOnce(err);
     const view = await loadTeamMetrics({ request } as never, 'app1', { since: '2026-01-01T00:00:00.000Z', until: '2026-06-01T00:00:00.000Z' });
-    expect(view).toEqual({ kind: 'invalid', metrics: null });
+    expect(view).toEqual({ kind });
   });
 
   it('an outage is failed, never hidden and never empty', async () => {
