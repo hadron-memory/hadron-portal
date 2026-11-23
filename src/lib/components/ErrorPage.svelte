@@ -90,7 +90,7 @@
              quote it. The row is a FLEX, not inline flow: a wrapping id keeps
              the icon grouped with the whole block — vertically centered beside
              it — instead of trailing the wrapped tail's last few characters
-             (the 390 orphan in Gino's LOCAL review). The button's accessible
+             (the 390 orphan found in the #2528 local review). The button's accessible
              name is the static ACTION (per
              hrn:node:hadronmemory.com:hadron-portal:review:icon-button-aria-label);
              the CONFIRMATION is announced by the polite status region, not by
