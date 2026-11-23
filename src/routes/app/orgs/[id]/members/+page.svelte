@@ -385,7 +385,7 @@
           {#if isOwner && m.user.id !== data.currentUserId}
             <!-- #2517: `relative` makes the form the containing block of the sr-only label (position:absolute). Without it the label's
                  containing block is the DataTable's outer wrapper, OUTSIDE its overflow scroller, so the scroller cannot clip it and
-                 it widens the page to its column's x offset (554px at 390px). -->
+                 it widens the page to its column's x offset. -->
             <form method="POST" action="?/update" use:updateEnhance class="relative">
               <input type="hidden" name="_kind" value="updateOrgMember" />
               <input type="hidden" name="userId" value={m.user.id} />
