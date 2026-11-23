@@ -129,6 +129,20 @@ describe('DataTable fills the window (portal#2193)', () => {
     }
   });
 
+  it('contentHeight lets the scroll area grow to its rows, so no row is cut, and registers no observer (#2535)', () => {
+    const fake = fakeObserver();
+    try {
+      const scroller = mountTable({ rows: 60, headerHeight: 120, contentHeight: true });
+      expect(fake.fillWatched(scroller)).toEqual([]);
+      expect(scroller.style.maxHeight).toBe('none');
+      window.dispatchEvent(new Event('resize'));
+      flushSync();
+      expect(scroller.style.maxHeight).toBe('none');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('switching modes both ways: filling starts observing, bounded stops and disconnects', () => {
     const fake = fakeObserver();
     try {

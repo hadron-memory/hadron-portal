@@ -20,6 +20,8 @@ export async function loadTeamMetrics(
     // No window was sent, so the refusal cannot be about one: no retry to make.
     if (!window.since && !window.until) return view;
     const base = await readTeamMetrics(client, appRef, {});
+    // A fallback that is hidden or an outage is that state, never an input error over nothing.
+    if (base.kind === 'hidden' || base.kind === 'failed') return base;
     return { kind: 'invalid', metrics: base.kind === 'ok' ? base.metrics : null };
   }
   return view;
