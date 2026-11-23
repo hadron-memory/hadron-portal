@@ -124,13 +124,13 @@ describe('TeamMetricsPanel states', () => {
     const h = html(ok());
     expect(h).toContain('metrics-owner-projects-phone');
     expect(h).toContain('metrics-project-children-phone');
-    for (const label of ['By project', 'Direct tasks by status']) {
+    for (const label of ['By project', 'Direct tasks by status', '>Tasks<']) {
       const cells = headerCell(h, label);
       expect(cells).toHaveLength(1);
       expect(openTag(cells[0]!)).toContain('max-sm:hidden');
     }
     // the kept columns stay visible on a phone
-    for (const label of ['Owner', 'Tasks', 'Project']) {
+    for (const label of ['Owner', 'Project']) {
       const own = headerCell(h, `>${label}<`);
       expect(own.length).toBeGreaterThan(0);
       for (const c of own) expect(openTag(c)).not.toContain('max-sm:hidden');

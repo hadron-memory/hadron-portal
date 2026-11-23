@@ -40,6 +40,10 @@
   });
 </script>
 
+{#snippet total(row: Row)}
+  <CountDrill count={row.tasks} kind="task" {appId} label={t('team-metrics.label.owner-total', 'tasks by {owner}', { owner: row.ownerName })} />
+{/snippet}
+
 {#snippet projects(row: Row)}
   <ul class="space-y-2">
     {#each row.byProject as p (p.project.handle + (p.project.noProject ? ':none' : ''))}
@@ -57,7 +61,8 @@
   bind:globalFilter
   contentHeight
   showPageSize={false}
-  phoneHiddenColumns={['projectNames']}
+  fitOnPhone
+  phoneHiddenColumns={['tasks', 'projectNames']}
   searchPlaceholder={t('team-metrics.owners.search', 'Search owners and projects…')}
   searchAriaLabel={t('team-metrics.owners.search.aria', 'Search started tasks by owner or project')}
   rowAttrs={() => ({ 'data-testid': 'metrics-owner-row' })}
@@ -67,10 +72,13 @@
       <div class="min-w-0">
         <div class="truncate font-medium text-zinc-900 dark:text-white">{row.ownerName}</div>
         {#if row.owner?.urn}<div class="mt-1"><Urn value={row.owner.urn} type="worker" size={8} /></div>{/if}
-        <div class="mt-3 sm:hidden" data-testid="metrics-owner-projects-phone">{@render projects(row)}</div>
+        <div class="mt-3 space-y-3 sm:hidden" data-testid="metrics-owner-projects-phone">
+          <p class="flex items-baseline gap-2 text-sm"><span class="text-xs text-zinc-500 dark:text-zinc-400">{t('team-metrics.col.tasks', 'Tasks')}</span> {@render total(row)}</p>
+          {@render projects(row)}
+        </div>
       </div>
     {:else if c.column.id === 'tasks'}
-      <CountDrill count={row.tasks} kind="task" {appId} label={t('team-metrics.label.owner-total', 'tasks by {owner}', { owner: row.ownerName })} />
+      {@render total(row)}
     {:else if c.column.id === 'projectNames'}
       {@render projects(row)}
     {/if}
