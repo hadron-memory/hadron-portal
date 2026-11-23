@@ -25,12 +25,22 @@ function strongestStop(image) {
 // (no PNG library needed), and return the mean and max absolute channel change (0..255). A cue the same colour as the surface
 // behind it measures 0, wherever the shade is computed to differ from some other element.
 async function paintedChange(page) {
-  const box = await page.locator('[data-testid="data-table-scroll-cue-end"]').boundingBox();
-  const clip = { x: Math.round(box.x), y: Math.round(box.y), width: Math.max(1, Math.round(box.width)), height: Math.max(1, Math.round(box.height)) };
-  const on = await page.screenshot({ clip });
-  const hide = await page.addStyleTag({ content: '.table-scroll-cue { opacity: 0 !important; transition: none !important; }' });
-  const off = await page.screenshot({ clip });
-  await hide.evaluate((el) => el.remove());
+  const cue = page.locator('[data-testid="data-table-scroll-cue-end"]');
+  // Capture with transitions and animations off, and only once the cue has settled at full opacity, so neither shot can catch the fade.
+  const calm = await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
+  try {
+    await page.waitForFunction((el) => Number(getComputedStyle(el).opacity) === 1, await cue.elementHandle(), { timeout: 5000 });
+    const box = await cue.boundingBox();
+    if (!box) return { error: 'the end cue has no box (it is not rendered)' };
+    const clip = { x: Math.round(box.x), y: Math.round(box.y), width: Math.max(1, Math.round(box.width)), height: Math.max(1, Math.round(box.height)) };
+    const on = await page.screenshot({ clip });
+    const hide = await page.addStyleTag({ content: '.table-scroll-cue { opacity: 0 !important; }' });
+    let off;
+    try { off = await page.screenshot({ clip }); } finally { await hide.evaluate((el) => el.remove()); }
+    return await measureChange(page, on, off);
+  } finally { await calm.evaluate((el) => el.remove()); }
+}
+async function measureChange(page, on, off) {
   return page.evaluate(async ({ a, b }) => {
     const pixels = async (b64) => {
       const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
@@ -91,20 +101,24 @@ try {
       } else if (Math.abs(m.cue.right - (m.scroller.right - 1)) > 1.5) failures.push(`${label}: with no pin the end cue stays on the scroller edge ${JSON.stringify(m)}`);
       // The colour comes from the palette: the zinc token the cue names is really emitted (else the #hex fallback would stand in silently).
       if (!m.token) failures.push(`${label}: the palette token the cue uses (--color-zinc-${dark ? '800' : '900'}) is not defined, so the fallback colour is in use`);
-      // A shade, not a glow: judge the strongest colour stop numerically. It must paint (alpha > 0.05) and be dark (luma < 0.25).
+      // A soft edge tint, never a white wash: judge the strongest colour stop numerically. It must paint (alpha > 0.05) and be dark-toned (luma < 0.25: zinc-900 in light, zinc-800 in dark).
       const stop = strongestStop(m.image);
       if (!stop) failures.push(`${label}: could not read a colour from the cue gradient ${m.image}`);
       else {
         if (!(stop.a > 0.05)) failures.push(`${label}: the cue paints nothing (alpha ${stop.a}) ${m.image}`);
-        if (!(stop.luma < 0.25)) failures.push(`${label}: the cue is a light wash (luma ${stop.luma.toFixed(2)}), not a shade ${m.image}`);
+        if (!(stop.luma < 0.25)) failures.push(`${label}: the cue is a light wash (luma ${stop.luma.toFixed(2)}), not a dark-toned edge tint ${m.image}`);
         // Visible where it paints: the cue's own pixels must differ from the same pixels with the cue hidden. (An earlier check
         // composited the colour over the table header, a surface the cue does not paint; a shade equal to the surface behind it
         // measured fine there and was invisible on screen. Portal#2503 UX review.)
         const painted = await paintedChange(page);
-        if (!(painted.mean >= 3)) failures.push(`${label}: the cue is invisible where it paints (change mean ${painted.mean.toFixed(1)}, max ${painted.max}/255 against the same box with the cue hidden)`);
+        // Measured at this leg's fixtures: dark (zinc-800 at 60%) mean 4.7/255, light (zinc-900 at 14%) mean 8.5/255, and the
+        // invisible zinc-950 stop that failed review 0.2/255. 3 sits between the invisible case and the real ones: a regression
+        // to a colour that matches the surface fails, while the gradient's faded half (which pulls the mean down) still passes.
+        if (painted.error) failures.push(`${label}: ${painted.error}`);
+        else if (!(painted.mean >= 3)) failures.push(`${label}: the cue is invisible where it paints (change mean ${painted.mean.toFixed(1)}, max ${painted.max}/255 against the same box with the cue hidden)`);
         console.log(JSON.stringify({ label, paintedChange: painted }));
       }
-      if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/scroll-cue-${dark ? 'dark' : 'light'}-${pinned ? 'pinned' : 'plain'}.png` });
+      if (process.env.CELL_SHOTS) { await page.waitForFunction(() => Number(getComputedStyle(document.querySelector('[data-testid="data-table-scroll-cue-end"]')).opacity) === 1); await page.screenshot({ path: `${process.env.CELL_SHOTS}/scroll-cue-${dark ? 'dark' : 'light'}-${pinned ? 'pinned' : 'plain'}.png` }); }
       console.log(JSON.stringify({ label, cueRight: m.cue.right, pinLeft: m.pin.left, image: m.image.slice(0, 90) }));
       await page.close();
     }
