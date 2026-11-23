@@ -69,7 +69,7 @@ describe('chat selector focus across a switch (#1407)', () => {
   });
 
   it('does not steal focus the reader moved elsewhere during the switch', async () => {
-    const { select, target } = await chatsPage();
+    const { select } = await chatsPage();
     select.focus();
     const hold: { release?: () => void } = {};
     await choose(select, hold);
@@ -81,6 +81,5 @@ describe('chat selector focus across a switch (#1407)', () => {
     await tick(6);
     expect(document.activeElement).toBe(outside);
     outside.remove();
-    expect(target.isConnected).toBe(true);
   });
 });

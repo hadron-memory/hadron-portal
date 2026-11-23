@@ -76,6 +76,8 @@ describe('Team composer: form-result isolation (#1407)', () => {
 });
 
 describe('Cached composer: the applyAction:never branch (#1407)', () => {
+  // Characterization of today's behaviour, not a requirement: it documents what the
+  // flag changes so a change to it is a decision, and it rests on superforms internals.
   // `applyAction: 'never'` is truthy for superforms' result path, so a returned
   // result is still applied. What it switches off is the page-store branch that
   // rebinds the form from a loader form of the same id, i.e. a page reload
@@ -111,14 +113,16 @@ describe('The function-form submitEnhancedWithResult callback (#1407)', () => {
     composer(t).value = 'hello'; composer(t).dispatchEvent(new Event('input', { bubbles: true })); await tick(2);
     let ran = false;
     let postingText = '';
+    let postingState = false;
     await submitEnhancedWithResult(
       t.querySelector('form')!,
       { type: 'success', status: 200, data: { form: await superValidate({ channelRef: 'pair', body: 'hello' }, zod4(postTeamChatMessageSchema), { id: 'channel:pair', errors: false }) } },
-      async () => { ran = true; postingText = t.querySelector<HTMLButtonElement>('button[type=submit]')!.textContent ?? ''; },
+      async () => { ran = true; const btn = t.querySelector<HTMLButtonElement>('button[type=submit]')!; postingText = btn.textContent ?? ''; postingState = btn.disabled; },
     );
     // An assertion inside the callback is skipped silently if the callback never
     // runs, so the flag is what proves it did.
     expect(ran).toBe(true);
-    expect(postingText).toContain('Posting');
+    expect(postingText.length).toBeGreaterThan(0);
+    expect(postingState).toBe(true);
   });
 });

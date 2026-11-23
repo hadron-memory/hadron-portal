@@ -11,7 +11,7 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import { POST_PENDING_BOUND_MS } from '$lib/team-chat-refresh';
 import TeamChatThread from './TeamChatThread.svelte';
@@ -85,6 +85,51 @@ describe('TeamChatThread — a post that never settles (#1407)', () => {
     expect(busy).toHaveBeenLastCalledWith(false);
     const calls = busy.mock.calls.length;
     await vi.advanceTimersByTimeAsync(POST_PENDING_BOUND_MS * 2);
+    expect(busy.mock.calls.length).toBe(calls);
+  });
+
+  async function postedOk(body: string) {
+    const f = await superValidate({ _kind: 'postTeamChatMessage', body }, zod4(postTeamChatMessageSchema), { errors: false });
+    return { ...f, valid: true, message: { type: 'success' as const, text: 'Posted.' } };
+  }
+  async function startDeferred(target: HTMLElement, body: string) {
+    const composer = target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
+    composer.value = body;
+    composer.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    const pending = await submitEnhancedDeferred(target.querySelector('form')!);
+    await tick(2);
+    return { composer, pending };
+  }
+
+  it('a late answer after the stall clears the note, re-enables Post and leaves the page unlocked', async () => {
+    vi.useFakeTimers();
+    const busy = vi.fn();
+    const target = await mountComposer(busy);
+    const { pending } = await startDeferred(target, 'late one');
+    await vi.advanceTimersByTimeAsync(POST_PENDING_BOUND_MS);
+    await tick(2);
+    expect(stalled(target)).not.toBeNull();
+
+    await pending.finish({ type: 'success', status: 200, data: { form: await postedOk('late one') } });
+    await tick(4);
+    // Kills: dropping `postStalled = false` in the not-submitting branch.
+    expect(stalled(target)).toBeNull();
+    expect(busy).toHaveBeenLastCalledWith(false);
+    expect(target.querySelector<HTMLTextAreaElement>('#team-chat-body')!.disabled).toBe(false);
+  });
+
+  it('a post that settles before the bound never shows the note, and its timer never fires', async () => {
+    vi.useFakeTimers();
+    const busy = vi.fn();
+    const target = await mountComposer(busy);
+    const { pending } = await startDeferred(target, 'quick one');
+    await pending.finish({ type: 'success', status: 200, data: { form: await postedOk('quick one') } });
+    await tick(4);
+    const calls = busy.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(POST_PENDING_BOUND_MS * 2);
+    await tick(2);
+    expect(stalled(target)).toBeNull();
     expect(busy.mock.calls.length).toBe(calls);
   });
 });

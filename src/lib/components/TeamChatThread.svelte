@@ -206,6 +206,9 @@
   // navigation, the chat selector and the tabs come back, and says plainly that
   // the post is unconfirmed. The draft stays in the composer and Post stays
   // disabled while the request is still open, so waiting cannot double-send.
+  // Why 30 s: well past a slow-but-healthy post, short enough that the reader is
+  // not locked in for a minute. The request itself is not aborted, which is why
+  // the note says the message may still be sent.
   let postStalled = $state(false);
   $effect(() => {
     const submitting = $postSubmitting;
@@ -1463,8 +1466,8 @@
       <!-- #1407: a persistent region; only its content comes and goes, so a screen reader announces the note. -->
       <LiveRegion data-testid="team-chat-post-stalled">
         {#if postStalled}
-          <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
-            {t('app.team-chat.composer.stalled', 'The server has not answered yet. Your message may still be sent: check the chat before posting it again. You can leave this chat; your draft stays here.')}
+          <p class="mt-2 text-xs text-amber-800 dark:text-amber-400">
+            {t('app.team-chat.composer.stalled', 'The server has not answered yet. Your message may still be sent: check the chat before posting it again.')}
           </p>
         {/if}
       </LiveRegion>
