@@ -8,7 +8,7 @@ import { render } from 'svelte/server';
 import PartyLabel from './PartyLabel.svelte';
 
 const long = 'Alexandria Montgomery-Featherstonehaugh the Third';
-const html = (party: unknown) => render(PartyLabel as never, { props: { party } }).body;
+const html = (party: unknown) => render(PartyLabel as never, { props: { party } as never }).body;
 
 describe('PartyLabel name title', () => {
   it('a person carries the full name as the clamped span title', () => {
