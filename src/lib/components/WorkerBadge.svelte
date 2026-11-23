@@ -9,6 +9,12 @@
 
   The distinction is carried by TEXT, not colour alone — a colour-only cue is
   invisible to a screen reader and to anyone who can't distinguish the hues.
+
+  The badge is the LAST thing in a PartyLabel row to give way (portal#2506):
+  the name link has basis 0, so under width pressure the badge keeps its one
+  line while the name clamps. It is deliberately NOT `shrink-0` — a row can be
+  narrower than even the whole badge (a 28px text zoom in a 120px column), and
+  there the badge must wrap or it paints out of the cell.
 -->
 <script lang="ts">
   import { t } from '$lib/i18n/t';

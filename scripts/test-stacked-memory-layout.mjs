@@ -173,7 +173,9 @@ try {
           return {
             toggle: !!toggle, expanded: toggle?.getAttribute('aria-expanded') ?? null,
             height: (toggle ?? span).getBoundingClientRect().height,
-            truncated: span.scrollWidth > span.clientWidth + 1,
+            // portal#2506: the collapsed chip clips on either axis — nowrap
+            // truncation horizontally, the one-line clamp's hidden lines vertically.
+            truncated: span.scrollWidth > span.clientWidth + 1 || span.scrollHeight > span.clientHeight + 1,
             text: span.textContent, title: span.getAttribute('title'),
             x: r.left + r.width / 2, y: r.top + r.height / 2,
             right: s.right, memoryRight: memory.getBoundingClientRect().right,
