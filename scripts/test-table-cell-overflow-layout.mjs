@@ -5,10 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { chromium, firefox, webkit } from 'playwright';
-import { parseHarnessEnv, injectionEcho, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH } from './lib/cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH, ORGS_KINDS, TITLE_CHECKED_KINDS } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
-import { probeCellEscapes, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
+import { probeCellEscapes, probeUntitledEllipsis, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
@@ -981,7 +981,7 @@ async function loadNodePageData(devServer, tab) {
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   const leg = `${kind}/${width}/${dark ? 'dark' : 'light'}`;
   const legFailuresBefore = failures.length;
-  const orgsKind = kind.startsWith('orgs-');
+  const orgsKind = ORGS_KINDS.includes(kind);
   try {
    await page.goto(new URL('/__cell_fixture', origin).href);
    await page.evaluate(({ css, dark, orgsKind }) => {
@@ -991,7 +991,7 @@ async function loadNodePageData(devServer, tab) {
     // hand-copied: this script cannot import the .ts), not a bare min-w-0 main, so a table that widens its column shows up as document overflow.
     document.body.innerHTML = orgsKind ? '<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6"><div class="min-w-0 flex-1"><div id="fixture"></div></div></div>' : '<main id="fixture" class="min-w-0 p-4"></main>';
    }, { css, dark, orgsKind });
-   await page.evaluate(async kind => { const orgs = kind.startsWith('orgs-'); const m = await import(orgs ? '/src/lib/test/fixtures/orgs-cell-harness.ts' : '/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await (orgs ? m.mountOrgsCellFixture : m.mountAppsCellFixture)(document.getElementById('fixture'), kind); }, kind);
+   await page.evaluate(async ({ kind, orgs }) => { const m = await import(orgs ? '/src/lib/test/fixtures/orgs-cell-fixtures.ts' : '/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await (orgs ? m.mountOrgsCellFixture : m.mountAppsCellFixture)(document.getElementById('fixture'), kind); }, { kind, orgs: orgsKind });
    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
    await settlePage(page);
    // Every column the reader can reveal is revealed: a hidden-by-default column (a Stops Id, a ticker Last tick) is still a cell.
@@ -1019,6 +1019,11 @@ async function loadNodePageData(devServer, tab) {
     await settlePage(page);
     const found = await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX);
     if (found.length) failures.push(`${leg}/${sizing}: cell content escapes its cell ${JSON.stringify(found)}`);
+    // portal#2514: a value the cell ellipsizes keeps its full text reachable (a title), for the kinds that are clean today.
+    if (TITLE_CHECKED_KINDS.includes(kind)) {
+     const untitled = await page.evaluate(probeUntitledEllipsis);
+     if (untitled.length) failures.push(`${leg}/${sizing}: an ellipsized value has no title ${JSON.stringify(untitled)}`);
+    }
     // The table keeps its width inside the page and scrolls internally. (The document's own scrollWidth is not used: the
     // page's TabRow keeps an invisible fixed measuring clone that widens it on main, with or without a table defect.)
     const scrollers = await page.locator('[data-testid="data-table-scroller"]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
@@ -1059,6 +1064,13 @@ async function loadNodePageData(devServer, tab) {
    await page.evaluate(() => { document.querySelector('tbody td')?.replaceChildren(Object.assign(document.createElement('span'), { className: 'truncate', textContent: 'W'.repeat(120) })); });
    await settlePage(page);
    if ((await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX)).length === 0) failures.push(`${leg}: the escape probe did not see an inline truncate escape`);
+   // portal#2514: the untitled-ellipsis probe must SEE a cut value with no title, or a title-removal mutant stays green.
+   if (TITLE_CHECKED_KINDS.includes(kind)) {
+    await control.evaluate(el => el.remove());
+    await page.evaluate(() => { document.querySelector('tbody td')?.replaceChildren(Object.assign(document.createElement('span'), { className: 'block truncate', style: 'max-width:60px', textContent: 'W'.repeat(120) })); });
+    await settlePage(page);
+    if ((await page.evaluate(probeUntitledEllipsis)).length === 0) failures.push(`${leg}: the untitled-ellipsis probe did not see a cut value with no title`);
+   }
    await control.evaluate(el => el.remove()); await net.evaluate(el => el.remove());
    await unmountFixture(page);
    assertPatched();

@@ -16,7 +16,12 @@ export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine'
 const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label'];
 // portal#2491: the six Orgs route tables (#1962 slice 5) and three more, one kind per table. They are mounted real
 // route pages probed by the same escape-probe oracle as the Apps kinds, so they ride the apps battery.
-export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions'];
+export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions'];
+// portal#2514: the kinds whose ellipsized cells are checked for a reachable full value (probeUntitledEllipsis). The other
+// apps and orgs kinds have truncated cells with no title today (members Email and Member, apps Name and Agent, runs App,
+// agents, and the apps tables); turning the rule on for them is the follow-up that adds those titles, so the list grows by
+// one kind per fix instead of a red battery on a page this change does not touch.
+export const TITLE_CHECKED_KINDS = ['orgs-mine', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions'];
 export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
 // portal#2492 (#1962 slice 6): the lib-rows kind mounts the real lib/route tables of slice 6 one case per row,
 // judged by the same escape oracle as agent-tasks.

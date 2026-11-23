@@ -46,3 +46,22 @@ export function probeCellEscapes(escapePx) {
   }
   return out;
 }
+
+// portal#2514: an ellipsized value must keep its full text reachable. `text-overflow:ellipsis` (or a line clamp) that
+// actually cuts the value, with no `title` on the element or an ancestor, is a defect the escape check above cannot
+// see: nothing leaves the cell, the reader just cannot get the rest. The agent-tasks oracle has had this rule since
+// slice 1; the apps and orgs legs went without it, so a removed `title` kept every leg green. A separate probe (also
+// serialised into the page, so self-contained) because it is switched on per kind: see TITLE_CHECKED_KINDS.
+export function probeUntitledEllipsis() {
+  const out = [];
+  for (const td of document.querySelectorAll('tbody td')) {
+    const col = td.closest('table')?.querySelectorAll('thead th')[td.cellIndex]?.textContent?.trim() ?? String(td.cellIndex);
+    for (const el of td.querySelectorAll('*')) {
+      if (el.closest('.sr-only') || el instanceof SVGElement) continue;
+      const st = getComputedStyle(el);
+      const cut = (st.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1) || (st.webkitLineClamp !== 'none' && el.scrollHeight > el.clientHeight + 1);
+      if (cut && !el.closest('[title]')) out.push({ col, el: el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className ? '.' + el.className.split(/\s+/)[0] : ''), what: (el.textContent ?? '').trim().slice(0, 40) });
+    }
+  }
+  return out;
+}

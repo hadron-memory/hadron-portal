@@ -77,8 +77,8 @@
   const columns: PortalColumnDef<OrgMember>[] = [
     { accessorFn: memberName, id: 'name', header: t('org-members.column.name', 'Member'), enableHiding: false, size: 280 }, // identity column (name + URN)
     { accessorFn: (m) => m.user.email ?? '', id: 'email', header: t('org-members.column.email', 'Email'), size: 240 },
-    // minSize: the native role <select> is about 144px wide, plus the cell's 32px of padding (#2491).
-    { accessorKey: 'role', header: t('org-members.column.role', 'Role'), size: 176, minSize: 176 },
+    // The role <select> is `w-full min-w-0`, so it shrinks with the column instead of the column holding a measured minimum (#2514).
+    { accessorKey: 'role', header: t('org-members.column.role', 'Role'), size: 176 },
     { id: 'actions', header: t('org-members.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
 
@@ -391,7 +391,7 @@
               <input type="hidden" name="userId" value={m.user.id} />
               <label class="sr-only" for="role-{m.id}">Role for {memberName(m)}</label>
               <select id="role-{m.id}" name="role" value={m.role} data-user-id={m.user.id} onchange={submitOnChange} disabled={$updateSubmitting}
-                class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+                class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 {#each ROLES as role}
                   <option value={role}>{role}</option>
                 {/each}
