@@ -18,7 +18,7 @@ function firstStop(image) {
   const [r, g, b] = hit.c;
   return { a: hit.a === undefined ? 1 : Number(hit.a), lum: 0.2126 * r + 0.7152 * g + 0.0722 * b };
 }
-const measure = (page) => page.evaluate(() => {
+const measure = (page, dark) => page.evaluate((dark) => {
   const scroller = document.querySelector('[data-testid="data-table-scroller"]');
   const cue = document.querySelector('[data-testid="data-table-scroll-cue-end"]');
   const pin = scroller.querySelector('tbody td:last-child');
@@ -26,9 +26,10 @@ const measure = (page) => page.evaluate(() => {
   const cs = getComputedStyle(cue);
   return {
     cue: { left: c.left, right: c.right, width: c.width }, pin: { left: p.left, right: p.right, width: p.width }, scroller: { right: s.right },
+    token: getComputedStyle(document.documentElement).getPropertyValue(dark ? '--color-zinc-950' : '--color-zinc-900').trim(),
     opacity: Number(cs.opacity), image: cs.backgroundImage, overflowEnd: scroller.hasAttribute('data-overflow-end'), pinSticky: getComputedStyle(pin).position === 'sticky',
   };
-});
+}, dark);
 
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
@@ -53,7 +54,7 @@ try {
       await page.evaluate(async (props) => { const m = await import('/src/lib/test/fixtures/data-table-cue-harness.ts'); m.mountCue(document.getElementById('app'), props); }, pinned ? { stickyEndColumn: 'second' } : {});
       await page.locator('[data-testid="data-table-scroller"] tbody td').first().waitFor();
       await frames(page);
-      const m = await measure(page);
+      const m = await measure(page, dark);
       if (!m.overflowEnd) failures.push(`${label}: the fixture must overflow with the end edge marked ${JSON.stringify(m)}`);
       if (m.opacity !== 1) failures.push(`${label}: the end cue is not shown (opacity ${m.opacity})`);
       if (pinned) {
@@ -61,6 +62,8 @@ try {
         // The pin is opaque and paints over the cue's old spot at the scroller edge: the cue must end where the pin begins.
         if (Math.abs(m.cue.right - m.pin.left) > 1.5) failures.push(`${label}: the end cue must end at the pinned column's left edge (cue right ${m.cue.right}, pin left ${m.pin.left})`);
       } else if (Math.abs(m.cue.right - (m.scroller.right - 1)) > 1.5) failures.push(`${label}: with no pin the end cue stays on the scroller edge ${JSON.stringify(m)}`);
+      // The colour comes from the palette: the zinc token the cue names is really emitted (else the #hex fallback would stand in silently).
+      if (!m.token) failures.push(`${label}: the palette token the cue uses (--color-zinc-${dark ? '950' : '900'}) is not defined, so the fallback colour is in use`);
       // A shade, not a glow: parse the gradient's first colour stop and judge it numerically, whatever syntax the engine
       // serialises it in (rgb(), rgba() or color(srgb ...)). It must paint (alpha > 0) and be dark (not a white wash).
       const stop = firstStop(m.image);

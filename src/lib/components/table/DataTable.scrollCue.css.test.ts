@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const squash = (s: string) => s.replace(/\s+/g, ' ');
-const css = squash(read('../../../app.css'));
+// Comments are stripped first: a comment between two rules must not become part of the next selector.
+const css = squash(read('../../../app.css').replace(/\/\*[\s\S]*?\*\//g, ''));
 const table = read('./DataTable.svelte');
 
 /** Every rule body whose selector names the table scroll cue, keyed by selector. */

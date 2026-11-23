@@ -10,13 +10,14 @@ import { flushSync } from 'svelte';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import TableCuesHarness from '$lib/test/TableCuesHarness.svelte';
 
-const mounted: Array<{ unmount: () => void; target: HTMLElement }> = [];
+type CueProps = { rowCount: number };
+const mounted: Array<Mounted<CueProps>> = [];
 let frames: Array<() => void> = [];
 
 beforeEach(() => {
   frames = [];
   vi.stubGlobal('requestAnimationFrame', (cb: () => void) => frames.push(cb));
-  vi.stubGlobal('cancelAnimationFrame', () => {});
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => { if (frames[id - 1]) frames[id - 1] = () => {}; });
 });
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
@@ -28,10 +29,9 @@ const flushFrames = () => {
   for (const f of pending) f();
 };
 
-type CueProps = { rowCount: number };
 function scroller() {
   const m = mountComponent<CueProps>(TableCuesHarness, { rowCount: 3 });
-  mounted.push(m as unknown as Mounted<Record<string, unknown>>);
+  mounted.push(m);
   flushSync();
   return m.target.querySelector<HTMLElement>('[data-testid="data-table-scroller"]')!;
 }
@@ -107,6 +107,9 @@ describe('DataTable scroll cue (#2461)', () => {
       const observer = fake.cueObserver(el);
       const resizeAdds = add.mock.calls.filter(([type]) => type === 'resize').map(([, fn]) => fn);
       expect(resizeAdds.length).toBeGreaterThan(0);
+      // A measurement is queued (a scroll) when the table goes away: its frame must be cancelled, not left to run.
+      stand(el, { scrollWidth: 692, clientWidth: 306 });
+      el.dispatchEvent(new Event('scroll'));
       mounted.pop()!.unmount();
       expect(observer.disconnected).toBe(true);
       expect(observer.targets.size).toBe(0);
@@ -114,9 +117,6 @@ describe('DataTable scroll cue (#2461)', () => {
       const resizeRemoves = remove.mock.calls.filter(([type]) => type === 'resize').map(([, fn]) => fn);
       for (const fn of resizeAdds) expect(resizeRemoves).toContain(fn);
       // And a torn-down scroller no longer reacts to the window.
-      stand(el, { scrollWidth: 692, clientWidth: 306 });
-      window.dispatchEvent(new Event('resize'));
-      el.dispatchEvent(new Event('scroll'));
       flushFrames();
       expect(el.hasAttribute('data-overflow-end')).toBe(false);
     } finally {
