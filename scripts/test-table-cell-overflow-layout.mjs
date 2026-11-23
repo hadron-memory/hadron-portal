@@ -1093,7 +1093,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
  // copied ~35 lines of setup, the escape oracle, the negative control, the document-overflow check and the
  // screenshot; only `cellEscapes` was shared. A battery now supplies its fixture module, the row, and an
  // optional `extra(page, leg)` for the checks only it makes. `measured` rows are reported, never failed.
- const runCellLeg = async ({ name, listKey, width, dark, scope = '', fixture, prepareStep = null, expect = null, measured = false, extra = null }) => {
+ const runCellLeg = async ({ name, listKey, width, dark, scope = '', fixture, prepareStep = null, mustExist = null, measured = false, extra = null }) => {
   const mode = dark ? 'dark' : 'light';
   const leg = `${name}/${listKey}/${width}/${mode}`;
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
@@ -1110,7 +1110,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    await page.locator(`${scope}tbody td`).first().waitFor({ timeout: 10000 });
    if (prepareStep) await page.evaluate(async ({ module, prepare, step }) => { const m = await import(module); await m[prepare](document.getElementById('fixture'), step); }, { module: fixture.module, prepare: fixture.prepare, step: prepareStep });
    // The cell this row exists to measure must be on the page: a prop mismatch would otherwise pass vacuously.
-   if (expect) await page.locator(expect).first().waitFor({ timeout: 10000 });
+   if (mustExist) await page.locator(mustExist).first().waitFor({ timeout: 10000 });
    // Columns a view hides by default (the roster's Last assigned) still have cells a reader can show.
    await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
    await settlePage(page);
@@ -1178,7 +1178,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   assert.ok(libRows.length >= 5, 'the fixture lists every fixed #2492 row');
   const fixture = { module: '/src/lib/test/fixtures/lib-cell-harness.ts', mount: 'mountLibCell', prepare: 'prepareLibCell' };
   for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns, anywhereColumns } of libRows) {
-   await runCellLeg({ name: 'lib-rows', listKey, width, dark, fixture, prepareStep: prepare, expect, extra: async (page, leg) => {
+   await runCellLeg({ name: 'lib-rows', listKey, width, dark, fixture, prepareStep: prepare, mustExist: expect, extra: async (page, leg) => {
     // Both checks below need the DOM table that belongs to a table INSTANCE (blind delta 2, #2515): the
     // instance is found by the column ids, the DOM table by its own header texts and column count, never by
     // DOM order. A template editor mounts three tables, so "the first table" is a guess.
@@ -1218,6 +1218,8 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
         return texts === 0 ? 'no text' : null;
        };
        const table = window.__libOwnerTable;
+       // A held reference outlives a replaced table and then reads as empty or zero-sized: fail loudly instead.
+       if (!table || !table.isConnected) return { out: ['the owning table is no longer in the document'], control: 'n/a' };
        const out = [];
        for (const id of ids) {
         const index = cols.indexOf(id);
@@ -1251,6 +1253,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
       const split = await page.evaluate(({ ids, NARROW, cols }) => {
        const t = window.__fixtureTables.find(x => ids.every(id => x.getAllLeafColumns().some(c => c.id === id)));
        const table = window.__libOwnerTable;
+       if (!table || !table.isConnected) return { missing: [], wide: ['the owning table is no longer in the document'], broken: [], control: ['n/a'] };
        // Each cell with its row index and column id: the td itself is not a stable key, a re-render may replace it.
        const datedCells = id => {
         const index = cols.indexOf(id);
@@ -1273,8 +1276,9 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
         // Lines are clusters of tops: a new line starts where the top jumps by more than a few pixels, so
         // sub-pixel differences between glyphs of one line cannot add a line (portal#2516; the old
         // round(top / 2) bucketing could split one line across two buckets).
+        const LINE_GAP_PX = 4;
         tops.sort((a, b) => a - b);
-        return tops.reduce((n, top, i) => (i === 0 || top - tops[i - 1] > 4 ? n + 1 : n), 0);
+        return tops.reduce((n, top, i) => (i === 0 || top - tops[i - 1] > LINE_GAP_PX ? n + 1 : n), 0);
        };
        // Before narrowing, each dated cell's width and line count: the narrowed cell must be narrower AND have
        // WRAPPED onto more lines, because a cell that only shrank proves nothing about whether tokens were split.
@@ -1302,6 +1306,8 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
        };
        return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
         const result = { missing: [], wide: [], broken: [], control: [] };
+        // Narrowing re-renders the table: a replaced one would read zero-sized and look "narrower" (portal#2516).
+        if (!table.isConnected) { result.wide.push('the table was replaced while narrowing'); resolve(result); return; }
         for (const id of ids) {
          const cells = datedCells(id);
          if (!cells.length) { result.missing.push(id); continue; }
@@ -1312,7 +1318,11 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
           const lines = linesIn(td);
           // (d) A date of one token has nothing to wrap, so "must wrap onto more lines" cannot hold for it; the
           // narrowing and the split check above still apply (portal#2516).
-          const tokens = td.textContent.trim().split(/\s+/).length;
+          // Tokens of the text a reader sees: a visually hidden label or hidden node does not count.
+          let shown = '';
+          const textWalker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+          for (let n; (n = textWalker.nextNode());) if (!n.parentElement.closest('.sr-only, [hidden]')) shown += `${n.textContent} `;
+          const tokens = shown.trim().split(/\s+/).length;
           if (tokens > 1 && !(lines > was.lines)) result.wide.push(`${id}: did not wrap, ${lines} lines, was ${was.lines}`);
           for (const x of splitsIn(td)) result.broken.push(`${id}: ${x}`);
          }

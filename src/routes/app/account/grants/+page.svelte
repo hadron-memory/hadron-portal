@@ -132,7 +132,7 @@
           <span class="block min-w-0 max-w-full">{fmt[cell.column.id](cell.getValue())}</span>
         {:else if cell.column.id === 'action'}
           <!-- portal#2516: an action id is dotted, so it offers a break after each dot and wraps there before it falls back to splitting a word. -->
-          <span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{#each String(cell.getValue() ?? dash).split('.') as part, i (i)}{#if i > 0}.<wbr />{/if}{part}{/each}</span>
+          <span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{#each String(cell.getValue() ?? dash).split('.') as part, i}{#if i > 0}.<wbr />{/if}{part}{/each}</span>
         {:else}
           <!-- portal#2492: Reason and the space-less Values JSON have no break opportunity, so they wrap anywhere inside the cell; a count wraps like a date. -->
           <span class={['reason', 'values'].includes(cell.column.id) ? 'block min-w-0 max-w-full [overflow-wrap:anywhere]' : 'block min-w-0 max-w-full'}>{String(cell.getValue() ?? dash)}</span>

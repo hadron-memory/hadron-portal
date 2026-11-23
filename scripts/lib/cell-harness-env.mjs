@@ -41,7 +41,7 @@ export function batteryFor(cellKind) {
   if (cellKind === null) {
     // Copies, not the module constants (blind review #2507, fold): a caller mutating the null result's
     // arrays must not corrupt the constants every later call reads.
-    return { ...noBatteries(), component: [...COMPONENT_BATTERY_KINDS], findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], partyLabel: ['party-label'], pages: [...PAGE_KINDS], apps: [...APPS_KINDS, ...ORGS_KINDS], lib: [...LIB_KINDS] };
+    return { component: [...COMPONENT_BATTERY_KINDS], findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], partyLabel: ['party-label'], pages: [...PAGE_KINDS], apps: [...APPS_KINDS, ...ORGS_KINDS], lib: [...LIB_KINDS] };
   }
   if (cellKind === 'findings') return { ...noBatteries(), findings: ['findings'] };
   if (cellKind === 'wake') return { ...noBatteries(), wake: ['wake'] };
