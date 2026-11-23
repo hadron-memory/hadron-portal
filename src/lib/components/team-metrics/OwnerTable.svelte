@@ -25,7 +25,7 @@
   const columns: PortalColumnDef<Row>[] = [
     { accessorKey: 'ownerName', header: t('team-metrics.col.owner', 'Owner'), enableHiding: false, size: 260 },
     { accessorFn: (r) => r.tasks.total, id: 'tasks', header: t('team-metrics.col.tasks', 'Tasks'), size: 90 },
-    { accessorKey: 'projectNames', header: t('team-metrics.col.by-project', 'By project'), size: 480 },
+    { accessorKey: 'projectNames', header: t('team-metrics.col.by-project', 'By project'), size: 480, enableSorting: false },
   ];
   const table = createSvelteTable<Row>({
     get data() { return rows; },
@@ -40,11 +40,29 @@
   });
 </script>
 
+{#snippet total(row: Row)}
+  <CountDrill count={row.tasks} kind="task" {appId} label={t('team-metrics.label.owner-total', 'tasks by {owner}', { owner: row.ownerName })} />
+{/snippet}
+
+{#snippet projects(row: Row)}
+  <ul class="space-y-2">
+    {#each row.byProject as p (p.project.handle + (p.project.noProject ? ':none' : ''))}
+      <li class="flex items-baseline justify-between gap-3">
+        <ProjectName project={p.project} {appId} />
+        <CountDrill count={p.tasks} kind="task" {appId} label={t('team-metrics.label.owner-project', 'tasks by {owner} in {project}', { owner: row.ownerName, project: projectName(p.project) })} />
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
 <DataTable
   {table}
   listKey="app:team-metrics:started-owned"
   bind:globalFilter
-  bounded
+  contentHeight
+  showPageSize={false}
+  fitOnPhone
+  phoneHiddenColumns={['tasks', 'projectNames']}
   searchPlaceholder={t('team-metrics.owners.search', 'Search owners and projects…')}
   searchAriaLabel={t('team-metrics.owners.search.aria', 'Search started tasks by owner or project')}
   rowAttrs={() => ({ 'data-testid': 'metrics-owner-row' })}
@@ -54,18 +72,15 @@
       <div class="min-w-0">
         <div class="truncate font-medium text-zinc-900 dark:text-white">{row.ownerName}</div>
         {#if row.owner?.urn}<div class="mt-1"><Urn value={row.owner.urn} type="worker" size={8} /></div>{/if}
+        <div class="mt-3 space-y-3 sm:hidden" data-testid="metrics-owner-projects-phone">
+          <p class="flex items-baseline gap-2 text-sm"><span class="text-xs text-zinc-500 dark:text-zinc-400">{t('team-metrics.col.tasks', 'Tasks')}</span> {@render total(row)}</p>
+          {@render projects(row)}
+        </div>
       </div>
     {:else if c.column.id === 'tasks'}
-      <CountDrill count={row.tasks} kind="task" {appId} label={t('team-metrics.label.owner-total', 'tasks by {owner}', { owner: row.ownerName })} />
+      {@render total(row)}
     {:else if c.column.id === 'projectNames'}
-      <ul class="space-y-2">
-        {#each row.byProject as p (p.project.handle + (p.project.noProject ? ':none' : ''))}
-          <li class="flex items-baseline justify-between gap-3">
-            <ProjectName project={p.project} {appId} />
-            <CountDrill count={p.tasks} kind="task" {appId} label={t('team-metrics.label.owner-project', 'tasks by {owner} in {project}', { owner: row.ownerName, project: projectName(p.project) })} />
-          </li>
-        {/each}
-      </ul>
+      {@render projects(row)}
     {/if}
   {/snippet}
 </DataTable>

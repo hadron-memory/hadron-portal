@@ -44,6 +44,7 @@
     initialColumnsOnly = false,
     sortButtons = false,
     bounded = false,
+    contentHeight = false,
     fitOnPhone = false,
     phoneHiddenColumns = [],
     containCells = false,
@@ -71,6 +72,9 @@
     /** A list inside a dialog, picker or detail section: the scroll area keeps one fixed
      *  height (BOUNDED_MAX_HEIGHT) instead of filling the window. Full-page lists leave it off. */
     bounded?: boolean;
+    /** The scroll area grows to its rows and never cuts one: for a short, paged list inside a
+     *  page that scrolls (a page size of 10 rows is the longest it gets). Wins over `bounded`. */
+    contentHeight?: boolean;
     /** Fit a SINGLE-column table and its header to the scroller on phones; desktop saved widths stay live. */
     fitOnPhone?: boolean;
     /** Column ids hidden below `sm` by CSS only (no JS visibility, so no hydration flash and
@@ -111,7 +115,7 @@
   // then runs past the window bottom and the page scrolls to it, as before.
   const FILL_FLOOR_RATIO = 0.4;
   function measureFill() {
-    if (bounded || !scrollerEl) return;
+    if (bounded || contentHeight || !scrollerEl) return;
     const next = fillHeight({
       viewportHeight: window.innerHeight,
       top: scrollerEl.getBoundingClientRect().top + window.scrollY,
@@ -143,7 +147,7 @@
   // parents re-run the registration. The footer comes and goes (`showFooter`) and `bounded` can
   // flip: the effect re-registers for whichever is there now.
   $effect(() => {
-    if (bounded) return;
+    if (bounded || contentHeight) return;
     const scroller = scrollerEl;
     const footer = footerEl;
     return untrack(() => {
@@ -168,7 +172,7 @@
       return () => { resizes?.disconnect(); mutations?.disconnect(); window.removeEventListener('resize', measureFill); };
     });
   });
-  const scrollerMaxHeight = $derived(bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');
+  const scrollerMaxHeight = $derived(contentHeight ? 'none' : bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');
 
   /** Phone width (px) a sticky end column is clamped to below the `sm`
    * breakpoint — the one source for both the header width and the table-width
