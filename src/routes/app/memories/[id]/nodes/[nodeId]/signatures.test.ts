@@ -17,6 +17,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError, GraphQLClient } from 'graphql-request';
+import { env } from '$env/dynamic/public';
 import { NODE_APPROVAL_QUERY, NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_PAGE_QUERY, NODE_SIGNATURES_QUERY, REQUEST_SIGNATURE_MUTATION } from '$lib/server/queries';
 import type { NodeApprovalStatus } from '$lib/node-approval';
 import type { NodeSignatureStatus } from '$lib/node-signatures';
@@ -35,6 +36,7 @@ vi.mock('$lib/server/guards', () => ({
 }));
 
 beforeEach(() => {
+  env.PUBLIC_SERVER_URL = 'https://server.example';
   mockRequest.mockReset();
   offersSigning.mockReset().mockResolvedValue(true);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -291,5 +293,38 @@ describe('node page — Sign affordance (portal#1022 links half)', () => {
       data: { requestSignatureError: expect.stringContaining('Reload the page') },
     });
     expect(mockRequest.mock.calls.filter(([doc]) => doc === REQUEST_SIGNATURE_MUTATION)).toEqual([]);
+  });
+});
+
+// portal#2469 — the third ceremony redirect, pinned to the server's public origin the way
+// the App grants approve link and the App-secret link are (portal#2417). The pin follows
+// the link unchanged or not at all, so the SDL's "copy it verbatim, never compose it" holds.
+describe('node page — the signing redirect is pinned to the server public origin (portal#2469)', () => {
+  const GENERIC = 'Could not start a signing request.';
+  const sign = (ceremonyUrl: unknown) =>
+    serve(() => ({}), () => ({ requestNodeSignature: { id: 'req-9', ceremonyUrl } }));
+
+  it('refuses a link on another host: no redirect, the existing failure line', async () => {
+    for (const u of [
+      'https://evil.example/signing/req-9',
+      'https://server.example.evil.example/signing/req-9',
+      'https://server.example@evil.example/signing/req-9',
+      'http://server.example/signing/req-9',
+      'https://server.example:8443/signing/req-9',
+    ]) {
+      sign(u);
+      const result = await requestSignature();
+      expect(result).toMatchObject({ status: 400, data: { requestSignatureError: GENERIC } });
+    }
+  });
+
+  it('redirects nowhere when no origin is configured, never to a guess', async () => {
+    sign('https://server.example/signing/req-9');
+    for (const unset of [undefined, '', 'not a url', 'javascript:alert(1)']) {
+      if (unset === undefined) Reflect.deleteProperty(env, 'PUBLIC_SERVER_URL');
+      else env.PUBLIC_SERVER_URL = unset;
+      const result = await requestSignature();
+      expect(result).toMatchObject({ status: 400, data: { requestSignatureError: GENERIC } });
+    }
   });
 });
