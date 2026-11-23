@@ -51,6 +51,12 @@
   </span>
 {:else}
   <!-- portal#2506: the same clamp as the worker name; the title keeps the full
-       name reachable where the clamp ellipsizes it. -->
-  <span class="line-clamp-1 [overflow-wrap:anywhere] text-zinc-800 dark:text-zinc-200" title={partyName(party)}>{partyName(party)}</span>
+       name reachable where the clamp ellipsizes it. The clamp blockifies
+       (display:-webkit-box), so the block context is written out on a wrapper
+       (blind F1) — the same `block max-w-full min-w-0` the chip wrapper below
+       uses — rather than left to the clamp's side effect; all 18 call sites
+       sit in td/dd/div or flex rows, so none needs the old inline span. -->
+  <span class="block max-w-full min-w-0">
+    <span class="line-clamp-1 [overflow-wrap:anywhere] text-zinc-800 dark:text-zinc-200" title={partyName(party)}>{partyName(party)}</span>
+  </span>
 {/if}
