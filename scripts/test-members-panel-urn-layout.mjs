@@ -5,12 +5,12 @@
 // REAL AppMembersPanel (both places it names its Agent) from
 // src/lib/test/fixtures/members-panel-urn-layout-harness.ts. Synthetic data: no server.
 //
-// The shared focus-ring probe (scripts/lib/focus-ring-probe.mjs) cannot be used as is: it
-// starts Vite with the app's own config, where `$app/*` resolves to the SvelteKit runtime
-// that is not running here, so it cannot mount a page that uses superforms. This script uses
-// the client lane's stubs (as scripts/test-app-keys-layout.mjs does) and checks each
-// copy button's keyboard ring, plus the one the defect is about: no clipping ancestor between
-// the button and the panel.
+// The shared focus-ring probe (scripts/lib/focus-ring-probe.mjs) can now start Vite with the
+// client lane's stubs (its `serverConfig` option, portal#2537), which is what mounting a page that
+// uses superforms needs. This script still runs its own checks, on purpose: the probe asserts
+// the brand ring colour and a pointer arm, while these copy buttons keep Chromium's default `auto`
+// ring (see the ring check below), and this script's point is the layout: no clipping ancestor
+// between the button and the panel. It uses the client lane's stubs as scripts/test-app-keys-layout.mjs does.
 //
 // Setup: pnpm exec playwright install chromium
 // Run:   pnpm test:members-panel-urn-layout  (MEMBERS_URN_SHOTS=<dir> saves screenshots)
@@ -42,37 +42,43 @@ const server = await createServer({
 
 const WIDTH = 390;
 const VARIANTS = ['roles', 'empty'];
+// How many lines name the Agent by URN in each variant (the panel's two places; `empty` shows both).
+const EXPECTED_LINES = { roles: 1, empty: 2 };
 
 /** Measured inside the page: every box the checks need, for one mounted variant. */
 function measure(variant) {
   const host = document.getElementById('host');
   const box = (el) => { const b = el.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height }; };
-  const line = [...host.querySelectorAll('p')].find((p) => p.textContent.includes(variant === 'roles' ? 'Roles below are defined by the linked Agent' : 'This App offers no member roles yet.'));
-  if (!line) throw new Error(`the ${variant} line is not rendered`);
-  const chip = line.querySelector('span[title]');
-  const copies = ['Copy URN', 'Copy URL'].map((name) => line.querySelector(`button[aria-label="${name}"]`));
+  // Every line that names the Agent is found by the Agent link it holds, not by its copy: that copy
+  // goes through t() and would break this script on a wording or locale change. The `roles` variant
+  // renders one such line; `empty` renders two (the roles line, then the empty-roles warning).
+  const lines = [...host.querySelectorAll('a[href="/app/agents/ag1"]')].map((a) => a.closest('p'));
+  if (lines.some((l) => !l)) throw new Error(`an Agent link in the ${variant} variant is not inside a paragraph`);
+  const chips = lines.map((l) => l.querySelector('span[title]'));
+  const copies = lines.flatMap((l, i) => ['Copy URN', 'Copy URL'].map((name) => ({ line: i + 1, el: l.querySelector(`button[aria-label="${name}"]`) })));
   const clips = (el) => {
     const cs = getComputedStyle(el);
     return cs.overflowX !== 'visible' || cs.overflowY !== 'visible' || /paint|strict|content/.test(cs.contain);
   };
   return {
     host: box(host),
-    chipTitle: chip.title,
-    chipTruncated: chip.scrollWidth > chip.clientWidth + 1,
-    copies: copies.map((b) => {
+    lines: lines.length,
+    chipTitles: chips.map((c) => c.title),
+    chipsTruncated: chips.map((c) => c.scrollWidth > c.clientWidth + 1),
+    copies: copies.map(({ line, el: b }) => {
       const svg = b.querySelector('svg');
       const ancestors = [];
       for (let el = b.parentElement; el && el !== host.parentElement; el = el.parentElement) {
         // Its own ring is the Urn root's business; any ancestor that clips cuts the ring.
         if (clips(el)) {
           const a = el.getBoundingClientRect();
-          const b2 = b.getBoundingClientRect();
+          const btn = b.getBoundingClientRect();
           // The 2px ring plus its 2px offset around the button, against the clipping box.
-          const cut = b2.left - 4 < a.left || b2.right + 4 > a.right || b2.top - 4 < a.top || b2.bottom + 4 > a.bottom;
+          const cut = btn.left - 4 < a.left || btn.right + 4 > a.right || btn.top - 4 < a.top || btn.bottom + 4 > a.bottom;
           ancestors.push(`${el.tagName.toLowerCase()}.${el.className}${cut ? ' (cuts the ring)' : ''}`);
         }
       }
-      return { name: b.getAttribute('aria-label'), box: box(b), svg: box(svg), clippingAncestors: ancestors };
+      return { name: `${b.getAttribute('aria-label')} (line ${line})`, box: box(b), svg: box(svg), clippingAncestors: ancestors };
     }),
     pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   };
@@ -94,7 +100,8 @@ if (process.env.MEMBERS_URN_SHOTS) mkdirSync(process.env.MEMBERS_URN_SHOTS, { re
 let browser;
 try {
   await server.listen();
-  const origin = server.resolvedUrls.local[0];
+  const origin = server.resolvedUrls?.local[0];
+  assert.ok(origin, 'the Vite server reported no local URL (it did not bind 127.0.0.1)');
   const cssResponse = await fetch(new URL('src/app.css?direct', origin));
   assert.ok(cssResponse.ok, `app.css?direct fetch failed: ${cssResponse.status}`);
   const css = await cssResponse.text();
@@ -105,63 +112,80 @@ try {
     for (const variant of VARIANTS) {
       const label = `${WIDTH}px ${scheme} ${variant}`;
       const page = await browser.newPage({ viewport: { width: WIDTH, height: 900 } });
-      let navigations = 0;
-      page.on('framenavigated', (f) => { if (f === page.mainFrame()) navigations += 1; });
-      page.on('pageerror', (e) => { throw e; });
-      await page.route('**/__members_fixture', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Members panel fixture</title>' }));
-      await page.goto(new URL('/__members_fixture', origin).href);
-      await page.evaluate(({ css, dark }) => {
-        document.body.innerHTML = `<style>${css}</style><main id="host" style="margin: 0 16px;"></main>`;
-        document.documentElement.classList.toggle('dark', dark);
-        document.documentElement.style.background = document.body.style.background = dark ? '#09090b' : '#fafafa';
-        document.body.style.color = dark ? '#fafafa' : '#18181b';
-      }, { css, dark: scheme === 'dark' });
-      await page.evaluate(async (v) => {
-        const { mountMembersPanel } = await import('/src/lib/test/fixtures/members-panel-urn-layout-harness.ts');
-        await mountMembersPanel(document.getElementById('host'), v);
-      }, variant);
-      await page.waitForSelector('#host a[href="/app/agents/ag1"]');
-      await page.evaluate(async () => { await document.fonts.ready; await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); });
-      // A reload under the mounted panel (Vite re-optimising a late dependency) makes every
-      // measurement after it meaningless: refuse it rather than pass on a half-mounted page.
-      assert.equal(navigations, 1, `${label}: the page reloaded ${navigations - 1} time(s) under the mount`);
+      // Closed on a failure too: the browser close below would reap it, but a failing leg should not
+      // leave its page open while the error unwinds.
+      try {
+        let navigations = 0;
+        page.on('framenavigated', (f) => { if (f === page.mainFrame()) navigations += 1; });
+        // Collected, not thrown: a throw inside an emitter callback is an uncaught exception that kills the
+        // process with a stack that says nothing about which leg failed. The list is asserted below.
+        const pageErrors = [];
+        page.on('pageerror', (e) => { pageErrors.push(String(e)); });
+        await page.route('**/__members_fixture', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Members panel fixture</title>' }));
+        await page.goto(new URL('/__members_fixture', origin).href);
+        await page.evaluate(({ css, dark }) => {
+          document.body.innerHTML = `<style>${css}</style><main id="host" style="margin: 0 16px;"></main>`;
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.style.background = document.body.style.background = dark ? '#09090b' : '#fafafa';
+          document.body.style.color = dark ? '#fafafa' : '#18181b';
+        }, { css, dark: scheme === 'dark' });
+        await page.evaluate(async (v) => {
+          const { mountMembersPanel } = await import('/src/lib/test/fixtures/members-panel-urn-layout-harness.ts');
+          // The harness returns its unmount; kept so the leg can tear the panel down and check that too.
+          window.unmountPanel = await mountMembersPanel(document.getElementById('host'), v);
+        }, variant);
+        await page.waitForSelector('#host a[href="/app/agents/ag1"]');
+        await page.evaluate(async () => { await document.fonts.ready; await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); });
+        // A reload under the mounted panel (Vite re-optimising a late dependency) makes every
+        // measurement after it meaningless: refuse it rather than pass on a half-mounted page.
+        assert.equal(navigations, 1, `${label}: the page reloaded ${navigations - 1} time(s) under the mount`);
 
-      const got = await page.evaluate(measure, variant);
-      assert.equal(got.chipTruncated, true, `${label}: precondition: the long URN must be truncated (${JSON.stringify(got.chipTitle.length)} chars)`);
-      assert.ok(got.chipTitle.length >= 100, `${label}: precondition: the URN is long`);
-      assert.ok(got.pageOverflow <= 0, `${label}: the page scrolls sideways by ${got.pageOverflow}px`);
-      for (const copy of got.copies) {
-        const at = `${label}: ${copy.name}`;
-        assert.ok(Math.abs(copy.box.width - 8) < 0.5 && Math.abs(copy.box.height - 8) < 0.5, `${at} is ${copy.box.width}x${copy.box.height}, not its natural 8x8`);
-        assert.ok(copy.box.left >= got.host.left - 0.5 && copy.box.right <= got.host.right + 0.5, `${at} lies outside the panel (${copy.box.left}-${copy.box.right} vs ${got.host.left}-${got.host.right})`);
-        assert.ok(copy.svg.left >= copy.box.left - 0.5 && copy.svg.right <= copy.box.right + 0.5 && Math.abs(copy.svg.width - 8) < 0.5, `${at}: the icon is not whole inside its button (${JSON.stringify(copy.svg)})`);
-        assert.deepEqual(copy.clippingAncestors, [], `${at} sits under an ancestor that clips its focus ring`);
-      }
+        const got = await page.evaluate(measure, variant);
+        assert.equal(got.lines, EXPECTED_LINES[variant], `${label}: precondition: the panel names its Agent on ${got.lines} line(s), expected ${EXPECTED_LINES[variant]}`);
+        assert.deepEqual(got.chipsTruncated, got.chipsTruncated.map(() => true), `${label}: precondition: every long URN must be truncated`);
+        assert.ok(got.chipTitles.every((t) => t.length >= 100), `${label}: precondition: the URN is long`);
+        assert.ok(got.pageOverflow <= 0, `${label}: the page scrolls sideways by ${got.pageOverflow}px`);
+        for (const copy of got.copies) {
+          const at = `${label}: ${copy.name}`;
+          assert.ok(Math.abs(copy.box.width - 8) < 0.5 && Math.abs(copy.box.height - 8) < 0.5, `${at} is ${copy.box.width}x${copy.box.height}, not its natural 8x8`);
+          assert.ok(copy.box.left >= got.host.left - 0.5 && copy.box.right <= got.host.right + 0.5, `${at} lies outside the panel (${copy.box.left}-${copy.box.right} vs ${got.host.left}-${got.host.right})`);
+          assert.ok(copy.svg.left >= copy.box.left - 0.5 && copy.svg.right <= copy.box.right + 0.5 && Math.abs(copy.svg.width - 8) < 0.5, `${at}: the icon is not whole inside its button (${JSON.stringify(copy.svg)})`);
+          assert.deepEqual(copy.clippingAncestors, [], `${at} sits under an ancestor that clips its focus ring`);
+        }
 
-      // Keyboard focus on each copy button: the ring paints, in the brand colour, and its
-      // whole extent (outline width plus offset) lies inside the viewport.
-      for (const name of ['Copy URN', 'Copy URL']) {
-        await page.locator('#host p', { hasText: variant === 'roles' ? 'Roles below are defined by the linked Agent' : 'This App offers no member roles yet.' }).locator('a[href="/app/agents/ag1"]').focus();
-        let r;
-        for (let i = 0; i < 6; i++) {
-          await page.keyboard.press('Tab');
-          r = await ring(page, name);
-          if (r.label === name) break;
+        // Keyboard focus on each copy button: the ring paints, in the brand colour, and its
+        // whole extent (outline width plus offset) lies inside the viewport.
+        for (let line = 0; line < got.lines; line++) {
+          for (const name of ['Copy URN', 'Copy URL']) {
+            await page.locator('#host a[href="/app/agents/ag1"]').nth(line).focus();
+            let r;
+            // Assumes the chip's order after the Agent link: Copy URN, then Copy URL, with at most four
+            // other tab stops between the link and the button. A reordered chip fails here, loudly.
+            for (let i = 0; i < 6; i++) {
+              await page.keyboard.press('Tab');
+              r = await ring(page, name);
+              if (r.label === name) break;
+            }
+            assert.equal(r.label, name, `${label}: Tab never reached ${name} on line ${line + 1}`);
+            assert.ok(r.focusVisible, `${label}: ${name} does not match :focus-visible after Tab`);
+            assert.notEqual(r.style, 'none', `${label}: ${name} paints no ring (${JSON.stringify(r)})`);
+            // The copy buttons carry no focus-visible styling of their own, so Chromium's default
+            // `auto` ring paints (1px computed, drawn about 2px): this checks it paints and fits,
+            // not its colour. A branded ring on these buttons is a design change, not this issue.
+            const extent = Math.max(r.width, 2) + Math.max(r.offset, 0);
+            assert.ok(r.left - extent >= 0 && r.right + extent <= r.viewport, `${label}: ${name} ring would leave the viewport (${JSON.stringify(r)})`);
+            if (process.env.MEMBERS_URN_SHOTS) {
+              await page.screenshot({ path: join(process.env.MEMBERS_URN_SHOTS, `members-urn-${variant}-line${line + 1}-${scheme}-${name.replace(' ', '-').toLowerCase()}.png`), clip: { x: 0, y: Math.max(0, r.top - 60), width: WIDTH, height: 120 } });
+            }
+          }
         }
-        assert.equal(r.label, name, `${label}: Tab never reached ${name}`);
-        assert.ok(r.focusVisible, `${label}: ${name} does not match :focus-visible after Tab`);
-        assert.notEqual(r.style, 'none', `${label}: ${name} paints no ring (${JSON.stringify(r)})`);
-        // The copy buttons carry no focus-visible styling of their own, so Chromium's default
-        // `auto` ring paints (1px computed, drawn about 2px): this checks it paints and fits,
-        // not its colour. A branded ring on these buttons is a design change, not this issue.
-        const extent = Math.max(r.width, 2) + Math.max(r.offset, 0);
-        assert.ok(r.left - extent >= 0 && r.right + extent <= r.viewport, `${label}: ${name} ring would leave the viewport (${JSON.stringify(r)})`);
-        if (process.env.MEMBERS_URN_SHOTS) {
-          await page.screenshot({ path: join(process.env.MEMBERS_URN_SHOTS, `members-urn-${variant}-${scheme}-${name.replace(' ', '-').toLowerCase()}.png`), clip: { x: 0, y: Math.max(0, r.top - 60), width: WIDTH, height: 120 } });
-        }
+        // Tearing the panel down must not throw either: an effect that fails on unmount lands in pageerror.
+        await page.evaluate(() => window.unmountPanel());
+        assert.deepEqual(pageErrors, [], `${label}: the page raised uncaught errors`);
+        console.log(`ok ${label}: ${got.lines} Agent line(s): chip truncated, both copy buttons 8x8 inside the panel, no clipping ancestor, rings whole, no page errors`);
+      } finally {
+        await page.close();
       }
-      await page.close();
-      console.log(`ok ${label}: chip truncated, both copy buttons 8x8 inside the panel, no clipping ancestor, rings whole`);
     }
   }
 } finally {

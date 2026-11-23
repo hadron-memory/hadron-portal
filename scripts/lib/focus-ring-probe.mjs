@@ -99,10 +99,16 @@ const ringBox = (page, elementId) => page.evaluate((id) => {
  *   — drives the real flow by keyboard; must end with focus settled on the element
  * @param {(page: import('playwright').Page, label: string) => Promise<void>} config.pointer
  *   — drives the real flow by pointer; must end with focus settled on the element
+ * @param {import('vite').InlineConfig} [config.serverConfig] — portal#2537 F9: extra Vite options for the
+ *   probe's own server, for a fixture that cannot mount under the app's config (a superforms page whose
+ *   `$app/*` imports need the client lane's stubs, plus `configFile: false`, `resolve.alias`, `plugins`).
+ *   Omitted, the probe starts Vite exactly as before. A `server` key is merged over the probe's
+ *   `{ host: '127.0.0.1', port: 0 }`, never replacing it, so the probe stays on loopback.
  */
-export async function runFocusRingProbe({ name, elementId, fixtureModule, fixtureCall, expectedColor, keyboard, pointer }) {
+export async function runFocusRingProbe({ name, elementId, fixtureModule, fixtureCall, expectedColor, keyboard, pointer, serverConfig = {} }) {
   assert.ok(expectedColor, `${name}: an expected ring colour is required — the brand remap is part of the pin`);
-  const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
+  const { server: serverOptions, ...viteConfig } = serverConfig;
+  const server = await createServer({ ...viteConfig, server: { ...serverOptions, host: '127.0.0.1', port: 0 } });
   let browser;
   try {
     await server.listen();
