@@ -59,9 +59,11 @@ function fakeObserver() {
   return {
     get observed() { return instances.flatMap((i) => [...i.targets]); },
     live() { return instances.flatMap((i) => [...i.targets]); },
-    /** What the FILL machinery watches: everything but the scroller and its table, which the
-     *  scroll cue (#2461) observes in every mode. */
-    fillWatched(scroller: Element) { return instances.flatMap((i) => [...i.targets]).filter((el) => el !== scroller && el !== scroller.firstElementChild); },
+    /** What the FILL machinery watches (#2503: attributed by observer, not by element). The scroll cue
+     *  (#2461) owns the one ResizeObserver that watches the scroller, in every mode; fill's observer is any
+     *  other instance. So an element fill watches is found whatever it is, even the scroller's own table,
+     *  and the cue's observations can never be mistaken for fill's. */
+    fillWatched(scroller: Element) { return instances.filter((i) => !i.targets.has(scroller)).flatMap((i) => [...i.targets]); },
     resized(el: Element) { for (const i of instances) if (i.targets.has(el)) i.cb(); },
   };
 }
@@ -117,7 +119,8 @@ describe('DataTable fills the window (portal#2193)', () => {
     try {
       const scroller = mountTable({ rows: 60, headerHeight: 120, bounded: true });
       expect(fake.fillWatched(scroller)).toEqual([]);
-      // The scroll cue (#2461) keeps its own single resize listener in every mode; fill adds none.
+      // The scroll cue (#2461) keeps its own single resize listener in every mode; fill adds none. The height does
+      // not move on a resize below, so the one listener is not fill's. Cue behaviour is pinned in DataTable.scrollCue.client.test.ts.
       expect(add.mock.calls.filter(([type]) => type === 'resize')).toHaveLength(1);
       expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
       window.dispatchEvent(new Event('resize'));
