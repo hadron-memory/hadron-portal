@@ -840,6 +840,9 @@ async function loadNodePageData(devServer, tab) {
     if (kind === 'agent-bundled') {
      pin('bundled name link', document.querySelector('a[href="/app/agents/bundled-fixture"]'), V.LONG64);
      pin('bundled description', [...document.querySelectorAll('tbody span')].find(s => s.textContent === V.LONG_DESCRIPTION) ?? null, V.LONG_DESCRIPTION);
+     // portal#2512: the Role and Bundled-via spans keep the full value reachable once clamped.
+     pin('bundled role', [...document.querySelectorAll('tbody span')].find(s => s.textContent === V.LONG_ROLE) ?? null, V.LONG_ROLE);
+     pin('bundled via', [...document.querySelectorAll('tbody span')].find(s => s.textContent === V.LONG_VIA) ?? null, V.LONG_VIA);
     }
     if (kind === 'node-properties') {
      // Structural, not span-order: locate the cell by column index (field=0,

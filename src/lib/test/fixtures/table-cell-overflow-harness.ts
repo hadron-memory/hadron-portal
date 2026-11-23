@@ -28,8 +28,11 @@ const LONG_ACTOR = 'actor-example.test:fixture-account-with-long-unbroken-id';
 const LONG_EDGE_NAME = 'depends-on-' + 'e'.repeat(54); // 65: edge names are free-typed (the form takes any trimmed string), so a long one must stay reachable (blind review, #2507)
 const LONG_INFO = 'worker-example.test:fixture:identity-with-long-unbroken-suffix';
 const LONG_DESCRIPTION = LONG64 + 'D'.repeat(40);
+// portal#2512: the bundled-agents Role and Bundled-via cells hold an unbroken 64-char value.
+const LONG_ROLE = 'LongFixtureRoleWithFortyUnbrokenCharacters' + 'R'.repeat(22); // 64
+const LONG_VIA = 'LongFixtureViaAppNameWithFortyUnbrokenCharacters' + 'V'.repeat(16); // 64
 const LONG_URN = 'hrn:agent:example.test:fixture:' + 'u'.repeat(28);
-export const PAGE_FIXTURE_VALUES = { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO, LONG_DESCRIPTION, LONG_URN, LONG_EDGE_NAME };
+export const PAGE_FIXTURE_VALUES = { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO, LONG_DESCRIPTION, LONG_ROLE, LONG_VIA, LONG_URN, LONG_EDGE_NAME };
 
 /**
  * portal#2490 node-page mount: the REAL /nodes/[nodeId] page, from data the
@@ -83,7 +86,7 @@ export async function mountOverflowFixture(target: HTMLElement, kind: string) {
         { id: 'app-fixture', name: LONG64, urn: 'hrn:app:example.test:fixture:app-fixture', orgId: 'o-fixture' },
         { id: 'app-personal', name: 'Personal App', urn: 'hrn:app:example.test:fixture:app-personal', orgId: null },
       ],
-      bundledAgents: [{ id: 'bundled-fixture', name: LONG64, urn: LONG_URN, personaRole: 'helper', via: 'Import', description: LONG_DESCRIPTION }],
+      bundledAgents: [{ id: 'bundled-fixture', name: LONG64, urn: LONG_URN, personaRole: LONG_ROLE, via: LONG_VIA, description: LONG_DESCRIPTION }],
       bundleCandidates: [],
     };
     const instance = mount(Page as never, { target, props: { data, form: null } as never });

@@ -1441,9 +1441,9 @@
           {:else if cell.column.id === 'urn'}
             <Urn value={a.urn} type="agent" size={10} />
           {:else if cell.column.id === 'role'}
-            <span class="text-sm text-zinc-600 dark:text-zinc-400">{a.personaRole ?? '—'}</span>
+            <span class="block min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400" title={a.personaRole ?? undefined}>{a.personaRole ?? '—'}</span>
           {:else if cell.column.id === 'via'}
-            <span class="text-sm text-zinc-600 dark:text-zinc-400">{a.via}</span>
+            <span class="block min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400" title={a.via}>{a.via}</span>
           {:else if cell.column.id === 'description'}
             <!-- ?? undefined drops the attribute when there is no description (#2507, blind
                  review fold): title="" renders an empty tooltip on hover. -->
