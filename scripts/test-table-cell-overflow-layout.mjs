@@ -1187,12 +1187,12 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   try {
    await rowsPage.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
    await rowsPage.goto(new URL('/__cell_fixture', origin).href);
-   libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).LIB_CELL_ROWS);
+   libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).ALL_LIB_CELL_ROWS);
   } finally { await rowsPage.close(); }
-  assert.ok(libRows.length >= 5, 'the fixture lists every fixed #2492 row');
+  assert.ok(libRows.length >= 16, 'the fixture lists every #2492 row, fixed and measured');
   const fixture = { module: '/src/lib/test/fixtures/lib-cell-harness.ts', mount: 'mountLibCell', prepare: 'prepareLibCell' };
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns, anywhereColumns } of libRows) {
-   await runCellLeg({ name: 'lib-rows', listKey, width, dark, fixture, prepareStep: prepare, mustExist: expect, extra: async (page, leg) => {
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns, anywhereColumns, measured } of libRows) {
+   await runCellLeg({ name: 'lib-rows', listKey, width, dark, fixture, measured, prepareStep: prepare, mustExist: expect, extra: async (page, leg) => {
     // Both checks below need the DOM table that belongs to a table INSTANCE (blind delta 2, #2515): the
     // instance is found by the column ids, the DOM table by its own header texts and column count, never by
     // DOM order. A template editor mounts three tables, so "the first table" is a guess.

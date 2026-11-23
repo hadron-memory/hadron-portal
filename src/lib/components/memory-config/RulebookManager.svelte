@@ -197,7 +197,7 @@
     {:else}<button type="button" onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-rule', 'Create rule')}</button>{/if}
     <DataTable {table} listKey="memory-node-role-rules" bind:globalFilter={ruleFilter} searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
       {#snippet cell(cell, r)}
-        {#if cell.column.id === 'role'}<span class="font-mono">{r.role}</span>
+        {#if cell.column.id === 'role'}<!-- portal#2492: a role name has no break opportunity, so it wraps anywhere inside its cell. --><span class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono">{r.role}</span>
         {:else if cell.column.id === 'settings'}
           <div class="space-y-1 whitespace-normal">
             <p>{r.enabled ? t('config.enabled', 'Enabled') : t('config.disabled', 'Disabled')}</p>

@@ -128,7 +128,8 @@
   <DataTable {table} listKey="agent-detail-extended-by" bind:globalFilter={filter} searchAriaLabel={t('agent.extended-by.search-label', 'Search extending Agents on this page')} searchPlaceholder={t('agent.extended-by.search', 'Search this page…')}>
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
-          <a class="text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(row.id)}">{row.name}</a>
+          <!-- portal#2492: a 64-character name has no break opportunity, so it wraps anywhere inside its cell. -->
+          <a class="block min-w-0 max-w-full [overflow-wrap:anywhere] text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(row.id)}">{row.name}</a>
         {:else if cell.column.id === 'urn'}
           <Urn value={row.urn} type="agent" linked label={t('agent.extended-by.agent', 'extending Agent')} />
         {/if}

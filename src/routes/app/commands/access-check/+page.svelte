@@ -189,9 +189,10 @@
         >
           {#snippet cell(cell)}
             {#if cell.column.id === 'source'}
-              <span class="font-mono text-xs">{cell.getValue()}</span>
+              <!-- portal#2492: a grant source, role and via have no break opportunity, so they wrap anywhere inside the cell. -->
+              <span class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono text-xs">{cell.getValue()}</span>
             {:else}
-              {String(cell.getValue() ?? '—')}
+              <span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{String(cell.getValue() ?? '—')}</span>
             {/if}
           {/snippet}
         </DataTable>
