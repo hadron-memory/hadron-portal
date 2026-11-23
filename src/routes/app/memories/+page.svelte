@@ -250,7 +250,7 @@
         >
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'name'}
-              <a href="/app/memories/{row.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
+              <a href="/app/memories/{row.id}" class="inline-block max-w-full truncate align-bottom font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={row.name}>{row.name}</a>
             {:else if cell.column.id === 'urn'}
               <Urn value={row.urn} type="memory" size={10} />
             {:else if cell.column.id === 'sharedBy'}
