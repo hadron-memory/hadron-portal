@@ -977,11 +977,13 @@ async function loadNodePageData(devServer, tab) {
   const legFailuresBefore = failures.length;
   try {
    await page.goto(new URL('/__cell_fixture', origin).href);
-   await page.evaluate(({ css, dark }) => {
+   await page.evaluate(({ css, dark, kind }) => {
     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-   }, { css, dark });
+    // portal#2517: orgs pages sit in the REAL /app shell row (APP_SHELL_ROW > APP_SHELL_CONTENT), not a bare min-w-0 main, so a table
+    // that widens its column shows up as document overflow below.
+    document.body.innerHTML = kind.startsWith('orgs-') ? '<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6"><div class="min-w-0 flex-1"><div id="fixture"></div></div></div>' : '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark, kind });
    await page.evaluate(async kind => { const orgs = kind.startsWith('orgs-'); const m = await import(orgs ? '/src/lib/test/fixtures/orgs-cell-harness.ts' : '/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await (orgs ? m.mountOrgsCellFixture : m.mountAppsCellFixture)(document.getElementById('fixture'), kind); }, kind);
    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
    await settlePage(page);
@@ -1014,6 +1016,8 @@ async function loadNodePageData(devServer, tab) {
     // page's TabRow keeps an invisible fixed measuring clone that widens it on main, with or without a table defect.)
     const scrollers = await page.locator('[data-testid="data-table-scroller"]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
     if (!scrollers.length || scrollers.some(r => r > width + 0.5)) failures.push(`${leg}/${sizing}: the table scroller leaves the page ${JSON.stringify(scrollers)}`);
+    // portal#2517: in the real shell an orgs table must not widen the DOCUMENT (the fixture has no TabRow clone, so scrollWidth is sound here).
+    if (kind.startsWith('orgs-') && !(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}/${sizing}: the table widens the document to ${await page.evaluate(() => document.documentElement.scrollWidth)}px; an absolutely positioned descendant (an sr-only label) escapes the scroller when no positioned ancestor inside it contains it}`);
    }
    // __cellShot, like every CELL_SHOTS site on an emulated page (blind review
    // #2507, fold): a fullPage capture wipes the pinned emulation; this battery's
