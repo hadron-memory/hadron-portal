@@ -1029,6 +1029,20 @@ async function loadNodePageData(devServer, tab) {
      const docWidth = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
      if (docWidth.scroll > docWidth.client) failures.push(`${leg}/${sizing}: the table widens the document to ${docWidth.scroll}px in a ${docWidth.client}px viewport`);
     }
+    // portal#2526: the Team chat badge sits on the channel-name line. A `block` on the name anchor stacks the badge under the name and
+    // every containment check above still passes, so this pins the row itself: the badge and the name anchor share a line (their vertical
+    // centres within 4px; stacked they are a full line apart).
+    if (kind === 'apps-channels') {
+     const line = await page.evaluate(() => {
+      const badge = [...document.querySelectorAll('tbody td span')].find(s => s.textContent.trim() === 'Team chat');
+      const name = badge?.parentElement?.querySelector('a');
+      if (!badge || !name) return null;
+      const b = badge.getBoundingClientRect(), n = name.getBoundingClientRect();
+      return { badgeMid: b.top + b.height / 2, nameMid: n.top + n.height / 2 };
+     });
+     if (!line) failures.push(`${leg}/${sizing}: the default channel row has no Team chat badge next to a name anchor`);
+     else if (Math.abs(line.badgeMid - line.nameMid) > 4) failures.push(`${leg}/${sizing}: the Team chat badge is not on the channel-name line ${JSON.stringify(line)}`);
+    }
    }
    // __cellShot, like every CELL_SHOTS site on an emulated page (blind review
    // #2507, fold): a fullPage capture wipes the pinned emulation; this battery's
