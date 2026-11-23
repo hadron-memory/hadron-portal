@@ -165,6 +165,8 @@ html:not(.dark) textarea::placeholder {
  * #2503 — the cue is a SHADE, so it darkens what scrolls under it in both themes. Its colour comes
  * from the palette's zinc ramp (hrn:node:hadronmemory.com:specs:cor:brd:010:01: one ramp serves both themes, the theme selects the
  * stop): zinc-900 in light, the darker zinc-950 in dark. It was white in dark, which read as a glow.
+ * The dark stop is stronger (70% against 14%) because the dark surfaces are themselves zinc-900/950: a faint
+ * darkening of near-black is invisible, so the cue has to carry more weight there to read at all.
  */
 .table-scroll-cue {
   --table-scroll-cue-shade: color-mix(in srgb, var(--color-zinc-900, #18181b) 14%, transparent);

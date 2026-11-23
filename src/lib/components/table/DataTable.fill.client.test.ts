@@ -57,6 +57,7 @@ function fakeObserver() {
     disconnect() { this.targets.clear(); }
   });
   return {
+    get instanceCount() { return instances.length; },
     get observed() { return instances.flatMap((i) => [...i.targets]); },
     live() { return instances.flatMap((i) => [...i.targets]); },
     /** What the FILL machinery watches (#2503: attributed by observer, not by element). The scroll cue
@@ -119,6 +120,8 @@ describe('DataTable fills the window (portal#2193)', () => {
     try {
       const scroller = mountTable({ rows: 60, headerHeight: 120, bounded: true });
       expect(fake.fillWatched(scroller)).toEqual([]);
+      // fillWatched() ignores the scroller's own observer, so also pin that bounded mode made no OTHER one: the cue's is the only instance.
+      expect(fake.instanceCount).toBe(1);
       // The scroll cue (#2461) keeps its own single resize listener in every mode; fill adds none. The height does
       // not move on a resize below, so the one listener is not fill's. Cue behaviour is pinned in DataTable.scrollCue.client.test.ts.
       expect(add.mock.calls.filter(([type]) => type === 'resize')).toHaveLength(1);
