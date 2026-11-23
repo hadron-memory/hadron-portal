@@ -380,12 +380,14 @@
 
   // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
   // The FR-026 disclosure text MUST match the server's FR_026_DISCLOSURE
-  // constant verbatim (src/lib/entityRef/errors.ts in hadron-server).
+  // constant verbatim (src/lib/entityRef/errors.ts in hadron-server, the
+  // source of the wording per cor:rag:010:01 and cor:sec:040:05). It is a
+  // deliberate copy; update it from the server constant, never by hand-edit.
   const FR_026_DISCLOSURE = [
     '(a) Stored vectors are plaintext — they are NOT encrypted at rest the way the content column is.',
-    '(b) Embedding inversion can partially reconstruct source text from a vector (partial, not full reconstruction).',
-    '(c) Anyone with database access is therefore a potential viewer of that partial content, even though the content column itself is encrypted.',
-    "(d) The opt-in is revocable; revoking stops further indexing AND removes the memory's already-stored vectors.",
+    '(b) When the index includes content passages (embeddingSource contentChunks or both), the verbatim text of each indexed chunk is ALSO stored UNENCRYPTED, in node_embeddings.chunk_text next to its vector: a database dump holds that text in full, readable form. Embedding inversion can additionally reconstruct source text, partially, from a vector alone.',
+    '(c) Anyone with database access is therefore a potential viewer of that text (the full text of every indexed chunk, and whatever inversion recovers from the vectors), even though the content column itself is encrypted.',
+    "(d) The opt-in is revocable; revoking stops further indexing AND removes the memory's already-stored vectors and their chunk text.",
   ];
 
   const initialVectorForm = untrack(() => submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex') as VectorIndexSettingsSuperform | null ?? data.vectorForm);
@@ -1011,7 +1013,8 @@
         <p class="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
           This memory is <span class="font-medium">encrypted</span>. Enabling the
           vector index requires acknowledging that stored vectors are plaintext
-          (see disclosure on save).
+          and that the passage text of indexed content is stored unencrypted
+          beside them (see disclosure on save).
         </p>
       {/if}
 
