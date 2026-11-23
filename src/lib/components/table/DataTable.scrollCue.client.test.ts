@@ -98,7 +98,7 @@ describe('DataTable scroll cue (#2461)', () => {
     expect(observer.targets.has(oldChild)).toBe(false);
   });
 
-  it('leaves no observer, listener or pending frame behind on unmount', () => {
+  it('leaves no observer behind on unmount, and removes every window resize listener it added', () => {
     const fake = fakeResizeObserver();
     const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');
@@ -107,27 +107,39 @@ describe('DataTable scroll cue (#2461)', () => {
       const observer = fake.cueObserver(el);
       const resizeAdds = add.mock.calls.filter(([type]) => type === 'resize').map(([, fn]) => fn);
       expect(resizeAdds.length).toBeGreaterThan(0);
-      // A measurement is queued (a scroll) when the table goes away: its frame must be cancelled, not left to run.
-      stand(el, { scrollWidth: 692, clientWidth: 306 });
-      el.dispatchEvent(new Event('scroll'));
       mounted.pop()!.unmount();
       expect(observer.disconnected).toBe(true);
       expect(observer.targets.size).toBe(0);
       // Every window resize listener added by the table is removed again, the same function.
       const resizeRemoves = remove.mock.calls.filter(([type]) => type === 'resize').map(([, fn]) => fn);
       for (const fn of resizeAdds) expect(resizeRemoves).toContain(fn);
-      // And a torn-down scroller no longer reacts to the window.
-      flushFrames();
-      expect(el.hasAttribute('data-overflow-end')).toBe(false);
-      // And a torn-down scroller no longer reacts to the window or to a scroll.
-      window.dispatchEvent(new Event('resize'));
-      el.dispatchEvent(new Event('scroll'));
-      flushFrames();
-      expect(el.hasAttribute('data-overflow-end')).toBe(false);
     } finally {
       add.mockRestore();
       remove.mockRestore();
     }
+  });
+
+  it('a torn-down scroller no longer reacts to a scroll or to the window', () => {
+    const el = scroller();
+    // Settle everything the mount queued, so a reaction after teardown can only come from a listener still attached.
+    flushFrames();
+    mounted.pop()!.unmount();
+    el.removeAttribute('data-overflow-end');
+    stand(el, { scrollWidth: 692, clientWidth: 306 });
+    el.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('resize'));
+    flushFrames();
+    expect(el.hasAttribute('data-overflow-end')).toBe(false);
+  });
+
+  it('cancels a measurement that was queued when the table went away', () => {
+    const el = scroller();
+    flushFrames();
+    stand(el, { scrollWidth: 692, clientWidth: 306 });
+    el.dispatchEvent(new Event('scroll')); // queues a frame
+    mounted.pop()!.unmount();
+    flushFrames(); // a frame left pending would now run and mark the detached scroller
+    expect(el.hasAttribute('data-overflow-end')).toBe(false);
   });
 
   it('has a cue on each edge, after the scroller so the data-overflow-* marks reach it, that never takes a tap', () => {
