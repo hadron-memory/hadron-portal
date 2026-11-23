@@ -5642,6 +5642,10 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
     agentTask(id: $id) {
       ...AgentTaskRowFields
       appId
+      # #1914 (hadron-server#3878): the served address, hrn:agenttask:<root>:<app-slug>:<handle>.
+      # Detail only: the server computes it per task from the App's urn, so the list
+      # and tree fragments do not ask for it. Rendered as served; the portal composes none for display.
+      urn
       description
       requirements { role familyIn familyNotIn excludeWorkerIds minTier }
       createdBy { ...AgentTaskPartyFields }
