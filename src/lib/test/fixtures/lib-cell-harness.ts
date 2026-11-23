@@ -35,6 +35,10 @@ const LONG_NAME = `LongWorkerName${'A'.repeat(40)}`;
 const LONG_ROLE = `a-long-role-token-${'x'.repeat(42)}`;
 const LONG_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.macroEnabled.12';
 const LONG_UPLOADER = `Uploader${'B'.repeat(40)}`;
+// The File cell shows the asset's URN chip and a description line, the Memory cell the memory's URN chip: a long
+// memory slug lengthens both chips, and a long description exercises the truncate-with-title line (portal#2516).
+const LONG_MEMORY = `long-memory-slug-${'m'.repeat(50)}`;
+const LONG_DESCRIPTION = `a long asset description with a spaceless tail ${'d'.repeat(60)}`;
 const NAME_64 = `Template${'C'.repeat(56)}`;
 const TOKEN = 'a-description-token-with-no-spaces-0123456789-0123456789-0123456789';
 const time = '2026-11-01T02:04:36Z';
@@ -47,10 +51,10 @@ export function mountLibCell(target: HTMLElement, row: LibCellRow) {
   }
   if (row === 'memory:assets' || row === 'memory:assets:delete-confirm') {
     const assets = [0, 1].map((i) => ({
-      id: `asset-${i}`, memoryId: 'mem-1', urn: `hrn:asset:example.test:fixture:assets:asset-${i}`,
-      filename: `report-${i}.xlsm`, mimeType: LONG_MIME, sizeBytes: 2048,
+      id: `asset-${i}`, memoryId: 'mem-1', urn: `hrn:asset:example.test:${LONG_MEMORY}:assets:asset-${i}`,
+      filename: `report-${i}${'f'.repeat(60)}.xlsm`, mimeType: LONG_MIME, sizeBytes: 2048,
       uploadedAt: '2026-11-21T14:03:00.000Z', uploadedBy: `user-${i}`,
-      scanStatus: 'CLEAN' as const, scanSignature: null, description: null, publicUrl: null,
+      scanStatus: 'CLEAN' as const, scanSignature: null, description: LONG_DESCRIPTION, publicUrl: null,
       publicLinkEnabled: false, canManagePublicLink: false, publicLinkAvailable: false,
     }));
     const instance = mount(AssetTable, { target, props: { assets, showMemory: true, uploaderNames: { 'user-0': LONG_UPLOADER, 'user-1': LONG_UPLOADER } } as never });
