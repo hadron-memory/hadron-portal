@@ -64,11 +64,24 @@
     next.searchParams.set('tab', 'chats');
     next.searchParams.set('chat', key);
     if (key !== AGENT_CHAT_KEY) next.searchParams.delete('agentChat');
+    // #1407: the whole panel goes inert for the switch, and a browser drops focus
+    // from a control that turns inert, so a keyboard or screen-reader user who
+    // chose a chat in the selector would land on the page body. Put focus back on
+    // the selector once the switch ends, but only when they did not move it
+    // themselves meanwhile (focus on the body or nowhere).
+    const selectorHadFocus = document.activeElement?.id === 'app-chat-select';
     chatSwitchBusy = true;
     chatSwitchFailed = false;
     try { await goto(next, { noScroll: true }); }
     catch { chatSwitchFailed = true; }
-    finally { chatSwitchBusy = false; }
+    finally {
+      chatSwitchBusy = false;
+      if (selectorHadFocus) {
+        await tick();
+        const active = document.activeElement;
+        if (!active || active === document.body) document.getElementById('app-chat-select')?.focus({ preventScroll: true });
+      }
+    }
   }
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating

@@ -2689,6 +2689,24 @@ describe('postChannelMessage (#1033)', () => {
     expect(result).toMatchObject({ status: 500, data: { form: { data: { body: 'kept draft' }, message: { type: 'error' } } } });
     expect(mockRequest).toHaveBeenCalledTimes(2);
   });
+  // #1407: the concealed case is the other refusal shape. The Channel is readable
+  // but its host memory is not (`memory: null`), so the action must take the
+  // catch: the draft comes back kept and no message is written.
+  it('keeps the failed draft and makes no mutation when the Channel host is concealed (memory: null)', async () => {
+    mockRequest.mockImplementation(async q => q === APP_CHAT_TARGET_QUERY
+      ? { app: { id: 'app-1' } }
+      : q === CHANNEL_CHAT_TARGET_QUERY ? { channel: { id: 'concealed', memory: null } } : { createChannelMessage: { seq: 99 } });
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'concealed', body: 'kept draft' });
+    expect(result).toMatchObject({ status: 500, data: { form: { id: 'channel:concealed', data: { body: 'kept draft' }, message: { type: 'error', text: expect.stringContaining('Your message has been kept') } } } });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRequest.mock.calls.map(c => c[0])).not.toContain(CREATE_CHANNEL_MESSAGE_MUTATION);
+  });
+  it('asks for a chat when channelRef is empty, keeps the draft and issues no request', async () => {
+    mockRequest.mockReset();
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: '', body: 'kept draft' });
+    expect(result).toMatchObject({ status: 400, data: { form: { id: 'channel:', data: { body: 'kept draft' }, message: { type: 'error', text: 'Choose a chat before posting.' } } } });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });
 
 // portal#1148 (hadron-server#2089): the Human Team roster has three outcomes, and a withheld
