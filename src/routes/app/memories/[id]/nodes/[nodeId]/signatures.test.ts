@@ -304,8 +304,16 @@ describe('node page — the signing redirect is pinned to the server public orig
   const sign = (ceremonyUrl: unknown) =>
     serve(() => ({}), () => ({ requestNodeSignature: { id: 'req-9', ceremonyUrl } }));
 
+  it('follows an on-origin link exactly as served, never recomposed', async () => {
+    for (const u of ['https://server.example/signing/req-9', 'https://server.example/signing/req-9?x=1#frag']) {
+      sign(u);
+      await expect(requestSignature()).rejects.toMatchObject({ status: 303, location: u });
+    }
+  });
+
   it('refuses a link on another host: no redirect, the existing failure line', async () => {
     for (const u of [
+      'javascript:alert(1)',
       'https://evil.example/signing/req-9',
       'https://server.example.evil.example/signing/req-9',
       'https://server.example@evil.example/signing/req-9',
