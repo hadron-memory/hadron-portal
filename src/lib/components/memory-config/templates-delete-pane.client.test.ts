@@ -52,7 +52,7 @@ describe('portal#1749 C3: deleting the chosen template retires the Apply pane', 
     expect(fetcher.mock.calls.map(c => JSON.parse(c[1].body).op)).toEqual(['preview', 'delete', 'read']);
   });
 
-  it('a pane that has no preview yet is retired too, and the chosen memory does not leak into the next pane', async () => {
+  it('a pane that has no preview yet is retired too, and the next pane starts without a memory', async () => {
     const m = mount(); await openPane(m, false);
     button(m.target, 'Choose memory…').click(); flushSync();
     m.target.querySelector<HTMLButtonElement>('button[aria-label="Select My memory"]')!.click(); flushSync();

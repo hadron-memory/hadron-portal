@@ -87,6 +87,11 @@
     try {
       await configCall({ kind: 'templates', op: 'delete', ownerType, ownerRef, ref: template.id, revision: template.revision });
       templates = templates.filter(t => t.id !== template.id);
+      // portal#1749 (C3): the Apply pane and the bulk panel point at a template, so a
+      // delete of THAT template retires them and everything derived from the pick. Only
+      // here, after the server confirmed the delete: a failed delete leaves them alone.
+      if (chosen?.id === template.id) { chosen = null; memory = null; preview = null; previewStale = false; }
+      if (bulk?.id === template.id) bulk = null;
       notice = t('config.deleted', 'Deleted.');
       try { await reload(); }
       catch { failure = { error: t('config.deleted-reload-failed', 'Deleted, but the templates could not be reloaded. Reload before another change.') }; }
@@ -123,7 +128,7 @@
     {/snippet}
   </DataTable>
   {#if editing !== undefined && writable}
-    <div aria-label={t('config.template-editor', 'Template editor')} class="min-w-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <div role="group" aria-label={t('config.template-editor', 'Template editor')} class="min-w-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <fieldset disabled={pending} class="min-w-0 space-y-4">
         <h2 class="text-xl font-semibold">{editing ? t('config.edit-template', 'Edit template') : t('config.create-template', 'Create template')}</h2>
         <form id={formId} onsubmit={save} class="space-y-4"><label class="block">{t('config.name', 'Name')}<input bind:this={nameInput} required maxlength="64" bind:value={name} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950" /></label>
