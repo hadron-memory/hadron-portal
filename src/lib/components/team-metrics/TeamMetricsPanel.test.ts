@@ -114,19 +114,37 @@ describe('TeamMetricsPanel states', () => {
     expect(flow).toContain('whether or not it names an issue');
   });
 
+  // The one <th> whose text is `label`, never a span across cells.
+  const headerCell = (h: string, label: string) => h.split(/<th[\s>]/).slice(1).map((c) => c.split('</th>')[0]!).filter((c) => c.includes(label));
+
+  // The <th> element's own attributes: its resize handle inside carries max-sm:hidden too.
+  const openTag = (cell: string) => cell.slice(0, cell.indexOf('>'));
+
   it('on a phone the by-project breakdown folds into the owner cell, and the column is hidden below sm (#2535)', () => {
     const h = html(ok());
     expect(h).toContain('metrics-owner-projects-phone');
     expect(h).toContain('metrics-project-children-phone');
-    // the wide columns carry max-sm:hidden, the folded copies carry sm:hidden
-    expect(h).toMatch(/<th[^>]*max-sm:hidden[^>]*>[\s\S]*?By project/);
-    expect(h).toMatch(/<th[^>]*max-sm:hidden[^>]*>[\s\S]*?Direct tasks by status/);
+    for (const label of ['By project', 'Direct tasks by status']) {
+      const cells = headerCell(h, label);
+      expect(cells).toHaveLength(1);
+      expect(openTag(cells[0]!)).toContain('max-sm:hidden');
+    }
+    // the kept columns stay visible on a phone
+    for (const label of ['Owner', 'Tasks', 'Project']) {
+      const own = headerCell(h, `>${label}<`);
+      expect(own.length).toBeGreaterThan(0);
+      for (const c of own) expect(openTag(c)).not.toContain('max-sm:hidden');
+    }
   });
 
   it('the By project column is not sortable: it sorted by a concatenated string (#2535)', () => {
     const h = html(ok());
-    const th = h.match(/<th[^>]*>(?:(?!<\/th>)[\s\S])*By project/)?.[0] ?? '';
-    expect(th).not.toContain('cursor-pointer');
+    const sortable = headerCell(h, 'Owner')[0]!;
+    // control: a sortable column does carry the sort affordance, so the check below can fail
+    expect(openTag(sortable)).toContain('cursor-pointer');
+    const cells = headerCell(h, 'By project');
+    expect(cells).toHaveLength(1);
+    expect(openTag(cells[0]!)).not.toContain('cursor-pointer');
   });
 
   it('a status shows as a word, not the stored STARTED/PENDING key (#2535)', () => {
