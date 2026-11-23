@@ -119,6 +119,11 @@ describe('DataTable scroll cue (#2461)', () => {
       // And a torn-down scroller no longer reacts to the window.
       flushFrames();
       expect(el.hasAttribute('data-overflow-end')).toBe(false);
+      // And a torn-down scroller no longer reacts to the window or to a scroll.
+      window.dispatchEvent(new Event('resize'));
+      el.dispatchEvent(new Event('scroll'));
+      flushFrames();
+      expect(el.hasAttribute('data-overflow-end')).toBe(false);
     } finally {
       add.mockRestore();
       remove.mockRestore();
