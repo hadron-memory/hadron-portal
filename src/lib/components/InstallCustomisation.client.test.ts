@@ -669,6 +669,35 @@ describe('install customisation polish (#1369)', () => {
     expect(root.textContent).not.toContain('1 customisations');
   });
 
+  // portal#1369: a one-row result keeps the shared table and the count line, but not the
+  // controls that have nothing to act on (a search box over one row, a pager with both
+  // buttons disabled).
+  it('lightens a one-row result: no search and no pager, but still the table, the count and the row action', async () => {
+    serve(listOf(1));
+    const root = await panel();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(root.querySelector('input[aria-label="Search the customisations on this page"]')).toBeNull();
+    expect(button(root, 'Previous')).toBeUndefined();
+    expect(button(root, 'Next')).toBeUndefined();
+    expect(root.textContent).toContain('Loaded 1–1 of 1 customisation');
+    expect(root.querySelector('button[aria-label="Open Note (note)"]')).not.toBeNull();
+  });
+
+  it('control: one loaded row out of a larger server total keeps search and paging', async () => {
+    serve(listOf(25));
+    const root = await panel();
+    expect(root.querySelector('input[aria-label="Search the customisations on this page"]')).not.toBeNull();
+    expect(button(root, 'Next')).toBeDefined();
+    expect(root.textContent).toContain('Loaded 1–1 of 25 customisations');
+  });
+
+  it('control: several rows keep search and paging', async () => {
+    serve(listOf(2, [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }]));
+    const root = await panel();
+    expect(root.querySelector('input[aria-label="Search the customisations on this page"]')).not.toBeNull();
+    expect(button(root, 'Next')).toBeDefined();
+  });
+
   it('names the loaded range out of the server total, so disabled paging is explained in text', async () => {
     serve(listOf(25));
     const root = await panel();
