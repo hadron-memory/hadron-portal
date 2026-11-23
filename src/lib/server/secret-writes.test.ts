@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { env } from '$env/dynamic/public';
 import { internalErrorText } from '$lib/gql-error';
-import { parseSecretValue, secretWrite, validSecretName } from './secret-writes';
+import { PLAIN_PROTECTED_TEXT, STAGED_UNLINKED_TEXT, parseSecretValue, secretWrite, validSecretName } from './secret-writes';
 
 const err = (extensions: Record<string, unknown>, message = 'nope') =>
   Object.assign(new Error('x'), { response: { errors: [{ message, extensions }] }, request: { query: '', variables: {} } });
@@ -58,12 +58,32 @@ describe('open-change cap refusals have their own copy (portal#2460)', () => {
 describe('a staged link is pinned to the server public origin (portal#2417)', () => {
   const stage = (url: string) => secretWrite(client(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl: url }); }), 'q', {});
   beforeEach(() => { env.PUBLIC_SERVER_URL = 'https://h.example'; });
-  it('a link on another host is a plain refusal, not a staged request with a link', async () => {
-    expect(await stage('https://evil.example/secret-changes/r1')).toEqual({ kind: 'plain-protected' });
+  it('a link on another host says the change was staged, with no link and not the refused-caller copy (portal#2470)', async () => {
+    const bad = 'https://evil.example/secret-changes/r1';
+    const r = await stage(bad);
+    expect(r).toEqual({ kind: 'refused', message: STAGED_UNLINKED_TEXT() });
+    expect(JSON.stringify(r)).not.toContain('evil.example');
+    expect(STAGED_UNLINKED_TEXT()).not.toBe(PLAIN_PROTECTED_TEXT());
   });
-  it('with no configured origin no link is ever staged', async () => {
+  it('with no configured origin the staged change is still named, with no link (portal#2470)', async () => {
     Reflect.deleteProperty(env, 'PUBLIC_SERVER_URL');
-    expect(await stage('https://h.example/secret-changes/r1')).toEqual({ kind: 'plain-protected' });
+    expect(await stage('https://h.example/secret-changes/r1')).toEqual({ kind: 'refused', message: STAGED_UNLINKED_TEXT() });
+  });
+  it('the copy says staged and where to go, and never offers a link or claims nothing is open (portal#2470)', () => {
+    const copy = STAGED_UNLINKED_TEXT();
+    expect(copy).toMatch(/staged/i);
+    expect(copy).toMatch(/CLI/);
+    expect(copy).not.toMatch(/https?:|only a person acting/i);
+  });
+  it('a refused caller (code, no request id) keeps the plain copy even with a bad link attached (portal#2470)', async () => {
+    const r = await secretWrite(client(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', ceremonyUrl: 'https://evil.example/secret-changes/r1' }); }), 'q', {});
+    expect(r).toEqual({ kind: 'plain-protected' });
+  });
+  it('the dropped link is never logged', async () => {
+    const spies = (['log', 'info', 'warn', 'error'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    await stage('https://evil.example/secret-changes/r1');
+    for (const s of spies) expect(JSON.stringify(s.mock.calls)).not.toContain('evil.example');
+    spies.forEach((s) => s.mockRestore());
   });
 });
 
