@@ -98,11 +98,12 @@
   {#snippet cell(c, row)}
     {#if c.column.id === 'name'}
       <div class="min-w-0">
-        <div class="truncate font-medium text-zinc-800 dark:text-zinc-200">{row.name}</div>
+        <!-- portal#2492: ellipsized, so the full name stays in a title. -->
+        <div class="truncate font-medium text-zinc-800 dark:text-zinc-200" title={row.name}>{row.name}</div>
         <div class="mt-0.5"><Urn value={row.urn} type="node" size={8} /></div>
       </div>
     {:else if c.column.id === 'reason'}
-      <div class="text-xs text-zinc-600 dark:text-zinc-400">{row.reason}</div>
+      <div class="min-w-0 max-w-full [overflow-wrap:anywhere] text-xs text-zinc-600 dark:text-zinc-400">{row.reason}</div>
     {/if}
   {/snippet}
 </DataTable>

@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 // @ts-expect-error plain .mjs helper shared with the layout script
-import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, APPS_KINDS, ORGS_KINDS, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH, PARTY_NARROW_CLAIM } from './cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, APPS_KINDS, ORGS_KINDS, TITLE_CHECKED_KINDS, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH, PARTY_NARROW_CLAIM } from './cell-harness-env.mjs';
 
 // The accepted set, spelled out here on purpose — see the accept test below.
-// The ten apps kinds join from main's portal#2488 slice and wake from main's
-// portal#2501 slice (both unioned in #2507's carries).
-const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label', 'agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants', 'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions', 'lib-rows'];
+// The ten apps kinds join from main's portal#2488 slice, the nine orgs kinds from portal#2491 and wake
+// from main's portal#2501 slice (unioned in #2507's carries).
+const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label', 'agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants', 'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions', 'lib-rows'];
 
 // portal#2129 rows 1, 6, 8: every env knob is validated before any browser launches.
 describe('parseHarnessEnv', () => {
@@ -105,12 +105,30 @@ describe('batteryFor', () => {
       agentTasks: ['agent-tasks'],
       partyLabel: ['party-label'],
       pages: PAGE_KINDS,
-      apps: [...APPS_KINDS, ...ORGS_KINDS],
+      // Spelled out, not rebuilt from the constants: a kind added to either list must be a deliberate edit here.
+      apps: ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants',
+        'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions'],
       lib: ['lib-rows'],
     });
   });
-  it('routes an Orgs kind to the apps battery alone', () => {
-    expect(batteryFor('orgs-mine')).toEqual({ component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: ['orgs-mine'], lib: [] });
+  it.each(ORGS_KINDS)('routes %s to the apps battery alone', (kind: string) => {
+    expect(batteryFor(kind)).toEqual({ component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [kind], lib: [] });
+  });
+  // portal#2514: the untitled-ellipsis rule is on for a named list of kinds; every one must be a real kind, and the two
+  // memories tables whose titles #2510 added are on it (a title-removal mutant must turn them red).
+  it('TITLE_CHECKED_KINDS names real kinds and includes the memories tables', () => {
+    for (const kind of TITLE_CHECKED_KINDS) expect(KINDS, kind).toContain(kind);
+    expect(TITLE_CHECKED_KINDS).toEqual(expect.arrayContaining(['orgs-memories-org', 'orgs-memories-subscriptions']));
+  });
+  // portal#2514: the kind list and the fixture's mount table are two copies of one list, and the fixture type is a third.
+  // The fixture's own list is read as text (importing it would mount the route pages in the node lane).
+  it('the Orgs fixture mounts exactly the ORGS_KINDS, and dispatches every one', () => {
+    const source = readFileSync(new URL('../../src/lib/test/fixtures/orgs-cell-fixtures.ts', import.meta.url), 'utf8');
+    const listed = [...(source.match(/export const ORGS_CELL_KINDS = \[([^\]]*)\]/)?.[1] ?? '').matchAll(/'(orgs-[a-z-]+)'/g)].map((m) => m[1]);
+    expect([...listed].sort()).toEqual([...ORGS_KINDS].sort());
+    const dispatch = source.slice(source.indexOf('export async function mountOrgsCellFixture'));
+    const memoryTabs = source.slice(source.indexOf('const MEMORY_TABS'), source.indexOf('async function mountMemories'));
+    for (const kind of ORGS_KINDS) expect(dispatch + memoryTabs, kind).toContain(`'${kind}'`);
   });
   // portal#2516: the lib battery's own route, asserted like the Orgs one (it was the one kind with no direct pin).
   it('routes lib-rows to the lib battery alone', () => {

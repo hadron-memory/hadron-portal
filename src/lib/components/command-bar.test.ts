@@ -21,6 +21,20 @@ const cmd = (id: string): CommandSpec => {
   return c;
 };
 
+describe('buildCommandRoute open of a served task URN (#1914)', () => {
+  it('hands a qualified hrn:agenttask URN to the resolver route, not "Not a valid URN."', async () => {
+    const urn = 'hrn:agenttask:hadronmemory.com:hadron-dev-team:at3.405';
+    expect(await buildCommandRoute('open', urn, resolve)).toEqual({ ok: true, path: `/app/u/${urn}` });
+  });
+
+  it('still sends a bare handle to global task search', async () => {
+    expect(await buildCommandRoute('open', 'AT3.405', resolve)).toEqual({
+      ok: true,
+      path: '/app/search?q=AT3.405&type=agentTask',
+    });
+  });
+});
+
 describe('buildCommandRoute', () => {
   it('rejects empty input for any mode', async () => {
     expect(await buildCommandRoute('search', '   ', resolve)).toMatchObject({ ok: false });

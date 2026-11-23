@@ -168,6 +168,11 @@ jobs:
       - name: Check DataTable fill layout
         run: pnpm test:data-table-fill-layout
 
+      # portal#2503: the DataTable scroll cue at phone width behind a pinned end column, and its
+      # dark-mode shade, in real Chromium with the compiled CSS.
+      - name: Check DataTable scroll cue layout
+        run: pnpm test:data-table-scroll-cue-layout
+
       # portal#1711: the TaskHistory link values — touch targets, wrapping and
       # overflow at 390px and 1280px, in real Chromium with compiled CSS.
       - name: Check TaskHistory link layout

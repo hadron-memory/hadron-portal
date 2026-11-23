@@ -66,7 +66,8 @@
     {#snippet cell(cell, row)}
       {@const kind = rowKind(row, definitionUrn)}
       {#if cell.column.id === 'code'}
-        <code class="font-mono text-xs" data-testid="register-code">{row.code}</code>
+        <!-- portal#2492: a code and a task loc have no break opportunity, so they wrap anywhere inside the cell. -->
+        <code class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono text-xs" data-testid="register-code">{row.code}</code>
       {:else if cell.column.id === 'resolves'}
         <div class="flex min-w-0 flex-col gap-1" data-testid="register-row-{kind}">
           {#if kind === 'sends-here'}
@@ -81,7 +82,7 @@
             <span>{t('action-register.unknown', 'This state isn’t recognised')}</span>
           {/if}
           {#if (kind === 'mapped' || kind === 'sends-here' || kind === 'resolves-elsewhere') && row.taskUrn}
-            {#if row.taskLoc}<span class="truncate font-mono text-xs">{row.taskLoc}</span>{/if}
+            {#if row.taskLoc}<span class="min-w-0 max-w-full [overflow-wrap:anywhere] font-mono text-xs">{row.taskLoc}</span>{/if}
             <Urn value={row.taskUrn} type="node" compact linked label={t('action-register.task', 'task')} />
           {/if}
         </div>
