@@ -1088,6 +1088,55 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   }
   return found;
  }), ESCAPE_PX);
+
+ // portal#2516: the leg the two fixture-row batteries share (agent-tasks, slice 1; lib-rows, slice 6). Each
+ // copied ~35 lines of setup, the escape oracle, the negative control, the document-overflow check and the
+ // screenshot; only `cellEscapes` was shared. A battery now supplies its fixture module, the row, and an
+ // optional `extra(page, leg)` for the checks only it makes. `measured` rows are reported, never failed.
+ const runCellLeg = async ({ name, listKey, width, dark, scope = '', fixture, prepareStep = null, expect = null, measured = false, extra = null }) => {
+  const mode = dark ? 'dark' : 'light';
+  const leg = `${name}/${listKey}/${width}/${mode}`;
+  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async ({ module, mount, listKey }) => { const m = await import(module); window.stopFixture = m[mount](document.getElementById('fixture'), listKey); }, { module: fixture.module, mount: fixture.mount, listKey });
+   await page.locator(`${scope}tbody td`).first().waitFor({ timeout: 10000 });
+   if (prepareStep) await page.evaluate(async ({ module, prepare, step }) => { const m = await import(module); await m[prepare](document.getElementById('fixture'), step); }, { module: fixture.module, prepare: fixture.prepare, step: prepareStep });
+   // The cell this row exists to measure must be on the page: a prop mismatch would otherwise pass vacuously.
+   if (expect) await page.locator(expect).first().waitFor({ timeout: 10000 });
+   // Columns a view hides by default (the roster's Last assigned) still have cells a reader can show.
+   await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
+   await settlePage(page);
+   const escapes = await cellEscapes(page, scope);
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${name}-${listKey.replaceAll(':', '-')}-${width}-${mode}.png`, fullPage: true });
+   if (measured) console.log(`${leg}: MEASURED (not failed, #2486 decides)`, escapes);
+   else {
+    if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
+    // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
+    await page.locator(`${scope}tbody td`).first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
+    if (!(await cellEscapes(page, scope)).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
+    await page.locator('[data-negative]').evaluate(el => el.remove());
+    console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
+   }
+   // A measured row is reported, never failed: its document overflow is logged by the line above, not queued.
+   if (!measured && !(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+   if (extra) await extra(page, leg);
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+  } catch (e) {
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-').replaceAll(':', '-')}.png`, fullPage: true }).catch(() => {});
+   throw e;
+  } finally { await page.close(); }
+ };
+
  // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and
  // legal synthetic data, default column sizes. A cell passes when no element inside it paints outside its
  // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
@@ -1110,44 +1159,8 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    taskRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts')).AGENT_TASK_CELL_ROWS);
   } finally { await rowsPage.close(); }
   assert.ok(taskRows.length >= 7, 'the fixture lists every #2487 row');
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) {
-   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-   const errors = await watchErrors(page);
-   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
-   const leg = `agent-tasks/${listKey}/${width}/${dark ? 'dark' : 'light'}`;
-   try {
-    await page.goto(new URL('/__cell_fixture', origin).href);
-    await page.evaluate(({ css, dark }) => {
-     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
-     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-    }, { css, dark });
-    await page.evaluate(async row => { const { mountAgentTaskCell } = await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts'); window.stopFixture = mountAgentTaskCell(document.getElementById('fixture'), row); }, listKey);
-    await page.locator(`${scope}tbody td`).first().waitFor({ timeout: 10000 });
-    // Columns a view hides by default (the roster's Last assigned) still have cells a reader can show.
-    await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
-    await settlePage(page);
-    const escapes = await cellEscapes(page, scope);
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/agent-tasks-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
-    if (measured) console.log(`${leg}: MEASURED (not failed, #2486 decides)`, escapes);
-    else {
-     if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
-     // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
-     await page.locator(`${scope}tbody td`).first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
-     if (!(await cellEscapes(page, scope)).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
-     await page.locator('[data-negative]').evaluate(el => el.remove());
-     console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
-    }
-    // A measured row is reported, never failed: its document overflow is logged by the line above, not queued.
-    if (!measured && !(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
-    await unmountFixture(page);
-    assertPatched();
-    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
-   } catch (e) {
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-').replaceAll(':', '-')}.png`, fullPage: true }).catch(() => {});
-    throw e;
-   } finally { await page.close(); }
-  }
+  const fixture = { module: '/src/lib/test/fixtures/agent-tasks-cell-harness.ts', mount: 'mountAgentTaskCell' };
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) await runCellLeg({ name: 'agent-tasks', listKey, width, dark, scope, fixture, measured });
  }
 
 
@@ -1163,34 +1176,9 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).LIB_CELL_ROWS);
   } finally { await rowsPage.close(); }
   assert.ok(libRows.length >= 5, 'the fixture lists every fixed #2492 row');
+  const fixture = { module: '/src/lib/test/fixtures/lib-cell-harness.ts', mount: 'mountLibCell', prepare: 'prepareLibCell' };
   for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns, anywhereColumns } of libRows) {
-   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-   const errors = await watchErrors(page);
-   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
-   const leg = `lib-rows/${listKey}/${width}/${dark ? 'dark' : 'light'}`;
-   try {
-    await page.goto(new URL('/__cell_fixture', origin).href);
-    await page.evaluate(({ css, dark }) => {
-     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
-     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-    }, { css, dark });
-    await page.evaluate(async row => { const { mountLibCell } = await import('/src/lib/test/fixtures/lib-cell-harness.ts'); window.stopFixture = mountLibCell(document.getElementById('fixture'), row); }, listKey);
-    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
-    if (prepare) await page.evaluate(async step => { const { prepareLibCell } = await import('/src/lib/test/fixtures/lib-cell-harness.ts'); await prepareLibCell(document.getElementById('fixture'), step); }, prepare);
-    // The cell this row exists to measure must be on the page: a prop mismatch would otherwise pass vacuously.
-    await page.locator(expect).first().waitFor({ timeout: 10000 });
-    await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
-    await settlePage(page);
-    const escapes = await cellEscapes(page, '');
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/lib-rows-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
-    if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
-    // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
-    await page.locator('tbody td').first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
-    if (!(await cellEscapes(page, '')).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
-    await page.locator('[data-negative]').evaluate(el => el.remove());
-    console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
-    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+   await runCellLeg({ name: 'lib-rows', listKey, width, dark, fixture, prepareStep: prepare, expect, extra: async (page, leg) => {
     // Both checks below need the DOM table that belongs to a table INSTANCE (blind delta 2, #2515): the
     // instance is found by the column ids, the DOM table by its own header texts and column count, never by
     // DOM order. A template editor mounts three tables, so "the first table" is a guess.
@@ -1204,10 +1192,10 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
       return ths.length === visible.length && heads.every(h => ths.some(th => th.textContent.includes(h)));
      });
      if (!table) return null;
-     // Clear every earlier mark first (blind delta 3, #2515): a mark left on another table would make
-     // querySelector('[data-lib-rows-table]') read the wrong table and pass for the wrong reason.
-     for (const old of document.querySelectorAll('[data-lib-rows-table]')) old.removeAttribute('data-lib-rows-table');
-     table.setAttribute('data-lib-rows-table', '');
+     // Held on window, not marked in the DOM (portal#2516, from the #2515 blind delta): a mark that has to be
+     // cleared before the next lookup can go stale and make a later read take the wrong table; every call
+     // overwrites this reference, so there is nothing to clear and nothing to leave behind.
+     window.__libOwnerTable = table;
      return { ids: visible.map(c => c.id) };
     }, ids);
     // The free-text cells keep `overflow-wrap:anywhere`, judged on the computed style of the element that holds
@@ -1229,7 +1217,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
         }
         return texts === 0 ? 'no text' : null;
        };
-       const table = document.querySelector('[data-lib-rows-table]');
+       const table = window.__libOwnerTable;
        const out = [];
        for (const id of ids) {
         const index = cols.indexOf(id);
@@ -1262,15 +1250,16 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
      else {
       const split = await page.evaluate(({ ids, NARROW, cols }) => {
        const t = window.__fixtureTables.find(x => ids.every(id => x.getAllLeafColumns().some(c => c.id === id)));
-       const table = document.querySelector('[data-lib-rows-table]');
+       const table = window.__libOwnerTable;
+       // Each cell with its row index and column id: the td itself is not a stable key, a re-render may replace it.
        const datedCells = id => {
         const index = cols.indexOf(id);
-        return index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map(row => row.cells[index]).filter(td => td && td.colSpan === 1 && /\d/.test(td.textContent));
+        return index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map((row, r) => ({ key: `${r}:${id}`, td: row.cells[index] })).filter(({ td }) => td && td.colSpan === 1 && /\d/.test(td.textContent));
        };
        // Lines of text inside a cell: the distinct line tops of its characters. The cell's own height cannot say
        // (a row is as tall as its tallest cell), so the text is measured directly.
        const linesIn = td => {
-        const tops = new Set();
+        const tops = [];
         const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
         const range = document.createRange();
         for (let n; (n = walker.nextNode());) {
@@ -1278,15 +1267,19 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
           if (/\s/.test(n.textContent[i])) continue;
           range.setStart(n, i); range.setEnd(n, i + 1);
           const rect = range.getClientRects()[0];
-          if (rect) tops.add(Math.round(rect.top / 2));
+          if (rect) tops.push(rect.top);
          }
         }
-        return tops.size;
+        // Lines are clusters of tops: a new line starts where the top jumps by more than a few pixels, so
+        // sub-pixel differences between glyphs of one line cannot add a line (portal#2516; the old
+        // round(top / 2) bucketing could split one line across two buckets).
+        tops.sort((a, b) => a - b);
+        return tops.reduce((n, top, i) => (i === 0 || top - tops[i - 1] > 4 ? n + 1 : n), 0);
        };
        // Before narrowing, each dated cell's width and line count: the narrowed cell must be narrower AND have
        // WRAPPED onto more lines, because a cell that only shrank proves nothing about whether tokens were split.
        const before = new Map();
-       for (const id of ids) for (const td of datedCells(id)) before.set(td, { width: td.getBoundingClientRect().width, lines: linesIn(td) });
+       for (const id of ids) for (const { key, td } of datedCells(id)) before.set(key, { width: td.getBoundingClientRect().width, lines: linesIn(td) });
        t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, ids.includes(c.id) ? NARROW : (c.columnDef.size ?? 150)])));
        // Split detector: two characters of ONE whitespace-delimited token on different lines.
        const splitsIn = root => {
@@ -1312,12 +1305,15 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
         for (const id of ids) {
          const cells = datedCells(id);
          if (!cells.length) { result.missing.push(id); continue; }
-         for (const td of cells) {
-          const r = td.getBoundingClientRect(), was = before.get(td);
+         for (const { key, td } of cells) {
+          const r = td.getBoundingClientRect(), was = before.get(key);
           if (!was) { result.wide.push(`${id}: a cell appeared after narrowing`); continue; }
           if (!(r.width < was.width - 10)) result.wide.push(`${id}: ${Math.round(r.width)}px, was ${Math.round(was.width)}px`);
           const lines = linesIn(td);
-          if (!(lines > was.lines)) result.wide.push(`${id}: did not wrap, ${lines} lines, was ${was.lines}`);
+          // (d) A date of one token has nothing to wrap, so "must wrap onto more lines" cannot hold for it; the
+          // narrowing and the split check above still apply (portal#2516).
+          const tokens = td.textContent.trim().split(/\s+/).length;
+          if (tokens > 1 && !(lines > was.lines)) result.wide.push(`${id}: did not wrap, ${lines} lines, was ${was.lines}`);
           for (const x of splitsIn(td)) result.broken.push(`${id}: ${x}`);
          }
         }
@@ -1338,13 +1334,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
       if (split.broken.length) failures.push(`${leg}: a date token splits mid-digit at ${NARROW}px ${JSON.stringify(split.broken.slice(0, 4))}`);
      }
     }
-    await unmountFixture(page);
-    assertPatched();
-    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
-   } catch (e) {
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-').replaceAll(':', '-')}.png`, fullPage: true }).catch(() => {});
-    throw e;
-   } finally { await page.close(); }
+   } });
   }
  }
 

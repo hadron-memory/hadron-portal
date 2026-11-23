@@ -112,6 +112,10 @@ describe('batteryFor', () => {
   it('routes an Orgs kind to the apps battery alone', () => {
     expect(batteryFor('orgs-mine')).toEqual({ component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: ['orgs-mine'], lib: [] });
   });
+  // portal#2516: the lib battery's own route, asserted like the Orgs one (it was the one kind with no direct pin).
+  it('routes lib-rows to the lib battery alone', () => {
+    expect(batteryFor('lib-rows')).toEqual({ component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: ['lib-rows'] });
+  });
   it('rejects a kind outside the accepted set', () => {
     expect(() => batteryFor('edge-removals')).toThrow('batteryFor: unknown kind "edge-removals"');
   });

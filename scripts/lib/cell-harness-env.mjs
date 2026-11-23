@@ -34,21 +34,23 @@ const COMPONENT_BATTERY_KINDS = ['alarms', 'runs', 'config'];
 // conditionals. It lives here now, pinned by a table test. The Apps kinds
 // (main's #2488 slice) are a page-mount battery of their own: they run the
 // escape-probe oracle, not the six-kind pages battery's geometry walker.
+// portal#2516: one empty result per call, so a new battery is one key here and one override below, not a
+// new literal on every arm. A function, not a constant: each call hands out fresh arrays a caller may mutate.
+const noBatteries = () => ({ component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [] });
 export function batteryFor(cellKind) {
   if (cellKind === null) {
-    // Copies, not the module constants (blind review #2507, fold): the per-kind
-    // arms below build fresh literals, and a caller mutating the null result's
+    // Copies, not the module constants (blind review #2507, fold): a caller mutating the null result's
     // arrays must not corrupt the constants every later call reads.
-    return { component: [...COMPONENT_BATTERY_KINDS], findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], partyLabel: ['party-label'], pages: [...PAGE_KINDS], apps: [...APPS_KINDS, ...ORGS_KINDS], lib: [...LIB_KINDS] };
+    return { ...noBatteries(), component: [...COMPONENT_BATTERY_KINDS], findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], partyLabel: ['party-label'], pages: [...PAGE_KINDS], apps: [...APPS_KINDS, ...ORGS_KINDS], lib: [...LIB_KINDS] };
   }
-  if (cellKind === 'findings') return { component: [], findings: ['findings'], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [] };
-  if (cellKind === 'wake') return { component: [], findings: [], wake: ['wake'], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [] };
-  if (cellKind === 'agent-tasks') return { component: [], findings: [], wake: [], agentTasks: ['agent-tasks'], partyLabel: [], pages: [], apps: [], lib: [] };
-  if (cellKind === 'party-label') return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: ['party-label'], pages: [], apps: [], lib: [] };
-  if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [cellKind], apps: [], lib: [] };
-  if (APPS_KINDS.includes(cellKind) || ORGS_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [cellKind], lib: [] };
-  if (LIB_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [cellKind] };
-  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [] };
+  if (cellKind === 'findings') return { ...noBatteries(), findings: ['findings'] };
+  if (cellKind === 'wake') return { ...noBatteries(), wake: ['wake'] };
+  if (cellKind === 'agent-tasks') return { ...noBatteries(), agentTasks: ['agent-tasks'] };
+  if (cellKind === 'party-label') return { ...noBatteries(), partyLabel: ['party-label'] };
+  if (PAGE_KINDS.includes(cellKind)) return { ...noBatteries(), pages: [cellKind] };
+  if (APPS_KINDS.includes(cellKind) || ORGS_KINDS.includes(cellKind)) return { ...noBatteries(), apps: [cellKind] };
+  if (LIB_KINDS.includes(cellKind)) return { ...noBatteries(), lib: [cellKind] };
+  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { ...noBatteries(), component: [cellKind] };
   throw new Error(`batteryFor: unknown kind ${JSON.stringify(cellKind)} — parseHarnessEnv validates the accepted set first`);
 }
 // portal#2506 (delta review): the party-label battery's 120px-column probe runs
