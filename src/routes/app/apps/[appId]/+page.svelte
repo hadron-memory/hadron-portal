@@ -68,15 +68,25 @@
     // from a control that turns inert, so a keyboard or screen-reader user who
     // chose a chat in the selector would land on the page body. Put focus back on
     // the selector once the switch ends, but only when they did not move it
-    // themselves meanwhile (focus on the body or nowhere).
+    // themselves. "Focus is on the body now" cannot say that: Kit blurs to the body
+    // after every navigation, so a reader who tabbed to another control mid-switch
+    // looks the same. A focusin on anything but the selector during the switch is
+    // the record that they moved it.
     const selectorHadFocus = document.activeElement?.id === 'app-chat-select';
+    let readerMovedFocus = false;
+    const noteFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && el.id !== 'app-chat-select' && el !== document.body) readerMovedFocus = true;
+    };
+    document.addEventListener('focusin', noteFocus);
     chatSwitchBusy = true;
     chatSwitchFailed = false;
     try { await goto(next, { noScroll: true }); }
     catch { chatSwitchFailed = true; }
     finally {
       chatSwitchBusy = false;
-      if (selectorHadFocus) {
+      document.removeEventListener('focusin', noteFocus);
+      if (selectorHadFocus && !readerMovedFocus) {
         await tick();
         const active = document.activeElement;
         if (!active || active === document.body) document.getElementById('app-chat-select')?.focus({ preventScroll: true });

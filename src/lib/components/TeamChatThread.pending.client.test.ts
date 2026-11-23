@@ -69,6 +69,9 @@ describe('TeamChatThread — a post that never settles (#1407)', () => {
     // The region was mounted, empty, before the note arrived, so it is announced.
     expect(region(target).getAttribute('role')).toBe('status');
     expect(note?.textContent).toMatch(/may still be sent/);
+    // AA: amber-700 measured 3.97:1 on white for 12px text; amber-800 is what the portal's other amber notes use.
+    expect(note?.className).toContain('text-amber-800');
+    expect(note?.className).not.toContain('text-amber-700');
     // The draft is still there, and the request is still open, so Post stays
     // disabled: waiting cannot double-send.
     expect(composer.value).toBe('hello team');

@@ -82,4 +82,22 @@ describe('chat selector focus across a switch (#1407)', () => {
     expect(document.activeElement).toBe(outside);
     outside.remove();
   });
+
+  it('does not steal focus from a reader who tabbed away, even after Kit blurs to the body', async () => {
+    const { select } = await chatsPage();
+    select.focus();
+    const hold: { release?: () => void } = {};
+    await choose(select, hold);
+    select.blur();
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    // Kit's own post-navigation reset: focus goes to the body whatever it was on.
+    outside.blur();
+    hold.release!();
+    await tick(6);
+    // Kills: deciding on "active is the body" alone.
+    expect(document.activeElement).not.toBe(select);
+    outside.remove();
+  });
 });
