@@ -29,7 +29,18 @@ export async function secretWrite<D>(
     if (staged?.kind === 'staged') return staged;
     if (staged?.kind === 'staged-unlinked') return { kind: 'refused', message: STAGED_UNLINKED_TEXT() };
     if (staged) return { kind: 'plain-protected' };
-    if (extractGqlErrorCode(e) === 'SECRET_KEY_UNAVAILABLE') {
+    // Mapped on the code, never a number: the caps are an engineering bound, not ruled
+    // (hrn:node:hadronmemory.com:specs:cor:sec:070:02). For these two codes the server's wording is
+    // not shown; every other code goes through extractGqlError, which already withholds free text
+    // for any code outside the framework/access set.
+    const code = extractGqlErrorCode(e);
+    if (code === 'SECRET_CHANGE_REQUESTER_LIMIT') {
+      return { kind: 'refused', message: t('secrets.write.requester-limit', 'You have too many open changes for this secret. Withdraw one of your open requests, or wait for one to expire, then try again.') };
+    }
+    if (code === 'SECRET_CHANGE_REQUEST_LIMIT') {
+      return { kind: 'refused', message: t('secrets.write.request-limit', 'This secret has too many open change requests. Wait for one to be signed or withdrawn, or to expire, then try again.') };
+    }
+    if (code === 'SECRET_KEY_UNAVAILABLE') {
       return { kind: 'refused', message: t('secrets.write.no-key', 'This deployment cannot store secrets yet: its secret key is not set up. Nothing was changed.') };
     }
     return { kind: 'refused', message: extractGqlError(e, t('secrets.write.failed', "That didn't go through. Try again.")) };
