@@ -113,6 +113,15 @@ describe('openUrnCandidates — v2-only types (#815)', () => {
     expect(openUrnCandidates('hrn:worker:acme.com::team::x')).toEqual([]); // v1 separators
   });
 
+  // #1914 (portal#2150 F2): `open hrn:agenttask:…` said "Not a valid URN." while
+  // `/app/u/<the same URN>` resolves it since hadron-server#3878.
+  it('qualifies a served task URN (#1914)', () => {
+    const TASK = 'hrn:agenttask:hadronmemory.com:hadron-dev-team:at3.405';
+    expect(openUrnCandidates(TASK)).toEqual([TASK]);
+    expect(openUrnCandidates('hrn:agenttask:hadronmemory.com:hadron-dev-team')).toEqual([]); // no handle
+    expect(openUrnCandidates('hrn:agenttask:hadronmemory.com::hadron-dev-team::at3.405')).toEqual([]); // v1 separators
+  });
+
   it('refuses a v2-only type with no portal page', () => {
     // Qualifying to a kind `/app/u/[urn]` cannot redirect would trade one dead
     // end for another — the rule this module already applied to v1 types.
