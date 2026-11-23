@@ -88,7 +88,8 @@ const expandedClasses = (cls: string) => hasToken(cls, 'whitespace-normal') && h
  *  where a wrapped second line shows (a clamp clips at its padding box), and the
  *  wrapper must say it is a block rather than lean on flex blockification. */
 describe('Urn: the compact chip box and clip stay two elements (portal#2538 QA F1)', () => {
-  const PAD_Y = /^(p|py|pt|pb)-/;
+  // A variant prefix does not hide it: `dark:py-1` and `sm:pt-2` still pad the clamp.
+  const PAD_Y = /^(?:[^:\s]+:)*-?(?:p|py|pt|pb)-/;
   it('the clamping span carries no vertical padding; its wrapper carries the chip box', () => {
     stubPointer(false);
     const m = mountUrn({ value: URN, compact: true });
@@ -96,6 +97,7 @@ describe('Urn: the compact chip box and clip stay two elements (portal#2538 QA F
     const wrapper = span.parentElement!;
     const spanTokens = span.className.split(/\s+/);
     expect(spanTokens.filter(t => PAD_Y.test(t)), span.className).toEqual([]);
+    expect(['dark:py-1', 'sm:pt-2', 'py-0.5', 'pb-1'].every(t => PAD_Y.test(t)) && !['px-1.5', 'min-w-0'].some(t => PAD_Y.test(t))).toBe(true);
     const wrapperTokens = wrapper.className.split(/\s+/);
     expect(wrapperTokens, wrapper.className).toContain('py-0.5');
     expect(wrapperTokens, wrapper.className).toContain('block');
