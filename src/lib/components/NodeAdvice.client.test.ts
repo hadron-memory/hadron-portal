@@ -84,7 +84,7 @@ describe('NodeAdvice proximity (#1371, Uma P3-2)', () => {
 describe('NodeAdvice re-delivery (#1447, Uma/Greta from #1441)', () => {
   it('scrolls again for a second advice-bearing save, once per delivery', () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
-    const { set } = mountAdvice([]);
+    const { m, set } = mountAdvice([]);
 
     set([INCLUDE_PIN_UNKEPT_TEXT]);
     expect(scroll).toHaveBeenCalledTimes(1);
@@ -95,5 +95,66 @@ describe('NodeAdvice re-delivery (#1447, Uma/Greta from #1441)', () => {
     set([INCLUDE_PIN_UNKEPT_TEXT]);
     expect(scroll).toHaveBeenCalledTimes(1);
     expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
+    // #2453: the re-delivery scrolls the advice box itself, not anything else.
+    expect(scroll.mock.contexts[0]).toBe(m.target.querySelector('[data-testid="node-save-advice"]'));
+  });
+
+  it('does not scroll when the very same array is set again (#2453)', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { set } = mountAdvice([]);
+    const delivered = [INCLUDE_PIN_UNKEPT_TEXT];
+
+    set(delivered);
+    expect(scroll).toHaveBeenCalledTimes(1);
+
+    scroll.mockClear();
+    // Same reference, same content: nothing was delivered, so nothing scrolls.
+    set(delivered);
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it('scrolls again for advice delivered after it was cleared, to the new box (#2453)', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { m, set } = mountAdvice([]);
+    const box = () => m.target.querySelector('[data-testid="node-save-advice"]');
+
+    set([INCLUDE_PIN_UNKEPT_TEXT]);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    set([]);
+    expect(box()).toBeNull();
+    expect(scroll).toHaveBeenCalledTimes(1);
+
+    // Distinct from a first load: the original empty array is still the first-load value here.
+    set(['another advice line']);
+    expect(scroll).toHaveBeenCalledTimes(2);
+    expect(scroll.mock.contexts[1]).toBe(box());
+    expect(box()).not.toBeNull();
+  });
+
+  it('scrolls for advice delivered after a first-load advice was cleared (#2453)', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { m, set } = mountAdvice([INCLUDE_PIN_UNKEPT_TEXT]);
+    expect(scroll).not.toHaveBeenCalled();
+
+    set([]);
+    expect(scroll).not.toHaveBeenCalled();
+
+    set(['later advice line']);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(m.target.querySelector('[data-testid="node-save-advice"]'));
+  });
+
+  it('an empty delivery never scrolls, whether advice was showing or not (#2453)', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { set } = mountAdvice([]);
+
+    set([]);
+    expect(scroll).not.toHaveBeenCalled();
+
+    set([INCLUDE_PIN_UNKEPT_TEXT]);
+    scroll.mockClear();
+    set([]);
+    set([]);
+    expect(scroll).not.toHaveBeenCalled();
   });
 });
