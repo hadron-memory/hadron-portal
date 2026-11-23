@@ -15,6 +15,12 @@ export const NEEDS_PASSKEY = 'SECRET_PROTECTED_NEEDS_PASSKEY';
 
 export type StagedRefusal =
   | { kind: 'staged'; requestId: string; ceremonyUrl: string }
+  /**
+   * portal#2470: a request IS open (the server gave its id) but the portal cannot offer its
+   * signing page: the link failed the origin pin, or never came. Carries neither the id nor the
+   * link, so nothing downstream can render or log the bad one.
+   */
+  | { kind: 'staged-unlinked' }
   | { kind: 'plain-protected' };
 
 /**
@@ -30,8 +36,9 @@ export function readStagedChange(e: unknown, origin: string | null): StagedRefus
   const ext = extractGqlErrorExtensions(e);
   const id = ext?.requestId;
   const url = safeCeremonyUrl(ext?.ceremonyUrl, origin);
-  if (typeof id === 'string' && id.length > 0 && id.length <= 128 && url) {
-    return { kind: 'staged', requestId: id, ceremonyUrl: url };
+  // The request id is what says a request is open, never the code and never the link (hrn:node:hadronmemory.com:specs:cor:sec:070:02).
+  if (typeof id === 'string' && id.length > 0 && id.length <= 128) {
+    return url ? { kind: 'staged', requestId: id, ceremonyUrl: url } : { kind: 'staged-unlinked' };
   }
   return { kind: 'plain-protected' };
 }

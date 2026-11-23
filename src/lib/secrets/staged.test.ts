@@ -21,9 +21,22 @@ describe('readStagedChange (portal#2380)', () => {
     expect(readStagedChange(wire({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY' }), ORIGIN)).toEqual({ kind: 'plain-protected' });
   });
 
-  it('a link that is not an http(s) URL under /secret-changes/ is never rendered as a link', () => {
+  it('a link that is not an http(s) URL under /secret-changes/ is never rendered as a link, and the request is still open (portal#2470)', () => {
     for (const ceremonyUrl of ['javascript:alert(1)', 'javascript:/secret-changes/x', 'https://h.example/elsewhere/x', '/secret-changes/x', 'not a url']) {
-      expect(readStagedChange(wire({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl }), ORIGIN)).toEqual({ kind: 'plain-protected' });
+      const r = readStagedChange(wire({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl }), ORIGIN);
+      expect(r).toEqual({ kind: 'staged-unlinked' });
+      expect(JSON.stringify(r)).not.toContain(ceremonyUrl);
+    }
+  });
+
+  it('a request id with no link at all is still an open request the portal cannot link (portal#2470)', () => {
+    expect(readStagedChange(wire({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1' }), ORIGIN)).toEqual({ kind: 'staged-unlinked' });
+  });
+
+  it('a link without a usable request id is a plain refusal: the id, not the code or the link, says a request is open (portal#2470)', () => {
+    const ceremonyUrl = 'https://hadron.example/secret-changes/r1';
+    for (const requestId of [undefined, '', 'x'.repeat(129), 7]) {
+      expect(readStagedChange(wire({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId, ceremonyUrl }), ORIGIN)).toEqual({ kind: 'plain-protected' });
     }
   });
 
@@ -45,10 +58,10 @@ describe('the link is pinned to the server public origin (portal#2417)', () => {
       'https://user:pw@hadron.example/secret-changes/r1',
       'http://hadron.example/secret-changes/r1',
       'https://hadron.example:8443/secret-changes/r1',
-    ]) expect(staged(u, ORIGIN)).toEqual({ kind: 'plain-protected' });
+    ]) expect(staged(u, ORIGIN)).toEqual({ kind: 'staged-unlinked' });
   });
   it('an unset or unusable origin means no link at all, never a guess', () => {
-    expect(staged('https://hadron.example/secret-changes/r1', null)).toEqual({ kind: 'plain-protected' });
+    expect(staged('https://hadron.example/secret-changes/r1', null)).toEqual({ kind: 'staged-unlinked' });
     expect(safeCeremonyUrl('http://localhost:4000/secret-changes/r1', null)).toBeNull();
   });
   it('the exact origin still passes, and a port is part of the origin', () => {
