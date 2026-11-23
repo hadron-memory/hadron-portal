@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 // @ts-expect-error plain .mjs helper shared with the layout script
-import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, APPS_KINDS, ORGS_KINDS, batteryFor } from './cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, APPS_KINDS, ORGS_KINDS, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH, PARTY_NARROW_CLAIM } from './cell-harness-env.mjs';
 
 // The accepted set, spelled out here on purpose — see the accept test below.
 // The ten apps kinds join from main's portal#2488 slice and wake from main's
@@ -113,5 +114,31 @@ describe('batteryFor', () => {
   });
   it('rejects a kind outside the accepted set', () => {
     expect(() => batteryFor('edge-removals')).toThrow('batteryFor: unknown kind "edge-removals"');
+  });
+});
+
+// portal#2506 (delta review): the party-label battery's success line printed its
+// 120px-column claim on EVERY leg, including the ones whose width never runs that
+// probe — the 390 legs at the default widths, and every leg under a CELL_WIDTH
+// override. A line that asserts what no leg measured is how a regression ships
+// green behind a log saying the opposite, so the gate and the wording share one table.
+describe('partyNarrowProbeNote', () => {
+  it('claims the 120px column only at the width whose legs run the probe', () => {
+    expect(partyNarrowProbeNote(PARTY_NARROW_PROBE_WIDTH)).toBe(PARTY_NARROW_CLAIM);
+  });
+  it.each([390, 1024, 1281, 3900])('at %spx the probe does not run, and the line says so instead of claiming it', width => {
+    const note = partyNarrowProbeNote(width);
+    expect(note).not.toContain('contained in the 120px');
+    expect(note).toContain('NOT probed');
+    expect(note).toContain(`${width}px`);
+  });
+  // Source-text tripwire, like the one in cell-harness-messages.test.ts: the claim
+  // lives here only. A reformat of the two pinned call shapes trips it on purpose;
+  // update the expectation with the reformat, never delete the guard.
+  it('the layout script gates the probe and words the line from this table, and holds no inline copy of the claim', () => {
+    const script = readFileSync(new URL('../test-table-cell-overflow-layout.mjs', import.meta.url), 'utf8');
+    expect(script).toContain('width === PARTY_NARROW_PROBE_WIDTH)');
+    expect(script).toContain('${partyNarrowProbeNote(width)}');
+    expect(script).not.toContain('contained in the 120px');
   });
 });

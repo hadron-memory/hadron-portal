@@ -12,7 +12,7 @@
 export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants'];
 // Not exported (blind review #2507, fold): nothing imports it — the tests build
 // ALL_KINDS literally and import KINDS/PAGE_KINDS/APPS_KINDS, the script imports
-// only parseHarnessEnv/injectionEcho/batteryFor. KINDS derives from it below.
+// only the env knobs, batteryFor and the party-label probe table. KINDS derives from it below.
 const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label'];
 // portal#2491: the six Orgs route tables (#1962 slice 5) and three more, one kind per table. They are mounted real
 // route pages probed by the same escape-probe oracle as the Apps kinds, so they ride the apps battery.
@@ -50,6 +50,20 @@ export function batteryFor(cellKind) {
   if (LIB_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [cellKind] };
   if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [] };
   throw new Error(`batteryFor: unknown kind ${JSON.stringify(cellKind)} — parseHarnessEnv validates the accepted set first`);
+}
+// portal#2506 (delta review): the party-label battery's 120px-column probe runs
+// at ONE viewport width — 1280. Its success line used to print the claim on
+// every leg, including the ones whose width never runs the probe: the 390 legs
+// at the default widths, and every leg under a CELL_WIDTH override. A line that
+// asserts what no leg measured lets a regression ship green behind a log saying
+// the opposite, so the gate and the wording come from this one table and the
+// script holds no inline copy of the claim (pinned in the test).
+export const PARTY_NARROW_PROBE_WIDTH = 1280;
+export const PARTY_NARROW_CLAIM = 'contained in the 120px column';
+export function partyNarrowProbeNote(width) {
+  return width === PARTY_NARROW_PROBE_WIDTH
+    ? PARTY_NARROW_CLAIM
+    : `the 120px column was NOT probed (the probe runs at ${PARTY_NARROW_PROBE_WIDTH}px only, this leg is ${width}px)`;
 }
 const flag = (env, name) => {
   if (!(name in env) || env[name] === undefined) return false;

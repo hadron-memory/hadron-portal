@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-import { parseHarnessEnv, injectionEcho, batteryFor } from './lib/cell-harness-env.mjs';
+import { parseHarnessEnv, injectionEcho, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
 import { probeCellEscapes, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
@@ -1457,8 +1457,10 @@ const readNameRow = link => {
    // no sub-115px party cell can contain a chip row regardless of this fix. The
    // regime where the whole badge CANNOT fit (28px text zoom in a 120px column)
    // and the badge must wrap instead of painting out is pinned by the alarms
-   // battery's text-zoom legs.
-   if (width === 1280) {
+   // battery's text-zoom legs. The success line says whether THIS leg ran the
+   // probe — the gate and the wording share one table, so a leg that skipped it
+   // never reports the claim (the #2506 delta review).
+   if (width === PARTY_NARROW_PROBE_WIDTH) {
     await page.evaluate(() => { window.__fixtureTables.at(-1).setColumnSizing({ party: 120 }); });
     await settlePage(page);
     const narrowEscapes = await cellEscapes(page, '');
@@ -1469,7 +1471,7 @@ const readNameRow = link => {
     const noChipNarrow = await linkOf('w-nochip').evaluate(readNameRow);
     if (!noChipNarrow.truncated || noChipNarrow.badgeLines !== 1) failures.push(`${leg}/party-120px: the no-chip row's name does not give way before the badge (truncated ${noChipNarrow.truncated}, badge on ${noChipNarrow.badgeLines} lines)`);
    }
-   console.log(escapes.length ? `${leg}: FAILED` : `${leg}: the defeating wrapper contains name and chip, titles carry the full values; the name gives way before the badge (${Math.round(longRow.linkWidth)}px link, badge on ${longRow.badgeLines} line); contained in the 120px column; the oracle sees a clamp; control detected`, escapes);
+   console.log(escapes.length ? `${leg}: FAILED` : `${leg}: the defeating wrapper contains name and chip, titles carry the full values; the name gives way before the badge (${Math.round(longRow.linkWidth)}px link, badge on ${longRow.badgeLines} line); ${partyNarrowProbeNote(width)}; the oracle sees a clamp; control detected`, escapes);
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
    await unmountFixture(page);
    assertPatched();
