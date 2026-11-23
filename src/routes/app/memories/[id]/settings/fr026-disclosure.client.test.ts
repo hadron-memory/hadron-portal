@@ -2,8 +2,8 @@
  * #2533: the FR-026 disclosure the portal shows before an encrypted memory's
  * vector index is enabled must carry the server's current four points
  * (hadron-server src/lib/entityRef/errors.ts, FR_026_DISCLOSURE), including
- * that the verbatim passage text is stored unencrypted. cor:rag:010:01 binds
- * the wording; cor:sec:040:05 names the vector-indexing row.
+ * that the verbatim passage text is stored unencrypted. hrn:node:hadronmemory.com:specs:cor:rag:010:01 binds
+ * the wording; hrn:node:hadronmemory.com:specs:cor:sec:040:05 names the vector-indexing row.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';

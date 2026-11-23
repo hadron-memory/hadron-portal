@@ -381,7 +381,7 @@
   // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
   // The FR-026 disclosure text MUST match the server's FR_026_DISCLOSURE
   // constant verbatim (src/lib/entityRef/errors.ts in hadron-server, the
-  // source of the wording per cor:rag:010:01 and cor:sec:040:05). It is a
+  // source of the wording per hrn:node:hadronmemory.com:specs:cor:rag:010:01 and hrn:node:hadronmemory.com:specs:cor:sec:040:05). It is a
   // deliberate copy; update it from the server constant, never by hand-edit.
   const FR_026_DISCLOSURE = [
     '(a) Stored vectors are plaintext — they are NOT encrypted at rest the way the content column is.',
