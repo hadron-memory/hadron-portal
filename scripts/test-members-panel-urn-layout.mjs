@@ -54,6 +54,8 @@ function measure(variant) {
   // renders one such line; `empty` renders two (the roles line, then the empty-roles warning).
   const lines = [...host.querySelectorAll('a[href="/app/agents/ag1"]')].map((a) => a.closest('p'));
   if (lines.some((l) => !l)) throw new Error(`an Agent link in the ${variant} variant is not inside a paragraph`);
+  // One line per link: two links in one paragraph would count twice and measure the same chip twice.
+  if (new Set(lines).size !== lines.length) throw new Error(`the ${variant} variant has two Agent links in one paragraph`);
   const chips = lines.map((l) => l.querySelector('span[title]'));
   const copies = lines.flatMap((l, i) => ['Copy URN', 'Copy URL'].map((name) => ({ line: i + 1, el: l.querySelector(`button[aria-label="${name}"]`) })));
   const clips = (el) => {
@@ -84,17 +86,19 @@ function measure(variant) {
   };
 }
 
-const ring = (page, name) => page.evaluate((label) => {
+const ring = (page, name, line) => page.evaluate(({ label, line }) => {
   const el = document.activeElement;
   const cs = getComputedStyle(el);
   const b = el.getBoundingClientRect();
   return {
     label: el.getAttribute('aria-label'), wanted: label,
+    // The focused button must sit in the paragraph of the Agent link the Tab started from.
+    inLine: el.closest('p') === document.querySelectorAll('a[href="/app/agents/ag1"]')[line]?.closest('p'),
     focusVisible: el.matches(':focus-visible'),
     style: cs.outlineStyle, width: parseFloat(cs.outlineWidth), offset: parseFloat(cs.outlineOffset), color: cs.outlineColor,
     left: b.left, right: b.right, top: b.top, bottom: b.bottom, viewport: innerWidth,
   };
-}, name);
+}, { label: name, line });
 
 if (process.env.MEMBERS_URN_SHOTS) mkdirSync(process.env.MEMBERS_URN_SHOTS, { recursive: true });
 let browser;
@@ -112,14 +116,14 @@ try {
     for (const variant of VARIANTS) {
       const label = `${WIDTH}px ${scheme} ${variant}`;
       const page = await browser.newPage({ viewport: { width: WIDTH, height: 900 } });
+      // Collected, not thrown: a throw inside an emitter callback is an uncaught exception that kills the
+      // process with a stack that says nothing about which leg failed. The list is asserted below.
+      const pageErrors = [];
       // Closed on a failure too: the browser close below would reap it, but a failing leg should not
       // leave its page open while the error unwinds.
       try {
         let navigations = 0;
         page.on('framenavigated', (f) => { if (f === page.mainFrame()) navigations += 1; });
-        // Collected, not thrown: a throw inside an emitter callback is an uncaught exception that kills the
-        // process with a stack that says nothing about which leg failed. The list is asserted below.
-        const pageErrors = [];
         page.on('pageerror', (e) => { pageErrors.push(String(e)); });
         await page.route('**/__members_fixture', (r) => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Members panel fixture</title>' }));
         await page.goto(new URL('/__members_fixture', origin).href);
@@ -153,20 +157,20 @@ try {
           assert.deepEqual(copy.clippingAncestors, [], `${at} sits under an ancestor that clips its focus ring`);
         }
 
-        // Keyboard focus on each copy button: the ring paints, in the brand colour, and its
+        // Keyboard focus on each copy button: the ring paints (its colour is not asserted, see below), and its
         // whole extent (outline width plus offset) lies inside the viewport.
         for (let line = 0; line < got.lines; line++) {
           for (const name of ['Copy URN', 'Copy URL']) {
             await page.locator('#host a[href="/app/agents/ag1"]').nth(line).focus();
             let r;
-            // Assumes the chip's order after the Agent link: Copy URN, then Copy URL, with at most four
-            // other tab stops between the link and the button. A reordered chip fails here, loudly.
+            // Assumes each button is reached within six Tab presses of its line's Agent link, in the
+            // chip's order (Copy URN, then Copy URL). A reordered chip or a longer path fails here, loudly.
             for (let i = 0; i < 6; i++) {
               await page.keyboard.press('Tab');
-              r = await ring(page, name);
-              if (r.label === name) break;
+              r = await ring(page, name, line);
+              if (r.label === name && r.inLine) break;
             }
-            assert.equal(r.label, name, `${label}: Tab never reached ${name} on line ${line + 1}`);
+            assert.ok(r.label === name && r.inLine, `${label}: Tab never reached ${name} on line ${line + 1} (${JSON.stringify(r)})`);
             assert.ok(r.focusVisible, `${label}: ${name} does not match :focus-visible after Tab`);
             assert.notEqual(r.style, 'none', `${label}: ${name} paints no ring (${JSON.stringify(r)})`);
             // The copy buttons carry no focus-visible styling of their own, so Chromium's default
@@ -180,11 +184,17 @@ try {
           }
         }
         // Tearing the panel down must not throw either: an effect that fails on unmount lands in pageerror.
-        await page.evaluate(() => window.unmountPanel());
+        await page.evaluate(async () => { window.unmountPanel(); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); });
         assert.deepEqual(pageErrors, [], `${label}: the page raised uncaught errors`);
         console.log(`ok ${label}: ${got.lines} Agent line(s): chip truncated, both copy buttons 8x8 inside the panel, no clipping ancestor, rings whole, no page errors`);
+      } catch (e) {
+        // A failure before the final assertion (a timeout, a missing selector) is often caused by a page
+        // error; print what was collected so the real cause is not hidden behind the symptom.
+        if (pageErrors.length) console.error(`${label}: page errors before the failure:\n${pageErrors.join('\n')}`);
+        throw e;
       } finally {
-        await page.close();
+        // Must not mask the error above if the page is already gone.
+        await page.close().catch(() => {});
       }
     }
   }

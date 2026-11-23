@@ -105,9 +105,9 @@ const ringBox = (page, elementId) => page.evaluate((id) => {
  *   Omitted, the probe starts Vite exactly as before. A `server` key is merged over the probe's
  *   `{ host: '127.0.0.1', port: 0 }`, never replacing it, so the probe stays on loopback.
  */
-export async function runFocusRingProbe({ name, elementId, fixtureModule, fixtureCall, expectedColor, keyboard, pointer, serverConfig = {} }) {
+export async function runFocusRingProbe({ name, elementId, fixtureModule, fixtureCall, expectedColor, keyboard, pointer, serverConfig }) {
   assert.ok(expectedColor, `${name}: an expected ring colour is required — the brand remap is part of the pin`);
-  const { server: serverOptions, ...viteConfig } = serverConfig;
+  const { server: serverOptions, ...viteConfig } = serverConfig ?? {};
   const server = await createServer({ ...viteConfig, server: { ...serverOptions, host: '127.0.0.1', port: 0 } });
   let browser;
   try {
