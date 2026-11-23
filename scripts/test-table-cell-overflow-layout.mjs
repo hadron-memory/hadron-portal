@@ -1463,10 +1463,20 @@ const readNameRow = link => {
     // the available width collapses is not guessable from a line count.
     const chain = [];
     for (let el = value; el && el !== link.closest('td'); el = el.parentElement) chain.push(`${el.tagName.toLowerCase()}.${(el.getAttribute('class') ?? '').split(' ')[0]}:${Math.round(el.getBoundingClientRect().width)}`);
-    return { found: true, firstLineW: rects[0]?.width ?? 0, spanW: value.getBoundingClientRect().width, chain };
+    // One glyph of the value's own font: a break-anywhere line can leave less
+    // than one glyph unfilled and still be full, so that is the tolerance (it
+    // replaces a bare 8px). Padding on the clamping span is the QA F1 band:
+    // a clamped element clips at its PADDING box, so any vertical padding here
+    // re-opens it; the box and its padding live on the parent wrapper.
+    const one = document.createRange(); one.setStart(value.firstChild, 0); one.setEnd(value.firstChild, 1);
+    const cs = getComputedStyle(value);
+    return { found: true, firstLineW: rects[0]?.width ?? 0, spanW: value.getBoundingClientRect().width, glyphW: one.getBoundingClientRect().width, padY: parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom), wrapperPadY: parseFloat(getComputedStyle(value.parentElement).paddingTop), chain };
    });
    if (!chipLines.found) failures.push(`${leg}: the chip value span vanished between the title check and the line check (QA F1 pin)`);
-   else if (chipLines.firstLineW < chipLines.spanW - 8) failures.push(`${leg}: the chip's first line is ${Math.round(chipLines.firstLineW)}px of a ${Math.round(chipLines.spanW)}px span — it breaks early (the "e2e-…" shape, QA F1) instead of ellipsizing at the end; widths down the chain: ${chipLines.chain.join(' > ')}`);
+   else if (!(chipLines.glyphW > 0)) failures.push(`${leg}: the chip value has no measurable glyph, so the line pin cannot say anything (a vacuous pass is a failure)`);
+   else if (chipLines.padY !== 0) failures.push(`${leg}: the clamping span carries ${chipLines.padY}px of vertical padding — a clamp clips at its padding box, so a wrapped second line shows in that band (QA F1); the padding belongs on the wrapper`);
+   else if (!(chipLines.wrapperPadY > 0)) failures.push(`${leg}: the chip's wrapper lost its vertical padding (${chipLines.wrapperPadY}px) — the chip box is gone, not moved`);
+   else if (chipLines.firstLineW < chipLines.spanW - chipLines.glyphW) failures.push(`${leg}: the chip's first line is ${Math.round(chipLines.firstLineW)}px of a ${Math.round(chipLines.spanW)}px span — it breaks early (the "e2e-…" shape, QA F1) instead of ellipsizing at the end; widths down the chain: ${chipLines.chain.join(' > ')}`);
    // …and the name is never wider than its own text: beside a short name the chip is
    // the wide item and the row is as wide as the chip, and the badge still sits the
    // row's gap (6px) to the right of the NAME — not at the far end of the row.

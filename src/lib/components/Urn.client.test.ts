@@ -83,6 +83,25 @@ const collapsedClasses = (cls: string) => hasToken(cls, 'line-clamp-1') && hasTo
 /** The revealed value wraps freely: no clamp of any count, break opportunities everywhere. */
 const expandedClasses = (cls: string) => hasToken(cls, 'whitespace-normal') && hasToken(cls, '[overflow-wrap:anywhere]') && !hasClamp(cls);
 
+/** portal#2538 (local delta P2, blind P2-1): the chip's box and its clip are two
+ *  elements. Vertical padding on the CLAMPING span re-opens the band under line 1
+ *  where a wrapped second line shows (a clamp clips at its padding box), and the
+ *  wrapper must say it is a block rather than lean on flex blockification. */
+describe('Urn: the compact chip box and clip stay two elements (portal#2538 QA F1)', () => {
+  const PAD_Y = /^(p|py|pt|pb)-/;
+  it('the clamping span carries no vertical padding; its wrapper carries the chip box', () => {
+    stubPointer(false);
+    const m = mountUrn({ value: URN, compact: true });
+    const span = valueSpan(m);
+    const wrapper = span.parentElement!;
+    const spanTokens = span.className.split(/\s+/);
+    expect(spanTokens.filter(t => PAD_Y.test(t)), span.className).toEqual([]);
+    const wrapperTokens = wrapper.className.split(/\s+/);
+    expect(wrapperTokens, wrapper.className).toContain('py-0.5');
+    expect(wrapperTokens, wrapper.className).toContain('block');
+  });
+});
+
 describe('Urn: the class matchers are token-exact (portal#2538 blind F12)', () => {
   it('a multi-line clamp is not the collapsed single line', () => {
     expect(collapsedClasses('min-w-0 line-clamp-10 [overflow-wrap:anywhere]')).toBe(false);
