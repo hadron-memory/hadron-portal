@@ -11,6 +11,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { clipsOverflow } from '$lib/test/clipsOverflow';
 import AppMembersPanel from './AppMembersPanel.svelte';
 import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
@@ -94,6 +95,18 @@ describe('App members panel: roles come from App.availableMemberRoles (portal#14
 describe('App members panel: the linked Agent shows its URN (portal#1417)', () => {
   const AGENT_URN = 'hrn:agent:acme.com:one';
   const chips = (scope: Element | null | undefined) => [...(scope?.querySelectorAll(`[title="${AGENT_URN}"]`) ?? [])];
+  // portal#2532: nothing between a copy button and the panel may clip. The Urn truncates itself and
+  // keeps its copy buttons outside any clipping element, so a clipping wrapper cuts the buttons' focus
+  // ring at its edge (portal#2413). The 390px layout is pinned in real Chromium by
+  // scripts/test-members-panel-urn-layout.mjs; this pins the structure in the unit lane.
+  const copyButtons = (scope: Element | null) => [...(scope?.querySelectorAll('button[aria-label="Copy URN"], button[aria-label="Copy URL"]') ?? [])];
+  const clippingAncestors = (button: Element, root: Element) => {
+    const found: string[] = [];
+    for (let el = button.parentElement; el && el !== root.parentElement; el = el.parentElement) {
+      if (clipsOverflow(el.getAttribute('class'))) found.push(`${el.tagName.toLowerCase()}.${el.getAttribute('class')}`);
+    }
+    return found;
+  };
   const paragraphWith = (target: HTMLElement, text: string) => [...target.querySelectorAll('p')].find((p) => p.textContent?.includes(text)) ?? null;
 
   it('the "defined by the linked Agent" line shows the Agent’s URN after its name', async () => {
@@ -101,8 +114,8 @@ describe('App members panel: the linked Agent shows its URN (portal#1417)', () =
     const line = paragraphWith(target, 'Roles below are defined by the linked Agent');
     expect(line).not.toBeNull();
     expect(chips(line)).toHaveLength(1);
-    // A long URN is clipped by its wrapper, not left to push the line past the panel.
-    expect(chips(line)[0].closest('span.block')?.classList.contains('overflow-hidden')).toBe(true);
+    expect(copyButtons(line)).toHaveLength(2);
+    for (const button of copyButtons(line)) expect(clippingAncestors(button, target)).toEqual([]);
     const link = line!.querySelector('a[href="/app/agents/ag1"]')!;
     expect(link.textContent).toBe('One');
     // Below the name: the chip follows the link in document order.
@@ -114,8 +127,8 @@ describe('App members panel: the linked Agent shows its URN (portal#1417)', () =
     const line = paragraphWith(target, 'This App offers no member roles yet.');
     expect(line).not.toBeNull();
     expect(chips(line)).toHaveLength(1);
-    // A long URN is clipped by its wrapper, not left to push the line past the panel.
-    expect(chips(line)[0].closest('span.block')?.classList.contains('overflow-hidden')).toBe(true);
+    expect(copyButtons(line)).toHaveLength(2);
+    for (const button of copyButtons(line)) expect(clippingAncestors(button, target)).toEqual([]);
     const link = line!.querySelector('a[href="/app/agents/ag1"]')!;
     expect(link.textContent).toBe('One');
     expect(link.compareDocumentPosition(chips(line)[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
