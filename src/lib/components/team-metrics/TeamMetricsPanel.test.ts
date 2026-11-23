@@ -113,4 +113,38 @@ describe('TeamMetricsPanel states', () => {
     expect(flow.toLowerCase()).not.toContain('owned');
     expect(flow).toContain('whether or not it names an issue');
   });
+
+  it('on a phone the by-project breakdown folds into the owner cell, and the column is hidden below sm (#2535)', () => {
+    const h = html(ok());
+    expect(h).toContain('metrics-owner-projects-phone');
+    expect(h).toContain('metrics-project-children-phone');
+    // the wide columns carry max-sm:hidden, the folded copies carry sm:hidden
+    expect(h).toMatch(/<th[^>]*max-sm:hidden[^>]*>[\s\S]*?By project/);
+    expect(h).toMatch(/<th[^>]*max-sm:hidden[^>]*>[\s\S]*?Direct tasks by status/);
+  });
+
+  it('the By project column is not sortable: it sorted by a concatenated string (#2535)', () => {
+    const h = html(ok());
+    const th = h.match(/<th[^>]*>(?:(?!<\/th>)[\s\S])*By project/)?.[0] ?? '';
+    expect(th).not.toContain('cursor-pointer');
+  });
+
+  it('a status shows as a word, not the stored STARTED/PENDING key (#2535)', () => {
+    const h = html(ok({ projects: { truncated: false, items: [{ project: base.projects!.items[0]!.project, children: [{ status: 'STARTED', tasks: count(3) }, { status: 'PENDING', tasks: count(1) }] }] } }));
+    expect(h).toContain('>Started<');
+    expect(h).toContain('>Pending<');
+    expect(h).not.toContain('>STARTED<');
+  });
+
+  it('times stay UTC under a non-UTC TZ: the suite runs in UTC, so a dropped timeZone would pass (#2535)', () => {
+    const prev = process.env.TZ;
+    process.env.TZ = 'Pacific/Kiritimati';
+    try {
+      const h = html(ok());
+      expect(h).toContain('Nov 22, 2026, 10:00 AM UTC');
+      expect(h).toContain('Nov 15, 2026, 12:00 AM UTC');
+    } finally {
+      if (prev === undefined) delete process.env.TZ; else process.env.TZ = prev;
+    }
+  });
 });
