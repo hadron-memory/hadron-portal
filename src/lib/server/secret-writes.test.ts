@@ -23,6 +23,34 @@ describe('secretWrite (portal#2380)', () => {
   });
 });
 
+describe('open-change cap refusals have their own copy (portal#2460)', () => {
+  const refuse = (code: string, message = 'server wording') => secretWrite(client(() => { throw err({ code }, message); }), 'q', {});
+  const GENERIC = 'Something went wrong on our side.';
+  it('the per-requester cap says the person has too many open changes and what to do, with no number', async () => {
+    const r = await refuse('SECRET_CHANGE_REQUESTER_LIMIT');
+    expect(r.kind).toBe('refused');
+    const m = (r as { message: string }).message;
+    expect(m).not.toBe(GENERIC);
+    expect(m).toMatch(/too many open changes/i);
+    expect(m).toMatch(/withdraw/i);
+    expect(m).toMatch(/expire/i);
+    expect(m).not.toMatch(/\d/);
+  });
+  it('the per-secret cap has its own copy that does not blame the person, with no number', async () => {
+    const m = ((await refuse('SECRET_CHANGE_REQUEST_LIMIT')) as { message: string }).message;
+    expect(m).not.toBe(GENERIC);
+    expect(m).not.toMatch(/you have too many/i);
+    expect(m).not.toMatch(/\d/);
+  });
+  it('the copy is the portal own, not the server message', async () => {
+    const m = ((await refuse('SECRET_CHANGE_REQUESTER_LIMIT', 'leaks: 2 of 5 for user u1')) as { message: string }).message;
+    expect(m).not.toMatch(/leaks|u1/);
+  });
+  it('an unknown code keeps the generic text', async () => {
+    expect(await refuse('SECRET_CHANGE_SOMETHING_ELSE')).toEqual({ kind: 'refused', message: GENERIC });
+  });
+});
+
 describe('a staged link is pinned to the server public origin (portal#2417)', () => {
   const stage = (url: string) => secretWrite(client(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl: url }); }), 'q', {});
   beforeEach(() => { env.PUBLIC_SERVER_URL = 'https://h.example'; });

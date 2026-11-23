@@ -31,6 +31,15 @@ export async function secretWrite<D>(
     if (extractGqlErrorCode(e) === 'SECRET_KEY_UNAVAILABLE') {
       return { kind: 'refused', message: t('secrets.write.no-key', 'This deployment cannot store secrets yet: its secret key is not set up. Nothing was changed.') };
     }
+    // Mapped on the code, never a number: the caps are an engineering bound, not ruled
+    // (hrn:node:hadronmemory.com:specs:cor:sec:070:02). The server's wording is not shown.
+    const code = extractGqlErrorCode(e);
+    if (code === 'SECRET_CHANGE_REQUESTER_LIMIT') {
+      return { kind: 'refused', message: t('secrets.write.requester-limit', 'You have too many open changes for this secret. Withdraw one of your open requests, or wait for one to expire, then try again. Nothing was changed.') };
+    }
+    if (code === 'SECRET_CHANGE_REQUEST_LIMIT') {
+      return { kind: 'refused', message: t('secrets.write.request-limit', 'This secret has too many open change requests. Wait for one to be signed, withdrawn or expire, then try again. Nothing was changed.') };
+    }
     return { kind: 'refused', message: extractGqlError(e, t('secrets.write.failed', "That didn't go through. Try again.")) };
   }
 }
