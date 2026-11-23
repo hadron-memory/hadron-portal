@@ -683,6 +683,22 @@ describe('install customisation polish (#1369)', () => {
     expect(root.querySelector('button[aria-label="Open Note (note)"]')).not.toBeNull();
   });
 
+  // Blind P2-1: hiding the box must never strand an active filter with no way to clear it.
+  it('keeps the search box while a filter is active, then hides it once the filter is cleared', async () => {
+    serve(listOf(25, [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }]));
+    const root = await panel();
+    const input = () => root.querySelector<HTMLInputElement>('input[aria-label="Search the customisations on this page"]');
+    input()!.value = 'zzz'; input()!.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    serve(listOf(1)); // the list shrinks to one row while the filter is still set
+    button(root, 'Next').click();
+    await new Promise((r) => setTimeout(r, 0)); await tick(4);
+    expect(root.textContent).toContain('Loaded 1–1 of 1 customisation');
+    expect(input()).not.toBeNull();
+    input()!.value = ''; input()!.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    expect(input()).toBeNull();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+  });
+
   it('control: one loaded row out of a larger server total keeps search and paging', async () => {
     serve(listOf(25));
     const root = await panel();

@@ -307,7 +307,7 @@
     {/if}
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
-    <DataTable {table} showFooter={false} showSearch={!oneRow} bind:globalFilter={customisationFilter} searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
+    <DataTable {table} showFooter={false} showSearch={!oneRow || customisationFilter !== ''} bind:globalFilter={customisationFilter} searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
       {#snippet cell(cell)}
         <div class="min-w-0 whitespace-normal break-words font-medium">{cell.row.original.name}</div>
         <div class="mt-1 whitespace-normal break-all font-mono text-xs text-zinc-500">{cell.row.original.loc}</div>
