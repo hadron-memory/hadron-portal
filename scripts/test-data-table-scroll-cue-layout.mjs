@@ -30,7 +30,12 @@ const measure = (page, dark) => page.evaluate((dark) => {
   return {
     cue: { left: c.left, right: c.right, width: c.width }, pin: { left: p.left, right: p.right, width: p.width }, scroller: { left: s.left, right: s.right },
     token: getComputedStyle(document.documentElement).getPropertyValue(dark ? '--color-zinc-950' : '--color-zinc-900').trim(),
-    headerBg: getComputedStyle(scroller.querySelector('thead th')).backgroundColor,
+    // Resolved to sRGB through a 1x1 canvas: computed colours come back as oklch()/color() in Tailwind v4, whatever syntax the CSS used.
+    headerBg: (() => {
+      const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+      ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = getComputedStyle(scroller.querySelector('thead th')).backgroundColor; ctx.fillRect(0, 0, 1, 1);
+      return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3);
+    })(),
     opacity: Number(cs.opacity), image: cs.backgroundImage, overflowEnd: scroller.hasAttribute('data-overflow-end'), pinSticky: getComputedStyle(pin).position === 'sticky',
   };
 }, dark);
@@ -78,11 +83,11 @@ try {
         // Visible against a real surface: composite the strongest stop over the table header (a different surface from the page in both
         // themes) and require a perceptible change of at least 3/255 on some channel. Over a row of the page's own colour a shade
         // can only dim what scrolls under it; the header is where its own contrast is measurable.
-        const bg = m.headerBg.match(/[\d.]+/g)?.slice(0, 3).map((v) => Number(v) / 255);
-        if (!bg || bg.length < 3) failures.push(`${label}: could not read the header background ${m.headerBg}`);
+        const bg = m.headerBg.map((v) => v / 255);
+        if (bg.length < 3 || bg.some((v) => Number.isNaN(v))) failures.push(`${label}: could not read the header background ${m.headerBg}`);
         else {
           const delta = Math.max(...bg.map((v, i) => Math.abs(stop.a * stop.c[i] + (1 - stop.a) * v - v))) * 255;
-          if (delta < 3) failures.push(`${label}: the cue is invisible over the table header (change ${delta.toFixed(1)}/255 on ${m.headerBg})`);
+          if (delta < 3) failures.push(`${label}: the cue is invisible over the table header (change ${delta.toFixed(1)}/255 on rgb(${m.headerBg}))`);
         }
       }
       if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/scroll-cue-${dark ? 'dark' : 'light'}-${pinned ? 'pinned' : 'plain'}.png` });
