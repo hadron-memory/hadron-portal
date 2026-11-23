@@ -102,8 +102,36 @@
   type ProgressNote = { tone: 'good' | 'neutral'; text: string };
   let progressNotice = $state<{ chatId: string; notes: ProgressNote[] } | null>(null);
 
-  // Spec 017 — every chat started here is private (FR-003). The choice of a shared or personal home waits on the
-  // server (hadron-server#5027), so there is no picker for it.
+  // Spec 017 — where the next chat is saved is chosen at the New chat button, one of the two scopes the server has.
+  // A third home (a personal memory, shareable later) waits on hadron-server#5027.
+  let newChatMenuOpen = $state(false);
+  let newChatMenuEl = $state<HTMLElement | null>(null);
+  // Close on a press outside the menu, and on Escape, handing focus back to the button.
+  $effect(() => {
+    if (!newChatMenuOpen) return;
+    const away = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!newChatMenuEl?.contains(target) && !newChatButton?.contains(target)) newChatMenuOpen = false;
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      newChatMenuOpen = false;
+      newChatButton?.focus();
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc, true); };
+  });
+  // The first choice takes focus when the menu opens, and Up/Down move between the choices.
+  $effect(() => { if (newChatMenuOpen) newChatMenuEl?.querySelector<HTMLElement>('[role=menuitem]')?.focus(); });
+  function menuKeys(e: KeyboardEvent) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = [...(newChatMenuEl?.querySelectorAll<HTMLElement>('[role=menuitem]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+  }
   let messages = $state<ChatMessage[]>([]);
   let loadingChat = $state(false);
 
@@ -457,7 +485,8 @@
   }
 
   // ── Starting / resuming chats ────────────────────────────────────────
-  async function startNewChat() {
+  async function startNewChat(scope: 'private' | 'shared') {
+    newChatMenuOpen = false;
     loadingChat = true;
     setTurnError(null);
     partialTurnNotice = null;
@@ -475,7 +504,7 @@
       const res = await fetch('/api/agent-chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, scope: 'private', appId, ...aiConfigFields() }),
+        body: JSON.stringify({ agentId, scope, appId, ...aiConfigFields() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -1037,15 +1066,42 @@
         </ul>
       {/if}
     </div>
-    <!-- The way to start a chat sits under the list, quiet: an icon, not a banner above the chats it competes with. -->
-    <div class="border-t border-zinc-200 p-2 dark:border-zinc-800">
+    <!-- The way to start a chat sits under the list, quiet: an icon, not a banner above the chats it competes with.
+         It opens the choice of where the chat is saved. -->
+    <div class="relative border-t border-zinc-200 p-2 dark:border-zinc-800">
+      {#if newChatMenuOpen}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div
+          bind:this={newChatMenuEl}
+          role="menu"
+          tabindex="-1"
+          aria-label={t('agent-chat.new-chat', 'New chat')}
+          onkeydown={menuKeys}
+          class="absolute bottom-full left-2 z-20 mb-1 w-60 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          {#each [{ scope: 'shared', label: chatScopeStrings.newChatShared(), help: chatScopeStrings.pickerHelpShared() }, { scope: 'private', label: chatScopeStrings.newChatPrivate(), help: chatScopeStrings.pickerHelpPrivate() }] as const as choice (choice.scope)}
+            <button
+              type="button"
+              role="menuitem"
+              data-new-chat-scope={choice.scope}
+              onclick={() => startNewChat(choice.scope)}
+              class="block w-full rounded-md px-3 py-2 text-left hover:bg-zinc-100 focus-visible:bg-zinc-100 focus-visible:outline-none pointer-coarse:min-h-11 dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800"
+            >
+              <span class="block text-sm font-medium text-zinc-900 dark:text-white">{choice.label}</span>
+              <span class="block text-xs text-zinc-500 dark:text-zinc-400">{choice.help}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
       <button
         bind:this={newChatButton}
         type="button"
-        onclick={startNewChat}
+        onclick={() => (newChatMenuOpen = !newChatMenuOpen)}
         disabled={loadingChat}
         aria-label={t('agent-chat.new-chat', 'New chat')}
         title={t('agent-chat.new-chat', 'New chat')}
+        aria-haspopup="menu"
+        aria-expanded={newChatMenuOpen}
         class="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50 pointer-coarse:h-11 pointer-coarse:w-11 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
       >
         <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>

@@ -1,4 +1,5 @@
 /** portal#2093: long conversation/stage names must not let the header notices grow past one line each. */
+import { startNewChat } from '$lib/test/startNewChat';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import AgentChat from './AgentChat.svelte';
@@ -37,7 +38,7 @@ describe('AgentChat notices with long names (#2093)', () => {
     const m = mountComponent(AgentChat, { agentId: 'a' });
     const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
-    button(/new chat/i)!.click();
+    startNewChat();
     await vi.waitFor(() => expect(document.querySelector('textarea')).not.toBeNull());
     const box = document.querySelector('textarea') as HTMLTextAreaElement;
     box.value = 'hi'; box.dispatchEvent(new Event('input', { bubbles: true })); await tick();
@@ -73,7 +74,7 @@ describe('stage toast bolds the two stage names (#2226)', () => {
     const m = mountComponent(AgentChat, { agentId: 'a' });
     const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
-    button(/new chat/i)!.click();
+    startNewChat();
     await vi.waitFor(() => expect(document.querySelector('textarea')).not.toBeNull());
     const box = document.querySelector('textarea') as HTMLTextAreaElement;
     box.value = 'hi'; box.dispatchEvent(new Event('input', { bubbles: true })); await tick();
@@ -98,7 +99,7 @@ describe('refused-stage note copy (#2184)', () => {
     const m = mountComponent(AgentChat, { agentId: 'a' });
     const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
-    button(/new chat/i)!.click();
+    startNewChat();
     await vi.waitFor(() => expect(document.querySelector('textarea')).not.toBeNull());
     const box = document.querySelector('textarea') as HTMLTextAreaElement;
     box.value = 'hi'; box.dispatchEvent(new Event('input', { bubbles: true })); await tick();

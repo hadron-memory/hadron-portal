@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { startNewChat } from '$lib/test/startNewChat';
 import type { ComponentProps } from 'svelte';
 import { mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import AgentChat from './AgentChat.svelte';
@@ -57,7 +58,7 @@ async function send(text: string) {
 }
 async function newChat() {
   const before = calls('/api/agent-chat/start');
-  clickButton(/New chat/);
+  startNewChat();
   await until(() => calls('/api/agent-chat/start') > before, 'the new chat to start');
   // The start RESPONSE has landed once the composer is usable (it needs an active chat id).
   await until(() => (document.querySelector('textarea') as HTMLTextAreaElement | null)?.disabled === false, 'the new chat to become active');
