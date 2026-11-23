@@ -17,7 +17,7 @@ const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-
 // portal#2491: the six Orgs route tables (#1962 slice 5) and three more, one kind per table. They are mounted real
 // route pages probed by the same escape-probe oracle as the Apps kinds, so they ride the apps battery.
 export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions'];
-export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
+export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
 // portal#2492 (#1962 slice 6): the lib-rows kind mounts the real lib/route tables of slice 6 one case per row,
 // judged by the same escape oracle as agent-tasks.
 export const LIB_KINDS = ['lib-rows'];

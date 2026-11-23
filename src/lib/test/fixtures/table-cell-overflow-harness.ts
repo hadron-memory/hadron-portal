@@ -55,7 +55,7 @@ export async function mountLoadedNodePage(
 }
 
 export async function mountOverflowFixture(target: HTMLElement, kind: string) {
-  if (kind === 'agents-mine' || kind === 'memories-mine') {
+  if (kind === 'agents-mine' || kind === 'memories-mine' || kind === 'memories-shared') {
     setStubPage(`http://localhost/app/${kind === 'agents-mine' ? 'agents' : 'memories'}`, {});
     const { default: Page } =
       kind === 'agents-mine'
@@ -64,7 +64,10 @@ export async function mountOverflowFixture(target: HTMLElement, kind: string) {
     const data =
       kind === 'agents-mine'
         ? { agents: [{ id: 'agent-fixture', name: LONG64, urn: LONG_URN, description: '', memoryItems: [], systemMemoryId: null, visibility: 'PERSONAL' as const }], loadFailed: false }
-        : { memories: [{ id: 'mem-fixture', name: LONG64, urn: 'hrn:mem:example.test:fixture-memory', class: 'knowledge' }], loadFailed: false, sharedMemories: [], sharedLoadFailed: false, impersonating: null };
+        : kind === 'memories-mine'
+          ? { memories: [{ id: 'mem-fixture', name: LONG64, urn: 'hrn:mem:example.test:fixture-memory', class: 'knowledge' }], loadFailed: false, sharedMemories: [], sharedLoadFailed: false, impersonating: null }
+          // portal#2508: the "shared with me" tab. The caller clicks the real tab after mount.
+          : { memories: [], loadFailed: false, sharedMemories: [{ id: 'shared-fixture', name: LONG64, urn: 'hrn:mem:example.test:fixture-shared-memory', class: 'knowledge', myShare: { role: 'reader', grantor: { handle: 'grantor', name: null } } }], sharedLoadFailed: false, impersonating: null };
     const instance = mount(Page as never, { target, props: { data, form: null } as never });
     return () => unmount(instance);
   }
