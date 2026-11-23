@@ -36,7 +36,7 @@ export function readStagedChange(e: unknown, origin: string | null): StagedRefus
   const ext = extractGqlErrorExtensions(e);
   const id = ext?.requestId;
   const url = safeCeremonyUrl(ext?.ceremonyUrl, origin);
-  // The request id is what says a request is open, never the code and never the link (cor:sec:070:02).
+  // The request id is what says a request is open, never the code and never the link (hrn:node:hadronmemory.com:specs:cor:sec:070:02).
   if (typeof id === 'string' && id.length > 0 && id.length <= 128) {
     return url ? { kind: 'staged', requestId: id, ceremonyUrl: url } : { kind: 'staged-unlinked' };
   }
