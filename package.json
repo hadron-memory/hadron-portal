@@ -25,6 +25,7 @@
     "test:boot-install-layout": "node scripts/test-boot-install-layout.mjs",
     "test:urn-compact-layout": "node scripts/test-urn-compact-layout.mjs",
     "test:data-table-fill-layout": "node scripts/test-data-table-fill-layout.mjs",
+    "test:data-table-scroll-cue-layout": "node scripts/test-data-table-scroll-cue-layout.mjs",
     "test:live-outcome-layout": "node scripts/test-live-outcome-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
     "test:app-keys-layout": "node scripts/test-app-keys-layout.mjs",

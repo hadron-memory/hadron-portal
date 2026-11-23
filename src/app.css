@@ -156,25 +156,28 @@ html:not(.dark) textarea::placeholder {
 }
 
 /*
- * #2461 — a data table wider than its box shows a shade on each edge that has more
+ * #2461 — a data table wider than its box shows a cue on each edge that has more
  * columns past it. An overlay, not a mask: a mask makes the scroller a containing
  * block for fixed descendants and is not hit-testable where it fades out, which
- * broke the row menus. The overlay is pointer-events-none and neutral (black in
- * light, white in dark) so it reads on the page, a card or a header alike. The
- * `scrollHint` action (src/lib/scroll-hint.ts) sets the data-overflow-* marks.
+ * broke the row menus. The overlay is pointer-events-none. The `scrollHint` action
+ * (src/lib/scroll-hint.ts) sets the data-overflow-* marks.
+ *
+ * #2503 — the cue is a soft edge tint, never a white wash. Its colour comes
+ * from the palette's zinc ramp (hrn:node:hadronmemory.com:specs:cor:brd:010:01: one ramp serves both themes, the theme selects the
+ * stop): zinc-900 in light, a raised zinc-800 in dark. It was white in dark, which read as a glow. A darker stop
+ * does not work in dark: the surfaces there are already zinc-900/950, so a shade of them paints nothing; the
+ * palette's next raised stop, at 60%, is a soft lift at the edge, not a white wash (hrn:node:hadronmemory.com:specs:cor:brd:010:01).
  */
 .table-scroll-cue {
+  --table-scroll-cue-shade: color-mix(in srgb, var(--color-zinc-900, #18181b) 14%, transparent);
   opacity: 0;
-  background: linear-gradient(to left, rgb(0 0 0 / 0.14), transparent);
+  background: linear-gradient(to left, var(--table-scroll-cue-shade), transparent);
 }
 .table-scroll-cue-start {
-  background: linear-gradient(to right, rgb(0 0 0 / 0.14), transparent);
+  background: linear-gradient(to right, var(--table-scroll-cue-shade), transparent);
 }
 .dark .table-scroll-cue {
-  background: linear-gradient(to left, rgb(255 255 255 / 0.14), transparent);
-}
-.dark .table-scroll-cue-start {
-  background: linear-gradient(to right, rgb(255 255 255 / 0.14), transparent);
+  --table-scroll-cue-shade: color-mix(in srgb, var(--color-zinc-800, #27272a) 60%, transparent);
 }
 [data-overflow-end] ~ .table-scroll-cue-end,
 [data-overflow-start] ~ .table-scroll-cue-start {
