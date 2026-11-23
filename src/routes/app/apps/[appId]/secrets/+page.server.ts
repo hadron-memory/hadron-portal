@@ -26,7 +26,8 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
     app,
     secrets,
     signing,
-    pending,
+    pending: pending.rows,
+    pendingUnread: pending.unread,
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
   };
 };

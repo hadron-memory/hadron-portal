@@ -3,6 +3,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import PendingChange from '$lib/components/secrets/PendingChange.svelte';
+  import PendingUnread from '$lib/components/secrets/PendingUnread.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -31,6 +32,11 @@
   })));
 
   /** A staged create has no secret yet and carries the name asked for; any other request names its secret. */
+  // The name a refused create gave back so it can be corrected; a staged or successful create leaves the field empty (portal#2436).
+  const retypedName = $derived.by(() => {
+    const f = form as { name?: string; staged?: boolean; ok?: boolean; message?: string } | null | undefined;
+    return f?.name && !f.staged && !f.ok ? f.name : '';
+  });
   const pendingName = (p: { secretId: string | null; createName: string | null }) =>
     p.createName ?? (p.secretId ? (list.find((s) => s.id === p.secretId)?.name ?? null) : null);
 
@@ -74,6 +80,7 @@
     <p class="rounded-lg border border-zinc-300 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{t('secrets.impersonating', 'Impersonation sessions are read-only.')}</p>
   {/if}
 
+  <PendingUnread count={data.pendingUnread} />
   {#each data.pending as p (p.requestId)}
     <PendingChange {...p} secretName={pendingName(p)} impersonating={!!data.impersonating} />
   {/each}
@@ -120,7 +127,7 @@
     <form method="POST" action="?/create" use:enhance class="space-y-3">
       <div>
         <label for="secret-name" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.name', 'Name')}</label>
-        <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={form && 'name' in form && form.name && !('staged' in form && form.staged) ? form.name : ''} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+        <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={retypedName} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
         <p id="secret-name-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.name.help', 'Starts with a lowercase letter or digit, then lowercase letters, digits and hyphens, up to 64 characters.')}</p>
       </div>
       <div>

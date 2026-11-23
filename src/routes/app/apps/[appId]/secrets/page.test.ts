@@ -19,7 +19,7 @@ const LINK = 'https://hadron.example/secret-changes/r1';
 const pending = { requestId: 'r1', secretId: 's1', ceremonyUrl: LINK, state: 'open', operation: 'STORE', expiresAt: '2026-11-21T01:00:00Z' };
 
 const detail = (data: Record<string, unknown>, form: unknown = null) =>
-  render(Detail as never, { props: { data: { app, secret, signing: 'on', pending: [], impersonating: null, ...data }, form } } as never).body;
+  render(Detail as never, { props: { data: { app, secret, signing: 'on', pending: [], pendingUnread: 0, impersonating: null, ...data }, form } } as never).body;
 
 describe('a staged edit (acceptance 1)', () => {
   it('shows the pending notice with the server link, and the form does not claim a save', () => {
@@ -139,5 +139,9 @@ describe('the secrets list after a create and after a failed read (portal#2436)'
     expect(noted).toMatch(/Couldn.{1,8}t check/);
     const quiet = render(List as never, { props: { data: data(), form: null } } as never).body;
     expect(quiet).not.toContain('data-testid="pending-unread"');
+  });
+  it('the secret page says so too when a waiting request could not be checked', () => {
+    expect(detail({ pendingUnread: 1 })).toContain('data-testid="pending-unread"');
+    expect(detail({})).not.toContain('data-testid="pending-unread"');
   });
 });
