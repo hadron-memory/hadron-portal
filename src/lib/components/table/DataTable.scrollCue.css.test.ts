@@ -48,6 +48,6 @@ describe('DataTable scroll cue colour (#2503, item 6)', () => {
     const colours = cueRules().map((r) => r.body).join(' ');
     expect(colours).not.toMatch(/255 255 255|#fff\b|#ffffff|rgb\(255,\s*255,\s*255|\bwhite\b/i);
     expect(colours).toContain('var(--color-zinc-900');
-    expect(colours).toContain('var(--color-zinc-950');
+    expect(colours).toContain('var(--color-zinc-800');
   });
 });

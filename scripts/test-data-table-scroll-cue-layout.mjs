@@ -21,6 +21,29 @@ function strongestStop(image) {
   }
   return stops.sort((x, y) => y.a - x.a)[0] ?? null;
 }
+// What the cue really paints: screenshot the cue's own box with the cue on and with it hidden, decode both inside the page
+// (no PNG library needed), and return the mean and max absolute channel change (0..255). A cue the same colour as the surface
+// behind it measures 0, wherever the shade is computed to differ from some other element.
+async function paintedChange(page) {
+  const box = await page.locator('[data-testid="data-table-scroll-cue-end"]').boundingBox();
+  const clip = { x: Math.round(box.x), y: Math.round(box.y), width: Math.max(1, Math.round(box.width)), height: Math.max(1, Math.round(box.height)) };
+  const on = await page.screenshot({ clip });
+  const hide = await page.addStyleTag({ content: '.table-scroll-cue { opacity: 0 !important; transition: none !important; }' });
+  const off = await page.screenshot({ clip });
+  await hide.evaluate((el) => el.remove());
+  return page.evaluate(async ({ a, b }) => {
+    const pixels = async (b64) => {
+      const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+      const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+      const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bmp, 0, 0);
+      return ctx.getImageData(0, 0, c.width, c.height).data;
+    };
+    const [x, y] = await Promise.all([pixels(a), pixels(b)]);
+    let sum = 0, max = 0, n = 0;
+    for (let i = 0; i < x.length; i += 4) for (let k = 0; k < 3; k++) { const d = Math.abs(x[i + k] - y[i + k]); sum += d; max = Math.max(max, d); n++; }
+    return { mean: sum / n, max };
+  }, { a: on.toString('base64'), b: off.toString('base64') });
+}
 const measure = (page, dark) => page.evaluate((dark) => {
   const scroller = document.querySelector('[data-testid="data-table-scroller"]');
   const cue = document.querySelector('[data-testid="data-table-scroll-cue-end"]');
@@ -29,13 +52,7 @@ const measure = (page, dark) => page.evaluate((dark) => {
   const cs = getComputedStyle(cue);
   return {
     cue: { left: c.left, right: c.right, width: c.width }, pin: { left: p.left, right: p.right, width: p.width }, scroller: { left: s.left, right: s.right },
-    token: getComputedStyle(document.documentElement).getPropertyValue(dark ? '--color-zinc-950' : '--color-zinc-900').trim(),
-    // Resolved to sRGB through a 1x1 canvas: computed colours come back as oklch()/color() in Tailwind v4, whatever syntax the CSS used.
-    headerBg: (() => {
-      const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
-      ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = getComputedStyle(scroller.querySelector('thead th')).backgroundColor; ctx.fillRect(0, 0, 1, 1);
-      return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3);
-    })(),
+    token: getComputedStyle(document.documentElement).getPropertyValue(dark ? '--color-zinc-800' : '--color-zinc-900').trim(),
     opacity: Number(cs.opacity), image: cs.backgroundImage, overflowEnd: scroller.hasAttribute('data-overflow-end'), pinSticky: getComputedStyle(pin).position === 'sticky',
   };
 }, dark);
@@ -73,22 +90,19 @@ try {
         if (Math.abs(m.cue.right - m.pin.left) > 1.5) failures.push(`${label}: the end cue must end at the pinned column's left edge (cue right ${m.cue.right}, pin left ${m.pin.left})`);
       } else if (Math.abs(m.cue.right - (m.scroller.right - 1)) > 1.5) failures.push(`${label}: with no pin the end cue stays on the scroller edge ${JSON.stringify(m)}`);
       // The colour comes from the palette: the zinc token the cue names is really emitted (else the #hex fallback would stand in silently).
-      if (!m.token) failures.push(`${label}: the palette token the cue uses (--color-zinc-${dark ? '950' : '900'}) is not defined, so the fallback colour is in use`);
+      if (!m.token) failures.push(`${label}: the palette token the cue uses (--color-zinc-${dark ? '800' : '900'}) is not defined, so the fallback colour is in use`);
       // A shade, not a glow: judge the strongest colour stop numerically. It must paint (alpha > 0.05) and be dark (luma < 0.25).
       const stop = strongestStop(m.image);
       if (!stop) failures.push(`${label}: could not read a colour from the cue gradient ${m.image}`);
       else {
         if (!(stop.a > 0.05)) failures.push(`${label}: the cue paints nothing (alpha ${stop.a}) ${m.image}`);
         if (!(stop.luma < 0.25)) failures.push(`${label}: the cue is a light wash (luma ${stop.luma.toFixed(2)}), not a shade ${m.image}`);
-        // Visible against a real surface: composite the strongest stop over the table header (a different surface from the page in both
-        // themes) and require a perceptible change of at least 3/255 on some channel. Over a row of the page's own colour a shade
-        // can only dim what scrolls under it; the header is where its own contrast is measurable.
-        const bg = m.headerBg.map((v) => v / 255);
-        if (bg.length < 3 || bg.some((v) => Number.isNaN(v))) failures.push(`${label}: could not read the header background ${m.headerBg}`);
-        else {
-          const delta = Math.max(...bg.map((v, i) => Math.abs(stop.a * stop.c[i] + (1 - stop.a) * v - v))) * 255;
-          if (delta < 3) failures.push(`${label}: the cue is invisible over the table header (change ${delta.toFixed(1)}/255 on rgb(${m.headerBg}))`);
-        }
+        // Visible where it paints: the cue's own pixels must differ from the same pixels with the cue hidden. (An earlier check
+        // composited the colour over the table header, a surface the cue does not paint; a shade equal to the surface behind it
+        // measured fine there and was invisible on screen. Portal#2503 UX review.)
+        const painted = await paintedChange(page);
+        if (!(painted.mean >= 3)) failures.push(`${label}: the cue is invisible where it paints (change mean ${painted.mean.toFixed(1)}, max ${painted.max}/255 against the same box with the cue hidden)`);
+        console.log(JSON.stringify({ label, paintedChange: painted }));
       }
       if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/scroll-cue-${dark ? 'dark' : 'light'}-${pinned ? 'pinned' : 'plain'}.png` });
       console.log(JSON.stringify({ label, cueRight: m.cue.right, pinLeft: m.pin.left, image: m.image.slice(0, 90) }));
