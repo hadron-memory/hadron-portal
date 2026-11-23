@@ -239,6 +239,11 @@ jobs:
       - name: Check App Keys tab layout (Generate Key centering, table width)
         run: pnpm test:app-keys-layout
 
+      # portal#2532: the Agent URN chips in the App members panel at 390px with a very long URN
+      # (real Chromium, compiled CSS, the real panel): copy buttons whole, no clipping ancestor.
+      - name: Check members panel Agent URN layout
+        run: pnpm test:members-panel-urn-layout
+
       - name: Check memory share Shared-by cell containment (portal#2509)
         run: pnpm test:memory-shares-granted-by-layout
 
