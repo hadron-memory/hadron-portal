@@ -64,7 +64,7 @@ describe('portal#2292: the document title leads with the shown tab', () => {
 
   it('gives every tab its own label, so a new tab cannot ship without a title', async () => {
     const target = await mountAt(null);
-    const ids = clientTabIds(target).filter((id) => id !== 'chats');
+    const ids = clientTabIds(target).filter((id) => id !== 'profile');
     expect(ids.length).toBeGreaterThanOrEqual(10);
     for (const id of ids) {
       await select(target, id);
@@ -77,7 +77,7 @@ describe('portal#2292: the document title leads with the shown tab', () => {
     expect(document.title).toBe(TAIL);
     await select(target, 'memory');
     expect(document.title).toBe(`Memories · ${TAIL}`);
-    await select(target, 'chats');
+    await select(target, 'profile');
     expect(document.title).toBe(TAIL);
   });
 

@@ -51,6 +51,7 @@
     stickyEndColumn,
     rowClass,
     rowAttrs,
+    footerStart,
     cell,
   }: {
     table: PortalTable<T>;
@@ -94,6 +95,9 @@
     rowClass?: (item: T) => string;
     /** Extra attributes for a body row (e.g. data-testid hooks). */
     rowAttrs?: (item: T) => Record<string, string | undefined>;
+    /** A control the list owns (e.g. "Add"), drawn in the footer just left of the page-size
+     *  dropdown. Nothing renders when it is omitted, or when `showFooter` is off. */
+    footerStart?: Snippet;
     /** Renders every cell's content; receives the TanStack cell and
      *  `row.original`. */
     cell: Snippet<[PortalCell<T, unknown>, T]>;
@@ -340,6 +344,7 @@
 <div bind:this={footerEl} data-testid="table-footer" class="mt-3 flex flex-wrap items-center justify-between gap-3">
   <span aria-current={pageCount > 1 ? 'page' : undefined} class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
   <div class="flex flex-wrap items-center gap-2">
+    {@render footerStart?.()}
     {#if showPageSize}<select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
       aria-label={tableStrings.rowsPerPage()}
       class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">

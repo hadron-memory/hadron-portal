@@ -243,7 +243,7 @@
   const app = $derived(data.app);
   // ── portal#2240 (ruling 0273): the first screen only ──────────────────────
   // The load brings the frame and ONE tab's reads: the tab the URL opened on
-  // (`data.initialTab`, Chats by default). Every other tab's reads arrive from
+  // (`data.initialTab`, Profile by default). Every other tab's reads arrive from
   // `tab/+server.ts` on that tab's first show and are kept for the visit.
   // `tabData` is what the page renders from: the loader's data over every tab
   // payload fetched so far. Runs and Templates are not here: they navigate
@@ -1087,12 +1087,14 @@
       return 'members';
     }
     if (submittedForm(result, 'runFlow')) return 'runs';
-    if (submittedForm(result, 'createAppMemory')) return 'memory';
+    if (submittedForm(result, 'createAppMemory') || submittedForm(result, 'attachAppMemory')) return 'memory';
     if (submittedForm<DeleteAppForm>(result, 'deleteApp')) {
       return 'settings';
     }
     return null;
   }
+  // The Add memory button's "new memory" choice shows the create form below the list; a result that came back keeps it in view.
+  let createMemoryOpen = $state(untrack(() => submittedForm(form, 'createAppMemory') !== null));
   let activeTab = $state<TabId>(
     // #744: `chats` always exists — the team chat is always offered, even
     // unbootstrapped, because that is how the first message gets posted.
@@ -1313,7 +1315,7 @@
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // portal#2241: the App's own identity at a glance, read-only (edits stay in Settings). Left-most
     // and always present; it renders only from the App read the frame already makes, so it adds no
-    // request (ruling 0273). The page default is still Chats: Profile-as-default awaits Holger.
+    // request (ruling 0273). It is also the page default (Holger, 2026-11-23).
     { id: 'profile', label: t('app.tabs.profile', 'Profile') },
     // #744: ONE "Chats" tab over every conversation the App has — the team
     // chat, any 1:1 chats, and the agent conversation — with a selector inside.
@@ -4327,9 +4329,15 @@
          because it only echoes the tab label
          (hrn:node:hadronmemory.com:hadron-portal:conventions:tabpanel-heading-landmark). -->
     <h2 class="sr-only">{t('app.tabs.memory', 'Memories')}</h2>
-    {#if data.createMemoryForm}
+    {#if data.createMemoryForm && data.attachMemoryForm}
       {#key app.id}
-        <AppMemories memories={tabData.appMemories ?? null} showDescription={!!app.organizationId} />
+        <AppMemories memories={tabData.appMemories ?? null} appId={app.id} agentId={app.agentId ?? installedAgents[0]?.id ?? null}
+          hasAgent={installedAgents.length > 0} canCreate={tabData.canCreateMemory ?? null}
+          attachForm={data.attachMemoryForm} result={form} bind:createOpen={createMemoryOpen}>
+          {#snippet create()}
+            <AppMemoryCreate initial={data.createMemoryForm} result={form} hasAgent={installedAgents.length > 0} onclose={() => { createMemoryOpen = false; }} />
+          {/snippet}
+        </AppMemories>
       {/key}
     {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
@@ -4348,15 +4356,6 @@
       serverPage={tabData.appNodesPage ?? null}
       pageLabel={t('app.memory-node.pages', 'Memory node pages')}
     />
-    {#if data.createMemoryForm && tabData.canCreateMemory === true}
-      {#key app.id}
-        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} hasAgent={installedAgents.length > 0} /></div>
-      {/key}
-    {:else if data.createMemoryForm && tabData.canCreateMemory === false}
-      <!-- portal#1391: display only. It states no role or membership and no authorization rule the server did not
-           state; the server's createAppMemory gate stays the authority. -->
-      <p data-testid="app-memory-create-unavailable" class="mt-6 text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.create-unavailable', 'Adding a memory isn’t available to you here.')}</p>
-    {/if}
     </div>
   {/if}
 

@@ -7,7 +7,7 @@ import { runAppFlow } from '$lib/server/run-app-flow';
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
 
-import { createMemory, readAppMemories, readAppMemoryScope, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
+import { attachMemory, createMemory, readAppMemoryScope, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
 import { writeCustomisation } from '$lib/server/install-customisation';
 import { readDeleteWorkerPost, deleteWorkerFailureRefusal, type DeleteWorkerRefusal, type DeleteWorkerResult } from '$lib/workers/delete-worker';
 
@@ -108,6 +108,7 @@ import { loadSaturationAlarmWakeRoles } from '$lib/server/saturation-wake-roles'
 import type { Actions, PageServerLoad } from './$types';
 import {
   createAppMemorySchema,
+  attachAppMemorySchema,
   addAgentSchema,
   appSettingsSchema,
   castWorkerSchema,
@@ -1124,10 +1125,10 @@ export async function _loadAppPage(
           })
       : null;
 
-  const [appMemoryScope, orgAppMemories, createMemoryForm] = await Promise.all([
+  const [appMemoryScope, createMemoryForm, attachMemoryForm] = await Promise.all([
     wants('memoryScope') ? readAppMemoryScope(client, app.id) : null,
-    app.organizationId && wants('appMemories') ? readAppMemories(client, app.organizationId, app.id) : null,
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
+    superValidate(zod4(attachAppMemorySchema), { id: `attachAppMemory:${app.id}`, errors: false }),
   ]);
 
   const [runsSection, runsExtras, flowGraph, flowsData] = wants('runs')
@@ -1153,8 +1154,9 @@ export async function _loadAppPage(
       ...runsExtras,
     } : null,
     appMemoryScope,
-    appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
+    appMemories: appMemoriesFromScope(appMemoryScope, app.id),
     createMemoryForm,
+    attachMemoryForm,
     canCreateMemory: canCreateAppMemory(org, locals.user?.id ?? null, { userOwned: !app.organizationId, canManageApp: canManageApp as boolean | null }),
     app,
     org,
@@ -1277,6 +1279,7 @@ export async function _loadAppPage(
 export const actions: Actions = {
   run: runAppFlow,
   createMemory,
+  attachMemory,
   createCustomisation: async ({ request, params, locals }) =>
     writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
   saveCustomisation: async ({ request, params, locals }) =>

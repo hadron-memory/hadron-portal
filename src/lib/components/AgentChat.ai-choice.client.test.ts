@@ -45,7 +45,7 @@ function stub(stored: string | null = null) {
   }));
 }
 const select = () => document.querySelector('select#agent-chat-ai-config') as HTMLSelectElement | null;
-const clickButton = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))!.click();
+const clickButton = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`))!.click();
 async function send(text: string) {
   const box = document.querySelector('textarea') as HTMLTextAreaElement;
   box.value = text;

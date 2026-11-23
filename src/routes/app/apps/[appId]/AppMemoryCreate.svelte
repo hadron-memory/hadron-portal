@@ -9,8 +9,10 @@
   import type { AppMemoryMessage } from './app-memories';
   import { createAppMemorySchema } from './schema';
   type Fields = Infer<typeof createAppMemorySchema, 'zod4'>;
-  let { initial, result, hasAgent }: {
+  let { initial, result, hasAgent, onclose }: {
     initial: SuperValidated<Fields, AppMemoryMessage>; result: unknown;
+    // The Add memory button opens this form; closing it is the user's, so a created memory's link stays in view until then.
+    onclose?: () => void;
     // The App has an installed Agent (the page's app.agents). A memory is added through one, so say so before an attempt.
     hasAgent: boolean;
   } = $props();
@@ -21,15 +23,13 @@
     validators: zod4Client(createAppMemorySchema), invalidateAll: 'force', resetForm: true,
   });
   const inputClass = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white';
-  // Closed until asked for, but a submission that came back (an error to fix, or the link to what was created) must stay in view.
   const noAgentRefusal = $derived($message?.type === 'error' && $message.code === 'AGENT_NOT_INSTALLED');
-  let open = $state(untrack(() => $message !== undefined || ($errors.name?.length ?? 0) > 0));
 </script>
-<details bind:open class="group max-w-xl" data-testid="app-memory-create">
-  <summary class="flex cursor-pointer list-none items-center gap-2 text-lg font-semibold text-zinc-900 hover:text-zinc-700 dark:text-white dark:hover:text-zinc-200 [&::-webkit-details-marker]:hidden">
-    <svg class="h-5 w-5 shrink-0 transition-transform group-open:rotate-90" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
-    {t('app.memory.add', 'Add a memory')}
-  </summary>
+<section class="max-w-xl" data-testid="app-memory-create" aria-labelledby="app-memory-create-title">
+  <div class="flex items-center justify-between gap-3">
+    <h3 id="app-memory-create-title" class="text-lg font-semibold text-zinc-900 dark:text-white">{t('app.memory.add', 'Add a new memory')}</h3>
+    {#if onclose}<button type="button" onclick={onclose} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.memory.close', 'Close')}</button>{/if}
+  </div>
   <!-- The refusal below says the same words once a submit came back AGENT_NOT_INSTALLED, so the note steps aside for it. -->
   {#if !hasAgent && !noAgentRefusal}
     <p id="app-memory-needs-agent" data-testid="app-memory-needs-agent" class="mt-3 max-w-xl text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.needs-agent', 'Install an Agent in this App before adding a memory.')}</p>
@@ -45,7 +45,7 @@
     <div>
       <label for="app-memory-description" class="mb-1 block text-sm text-zinc-900 dark:text-white">{t('app.memory.description', 'Description')}</label>
       <textarea id="app-memory-description" name="description" bind:value={$form.description} rows="3" class={inputClass} aria-describedby="app-memory-description-help"></textarea>
-      <p id="app-memory-description-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.description.help', 'Optional. Shown in the list of App memories.')}</p>
+      <p id="app-memory-description-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.description.help', 'Optional.')}</p>
     </div>
     <button type="submit" disabled={$submitting} aria-describedby={hasAgent || noAgentRefusal ? undefined : 'app-memory-needs-agent'} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-600 disabled:opacity-50">{$submitting ? t('app.memory.creating', 'Creating...') : t('app.memory.create', 'Create memory')}</button>
     </fieldset>
@@ -61,4 +61,4 @@
       </div>
     {/if}
   </LiveOutcome>
-</details>
+</section>

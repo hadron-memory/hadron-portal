@@ -310,7 +310,7 @@ describe('App display-list request boundaries (#1758)', () => {
   });
 
   it('retains complete staff and channel identity contexts, including rows beyond 200', async () => {
-    const result = await loadPage();
+    const result = await loadPage('?tab=chats');
     expect(result.staff).toHaveLength(201);
     expect(result.staff).toEqual(staff);
     expect(result.appChats).toEqual(expect.arrayContaining([expect.objectContaining({ channelId: 'channel-200' })]));

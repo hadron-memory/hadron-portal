@@ -150,9 +150,9 @@ describe('App page loader: the first screen only (portal#2240)', () => {
     expect(Number.isNaN(Date.parse(payload.terminalNow as string))).toBe(false);
   });
 
-  it('opens the default (no ?tab=) as Chats: frame + Chats reads only', async () => {
+  it('opens the default (no ?tab=) as Profile: frame + Profile reads only', async () => {
     await loadPage('');
-    expect(opSet()).toEqual(expected('chats'));
+    expect(opSet()).toEqual(expected('profile'));
   });
 
   it.each([...APP_TAB_IDS])('opening ?tab=%s issues the frame reads and that tab\'s reads only', async (tab) => {

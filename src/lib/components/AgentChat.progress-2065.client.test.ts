@@ -27,7 +27,7 @@ const notice = () => document.querySelector('[role="status"][data-testid="chat-p
 async function startAndSend() {
   const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
   await wait(20);
-  [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+  [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!.click();
   await wait(30);
   await tick();
   box().value = 'hello';
@@ -45,7 +45,7 @@ describe('AgentChat: completion, detour return and rejected stage (#2065)', () =
     stub({});
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
-    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!.click();
     await wait(30);
     await tick();
     expect(notice()).not.toBeNull();
@@ -117,7 +117,7 @@ describe('AgentChat: the welcome turn is part of start (#2065, LOCAL F1/F2)', ()
     }));
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
-    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!.click();
     await wait(60);
     await tick();
     return m;

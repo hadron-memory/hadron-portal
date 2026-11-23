@@ -102,9 +102,8 @@
   type ProgressNote = { tone: 'good' | 'neutral'; text: string };
   let progressNotice = $state<{ chatId: string; notes: ProgressNote[] } | null>(null);
 
-  // Spec 017 — composer-header scope picker. The user's pending choice
-  // for the NEXT chat they start. Defaults to 'private' per FR-003.
-  let nextChatScope = $state<'private' | 'shared'>('private');
+  // Spec 017 — every chat started here is private (FR-003). The choice of a shared or personal home waits on the
+  // server (hadron-server#5027), so there is no picker for it.
   let messages = $state<ChatMessage[]>([]);
   let loadingChat = $state(false);
 
@@ -476,7 +475,7 @@
       const res = await fetch('/api/agent-chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, scope: nextChatScope, appId, ...aiConfigFields() }),
+        body: JSON.stringify({ agentId, scope: 'private', appId, ...aiConfigFields() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -505,11 +504,6 @@
         scope: body.scope === 'shared' ? 'shared' : 'private',
         completed: [],
       };
-      // Spec 017 D3 (safety > collaboration): reset the picker to
-      // 'private' after a successful chat creation so the user makes a
-      // deliberate choice for every shared chat, instead of inheriting
-      // the previous chat's audience.
-      nextChatScope = 'private';
       // Spec 016 — welcome turn is best-effort. Only render the
       // welcome bubble when the server actually produced one; on
       // welcomeError, surface a soft hint and leave the transcript
@@ -916,55 +910,6 @@
     class="w-full min-w-0 flex-col border-zinc-200 @2xl:w-64 @2xl:shrink-0 @2xl:border-r dark:border-zinc-800
       {phonePane === 'list' ? 'flex' : 'hidden @2xl:flex'}"
   >
-    <div class="border-b border-zinc-200 p-3 dark:border-zinc-800">
-      <!-- Spec 017 — segmented scope picker. The user's choice here
-           dictates the next chat's tier when they click "+ New chat".
-           Default = Private per FR-003. Hidden Shared option (per
-           FR-006/SC-005) would need an AppMember check that isn't yet
-           plumbed into this component — the server still rejects an
-           unqualified Shared request and the rejection surfaces inline
-           below as a turnError. -->
-      <div
-        class="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-[11px] font-medium dark:border-zinc-800 dark:bg-zinc-950"
-        role="group"
-        aria-label={t('agent-chat.scope-picker.label', 'Chat scope')}
-      >
-        <button
-          type="button"
-          onclick={() => (nextChatScope = 'private')}
-          class="rounded-md px-2 py-1 transition
-            {nextChatScope === 'private'
-              ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white'
-              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'}"
-          title={chatScopeStrings.pickerHelpPrivate()}
-          aria-pressed={nextChatScope === 'private'}
-        >
-          {chatScopeStrings.pickerPrivate()}
-        </button>
-        <button
-          type="button"
-          onclick={() => (nextChatScope = 'shared')}
-          class="rounded-md px-2 py-1 transition
-            {nextChatScope === 'shared'
-              ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white'
-              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'}"
-          title={chatScopeStrings.pickerHelpShared()}
-          aria-pressed={nextChatScope === 'shared'}
-        >
-          {chatScopeStrings.pickerSharedFallback()}
-        </button>
-      </div>
-      <button
-        bind:this={newChatButton}
-        type="button"
-        onclick={startNewChat}
-        class="w-full rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        style="background: #fb8500;"
-        disabled={loadingChat}
-      >
-        + New chat
-      </button>
-    </div>
     <!-- portal#2088: on a phone a refused or failed start leaves the person on
          the list, so its message shows here. From `@2xl` (panel width) up the conversation
          pane's copy below shows instead; only one is ever displayed. After Back
@@ -981,7 +926,7 @@
       {:else if listError}
         <p class="p-3 text-xs text-red-500">{listError}</p>
       {:else if chats.length === 0}
-        <p class="p-3 text-xs text-zinc-500">No chats yet. Start a new one above.</p>
+        <p class="p-3 text-xs text-zinc-500">No chats yet. Start a new one with the + button below.</p>
       {:else}
         <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
           {#each chats as chat (chat.loc)}
@@ -1092,13 +1037,27 @@
         </ul>
       {/if}
     </div>
+    <!-- The way to start a chat sits under the list, quiet: an icon, not a banner above the chats it competes with. -->
+    <div class="border-t border-zinc-200 p-2 dark:border-zinc-800">
+      <button
+        bind:this={newChatButton}
+        type="button"
+        onclick={startNewChat}
+        disabled={loadingChat}
+        aria-label={t('agent-chat.new-chat', 'New chat')}
+        title={t('agent-chat.new-chat', 'New chat')}
+        class="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50 pointer-coarse:h-11 pointer-coarse:w-11 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+      >
+        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+      </button>
+    </div>
   </aside>
 
   <!-- ── Active chat ─────────────────────────────────────────────────── -->
   <main class="min-h-0 min-w-0 flex-1 flex-col {phonePane === 'chat' ? 'flex' : 'hidden @2xl:flex'}">
     {#if !activeChatId && !loadingChat}
       <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-sm text-zinc-500">
-        <p>Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.</p>
+        <p>Select a chat from the list, or press <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+</span> under it to start a new one.</p>
         <!-- portal#1611: a refused or failed start has no chat pane to show its
              error in; without this the user saw nothing at all. -->
         {#if turnError}

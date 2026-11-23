@@ -31,7 +31,7 @@ describe('portal#2107: App AgentChat URL round trip', () => {
     window.history.replaceState({}, '', '/app/apps/app?tab=settings&chat=agent+chat&keep=yes');
     const m = mountComponent(AgentChat, { agentId: 'agent', appId: 'app' });
     await vi.waitFor(() => expect(document.body.textContent).toContain('Personal'));
-    const button = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('New chat'))!;
+    const button = [...document.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'New chat')!;
     button.click();
     await vi.waitFor(() => expect(navigationCalls.some(c => c.fn === 'replaceState')).toBe(true));
     const emitted = navigationCalls.filter(c => c.fn === 'replaceState').at(-1);
@@ -173,7 +173,7 @@ describe('portal#2107: App AgentChat URL round trip', () => {
     const m = mountComponent(AgentChat, { agentId: 'agent' });
     try {
       await vi.waitFor(() => expect(m.target.textContent).toContain('Personal'));
-      const start = [...m.target.querySelectorAll('button')].find(b => b.textContent?.includes('New chat'));
+      const start = [...m.target.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'New chat');
       expect(start).toBeDefined(); start!.click();
       await vi.waitFor(() => expect(navigationCalls.some(c => c.fn === 'replaceState')).toBe(true));
       const call = navigationCalls.filter(c => c.fn === 'replaceState').at(-1)!;

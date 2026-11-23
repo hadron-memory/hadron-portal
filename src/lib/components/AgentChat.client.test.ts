@@ -129,7 +129,7 @@ describe('AgentChat: a refused start or send is shown once and never replayed (#
     stub({ start: 'refuse' });
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
-    const startButton = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!;
+    const startButton = [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!;
     startButton.click();
     await wait(30);
     await tick();
@@ -151,7 +151,7 @@ describe('AgentChat: a refused start or send is shown once and never replayed (#
     stub({ turn: 'refuse' });
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
-    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!.click();
     await wait(30);
     await tick();
     const box = document.querySelector('textarea') as HTMLTextAreaElement;
@@ -221,7 +221,7 @@ describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (
   async function startChat() {
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
-    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!.click();
     await wait(30);
     await tick();
     return m;
@@ -659,5 +659,46 @@ describe('AgentChat: pending-delete listeners at unmount (#2165)', () => {
     await tick();
     expect(live()).toEqual([]);
     m.unmount();
+  });
+});
+
+// The way to start a chat is a quiet icon under the list, not a banner above it.
+describe('AgentChat: the New chat button', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  it('is an icon-only button named New chat, last in the chat column, below the list', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ chats: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    try {
+      await wait(20);
+      const button = [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!;
+      expect(button).toBeDefined();
+      expect(button.textContent?.trim()).toBe('');
+      expect(button.querySelector('svg')).not.toBeNull();
+      const aside = button.closest('aside')!;
+      // under the list and the scope picker, and nothing follows it in the column
+      const list = aside.querySelector('ul, p.p-3');
+      expect(list!.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(button.parentElement!.nextElementSibling).toBeNull();
+      expect(aside.lastElementChild).toBe(button.parentElement);
+    } finally { m.unmount(); }
+  });
+  it('has no scope picker, and starts every chat as private', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (url.includes('/api/agent-chat/start')) { bodies.push(JSON.parse(String(init?.body))); return json({ chatId: 'chats:c1', conversationName: 'c', stageName: 's', welcomeMessage: null, welcomeError: null, scope: 'private' }); }
+      return json({ chats: [] });
+    }));
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    try {
+      await wait(20);
+      expect(document.querySelector('[role=group][aria-label="Chat scope"]')).toBeNull();
+      expect(document.body.textContent).not.toContain('Shared with App members');
+      [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!.click();
+      await wait(30);
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0].scope).toBe('private');
+    } finally { m.unmount(); }
   });
 });

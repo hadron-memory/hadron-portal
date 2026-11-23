@@ -35,7 +35,7 @@ describe('AgentChat notices with long names (#2093)', () => {
   it('each notice wraps to at most two lines and keeps its full text', async () => {
     stubChatApi(TURN);
     const m = mountComponent(AgentChat, { agentId: 'a' });
-    const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''));
+    const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
     button(/new chat/i)!.click();
     await vi.waitFor(() => expect(document.querySelector('textarea')).not.toBeNull());
@@ -71,7 +71,7 @@ describe('stage toast bolds the two stage names (#2226)', () => {
   it('wraps from and to in <strong> while textContent still equals the title', async () => {
     stubChatApi(TURN);
     const m = mountComponent(AgentChat, { agentId: 'a' });
-    const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''));
+    const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
     button(/new chat/i)!.click();
     await vi.waitFor(() => expect(document.querySelector('textarea')).not.toBeNull());
@@ -96,7 +96,7 @@ describe('refused-stage note copy (#2184)', () => {
     const REFUSED = { ...TURN, stageTransitioned: false, newStageName: null, conversationCompleted: null, detourReturned: false, rejectedNextStage: LONG };
     stubChatApi(REFUSED);
     const m = mountComponent(AgentChat, { agentId: 'a' });
-    const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''));
+    const button = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`));
     await vi.waitFor(() => expect(button(/new chat/i)).toBeDefined());
     button(/new chat/i)!.click();
     await vi.waitFor(() => expect(document.querySelector('textarea')).not.toBeNull());
