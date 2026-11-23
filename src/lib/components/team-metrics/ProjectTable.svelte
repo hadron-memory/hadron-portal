@@ -34,7 +34,7 @@
   });
 </script>
 
-{#snippet children(row: Row)}
+{#snippet statusCounts(row: Row)}
   {#if row.children.length === 0}
     <span class="text-sm text-zinc-500 dark:text-zinc-400">{t('team-metrics.projects.no-children', 'No tasks under it')}</span>
   {:else}
@@ -64,9 +64,9 @@
   {#snippet cell(c, row)}
     {#if c.column.id === 'projectName'}
       <ProjectName project={row.project} {appId} />
-      <div class="mt-3 sm:hidden" data-testid="metrics-project-children-phone">{@render children(row)}</div>
+      <div class="mt-3 sm:hidden" data-testid="metrics-project-children-phone">{@render statusCounts(row)}</div>
     {:else if c.column.id === 'children'}
-      {@render children(row)}
+      {@render statusCounts(row)}
     {/if}
   {/snippet}
 </DataTable>
