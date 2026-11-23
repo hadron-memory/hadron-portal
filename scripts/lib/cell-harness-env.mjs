@@ -48,7 +48,7 @@ export function batteryFor(cellKind) {
   if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [cellKind], apps: [], lib: [] };
   if (APPS_KINDS.includes(cellKind) || ORGS_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [cellKind], lib: [] };
   if (LIB_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [cellKind] };
-  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], wake: [], agentTasks: [], pages: [], apps: [], lib: [] };
+  if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [] };
   throw new Error(`batteryFor: unknown kind ${JSON.stringify(cellKind)} — parseHarnessEnv validates the accepted set first`);
 }
 const flag = (env, name) => {

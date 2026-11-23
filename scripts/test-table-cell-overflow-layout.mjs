@@ -1039,7 +1039,11 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    for (const r of el.getClientRects()) px = Math.max(px, box.left - r.left, r.right - box.right);
    if (px > limit) found.push({ cell: td.textContent.trim().slice(0, 40), el: `${el.tagName.toLowerCase()}${el.className ? '.' + String(el.className).split(' ')[0] : ''}`, px: Math.round(px) });
    const st = getComputedStyle(el);
-   if (st.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1 && !el.closest('[title]')) found.push({ cell: td.textContent.trim().slice(0, 40), el: el.tagName.toLowerCase(), px: 0, note: 'ellipsized with no reachable full value' });
+   // portal#2506: a clamp ellipsizes on the y axis and computes text-overflow to `clip`, which the horizontal
+   // `ellipsis` test alone never matched — so a compact Urn chip or a PartyLabel name that lost its title
+   // went unreported the moment they took the clamp. Both count as ellipsized.
+   const ellipsized = (st.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1) || (st.webkitLineClamp !== 'none' && el.scrollHeight > el.clientHeight + 1);
+   if (ellipsized && !el.closest('[title]')) found.push({ cell: td.textContent.trim().slice(0, 40), el: el.tagName.toLowerCase(), px: 0, note: 'ellipsized with no reachable full value' });
   }
   // Bare text (a cell that renders a string with no element) is judged by its glyph boxes.
   const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
@@ -1319,13 +1323,47 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
  // The shared component's own pin, independent of any one caller: a real DataTable whose
  // Party cell carries the defeating caller wrapper verbatim (TasksRoster's reportsTo span,
  // `inline-flex flex-wrap` with no max-w-full/min-w-0 — see fixtures/PartyLabelDefeatTable.svelte),
- // a ~27-character worker name with its AI-worker badge and compact Urn chip, and a person of
- // the same shape. Judged by the same escape oracle as agent-tasks and lib-rows: no element
- // paints outside its td, every ellipsized value keeps its full text in a title (#2506's FIT
- // conditions), and the negative control must be seen. Red on main: the nowrap `truncate` on
- // the name link and the chip's text span carry full-width min-content up the intrinsic chain,
- // so the unbounded wrapper sizes past the cell. Green at the fix: a one-line clamp with
- // [overflow-wrap:anywhere] collapses min-content while keeping the single-line ellipsis.
+ // a ~27-character worker name with its AI-worker badge and compact Urn chip, a person of
+ // the same shape, a short worker name, and a long name with no urn. Judged by
+ // the same escape oracle as agent-tasks
+ // and lib-rows: no element paints outside its td, every ellipsized value keeps its full
+ // text in a title (#2506's FIT conditions), and the negative control must be seen. Red on
+ // main: the nowrap `truncate` on the name link and the chip's text span carry full-width
+ // min-content up the intrinsic chain, so the unbounded wrapper sizes past the cell. Green
+ // at the fix: a one-line clamp with [overflow-wrap:anywhere] collapses min-content while
+ // keeping the single-line ellipsis.
+ //
+ // Contained is not yet right (portal#2506, found in the first green shots): a flex
+ // row shrinks name and badge by their basis alike, so the "AI worker" pill broke onto
+ // two lines in the 200px cell. The fix is a precedence, not a freeze: the name link
+ // takes basis-0 grow max-w-max, so it absorbs no shrinkage (the name clamps first)
+ // and the badge keeps its one line until the row cannot fit even the badge whole —
+ // a `shrink-0` badge was tried and regressed the alarms battery's 28px-text legs,
+ // where the whole badge cannot fit and must wrap instead of painting out. Pins:
+ // the name gives way before the badge (the badge is on one line beside a truncated
+ // name, with a chip below and without), the name is never wider than its own text
+ // (the badge sits the row's gap to the right of a short name), and containment
+ // holds in a 120px party column — the resize guard's own floor. The battery also
+ // proves the shared oracle sees a CLAMP — the self-check
+ // below. Runs in the page: how PartyLabel's name row spends its cell. One reader
+ // for every pin, so they cannot disagree about which element is which — the name
+ // link is found by its href, the badge is its next sibling and the pill the badge's
+ // first child. A Range over the pill's text yields one rectangle per line, so
+ // `badgeLines` is the pill's line count.
+const readNameRow = link => {
+ const lines = el => { const range = document.createRange(); range.selectNodeContents(el); return [...range.getClientRects()]; };
+ const linkBox = link.getBoundingClientRect(), badge = link.nextElementSibling, badgeBox = badge?.getBoundingClientRect();
+ return {
+  rowWidth: link.parentElement?.getBoundingClientRect().width ?? null,
+  linkWidth: linkBox.width,
+  textWidth: Math.max(0, ...lines(link).map(rect => rect.width)),
+  truncated: link.scrollHeight > link.clientHeight + 1,
+  gapToBadge: badgeBox ? badgeBox.left - linkBox.right : null,
+  badgeWidth: badgeBox?.width ?? null,
+  badgeLines: badge?.firstElementChild ? lines(badge.firstElementChild).length : null,
+  hasChip: (link.parentElement?.nextElementSibling ?? null) !== null,
+ };
+};
  if (battery.partyLabel.length) for (const width of widths) for (const dark of [false, true]) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   const errors = await watchErrors(page);
@@ -1340,8 +1378,12 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    }, { css, dark });
    await page.evaluate(async () => { const { mountPartyLabelCell } = await import('/src/lib/test/fixtures/party-label-cell-harness.ts'); window.stopFixture = mountPartyLabelCell(document.getElementById('fixture')); });
    // The cells this battery exists to measure must be on the page: the worker's linked name and its chip.
+   // The chip by position (the name row's next sibling in the column), never by the title under test.
    await page.locator('tbody a[href^="/app/workers/"]').first().waitFor({ timeout: 10000 });
-   await page.locator('tbody span[title^="hrn:worker:"]').first().waitFor({ timeout: 10000 });
+   await page.waitForFunction(() => {
+    const chipWrapper = document.querySelector('tbody a[href="/app/workers/w-long"]')?.parentElement?.nextElementSibling ?? null;
+    return chipWrapper !== null && chipWrapper.querySelector('span') !== null;
+   }, undefined, { timeout: 10000 });
    await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
    await settlePage(page);
    // Fonts settled before the measured read (the same race the pages battery guards).
@@ -1350,22 +1392,84 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/party-label-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
    if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
    // TITLE pins — the truncate idiom's other half: the full values stay reachable (#2506 FIT).
+   // By position and by text, never by the title under test: a selector that
+   // finds the element through its title cannot see the title go (code review, #2506).
    const titles = await page.evaluate(async () => {
-    const { LONG_WORKER_NAME, LONG_WORKER_URN, LONG_PERSON_NAME } = await import('/src/lib/test/fixtures/party-label-cell-harness.ts');
+    const { LONG_ROW_ID, LONG_WORKER_NAME, LONG_WORKER_URN, LONG_PERSON_NAME } = await import('/src/lib/test/fixtures/party-label-cell-harness.ts');
+    const personCell = document.querySelector('tbody tr:nth-child(2) td:nth-child(1)');
+    const personName = personCell && [...personCell.querySelectorAll('span')].find(el => el.childElementCount === 0 && el.textContent.trim() === LONG_PERSON_NAME);
+    // The chip by position: the name row's next sibling is the chip wrapper, whose
+    // first grandchild is the collapsed value span — an <a>/<code>/<button> chip by
+    // link/pointer state, so the element tag is not part of the find either.
+    const nameRow = document.querySelector(`tbody a[href="/app/workers/${LONG_ROW_ID}"]`)?.parentElement ?? null;
+    const chipValue = nameRow?.nextElementSibling?.firstElementChild?.firstElementChild?.firstElementChild ?? null;
     return {
-      linkTitle: document.querySelector('tbody a[href^="/app/workers/"]')?.getAttribute('title') ?? null,
-      chipTitle: document.querySelector('tbody span[title^="hrn:worker:"]')?.getAttribute('title') ?? null,
-      personTitle: document.querySelector(`tbody [title="${LONG_PERSON_NAME}"]`)?.getAttribute('title') ?? null,
-      LONG_WORKER_NAME, LONG_WORKER_URN,
+      linkTitle: document.querySelector(`tbody a[href="/app/workers/${LONG_ROW_ID}"]`)?.getAttribute('title') ?? null,
+      chipTitle: chipValue?.getAttribute('title') ?? null,
+      personTitle: personName?.getAttribute('title') ?? null,
+      LONG_WORKER_NAME, LONG_WORKER_URN, LONG_PERSON_NAME,
     };
    });
    if (titles.linkTitle !== titles.LONG_WORKER_NAME) failures.push(`${leg}: the name link lost its full value in a title ${JSON.stringify(titles.linkTitle)}`);
    if (titles.chipTitle !== titles.LONG_WORKER_URN) failures.push(`${leg}: the chip lost its full URN in a title ${JSON.stringify(titles.chipTitle)}`);
+   if (titles.personTitle !== titles.LONG_PERSON_NAME) failures.push(`${leg}: the person's clamped name lost its full value in a title ${JSON.stringify(titles.personTitle)}`);
+   // THE NAME GIVES WAY BEFORE THE BADGE (portal#2506). The long worker's row is the one that lacks room.
+   // A row's link is found by its href, never by the title under test.
+   const linkOf = id => page.locator(`tbody a[href="/app/workers/${id}"]`);
+   const longRow = await linkOf('w-long').evaluate(readNameRow);
+   if (!longRow.truncated) failures.push(`${leg}: the long name is not truncated at ${width}px, so this leg proves nothing about what gives way`);
+   if (longRow.badgeLines !== 1) failures.push(`${leg}: the AI-worker badge is on ${longRow.badgeLines} lines beside a truncated name; the name gives way first`);
+   // …and the name is never wider than its own text: beside a short name the chip is
+   // the wide item and the row is as wide as the chip, and the badge still sits the
+   // row's gap (6px) to the right of the NAME — not at the far end of the row.
+   const shortRow = await linkOf('w-short').evaluate(readNameRow);
+   if (shortRow.truncated) failures.push(`${leg}: the short name truncates, so its link's own width cannot be read`);
+   if (Math.abs(shortRow.linkWidth - shortRow.textWidth) > 1) failures.push(`${leg}: the name link is ${shortRow.linkWidth}px wide for ${shortRow.textWidth}px of text`);
+   if (shortRow.gapToBadge === null || Math.abs(shortRow.gapToBadge - 6) > 1) failures.push(`${leg}: the badge sits ${shortRow.gapToBadge}px right of the name's text, not the row's 6px gap`);
+   // THE NO-CHIP ROW (portal#2506). `urn` is nullable by contract: a worker with
+   // no URN renders the name row on its own — never an empty chip (render-absent,
+   // the Urn review rule) — and there too the name gives way before the badge,
+   // so the fix does not lean on the chip squeezing the column.
+   const noChipRow = await linkOf('w-nochip').evaluate(readNameRow);
+   if (noChipRow.hasChip) failures.push(`${leg}: a worker with a null urn rendered a chip`);
+   if (!noChipRow.truncated) failures.push(`${leg}: the no-chip row's long name is not truncated, so this leg proves nothing about what gives way`);
+   if (noChipRow.badgeLines !== 1) failures.push(`${leg}: the no-chip row's badge is on ${noChipRow.badgeLines} lines beside a truncated name`);
    // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
    await page.locator('tbody td').first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
    if (!(await cellEscapes(page, '')).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
    await page.locator('[data-negative]').evaluate(el => el.remove());
-   console.log(escapes.length ? `${leg}: FAILED` : `${leg}: the defeating wrapper contains name and chip, titles carry the full values; control detected`, escapes);
+   // THE ORACLE SEES A CLAMP (portal#2506). A clamp ellipsizes on the y axis and
+   // computes text-overflow to `clip`, which the oracle's horizontal `ellipsis`
+   // test never matched — so with the clamp alone, a compact Urn chip or a
+   // PartyLabel name that lost its title went unreported in every battery. Strip
+   // the link's title: the oracle has to report it.
+   const nameLink = linkOf('w-long');
+   await nameLink.evaluate(el => el.removeAttribute('title'));
+   if (!(await cellEscapes(page, '')).some(x => x.note === 'ellipsized with no reachable full value')) failures.push(`${leg}: a clamped, truncated name link without a title was not reported by the escape oracle`);
+   await nameLink.evaluate((el, name) => el.setAttribute('title', name), titles.LONG_WORKER_NAME);
+   // THE NARROW COLUMN (portal#2506): the Party column at 120px — the narrowest
+   // a user can make it (the resize guard's own floor) — still contains the
+   // stack with ~88px of content: the name clamps to a ~22px sliver, the badge
+   // keeps its whole one line (~60px + gap), the chip clamps itself. The badge's
+   // give-way floor is ~66px of row content (party column ~100px); below it the
+   // badge wraps rather than painting out. Not probed at 390: there the chip's
+   // two 44px coarse-pointer touch targets (#1604) need ~115px on their own, so
+   // no sub-115px party cell can contain a chip row regardless of this fix. The
+   // regime where the whole badge CANNOT fit (28px text zoom in a 120px column)
+   // and the badge must wrap instead of painting out is pinned by the alarms
+   // battery's text-zoom legs.
+   if (width === 1280) {
+    await page.evaluate(() => { window.__fixtureTables.at(-1).setColumnSizing({ party: 120 }); });
+    await settlePage(page);
+    const narrowEscapes = await cellEscapes(page, '');
+    if (narrowEscapes.length) failures.push(`${leg}/party-120px: ${JSON.stringify(narrowEscapes)}`);
+    const longRowNarrow = await linkOf('w-long').evaluate(readNameRow);
+    if (!longRowNarrow.truncated) failures.push(`${leg}/party-120px: the long name is not truncated in the 120px column`);
+    if (longRowNarrow.badgeLines !== 1) failures.push(`${leg}/party-120px: the badge wrapped in the 120px column (row ${Math.round(longRowNarrow.rowWidth)}px, link ${Math.round(longRowNarrow.linkWidth)}px, badge ${Math.round(longRowNarrow.badgeWidth)}px on ${longRowNarrow.badgeLines} lines) — 120px fits the whole badge, so the badge must not give way there`);
+    const noChipNarrow = await linkOf('w-nochip').evaluate(readNameRow);
+    if (!noChipNarrow.truncated || noChipNarrow.badgeLines !== 1) failures.push(`${leg}/party-120px: the no-chip row's name does not give way before the badge (truncated ${noChipNarrow.truncated}, badge on ${noChipNarrow.badgeLines} lines)`);
+   }
+   console.log(escapes.length ? `${leg}: FAILED` : `${leg}: the defeating wrapper contains name and chip, titles carry the full values; the name gives way before the badge (${Math.round(longRow.linkWidth)}px link, badge on ${longRow.badgeLines} line); contained in the 120px column; the oracle sees a clamp; control detected`, escapes);
    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
    await unmountFixture(page);
    assertPatched();

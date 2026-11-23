@@ -85,6 +85,17 @@ describe('batteryFor', () => {
       expect(owned[0][1], `CELL_KIND=${kind}`).toEqual([kind]);
     }
   });
+  // portal#2506 review F1: the component arm once omitted the partyLabel key,
+  // so CELL_KIND=alarms|runs|config reached the script's
+  // `battery.partyLabel.length` guard as undefined and threw TypeError — after
+  // its legs had run, masking their failures behind a crash. Every arm answers
+  // every battery key, always.
+  it('answers every battery key for every kind, null included', () => {
+    const BATTERY_KEYS = ['component', 'findings', 'wake', 'agentTasks', 'partyLabel', 'pages', 'apps', 'lib'];
+    for (const kind of [...ALL_KINDS, null]) {
+      expect(Object.keys(batteryFor(kind)).sort(), `CELL_KIND=${kind}`).toEqual([...BATTERY_KEYS].sort());
+    }
+  });
   it('null runs every battery at its full list', () => {
     expect(batteryFor(null)).toEqual({
       component: ['alarms', 'runs', 'config'],

@@ -32,8 +32,14 @@
            so inside a caller wrapper that omits max-w-full/min-w-0 (the
            roster's reportsTo cell) the name forced the whole stack past the
            cell. The clamp keeps the one-line ellipsis and the title;
-           `anywhere` (not `break-word`) is what collapses min-content. -->
-      <a href="/app/workers/{party.id}" class="line-clamp-1 [overflow-wrap:anywhere] font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={partyName(party)}>{partyName(party)}</a>
+           `anywhere` (not `break-word`) is what collapses min-content.
+           basis-0 + grow + max-w-max make the name the first to give way and
+           the badge the last: flex distributes shrinkage by basis, so with a
+           zero basis the name takes none and the badge keeps its line until
+           the row cannot fit even the badge whole (a 28px text zoom in a
+           120px column) — there the badge, still shrinkable, wraps instead of
+           painting out. max-w-max stops a short name growing past its text. -->
+      <a href="/app/workers/{party.id}" class="basis-0 grow line-clamp-1 max-w-max [overflow-wrap:anywhere] font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={partyName(party)}>{partyName(party)}</a>
       <WorkerBadge size="xs" />
     </span>
     {#if showUrn && party.urn}
