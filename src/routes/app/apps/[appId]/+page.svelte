@@ -64,11 +64,34 @@
     next.searchParams.set('tab', 'chats');
     next.searchParams.set('chat', key);
     if (key !== AGENT_CHAT_KEY) next.searchParams.delete('agentChat');
+    // #1407: the whole panel goes inert for the switch, and a browser drops focus
+    // from a control that turns inert, so a keyboard or screen-reader user who
+    // chose a chat in the selector would land on the page body. Put focus back on
+    // the selector once the switch ends, but only when they did not move it
+    // themselves. "Focus is on the body now" cannot say that: Kit blurs to the body
+    // after every navigation, so a reader who tabbed to another control mid-switch
+    // looks the same. A focusin on anything but the selector during the switch is
+    // the record that they moved it.
+    const selectorHadFocus = document.activeElement?.id === 'app-chat-select';
+    let readerMovedFocus = false;
+    const noteFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && el.id !== 'app-chat-select' && el !== document.body) readerMovedFocus = true;
+    };
+    document.addEventListener('focusin', noteFocus);
     chatSwitchBusy = true;
     chatSwitchFailed = false;
     try { await goto(next, { noScroll: true }); }
     catch { chatSwitchFailed = true; }
-    finally { chatSwitchBusy = false; }
+    finally {
+      chatSwitchBusy = false;
+      document.removeEventListener('focusin', noteFocus);
+      if (selectorHadFocus && !readerMovedFocus) {
+        await tick();
+        const active = document.activeElement;
+        if (!active || active === document.body) document.getElementById('app-chat-select')?.focus({ preventScroll: true });
+      }
+    }
   }
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
@@ -2958,6 +2981,7 @@
     { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
     { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
+    { id: 'metrics', label: t('app.tabs.metrics', 'Team metrics'), href: `/app/apps/${app.id}/metrics` },
     { id: 'secrets', label: t('app.tabs.secrets', 'Secrets'), href: `/app/apps/${app.id}/secrets` },
     { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),

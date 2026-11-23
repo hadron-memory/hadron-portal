@@ -2,6 +2,8 @@ import type { TeamChatMessage } from '$lib/types';
 
 /** How often the thread refetches while the tab is visible. */
 export const TEAM_CHAT_POLL_MS = 8000;
+/** #1407: how long a post may stay unanswered before the thread stops locking the page. */
+export const POST_PENDING_BOUND_MS = 30_000;
 
 /**
  * Reconcile a `sinceSeq` page's cursor-scoped count with the full thread count.

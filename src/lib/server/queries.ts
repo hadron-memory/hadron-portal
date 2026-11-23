@@ -5644,6 +5644,10 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
     agentTask(id: $id) {
       ...AgentTaskRowFields
       appId
+      # #1914 (hadron-server#3878): the served address, hrn:agenttask:<root>:<app-slug>:<handle>.
+      # Detail only: the server computes it per task from the App's urn, so the list
+      # and tree fragments do not ask for it. Rendered as served; the portal composes none for display.
+      urn
       description
       requirements { role familyIn familyNotIn excludeWorkerIds minTier }
       createdBy { ...AgentTaskPartyFields }
@@ -6324,4 +6328,36 @@ export const SET_SATURATION_ALARM_WAKE_ROLES_MUTATION = /* GraphQL */ `
   mutation SetSaturationAlarmWakeRoles($appRef: ID!, $roles: [String!]!) {
     setSaturationAlarmWakeRoles(appRef: $appRef, roles: $roles) { appId roles }
   }
+`;
+
+// portal#1856: the team-metrics read, isolated from the shared App loader.
+export const TEAM_METRICS_QUERY = /* GraphQL */ `
+  query TeamMetrics($appRef: ID!, $since: DateTime, $until: DateTime) {
+    teamMetrics(appRef: $appRef, since: $since, until: $until) {
+      appId asOf
+      window { since until }
+      startedOwned {
+        all { ...TeamMetricsCountFields }
+        ownersTruncated
+        byOwner {
+          owner { id kind name urn }
+          tasks { ...TeamMetricsCountFields }
+          projectsTruncated
+          byProject { project { handle noProject taskId title } tasks { ...TeamMetricsCountFields } }
+        }
+      }
+      projects {
+        truncated
+        items { project { handle noProject taskId title } children { status tasks { ...TeamMetricsCountFields } } }
+      }
+      workers {
+        active { ...TeamMetricsCountFields }
+        idle { ...TeamMetricsCountFields }
+        overdue { ...TeamMetricsCountFields }
+        inop { ...TeamMetricsCountFields }
+      }
+      flow { completed { ...TeamMetricsCountFields } started { ...TeamMetricsCountFields } }
+    }
+  }
+  fragment TeamMetricsCountFields on TeamMetricsCount { total ids truncated }
 `;

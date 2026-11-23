@@ -34,8 +34,11 @@ export type AgentTaskCellRow = (typeof AGENT_TASK_CELL_ROWS)[number]['listKey'];
 /** 64 characters, the longest legal handle: `AT` plus dotted numbers. */
 export const LONG_HANDLE = 'AT0.12345678901.12345678901.12345678901.12345678901.123456789012';
 const LONG_TITLE = 'LongTaskTitleWithSixtyUnbrokenCharactersABCDEFGHIJKLMNOPQRSTUVWXYZ0123';
-// PartyLabel (shared by 25 callers) is judged at a realistic name; its own long-name limit is a separate finding.
+// PartyLabel (shared by 25 callers) is judged at a realistic name; the long-name containment
+// limit is #2506, pinned by the party-label battery and this roster row's reportsTo cell.
 const LONG_NAME = 'GabrielaTheEngineer';
+/** 27 characters — the worker-name length the #2506 report escapes with (roster reportsTo cell). */
+const LONG_REPORTS_NAME = 'ConstantinThePortalEngineer';
 const LONG_ROLE = 'a-very-long-role-token-with-no-spaces-in-it-at-all-0123456789';
 const LONG_STATE = 'A_STATE_THE_SERVER_ADDED_AFTER_THIS_PORTAL_SHIPPED';
 const time = '2026-11-01T02:04:36Z';
@@ -87,11 +90,13 @@ export function mountAgentTaskCell(target: HTMLElement, row: AgentTaskCellRow) {
     return () => unmount(instance);
   }
   if (row !== 'app-tasks:roster') throw new Error(`agent-tasks-cell-harness: no fixture for row ${String(row)}`);
-  const entry = (state: string, name: string) => ({
+  const entry = (state: string, name: string, reportsTo: ReturnType<typeof worker> | null = null) => ({
     worker: worker(name), role: LONG_ROLE, state, family: 'claude', freeFamilies: [], launchableFamilies: [], unavailableFamilies: [],
     unavailableReason: null, unavailableUntil: null, bound: true, liveSession: true, lastActiveAt: time, lastAssignedAt: time,
-    reportsTo: null, reportsToRetired: false, startedTasks: [], pendingTasks: [], waitingOn: [], waitingSince: null, unreactedChildTask: null, alarms: [],
+    reportsTo, reportsToRetired: false, startedTasks: [], pendingTasks: [], waitingOn: [], waitingSince: null, unreactedChildTask: null, alarms: [],
   });
-  const instance = mount(TasksRoster, { target, props: { basePath: '/app/apps/fixture', refs: {}, roster: { kind: 'ok', value: { asOf: time, workers: [entry(LONG_STATE, 'Ada'), entry('WORKING', 'Bea')] } } } as never });
+  // portal#2506: Ada's reportsTo is a 27-character worker, so the real caller's
+  // defeating wrapper (`inline-flex flex-wrap`, no max-w-full/min-w-0) is judged.
+  const instance = mount(TasksRoster, { target, props: { basePath: '/app/apps/fixture', refs: {}, roster: { kind: 'ok', value: { asOf: time, workers: [entry(LONG_STATE, 'Ada', worker(LONG_REPORTS_NAME)), entry('WORKING', 'Bea')] } } } as never });
   return () => unmount(instance);
 }

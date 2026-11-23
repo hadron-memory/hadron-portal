@@ -9,6 +9,7 @@ import HeldWorkersTable from '$lib/components/HeldWorkersTable.svelte';
 import AssetTable from '$lib/components/assets/AssetTable.svelte';
 import TemplatesManager from '$lib/components/memory-config/TemplatesManager.svelte';
 import GrantsPage from '../../../routes/app/account/grants/+page.svelte';
+import { BROWSER_CELL_ROWS, isBrowserCellRow, mountBrowserCell, prepareBrowserCell } from './lib-browser-rows-harness';
 
 /**
  * The rows of #2492 this PR fixes, by listKey. `prepare` names a step a reader performs before the
@@ -27,7 +28,10 @@ export const LIB_CELL_ROWS = [
   { listKey: 'node-role-templates:USER', prepare: null, anywhereColumns: ['name', 'description'], dateColumns: [] as string[], expect: 'tbody button:has-text("Apply to several memories")' },
   { listKey: 'account:grants', prepare: null, anywhereColumns: ['action', 'reason', 'values'], dateColumns: ['createdAt', 'activatedAt', 'startsAt', 'expiresAt', 'revokedAt'], expect: 'tbody [data-testid="my-grant-row"]' },
 ] as const;
-export type LibCellRow = (typeof LIB_CELL_ROWS)[number]['listKey'];
+// portal#2492: the browser-check rows, measured at both widths and in both themes and fixed where they escaped.
+const BROWSER_ROWS = BROWSER_CELL_ROWS.map((r) => ({ ...r, anywhereColumns: [] as string[], dateColumns: [] as string[], measured: false }));
+export const ALL_LIB_CELL_ROWS = [...LIB_CELL_ROWS.map((r) => ({ ...r, measured: false })), ...BROWSER_ROWS];
+export type LibCellRow = (typeof LIB_CELL_ROWS)[number]['listKey'] | (typeof BROWSER_CELL_ROWS)[number]['listKey'];
 
 // Built by construction, not hand-counted (blind review, #2515): each is long enough to overflow its
 // column unbroken. The exact length is not the contract; being longer than the cell is.
@@ -35,11 +39,16 @@ const LONG_NAME = `LongWorkerName${'A'.repeat(40)}`;
 const LONG_ROLE = `a-long-role-token-${'x'.repeat(42)}`;
 const LONG_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.macroEnabled.12';
 const LONG_UPLOADER = `Uploader${'B'.repeat(40)}`;
+// The File cell shows the asset's URN chip and a description line, the Memory cell the memory's URN chip: a long
+// memory slug lengthens both chips, and a long description exercises the truncate-with-title line (portal#2516).
+const LONG_MEMORY = `long-memory-slug-${'m'.repeat(50)}`;
+const LONG_DESCRIPTION = `a long asset description with a spaceless tail ${'d'.repeat(60)}`;
 const NAME_64 = `Template${'C'.repeat(56)}`;
 const TOKEN = 'a-description-token-with-no-spaces-0123456789-0123456789-0123456789';
 const time = '2026-11-01T02:04:36Z';
 
 export function mountLibCell(target: HTMLElement, row: LibCellRow) {
+  if (isBrowserCellRow(row)) return mountBrowserCell(target, row);
   if (row === 'user:held-workers') {
     const workers = [0, 1].map((i) => ({ id: `w${i}`, name: `${LONG_NAME}${i}`, urn: `hrn:worker:example.test:fixture:w${i}`, role: LONG_ROLE, appId: 'a1', appUrn: 'hrn:app:example.test:fixture', heldAt: time, hasLiveSession: i === 0, lastActiveAt: time }));
     const instance = mount(HeldWorkersTable, { target, props: { workers } });
@@ -47,10 +56,10 @@ export function mountLibCell(target: HTMLElement, row: LibCellRow) {
   }
   if (row === 'memory:assets' || row === 'memory:assets:delete-confirm') {
     const assets = [0, 1].map((i) => ({
-      id: `asset-${i}`, memoryId: 'mem-1', urn: `hrn:asset:example.test:fixture:assets:asset-${i}`,
-      filename: `report-${i}.xlsm`, mimeType: LONG_MIME, sizeBytes: 2048,
+      id: `asset-${i}`, memoryId: 'mem-1', urn: `hrn:asset:example.test:${LONG_MEMORY}:assets:asset-${i}`,
+      filename: `report-${i}${'f'.repeat(60)}.xlsm`, mimeType: LONG_MIME, sizeBytes: 2048,
       uploadedAt: '2026-11-21T14:03:00.000Z', uploadedBy: `user-${i}`,
-      scanStatus: 'CLEAN' as const, scanSignature: null, description: null, publicUrl: null,
+      scanStatus: 'CLEAN' as const, scanSignature: null, description: LONG_DESCRIPTION, publicUrl: null,
       publicLinkEnabled: false, canManagePublicLink: false, publicLinkAvailable: false,
     }));
     const instance = mount(AssetTable, { target, props: { assets, showMemory: true, uploaderNames: { 'user-0': LONG_UPLOADER, 'user-1': LONG_UPLOADER } } as never });
@@ -85,6 +94,7 @@ async function until<T>(read: () => T | undefined, what: string): Promise<T> {
 
 /** The step a row's `prepare` names, run once the table has mounted. */
 export async function prepareLibCell(target: HTMLElement, step: string) {
+  if (step === 'template-draft') return prepareBrowserCell(target, step);
   if (step === 'asset-delete-confirm') {
     const trigger = target.querySelector<HTMLButtonElement>('button[aria-label^="Actions for"]');
     if (!trigger) throw new Error('lib-rows: the asset row menu trigger is missing');

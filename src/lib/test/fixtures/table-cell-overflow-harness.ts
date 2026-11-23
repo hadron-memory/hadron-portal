@@ -28,8 +28,11 @@ const LONG_ACTOR = 'actor-example.test:fixture-account-with-long-unbroken-id';
 const LONG_EDGE_NAME = 'depends-on-' + 'e'.repeat(54); // 65: edge names are free-typed (the form takes any trimmed string), so a long one must stay reachable (blind review, #2507)
 const LONG_INFO = 'worker-example.test:fixture:identity-with-long-unbroken-suffix';
 const LONG_DESCRIPTION = LONG64 + 'D'.repeat(40);
+// portal#2512: the bundled-agents Role and Bundled-via cells hold an unbroken 64-char value.
+const LONG_ROLE = 'LongFixtureRoleWithFortyUnbrokenCharacters' + 'R'.repeat(22); // 64
+const LONG_VIA = 'LongFixtureViaAppNameWithFortyUnbrokenCharacters' + 'V'.repeat(16); // 64
 const LONG_URN = 'hrn:agent:example.test:fixture:' + 'u'.repeat(28);
-export const PAGE_FIXTURE_VALUES = { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO, LONG_DESCRIPTION, LONG_URN, LONG_EDGE_NAME };
+export const PAGE_FIXTURE_VALUES = { LONG64, LONG_FIELD, LONG_LOC, LONG_TARGET_LOC, ID32, LONG_ACTOR, LONG_INFO, LONG_DESCRIPTION, LONG_ROLE, LONG_VIA, LONG_URN, LONG_EDGE_NAME };
 
 /**
  * portal#2490 node-page mount: the REAL /nodes/[nodeId] page, from data the
@@ -55,7 +58,7 @@ export async function mountLoadedNodePage(
 }
 
 export async function mountOverflowFixture(target: HTMLElement, kind: string) {
-  if (kind === 'agents-mine' || kind === 'memories-mine') {
+  if (kind === 'agents-mine' || kind === 'memories-mine' || kind === 'memories-shared') {
     setStubPage(`http://localhost/app/${kind === 'agents-mine' ? 'agents' : 'memories'}`, {});
     const { default: Page } =
       kind === 'agents-mine'
@@ -64,7 +67,10 @@ export async function mountOverflowFixture(target: HTMLElement, kind: string) {
     const data =
       kind === 'agents-mine'
         ? { agents: [{ id: 'agent-fixture', name: LONG64, urn: LONG_URN, description: '', memoryItems: [], systemMemoryId: null, visibility: 'PERSONAL' as const }], loadFailed: false }
-        : { memories: [{ id: 'mem-fixture', name: LONG64, urn: 'hrn:mem:example.test:fixture-memory', class: 'knowledge' }], loadFailed: false, sharedMemories: [], sharedLoadFailed: false, impersonating: null };
+        : kind === 'memories-mine'
+          ? { memories: [{ id: 'mem-fixture', name: LONG64, urn: 'hrn:mem:example.test:fixture-memory', class: 'knowledge' }], loadFailed: false, sharedMemories: [], sharedLoadFailed: false, impersonating: null }
+          // portal#2508: the "shared with me" tab. The caller clicks the real tab after mount.
+          : { memories: [], loadFailed: false, sharedMemories: [{ id: 'shared-fixture', name: LONG64, urn: 'hrn:mem:example.test:fixture-shared-memory', class: 'knowledge', myShare: { role: 'reader', grantor: { handle: 'grantor', name: null } } }], sharedLoadFailed: false, impersonating: null };
     const instance = mount(Page as never, { target, props: { data, form: null } as never });
     return () => unmount(instance);
   }
@@ -80,7 +86,7 @@ export async function mountOverflowFixture(target: HTMLElement, kind: string) {
         { id: 'app-fixture', name: LONG64, urn: 'hrn:app:example.test:fixture:app-fixture', orgId: 'o-fixture' },
         { id: 'app-personal', name: 'Personal App', urn: 'hrn:app:example.test:fixture:app-personal', orgId: null },
       ],
-      bundledAgents: [{ id: 'bundled-fixture', name: LONG64, urn: LONG_URN, personaRole: 'helper', via: 'Import', description: LONG_DESCRIPTION }],
+      bundledAgents: [{ id: 'bundled-fixture', name: LONG64, urn: LONG_URN, personaRole: LONG_ROLE, via: LONG_VIA, description: LONG_DESCRIPTION }],
       bundleCandidates: [],
     };
     const instance = mount(Page as never, { target, props: { data, form: null } as never });

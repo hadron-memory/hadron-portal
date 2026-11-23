@@ -4,11 +4,11 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
-import { chromium } from 'playwright';
-import { parseHarnessEnv, injectionEcho, batteryFor } from './lib/cell-harness-env.mjs';
+import { chromium, firefox, webkit } from 'playwright';
+import { parseHarnessEnv, injectionEcho, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH, ORGS_KINDS, TITLE_CHECKED_KINDS } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
-import { probeCellEscapes, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
+import { probeCellEscapes, probeUntitledEllipsis, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
@@ -104,8 +104,16 @@ const watchErrors = async page => {
 // tallest legs, so only their post-screenshot pointer-mode assert tripped.
 // Screenshots go through __cellShot so the emulation the oracle assumes is
 // restored before the next check; the asserts stay.
+// CELL_BROWSER (blind F2, PR #2538): the pin speaks CDP, which only Chromium
+// offers — on Firefox/WebKit the call below dies with a Playwright stack trace
+// mid-run (viewed: f2-firefox-alarms.log). The party-label battery is the
+// cross-engine surface (it creates its own pin-free pages), so a non-Chromium
+// engine is refused HERE, naming the scope, instead of crashing wherever the
+// warm-up or a leg happens to hit this line first.
 const newEmulatedPage = async (browser, width) => {
  const coarse = width === 390;
+ const engine = browser.browserType().name();
+ if (engine !== 'chromium') throw new Error(`CELL_BROWSER=${engine} cannot run this leg: the pointer/touch emulation pin speaks CDP, which only Chromium offers. Cross-engine runs cover the party-label battery only (CELL_KIND=party-label — its legs pin nothing); drop CELL_BROWSER for everything else.`);
  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: coarse });
  const cdp = await page.context().newCDPSession(page);
  const pin = async () => {
@@ -183,6 +191,8 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
+// portal#2514: the narrowest a members Role select may get while still showing its value (the harness's narrowest column is 120px).
+const ROLE_SELECT_FLOOR_PX = 72;
 // The strict no-clipping oracle applies from this measured width up (blind review, #2507, named):
 // the sizing legs hold every declared minimum at 120px (the drag legs assert aria-valuemin >= 120),
 // so 119px is that floor within 1px of sub-pixel tolerance — narrower restored text columns are
@@ -216,7 +226,13 @@ const failures = [];
 try {
  await server.listen(); const origin = server.resolvedUrls.local[0];
  const css = await (await fetch(new URL('/src/app.css?direct', origin))).text();
- browser = await chromium.launch({ headless: true });
+ // CELL_BROWSER picks the engine (chromium|firefox|webkit) so the flex
+ // give-way legs can run outside Chromium (blind F2, PR #2538); the default
+ // is unchanged. Scope: only the party-label battery runs cross-engine —
+ // every other leg pins pointer/touch emulation over CDP (Chromium-only) and
+ // newEmulatedPage refuses a non-Chromium engine by name.
+ const CELL_BROWSER = process.env.CELL_BROWSER ?? 'chromium';
+ browser = await ({ chromium, firefox, webkit })[CELL_BROWSER].launch({ headless: true });
  // portal#2490: warm the CLIENT dep optimizer with the six page graphs before
  // any timed leg. The pages' dynamic imports are only discovered at request
  // time (the fixture's stub rewrite runs in the transform pipeline, which the
@@ -759,9 +775,11 @@ async function loadNodePageData(devServer, tab) {
    // (src/lib/i18n/t.ts) — no locale resolution exists to drift yet. Wiring a
    // real i18n library behind t() makes these locale-sensitive; they will
    // fail loudly here, not silently pass.
-   if (kind === 'agent-apps' || kind === 'agent-bundled') {
-    const label = kind === 'agent-apps' ? 'Apps' : 'Bundled agents';
-    const tab = page.getByRole('tab', { name: label, exact: true }).first();
+   if (kind === 'agent-apps' || kind === 'agent-bundled' || kind === 'memories-shared') {
+    const label = kind === 'agent-apps' ? 'Apps' : kind === 'agent-bundled' ? 'Bundled agents' : 'Memories shared with me';
+    // The shared tab's name carries a row-count badge, so only that one matches by prefix.
+    const exact = kind !== 'memories-shared';
+    const tab = page.getByRole('tab', { name: label, exact }).first();
     const more = page.getByRole('button', { name: /More/ });
     // WAIT for one of the two shapes before choosing (blind review, #2507):
     // isVisible() does not wait, and a strip that has not rendered yet fell
@@ -774,7 +792,7 @@ async function loadNodePageData(devServer, tab) {
     if (await tab.isVisible()) await tab.click();
     else {
      await more.click();
-     await page.getByRole('menuitem', { name: label, exact: true }).click();
+     await page.getByRole('menuitem', { name: label, exact }).click();
     }
    }
    await page.locator('tbody td').first().waitFor({ timeout: 15000 });
@@ -815,6 +833,7 @@ async function loadNodePageData(devServer, tab) {
     };
     if (kind === 'agents-mine') pin('name link', document.querySelector('a[href="/app/agents/agent-fixture"]'), V.LONG64);
     if (kind === 'memories-mine') pin('name link', document.querySelector('a[href="/app/memories/mem-fixture"]'), V.LONG64);
+    if (kind === 'memories-shared') pin('name link', document.querySelector('a[href="/app/memories/shared-fixture"]'), V.LONG64);
     if (kind === 'agent-apps') {
      pin('app name link', document.querySelector('a[href="/app/apps/app-fixture"]'), V.LONG64);
      const orgSpan = [...document.querySelectorAll('tbody span')].find(s => (s.getAttribute('title') ?? '').startsWith('FixtureOrg'));
@@ -823,6 +842,9 @@ async function loadNodePageData(devServer, tab) {
     if (kind === 'agent-bundled') {
      pin('bundled name link', document.querySelector('a[href="/app/agents/bundled-fixture"]'), V.LONG64);
      pin('bundled description', [...document.querySelectorAll('tbody span')].find(s => s.textContent === V.LONG_DESCRIPTION) ?? null, V.LONG_DESCRIPTION);
+     // portal#2512: the Role and Bundled-via spans keep the full value reachable once clamped.
+     pin('bundled role', [...document.querySelectorAll('tbody span')].find(s => s.textContent === V.LONG_ROLE) ?? null, V.LONG_ROLE);
+     pin('bundled via', [...document.querySelectorAll('tbody span')].find(s => s.textContent === V.LONG_VIA) ?? null, V.LONG_VIA);
     }
     if (kind === 'node-properties') {
      // Structural, not span-order: locate the cell by column index (field=0,
@@ -961,14 +983,17 @@ async function loadNodePageData(devServer, tab) {
   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
   const leg = `${kind}/${width}/${dark ? 'dark' : 'light'}`;
   const legFailuresBefore = failures.length;
+  const orgsKind = ORGS_KINDS.includes(kind);
   try {
    await page.goto(new URL('/__cell_fixture', origin).href);
-   await page.evaluate(({ css, dark }) => {
+   await page.evaluate(({ css, dark, orgsKind }) => {
     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-   }, { css, dark });
-   await page.evaluate(async kind => { const orgs = kind.startsWith('orgs-'); const m = await import(orgs ? '/src/lib/test/fixtures/orgs-cell-harness.ts' : '/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await (orgs ? m.mountOrgsCellFixture : m.mountAppsCellFixture)(document.getElementById('fixture'), kind); }, kind);
+    // #2517: orgs pages mount in a copy of the /app shell row (the classes of APP_SHELL_ROW > APP_SHELL_CONTENT in src/lib/layout/app-shell.ts,
+    // hand-copied: this script cannot import the .ts), not a bare min-w-0 main, so a table that widens its column shows up as document overflow.
+    document.body.innerHTML = orgsKind ? '<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6"><div class="min-w-0 flex-1"><div id="fixture"></div></div></div>' : '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark, orgsKind });
+   await page.evaluate(async ({ kind, orgs }) => { const m = await import(orgs ? '/src/lib/test/fixtures/orgs-cell-fixtures.ts' : '/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await (orgs ? m.mountOrgsCellFixture : m.mountAppsCellFixture)(document.getElementById('fixture'), kind); }, { kind, orgs: orgsKind });
    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
    await settlePage(page);
    // Every column the reader can reveal is revealed: a hidden-by-default column (a Stops Id, a ticker Last tick) is still a cell.
@@ -996,10 +1021,43 @@ async function loadNodePageData(devServer, tab) {
     await settlePage(page);
     const found = await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX);
     if (found.length) failures.push(`${leg}/${sizing}: cell content escapes its cell ${JSON.stringify(found)}`);
+    // portal#2514: a value the cell ellipsizes keeps its full text reachable (a title), for the kinds that are clean today.
+    if (TITLE_CHECKED_KINDS.includes(kind)) {
+     const untitled = await page.evaluate(probeUntitledEllipsis);
+     if (untitled.length) failures.push(`${leg}/${sizing}: an ellipsized value has no title ${JSON.stringify(untitled)}`);
+    }
     // The table keeps its width inside the page and scrolls internally. (The document's own scrollWidth is not used: the
     // page's TabRow keeps an invisible fixed measuring clone that widens it on main, with or without a table defect.)
     const scrollers = await page.locator('[data-testid="data-table-scroller"]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
     if (!scrollers.length || scrollers.some(r => r > width + 0.5)) failures.push(`${leg}/${sizing}: the table scroller leaves the page ${JSON.stringify(scrollers)}`);
+    // #2517: in the shell-row mount an orgs table must not widen the DOCUMENT (the fixture has no TabRow clone, so scrollWidth is sound here).
+    // clientWidth, not innerWidth: innerWidth includes the scrollbar, so it would excuse a few px of overflow.
+    if (orgsKind) {
+     const docWidth = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+     if (docWidth.scroll > docWidth.client) failures.push(`${leg}/${sizing}: the table widens the document to ${docWidth.scroll}px in a ${docWidth.client}px viewport`);
+    }
+    // portal#2514: the Role select has no measured minSize any more (it is w-full min-w-0 and shrinks with its column), so a
+    // collapsed select would pass every containment check above. Pin a usable floor: at the narrowest column this harness sets
+    // (120px) the select must still show its value, and no select may be hidden or zero-width.
+    if (kind === 'orgs-members') {
+     const roles = await page.evaluate(() => [...document.querySelectorAll('tbody select[name="role"]')].map(s => Math.round(s.getBoundingClientRect().width)));
+     if (roles.length === 0) failures.push(`${leg}/${sizing}: no Role select rendered, the floor measured nothing`);
+     else if (roles.some(w => w < ROLE_SELECT_FLOOR_PX)) failures.push(`${leg}/${sizing}: a Role select collapsed below ${ROLE_SELECT_FLOOR_PX}px ${JSON.stringify(roles)}`);
+    }
+    // portal#2526: the Team chat badge sits on the channel-name line. A `block` on the name anchor stacks the badge under the name and
+    // every containment check above still passes, so this pins the row itself: the badge and the name anchor share a line (their vertical
+    // centres within 4px; stacked they are a full line apart).
+    if (kind === 'apps-channels') {
+     const line = await page.evaluate(() => {
+      const badge = [...document.querySelectorAll('tbody td span')].find(s => s.textContent.trim() === 'Team chat');
+      const name = badge?.parentElement?.querySelector('a');
+      if (!badge || !name) return null;
+      const b = badge.getBoundingClientRect(), n = name.getBoundingClientRect();
+      return { badgeMid: b.top + b.height / 2, nameMid: n.top + n.height / 2 };
+     });
+     if (!line) failures.push(`${leg}/${sizing}: the default channel row has no Team chat badge next to a name anchor`);
+     else if (Math.abs(line.badgeMid - line.nameMid) > 4) failures.push(`${leg}/${sizing}: the Team chat badge is not on the channel-name line ${JSON.stringify(line)}`);
+    }
    }
    // __cellShot, like every CELL_SHOTS site on an emulated page (blind review
    // #2507, fold): a fullPage capture wipes the pinned emulation; this battery's
@@ -1016,6 +1074,19 @@ async function loadNodePageData(devServer, tab) {
    await page.evaluate(() => { document.querySelector('tbody td')?.replaceChildren(Object.assign(document.createElement('span'), { className: 'truncate', textContent: 'W'.repeat(120) })); });
    await settlePage(page);
    if ((await page.evaluate(probeCellEscapes, CELL_ESCAPE_PX)).length === 0) failures.push(`${leg}: the escape probe did not see an inline truncate escape`);
+   // portal#2514: the untitled-ellipsis probe must SEE a cut value with no title, or a title-removal mutant stays green.
+   if (TITLE_CHECKED_KINDS.includes(kind)) {
+    await control.evaluate(el => el.remove());
+    await page.evaluate(() => { document.querySelector('tbody td')?.replaceChildren(Object.assign(document.createElement('span'), { className: 'block truncate', style: 'max-width:60px', textContent: 'W'.repeat(120) })); });
+    await settlePage(page);
+    if ((await page.evaluate(probeUntitledEllipsis)).length === 0) failures.push(`${leg}: the untitled-ellipsis probe did not see a cut value with no title`);
+    // And the other direction: the same cut value WITH a title is reachable, and one with an empty title is not.
+    const cutValue = title => page.evaluate(title => { const span = Object.assign(document.createElement('span'), { className: 'block truncate', style: 'max-width:60px', textContent: 'W'.repeat(120) }); span.setAttribute('title', title); document.querySelector('tbody td')?.replaceChildren(span); }, title);
+    await cutValue('W'.repeat(120)); await settlePage(page);
+    if ((await page.evaluate(probeUntitledEllipsis)).length !== 0) failures.push(`${leg}: the untitled-ellipsis probe flagged a cut value that has a title`);
+    await cutValue(''); await settlePage(page);
+    if ((await page.evaluate(probeUntitledEllipsis)).length === 0) failures.push(`${leg}: the untitled-ellipsis probe accepted an empty title`);
+   }
    await control.evaluate(el => el.remove()); await net.evaluate(el => el.remove());
    await unmountFixture(page);
    assertPatched();
@@ -1039,7 +1110,11 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    for (const r of el.getClientRects()) px = Math.max(px, box.left - r.left, r.right - box.right);
    if (px > limit) found.push({ cell: td.textContent.trim().slice(0, 40), el: `${el.tagName.toLowerCase()}${el.className ? '.' + String(el.className).split(' ')[0] : ''}`, px: Math.round(px) });
    const st = getComputedStyle(el);
-   if (st.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1 && !el.closest('[title]')) found.push({ cell: td.textContent.trim().slice(0, 40), el: el.tagName.toLowerCase(), px: 0, note: 'ellipsized with no reachable full value' });
+   // portal#2506: a clamp ellipsizes on the y axis and computes text-overflow to `clip`, which the horizontal
+   // `ellipsis` test alone never matched — so a compact Urn chip or a PartyLabel name that lost its title
+   // went unreported the moment they took the clamp. Both count as ellipsized.
+   const ellipsized = (st.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1) || (st.webkitLineClamp !== 'none' && el.scrollHeight > el.clientHeight + 1);
+   if (ellipsized && !el.closest('[title]')) found.push({ cell: td.textContent.trim().slice(0, 40), el: el.tagName.toLowerCase(), px: 0, note: 'ellipsized with no reachable full value' });
   }
   // Bare text (a cell that renders a string with no element) is judged by its glyph boxes.
   const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
@@ -1055,6 +1130,55 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   }
   return found;
  }), ESCAPE_PX);
+
+ // portal#2516: the leg the two fixture-row batteries share (agent-tasks, slice 1; lib-rows, slice 6). Each
+ // copied ~35 lines of setup, the escape oracle, the negative control, the document-overflow check and the
+ // screenshot; only `cellEscapes` was shared. A battery now supplies its fixture module, the row, and an
+ // optional `extra(page, leg)` for the checks only it makes. `measured` rows are reported, never failed.
+ const runCellLeg = async ({ name, listKey, width, dark, scope = '', fixture, prepareStep = null, mustExist = null, measured = false, extra = null }) => {
+  const mode = dark ? 'dark' : 'light';
+  const leg = `${name}/${listKey}/${width}/${mode}`;
+  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async ({ module, mount, listKey }) => { const m = await import(module); window.stopFixture = m[mount](document.getElementById('fixture'), listKey); }, { module: fixture.module, mount: fixture.mount, listKey });
+   await page.locator(`${scope}tbody td`).first().waitFor({ timeout: 10000 });
+   if (prepareStep) await page.evaluate(async ({ module, prepare, step }) => { const m = await import(module); await m[prepare](document.getElementById('fixture'), step); }, { module: fixture.module, prepare: fixture.prepare, step: prepareStep });
+   // The cell this row exists to measure must be on the page: a prop mismatch would otherwise pass vacuously.
+   if (mustExist) await page.locator(mustExist).first().waitFor({ timeout: 10000 });
+   // Columns a view hides by default (the roster's Last assigned) still have cells a reader can show.
+   await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
+   await settlePage(page);
+   const escapes = await cellEscapes(page, scope);
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/${name}-${listKey.replaceAll(':', '-')}-${width}-${mode}.png`, fullPage: true });
+   if (measured) console.log(`${leg}: MEASURED (not failed, #2486 decides)`, escapes);
+   else {
+    if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
+    // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
+    await page.locator(`${scope}tbody td`).first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
+    if (!(await cellEscapes(page, scope)).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
+    await page.locator('[data-negative]').evaluate(el => el.remove());
+    console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
+   }
+   // A measured row is reported, never failed: its document overflow is logged by the line above, not queued.
+   if (!measured && !(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+   if (extra) await extra(page, leg);
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+  } catch (e) {
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-').replaceAll(':', '-')}.png`, fullPage: true }).catch(() => {});
+   throw e;
+  } finally { await page.close(); }
+ };
+
  // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and
  // legal synthetic data, default column sizes. A cell passes when no element inside it paints outside its
  // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
@@ -1077,44 +1201,8 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
    taskRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts')).AGENT_TASK_CELL_ROWS);
   } finally { await rowsPage.close(); }
   assert.ok(taskRows.length >= 7, 'the fixture lists every #2487 row');
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) {
-   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-   const errors = await watchErrors(page);
-   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
-   const leg = `agent-tasks/${listKey}/${width}/${dark ? 'dark' : 'light'}`;
-   try {
-    await page.goto(new URL('/__cell_fixture', origin).href);
-    await page.evaluate(({ css, dark }) => {
-     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
-     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-    }, { css, dark });
-    await page.evaluate(async row => { const { mountAgentTaskCell } = await import('/src/lib/test/fixtures/agent-tasks-cell-harness.ts'); window.stopFixture = mountAgentTaskCell(document.getElementById('fixture'), row); }, listKey);
-    await page.locator(`${scope}tbody td`).first().waitFor({ timeout: 10000 });
-    // Columns a view hides by default (the roster's Last assigned) still have cells a reader can show.
-    await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
-    await settlePage(page);
-    const escapes = await cellEscapes(page, scope);
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/agent-tasks-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
-    if (measured) console.log(`${leg}: MEASURED (not failed, #2486 decides)`, escapes);
-    else {
-     if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
-     // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
-     await page.locator(`${scope}tbody td`).first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
-     if (!(await cellEscapes(page, scope)).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
-     await page.locator('[data-negative]').evaluate(el => el.remove());
-     console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
-    }
-    // A measured row is reported, never failed: its document overflow is logged by the line above, not queued.
-    if (!measured && !(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
-    await unmountFixture(page);
-    assertPatched();
-    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
-   } catch (e) {
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-').replaceAll(':', '-')}.png`, fullPage: true }).catch(() => {});
-    throw e;
-   } finally { await page.close(); }
-  }
+  const fixture = { module: '/src/lib/test/fixtures/agent-tasks-cell-harness.ts', mount: 'mountAgentTaskCell' };
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) await runCellLeg({ name: 'agent-tasks', listKey, width, dark, scope, fixture, measured });
  }
 
 
@@ -1127,37 +1215,12 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   try {
    await rowsPage.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
    await rowsPage.goto(new URL('/__cell_fixture', origin).href);
-   libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).LIB_CELL_ROWS);
+   libRows = await rowsPage.evaluate(async () => (await import('/src/lib/test/fixtures/lib-cell-harness.ts')).ALL_LIB_CELL_ROWS);
   } finally { await rowsPage.close(); }
-  assert.ok(libRows.length >= 5, 'the fixture lists every fixed #2492 row');
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns, anywhereColumns } of libRows) {
-   const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-   const errors = await watchErrors(page);
-   await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
-   const leg = `lib-rows/${listKey}/${width}/${dark ? 'dark' : 'light'}`;
-   try {
-    await page.goto(new URL('/__cell_fixture', origin).href);
-    await page.evaluate(({ css, dark }) => {
-     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
-     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-     document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
-    }, { css, dark });
-    await page.evaluate(async row => { const { mountLibCell } = await import('/src/lib/test/fixtures/lib-cell-harness.ts'); window.stopFixture = mountLibCell(document.getElementById('fixture'), row); }, listKey);
-    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
-    if (prepare) await page.evaluate(async step => { const { prepareLibCell } = await import('/src/lib/test/fixtures/lib-cell-harness.ts'); await prepareLibCell(document.getElementById('fixture'), step); }, prepare);
-    // The cell this row exists to measure must be on the page: a prop mismatch would otherwise pass vacuously.
-    await page.locator(expect).first().waitFor({ timeout: 10000 });
-    await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
-    await settlePage(page);
-    const escapes = await cellEscapes(page, '');
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/lib-rows-${listKey.replaceAll(':', '-')}-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
-    if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
-    // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
-    await page.locator('tbody td').first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
-    if (!(await cellEscapes(page, '')).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
-    await page.locator('[data-negative]').evaluate(el => el.remove());
-    console.log(escapes.length ? `${leg}: FAILED` : `${leg}: every cell contains its content; control detected`, escapes);
-    if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+  assert.ok(libRows.length >= 16, 'the fixture lists every #2492 row, fixed and measured');
+  const fixture = { module: '/src/lib/test/fixtures/lib-cell-harness.ts', mount: 'mountLibCell', prepare: 'prepareLibCell' };
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, prepare, expect, dateColumns, anywhereColumns, measured } of libRows) {
+   await runCellLeg({ name: 'lib-rows', listKey, width, dark, fixture, measured, prepareStep: prepare, mustExist: expect, extra: async (page, leg) => {
     // Both checks below need the DOM table that belongs to a table INSTANCE (blind delta 2, #2515): the
     // instance is found by the column ids, the DOM table by its own header texts and column count, never by
     // DOM order. A template editor mounts three tables, so "the first table" is a guess.
@@ -1171,10 +1234,10 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
       return ths.length === visible.length && heads.every(h => ths.some(th => th.textContent.includes(h)));
      });
      if (!table) return null;
-     // Clear every earlier mark first (blind delta 3, #2515): a mark left on another table would make
-     // querySelector('[data-lib-rows-table]') read the wrong table and pass for the wrong reason.
-     for (const old of document.querySelectorAll('[data-lib-rows-table]')) old.removeAttribute('data-lib-rows-table');
-     table.setAttribute('data-lib-rows-table', '');
+     // Held on window, not marked in the DOM (portal#2516, from the #2515 blind delta): a mark that has to be
+     // cleared before the next lookup can go stale and make a later read take the wrong table; every call
+     // overwrites this reference, so there is nothing to clear and nothing to leave behind.
+     window.__libOwnerTable = table;
      return { ids: visible.map(c => c.id) };
     }, ids);
     // The free-text cells keep `overflow-wrap:anywhere`, judged on the computed style of the element that holds
@@ -1196,7 +1259,9 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
         }
         return texts === 0 ? 'no text' : null;
        };
-       const table = document.querySelector('[data-lib-rows-table]');
+       const table = window.__libOwnerTable;
+       // A held reference outlives a replaced table and then reads as empty or zero-sized: fail loudly instead.
+       if (!table || !table.isConnected) return { out: ['the owning table is no longer in the document'], control: 'n/a' };
        const out = [];
        for (const id of ids) {
         const index = cols.indexOf(id);
@@ -1229,15 +1294,17 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
      else {
       const split = await page.evaluate(({ ids, NARROW, cols }) => {
        const t = window.__fixtureTables.find(x => ids.every(id => x.getAllLeafColumns().some(c => c.id === id)));
-       const table = document.querySelector('[data-lib-rows-table]');
+       const table = window.__libOwnerTable;
+       if (!table || !table.isConnected) return { missing: [], wide: ['the owning table is no longer in the document'], broken: [], control: ['n/a'] };
+       // Each cell with its row index and column id: the td itself is not a stable key, a re-render may replace it.
        const datedCells = id => {
         const index = cols.indexOf(id);
-        return index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map(row => row.cells[index]).filter(td => td && td.colSpan === 1 && /\d/.test(td.textContent));
+        return index < 0 ? [] : [...table.querySelectorAll('tbody tr')].map((row, r) => ({ key: `${r}:${id}`, td: row.cells[index] })).filter(({ td }) => td && td.colSpan === 1 && /\d/.test(td.textContent));
        };
        // Lines of text inside a cell: the distinct line tops of its characters. The cell's own height cannot say
        // (a row is as tall as its tallest cell), so the text is measured directly.
        const linesIn = td => {
-        const tops = new Set();
+        const tops = [];
         const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
         const range = document.createRange();
         for (let n; (n = walker.nextNode());) {
@@ -1245,15 +1312,20 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
           if (/\s/.test(n.textContent[i])) continue;
           range.setStart(n, i); range.setEnd(n, i + 1);
           const rect = range.getClientRects()[0];
-          if (rect) tops.add(Math.round(rect.top / 2));
+          if (rect) tops.push(rect.top);
          }
         }
-        return tops.size;
+        // Lines are clusters of tops: a new line starts where the top jumps by more than a few pixels, so
+        // sub-pixel differences between glyphs of one line cannot add a line (portal#2516; the old
+        // round(top / 2) bucketing could split one line across two buckets).
+        const LINE_GAP_PX = 4;
+        tops.sort((a, b) => a - b);
+        return tops.reduce((n, top, i) => (i === 0 || top - tops[i - 1] > LINE_GAP_PX ? n + 1 : n), 0);
        };
        // Before narrowing, each dated cell's width and line count: the narrowed cell must be narrower AND have
        // WRAPPED onto more lines, because a cell that only shrank proves nothing about whether tokens were split.
        const before = new Map();
-       for (const id of ids) for (const td of datedCells(id)) before.set(td, { width: td.getBoundingClientRect().width, lines: linesIn(td) });
+       for (const id of ids) for (const { key, td } of datedCells(id)) before.set(key, { width: td.getBoundingClientRect().width, lines: linesIn(td) });
        t.setColumnSizing(Object.fromEntries(t.getAllLeafColumns().map(c => [c.id, ids.includes(c.id) ? NARROW : (c.columnDef.size ?? 150)])));
        // Split detector: two characters of ONE whitespace-delimited token on different lines.
        const splitsIn = root => {
@@ -1276,15 +1348,24 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
        };
        return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
         const result = { missing: [], wide: [], broken: [], control: [] };
+        // Narrowing re-renders the table: a replaced one would read zero-sized and look "narrower" (portal#2516).
+        if (!table.isConnected) { result.wide.push('the table was replaced while narrowing'); resolve(result); return; }
         for (const id of ids) {
          const cells = datedCells(id);
          if (!cells.length) { result.missing.push(id); continue; }
-         for (const td of cells) {
-          const r = td.getBoundingClientRect(), was = before.get(td);
+         for (const { key, td } of cells) {
+          const r = td.getBoundingClientRect(), was = before.get(key);
           if (!was) { result.wide.push(`${id}: a cell appeared after narrowing`); continue; }
           if (!(r.width < was.width - 10)) result.wide.push(`${id}: ${Math.round(r.width)}px, was ${Math.round(was.width)}px`);
           const lines = linesIn(td);
-          if (!(lines > was.lines)) result.wide.push(`${id}: did not wrap, ${lines} lines, was ${was.lines}`);
+          // (d) A date of one token has nothing to wrap, so "must wrap onto more lines" cannot hold for it; the
+          // narrowing and the split check above still apply (portal#2516).
+          // Tokens of the text a reader sees: a visually hidden label or hidden node does not count.
+          let shown = '';
+          const textWalker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+          for (let n; (n = textWalker.nextNode());) if (!n.parentElement.closest('.sr-only, [hidden]')) shown += `${n.textContent} `;
+          const tokens = shown.trim().split(/\s+/).length;
+          if (tokens > 1 && !(lines > was.lines)) result.wide.push(`${id}: did not wrap, ${lines} lines, was ${was.lines}`);
           for (const x of splitsIn(td)) result.broken.push(`${id}: ${x}`);
          }
         }
@@ -1305,14 +1386,232 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
       if (split.broken.length) failures.push(`${leg}: a date token splits mid-digit at ${NARROW}px ${JSON.stringify(split.broken.slice(0, 4))}`);
      }
     }
-    await unmountFixture(page);
-    assertPatched();
-    if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
-   } catch (e) {
-    if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-${leg.replaceAll('/', '-').replaceAll(':', '-')}.png`, fullPage: true }).catch(() => {});
-    throw e;
-   } finally { await page.close(); }
+   } });
   }
+ }
+
+ // ══ portal#2506: the PartyLabel containment battery ═════════════════════════
+ // The shared component's own pin, independent of any one caller: a real DataTable whose
+ // Party cell carries the defeating caller wrapper verbatim (TasksRoster's reportsTo span,
+ // `inline-flex flex-wrap` with no max-w-full/min-w-0 — see fixtures/PartyLabelDefeatTable.svelte),
+ // a ~27-character worker name with its AI-worker badge and compact Urn chip, a person of
+ // the same shape, a short worker name, and a long name with no urn. Judged by
+ // the same escape oracle as agent-tasks
+ // and lib-rows: no element paints outside its td, every ellipsized value keeps its full
+ // text in a title (#2506's FIT conditions), and the negative control must be seen. Red on
+ // main: the nowrap `truncate` on the name link and the chip's text span carry full-width
+ // min-content up the intrinsic chain, so the unbounded wrapper sizes past the cell. Green
+ // at the fix: a one-line clamp with [overflow-wrap:anywhere] collapses min-content while
+ // keeping the single-line ellipsis.
+ //
+ // Contained is not yet right (portal#2506, found in the first green shots): a flex
+ // row shrinks name and badge by their basis alike, so the "AI worker" pill broke onto
+ // two lines in the 200px cell. The fix is a precedence, not a freeze: the name link
+ // takes basis-0 grow max-w-max, so it absorbs no shrinkage (the name clamps first)
+ // and the badge keeps its one line until the row cannot fit even the badge whole —
+ // a `shrink-0` badge was tried and regressed the alarms battery's 28px-text legs,
+ // where the whole badge cannot fit and must wrap instead of painting out. Pins:
+ // the name gives way before the badge (the badge is on one line beside a truncated
+ // name, with a chip below and without), the name is never wider than its own text
+ // (the badge sits the row's gap to the right of a short name), and containment
+ // holds in a 120px party column — the resize guard's own floor. The battery also
+ // proves the shared oracle sees a CLAMP — the self-check below.
+ // (Blind F7: the helper's own doc moved down to the helper.)
+// Runs in the page: how PartyLabel's name row spends its cell. One reader for
+// every pin, so they cannot disagree about which element is which — the name
+// link is found by its href, the badge is its next sibling and the pill the
+// badge's first child. A Range over the pill's text yields one rectangle per
+// line, so `badgeLines` is the pill's line count (blind F7: split out of the
+// battery description above).
+const readNameRow = link => {
+ const lines = el => { const range = document.createRange(); range.selectNodeContents(el); return [...range.getClientRects()]; };
+ const linkBox = link.getBoundingClientRect(), badge = link.nextElementSibling, badgeBox = badge?.getBoundingClientRect();
+ return {
+  rowWidth: link.parentElement?.getBoundingClientRect().width ?? null,
+  linkWidth: linkBox.width,
+  textWidth: Math.max(0, ...lines(link).map(rect => rect.width)),
+  truncated: link.scrollHeight > link.clientHeight + 1,
+  gapToBadge: badgeBox ? badgeBox.left - linkBox.right : null,
+  badgeWidth: badgeBox?.width ?? null,
+  badgeLines: badge?.firstElementChild ? lines(badge.firstElementChild).length : null,
+  hasChip: (link.parentElement?.nextElementSibling ?? null) !== null,
+ };
+};
+ if (battery.partyLabel.length) for (const width of widths) for (const dark of [false, true]) {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  const leg = `party-label/${width}/${dark ? 'dark' : 'light'}`;
+  const legFailuresBefore = failures.length;
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async () => { const { mountPartyLabelCell } = await import('/src/lib/test/fixtures/party-label-cell-harness.ts'); window.stopFixture = mountPartyLabelCell(document.getElementById('fixture')); });
+   // The cells this battery exists to measure must be on the page: the worker's linked name and its chip.
+   // The chip by position (the name row's next sibling in the column), never by the title under test.
+   await page.locator('tbody a[href^="/app/workers/"]').first().waitFor({ timeout: 10000 });
+   await page.waitForFunction(() => {
+    const chipWrapper = document.querySelector('tbody a[href="/app/workers/w-long"]')?.parentElement?.nextElementSibling ?? null;
+    return chipWrapper !== null && chipWrapper.querySelector('span') !== null;
+   }, undefined, { timeout: 10000 });
+   await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
+   await settlePage(page);
+   // Fonts settled before the measured read (the same race the pages battery guards).
+   await page.evaluate(() => document.fonts.ready);
+   const escapes = await cellEscapes(page, '');
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/party-label-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
+   if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
+   // TITLE pins — the truncate idiom's other half: the full values stay reachable (#2506 FIT).
+   // By position and by text, never by the title under test: a selector that
+   // finds the element through its title cannot see the title go (code review, #2506).
+   const titles = await page.evaluate(async () => {
+    const { LONG_ROW_ID, LONG_WORKER_NAME, LONG_WORKER_URN, LONG_PERSON_NAME } = await import('/src/lib/test/fixtures/party-label-cell-harness.ts');
+    const personCell = document.querySelector('tbody tr:nth-child(2) td:nth-child(1)');
+    const personName = personCell && [...personCell.querySelectorAll('span')].find(el => el.childElementCount === 0 && el.textContent.trim() === LONG_PERSON_NAME);
+    // The chip by position, never by the title under test: the name row's next
+    // sibling is the chip wrapper; the descent below it is four steps — the Urn
+    // root span, the <a>/<code>/<button> chip (tag not part of the find: it turns
+    // on link/pointer state), the chip's box wrapper (portal#2538: padding moved
+    // off the clamping span), and the collapsed value span. A DOM shift reports
+    // "not found", not a lost title (blind F5).
+    const nameRow = document.querySelector(`tbody a[href="/app/workers/${LONG_ROW_ID}"]`)?.parentElement ?? null;
+    const chipValue = nameRow?.nextElementSibling?.firstElementChild?.firstElementChild?.firstElementChild?.firstElementChild ?? null;
+    return {
+      linkTitle: document.querySelector(`tbody a[href="/app/workers/${LONG_ROW_ID}"]`)?.getAttribute('title') ?? null,
+      chipFound: chipValue !== null,
+      chipTitle: chipValue?.getAttribute('title') ?? null,
+      personTitle: personName?.getAttribute('title') ?? null,
+      LONG_WORKER_NAME, LONG_WORKER_URN, LONG_PERSON_NAME,
+    };
+   });
+   if (titles.linkTitle !== titles.LONG_WORKER_NAME) failures.push(`${leg}: the name link lost its full value in a title ${JSON.stringify(titles.linkTitle)}`);
+   if (!titles.chipFound) failures.push(`${leg}: the chip value span was not found by position — the Urn DOM shifted under the four-step descent (blind F5)`);
+   else if (titles.chipTitle !== titles.LONG_WORKER_URN) failures.push(`${leg}: the chip lost its full URN in a title ${JSON.stringify(titles.chipTitle)}`);
+   if (titles.personTitle !== titles.LONG_PERSON_NAME) failures.push(`${leg}: the person's clamped name lost its full value in a title ${JSON.stringify(titles.personTitle)}`);
+   // THE NAME GIVES WAY BEFORE THE BADGE (portal#2506). The long worker's row is the one that lacks room.
+   // A row's link is found by its href, never by the title under test.
+   const linkOf = id => page.locator(`tbody a[href="/app/workers/${id}"]`);
+   const longRow = await linkOf('w-long').evaluate(readNameRow);
+   if (!longRow.truncated) failures.push(`${leg}: the long name is not truncated at ${width}px, so this leg proves nothing about what gives way`);
+   if (longRow.badgeLines !== 1) failures.push(`${leg}: the AI-worker badge is on ${longRow.badgeLines} lines beside a truncated name; the name gives way first`);
+   // THE CHIP STAYS READABLE (portal#2538, QA F1): containment alone did not
+   // make the chip readable — py-0.5 on the clamping span showed the wrapped
+   // second line's top in the padding band (live QA run: roster Worker cell,
+   // Composition, task page), and a squeezeed cell could read "e2e-…". The
+   // peek is fixed structurally (padding off the clip span, box split), and
+   // this is the pin for the other half: the value span's FIRST line box
+   // fills the span — the ellipsis lands at the END of whatever width the
+   // caller gives the chip, never after the first hyphen. Line boxes UNDER
+   // the first are the clamp working (they clip at the span's content edge,
+   // which carries no padding), so only the first is asserted. How WIDE a
+   // cell renders the chip is caller column sizing: a min-width floor here
+   // was measured to trade directly against containment (10ch ⇒ 2px escapes
+   // at 390, logs/qa-f1-floor-*.log) and is deliberately not pinned.
+   const chipLines = await linkOf('w-long').evaluate(link => {
+    const value = link.parentElement?.nextElementSibling?.firstElementChild?.firstElementChild?.firstElementChild?.firstElementChild ?? null;
+    if (!value) return { found: false };
+    const range = document.createRange(); range.selectNodeContents(value);
+    const rects = [...range.getClientRects()];
+    // The chain of widths from the cell down, for the failure message: where
+    // the available width collapses is not guessable from a line count.
+    const chain = [];
+    for (let el = value; el && el !== link.closest('td'); el = el.parentElement) chain.push(`${el.tagName.toLowerCase()}.${(el.getAttribute('class') ?? '').split(' ')[0]}:${Math.round(el.getBoundingClientRect().width)}`);
+    // One glyph of the value's own font: a break-anywhere line can leave less
+    // than one glyph unfilled and still be full, so that is the tolerance (it
+    // replaces a bare 8px). Padding on the clamping span is the QA F1 band:
+    // a clamped element clips at its PADDING box, so any vertical padding here
+    // re-opens it; the box and its padding live on the parent wrapper.
+    // The first character comes from the first NON-EMPTY text node (a comment
+    // anchor or an empty node ahead of it must not make Range throw inside this
+    // evaluate and abort the leg before the glyph guard speaks).
+    const walker = document.createTreeWalker(value, NodeFilter.SHOW_TEXT);
+    let textNode = walker.nextNode();
+    while (textNode && !textNode.data.length) textNode = walker.nextNode();
+    let glyphW = 0;
+    if (textNode) { const one = document.createRange(); one.setStart(textNode, 0); one.setEnd(textNode, 1); glyphW = one.getBoundingClientRect().width; }
+    const cs = getComputedStyle(value);
+    const wcs = getComputedStyle(value.parentElement);
+    return { found: true, firstLineW: rects[0]?.width ?? 0, spanW: value.getBoundingClientRect().width, glyphW, lines: rects.length, padY: parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom), wrapperPadTop: parseFloat(wcs.paddingTop), wrapperPadBottom: parseFloat(wcs.paddingBottom), chain };
+   });
+   if (!chipLines.found) failures.push(`${leg}: the chip value span vanished between the title check and the line check (QA F1 pin)`);
+   else if (!(chipLines.lines > 1)) failures.push(`${leg}: the chip value fits on ${chipLines.lines} line box, so the first-line pin has nothing to say (the fixture must force a wrap; a vacuous pass is a failure)`);
+   else if (!(chipLines.glyphW > 0)) failures.push(`${leg}: the chip value has no measurable glyph, so the line pin cannot say anything (a vacuous pass is a failure)`);
+   else if (!Number.isFinite(chipLines.padY) || chipLines.padY !== 0) failures.push(`${leg}: the clamping span carries ${chipLines.padY}px of vertical padding — a clamp clips at its padding box, so a wrapped second line shows in that band (QA F1); the padding belongs on the wrapper`);
+   else if (!(chipLines.wrapperPadTop > 0 && chipLines.wrapperPadBottom > 0)) failures.push(`${leg}: the chip's wrapper lost its vertical padding (top ${chipLines.wrapperPadTop}px, bottom ${chipLines.wrapperPadBottom}px) — the chip box is gone, not moved`);
+   else if (chipLines.firstLineW < chipLines.spanW - chipLines.glyphW) failures.push(`${leg}: the chip's first line is ${Math.round(chipLines.firstLineW)}px of a ${Math.round(chipLines.spanW)}px span — it breaks early (the "e2e-…" shape, QA F1) instead of ellipsizing at the end; widths down the chain: ${chipLines.chain.join(' > ')}`);
+   // …and the name is never wider than its own text: beside a short name the chip is
+   // the wide item and the row is as wide as the chip, and the badge still sits the
+   // row's gap (6px) to the right of the NAME — not at the far end of the row.
+   const shortRow = await linkOf('w-short').evaluate(readNameRow);
+   if (shortRow.truncated) failures.push(`${leg}: the short name truncates, so its link's own width cannot be read`);
+   if (Math.abs(shortRow.linkWidth - shortRow.textWidth) > 1) failures.push(`${leg}: the name link is ${shortRow.linkWidth}px wide for ${shortRow.textWidth}px of text`);
+   if (shortRow.gapToBadge === null || Math.abs(shortRow.gapToBadge - 6) > 1) failures.push(`${leg}: the badge sits ${shortRow.gapToBadge}px right of the name's text, not the row's 6px gap`);
+   // THE NO-CHIP ROW (portal#2506). `urn` is nullable by contract: a worker with
+   // no URN renders the name row on its own — never an empty chip (render-absent,
+   // the Urn review rule) — and there too the name gives way before the badge,
+   // so the fix does not lean on the chip squeezing the column.
+   const noChipRow = await linkOf('w-nochip').evaluate(readNameRow);
+   if (noChipRow.hasChip) failures.push(`${leg}: a worker with a null urn rendered a chip`);
+   if (!noChipRow.truncated) failures.push(`${leg}: the no-chip row's long name is not truncated, so this leg proves nothing about what gives way`);
+   if (noChipRow.badgeLines !== 1) failures.push(`${leg}: the no-chip row's badge is on ${noChipRow.badgeLines} lines beside a truncated name`);
+   // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
+   await page.locator('tbody td').first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
+   if (!(await cellEscapes(page, '')).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
+   await page.locator('[data-negative]').evaluate(el => el.remove());
+   // THE ORACLE SEES A CLAMP (portal#2506). A clamp ellipsizes on the y axis and
+   // computes text-overflow to `clip`, which the oracle's horizontal `ellipsis`
+   // test never matched — so with the clamp alone, a compact Urn chip or a
+   // PartyLabel name that lost its title went unreported in every battery. Strip
+   // the link's title: the oracle has to report it.
+   const nameLink = linkOf('w-long');
+   await nameLink.evaluate(el => el.removeAttribute('title'));
+   // Blind F4: the note alone can be satisfied by any ellipsized element on the
+   // page — the stripped LINK must be the one the oracle reports.
+   if (!(await cellEscapes(page, '')).some(x => x.el === 'a' && x.note === 'ellipsized with no reachable full value')) failures.push(`${leg}: a clamped, truncated name link without a title was not reported by the escape oracle`);
+   await nameLink.evaluate((el, name) => el.setAttribute('title', name), titles.LONG_WORKER_NAME);
+   // THE NARROW COLUMN (portal#2506): the Party column at 120px — the narrowest
+   // a user can make it (the resize guard's own floor) — still contains the
+   // stack with ~88px of content: the name clamps to a ~22px sliver, the badge
+   // keeps its whole one line (~60px + gap), the chip clamps itself. The badge's
+   // give-way floor is ~66px of row content (party column ~100px); below it the
+   // badge wraps rather than painting out. Not probed at 390: there the chip's
+   // two 44px coarse-pointer touch targets (#1604) need ~115px on their own, so
+   // no sub-115px party cell can contain a chip row regardless of this fix. The
+   // regime where the whole badge CANNOT fit (28px text zoom in a 120px column)
+   // and the badge must wrap instead of painting out is pinned by the alarms
+   // battery's text-zoom legs. The success line says whether THIS leg ran the
+   // probe — the gate and the wording share one table, so a leg that skipped it
+   // never reports the claim (the #2506 delta review).
+   if (width === PARTY_NARROW_PROBE_WIDTH) {
+    await page.evaluate(() => { window.__fixtureTables.at(-1).setColumnSizing({ party: 120 }); });
+    await settlePage(page);
+    const narrowEscapes = await cellEscapes(page, '');
+    if (narrowEscapes.length) failures.push(`${leg}/party-120px: ${JSON.stringify(narrowEscapes)}`);
+    const longRowNarrow = await linkOf('w-long').evaluate(readNameRow);
+    if (!longRowNarrow.truncated) failures.push(`${leg}/party-120px: the long name is not truncated in the 120px column`);
+    if (longRowNarrow.badgeLines !== 1) failures.push(`${leg}/party-120px: the badge wrapped in the 120px column (row ${Math.round(longRowNarrow.rowWidth)}px, link ${Math.round(longRowNarrow.linkWidth)}px, badge ${Math.round(longRowNarrow.badgeWidth)}px on ${longRowNarrow.badgeLines} lines) — 120px fits the whole badge, so the badge must not give way there`);
+    const noChipNarrow = await linkOf('w-nochip').evaluate(readNameRow);
+    if (!noChipNarrow.truncated || noChipNarrow.badgeLines !== 1) failures.push(`${leg}/party-120px: the no-chip row's name does not give way before the badge (truncated ${noChipNarrow.truncated}, badge on ${noChipNarrow.badgeLines} lines)`);
+   }
+   if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+   // Blind F3: derive the success line from the failures queue (the file's own
+   // newer pattern), not from `escapes` — a title, badge, no-chip or overflow
+   // failure used to leave the leg still claiming "titles carry the full values".
+   console.log(failures.length === legFailuresBefore ? `${leg}: the defeating wrapper contains name and chip, titles carry the full values; the name gives way before the badge (${Math.round(longRow.linkWidth)}px link, badge on ${longRow.badgeLines} line); ${partyNarrowProbeNote(width)}; the oracle sees a clamp; control detected` : `${leg}: FAILED, ${failures.length - legFailuresBefore} check(s) queued`);
+  } catch (e) {
+   // Blind F8: a rethrow here discarded every queued finding from earlier legs —
+   // the masking this battery exists to prevent. Queue the crash, keep the
+   // remaining legs; the final assert reports the lot.
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-party-label-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true }).catch(() => {});
+   failures.push(`${leg}: crashed after ${failures.length - legFailuresBefore} check(s) queued: ${e?.message ?? String(e)}`);
+  } finally { await page.close(); }
  }
 
  assert.deepEqual(failures, []);

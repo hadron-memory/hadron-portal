@@ -332,22 +332,23 @@
           {/if}
         {:else if cell.column.id === 'channel' && row.entry.channel?.chatRootUrn}
           <div class="min-w-0">
-            <div class="truncate">{row.channel}</div>
+            <!-- portal#2492: ellipsized, so the full value stays in a title. -->
+            <div class="truncate" title={row.channel}>{row.channel}</div>
             <Urn value={row.entry.channel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
           </div>
         {:else if cell.column.id === 'channel' && row.entry.channel}
           <!-- No flat address (compound memory): the id, as in the Channels table. -->
           <div class="min-w-0">
-            <div class="truncate">{row.channel}</div>
+            <div class="truncate" title={row.channel}>{row.channel}</div>
             <span class="font-mono text-xs">{row.entry.channelId}</span>
           </div>
         {:else if cell.column.id === 'attendee' && row.entry.attendeeUrn}
           <div class="min-w-0">
-            <div class="truncate">{row.attendee}</div>
+            <div class="truncate" title={row.attendee}>{row.attendee}</div>
             <Urn value={row.entry.attendeeUrn} type={row.entry.attendeeWorkerId ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
           </div>
         {:else}
-          <div class="truncate">{cell.getValue()}</div>
+          <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue()}</div>
         {/if}
       {/snippet}
     </DataTable>

@@ -44,6 +44,19 @@ describe('my grants page', () => {
     expect(h).toContain('loc: findings:*');
     expect(h).not.toContain('{&quot;loc');
   });
+  // portal#2516: a dotted action id breaks at its dots, not inside a word; the text a reader copies is unchanged.
+  it('offers a break after each dot of the Action id and keeps the id text whole', () => {
+    const h = html({ unavailable: false, grants: [row('g5', { action: 'node.admin.read' })] });
+    // The SSR output carries hydration comments between the parts and writes the void element as <wbr/>.
+    const flat = h.replace(/<!--.*?-->/g, '').replace(/<wbr\s*\/?>/g, '‹wbr›');
+    expect(flat).toContain('node.‹wbr›admin.‹wbr›read');
+    expect(flat.replaceAll('‹wbr›', '')).toContain('node.admin.read');
+  });
+  it('adds no break to a Reason or Values cell, whose text is free prose', () => {
+    const h = html({ unavailable: false, grants: [row('g6', { reason: 'see.the.docs', values: { loc: 'a.b' } })] });
+    expect(h).toContain('see.the.docs');
+    expect(h).toContain('loc: a.b');
+  });
   it('shows an openable App by name with its URN, and no derived state or signature wording', () => {
     const h = html({ unavailable: false, grants: [row('g2', { app: { id: 'a', name: 'Alpha', urn: 'hrn:app:hadronmemory.com:alpha' }, allows: true })] });
     expect(h).toContain('Alpha');

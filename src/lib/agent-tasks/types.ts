@@ -79,6 +79,8 @@ export interface AgentTaskRow {
 
 /** The detail page's task: every field §5.1 shows. */
 export interface AgentTaskDetail extends AgentTaskRow {
+  /** #1914: the served `hrn:agenttask:` address (hadron-server#3878); null when the App's urn cannot form it. Detail reads only. */
+  urn?: string | null;
   /** portal#1607: the outside item the task claimed (hrn:node:hadronmemory.com:specs:cor:agt:120:02); set once at create. */
   externalId?: string | null;
   appId: string;

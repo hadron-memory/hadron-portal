@@ -37,6 +37,14 @@ it('tells the reader when to include the request id in a report',async()=>{
  page.update(p=>({...p,status:500,error:Object.assign(new Error('Something went wrong on our side.'),{requestId})}));
  const m=mountComponent(ErrorPage,{});try{await tick();expect(m.target.textContent).toContain('Include this ID if you report the problem.');}finally{m.unmount();}
 });
+// #2531: the copy button's accessible DESCRIPTION is the hint under the id. The
+// describedby must resolve to the element that holds the hint text, so deleting
+// the attribute or renaming either side of the id pair fails here.
+it('describes the copy button with the request id hint',async()=>{
+ const requestId='a4451409-72f6-4f08-b90b-f8db328e8c58';
+ page.update(p=>({...p,status:500,error:Object.assign(new Error('Something went wrong on our side.'),{requestId})}));
+ const m=mountComponent(ErrorPage,{});try{await tick();const copy=m.target.querySelector<HTMLButtonElement>('button[aria-label="Copy request ID"]');const hintId=copy?.getAttribute('aria-describedby');expect(hintId).toBeTruthy();const hint=m.target.querySelector(`#${hintId}`);expect(hint).not.toBeNull();expect(hint!.textContent).toBe('Include this ID if you report the problem.');}finally{m.unmount();}
+});
 // #1397: an explicit copy affordance beside the id, mirroring the Urn chip's
 // (copyText, confirm state, plain-verb name). The button's accessible name is
 // the static ACTION; the CONFIRM is announced by the polite status region —

@@ -33,10 +33,16 @@ describe.each([{ compact: true }, { compact: false }])('Urn copy buttons and tru
     expect(cls).toContain('min-w-0');
     expect(cls).toContain('max-w-full');
   });
-  it('the value text truncates inside the chip', async () => {
+  it('the value text clips itself to one line inside the chip', async () => {
     const chip = (await root()).querySelector('code')!;
     expect(clipsOverflow(chip.getAttribute('class'))).toBe(true);
-    expect(chip.querySelector('.truncate'), 'a truncating value element').not.toBeNull();
+    // portal#2506: the collapsed value clips ITSELF — `truncate` (non-compact)
+    // or the one-line clamp whose [overflow-wrap:anywhere] collapses
+    // min-content — so no ancestor needs to clip and the copy buttons' focus
+    // rings stay whole.
+    const value = chip.querySelector<HTMLElement>('span[title]');
+    expect(value, 'a value element').not.toBeNull();
+    expect(clipsOverflow(value!.getAttribute('class')), `value classes "${value!.getAttribute('class')}"`).toBe(true);
   });
   it('the copy buttons sit outside every clipping element', async () => {
     const buttons = [...(await root()).querySelectorAll('button[aria-label^="Copy"]')];
