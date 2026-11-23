@@ -2,7 +2,7 @@ import { t } from '$lib/i18n/t';
 
 /**
  * portal#2535 — the words a reader sees for a task status. Display only: the stored status word
- * stays the key everywhere else (sort, filter, drill), per cor:agt:050:02. An unknown status is
+ * stays the key everywhere else (sort, filter, drill), per hrn:node:hadronmemory.com:specs:cor:agt:050:02. An unknown status is
  * shown as the server sent it, never hidden or guessed.
  */
 export function statusLabel(status: string): string {
