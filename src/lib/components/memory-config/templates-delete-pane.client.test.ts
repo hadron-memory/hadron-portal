@@ -62,7 +62,7 @@ describe('portal#1749 C3: deleting the chosen template retires the Apply pane', 
     expect(applyHeading(m.target, 'baseline')).toBe(false);
     buttons(m.target, 'Apply to a memory…')[0].click(); flushSync();
     expect(applyHeading(m.target, 'extras')).toBe(true);
-    expect(button(m.target, 'Preview').disabled).toBe(true); // the old memory choice did not survive
+    expect(button(m.target, 'Preview').disabled).toBe(true); // the next pane starts with no memory (the Apply button also resets it, so this does not pin the delete's own reset)
   });
 
   it('deleting a different template leaves the pane and its preview alone', async () => {
