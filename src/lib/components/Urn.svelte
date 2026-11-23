@@ -241,7 +241,29 @@
            contributions), so a caller wrapper without max-w-full/min-w-0 sized
            past its cell. The clamp keeps the one-line ellipsis; `anywhere`
            (not `break-word`) is what collapses min-content. -->
-      <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'line-clamp-1 [overflow-wrap:anywhere]'} bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{bareValue}{/if}</span>
+      <!-- portal#2538 (blind F9, QA F1): the chip's box and its clip are two
+           elements. A clamped element clips at its PADDING box, so py-0.5 on
+           the clamping span left a 2px band under line 1 where the top of the
+           wrapped second line showed (live QA run at 390 and 1280). The
+           background and padding live on this wrapper, which does not clip;
+           the clamping span carries no padding, so its overflow:hidden cuts a
+           wrapped second line flush at the content edge. -->
+      <!-- portal#2538 (QA F1, readability half — measured, not adopted):
+           [overflow-wrap:anywhere] collapses the value's min-content to one
+           character, so a caller column that auto-sizes by content (the
+           roster's Worker column) squeezes the chip toward "e2e-…" where
+           main's `truncate` — whose min-content is the whole text — had held
+           the column readable. A min-width floor on this span is NOT the
+           fix: 10ch (≈116px chip row) painted 2px past the cell at 390 in
+           the party battery (logs/qa-f1-floor-*.log) — every ch of floor
+           trades directly against containment, and main "read well" only by
+           sizing the column past what the table could give (#2506's bug).
+           How wide a chip reads is the CALLER's column sizing; the chip
+           guarantees the ellipsis lands at the END of whatever width it
+           gets (pinned: first line fills the span). -->
+      <span class="min-w-0 max-w-full bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+        <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'line-clamp-1 [overflow-wrap:anywhere]'}" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{bareValue}{/if}</span>
+      </span>
       {#if chipToggle}
         <!-- The cue that this chip opens (#1642 UX P2): a chevron that turns
              down while the whole URN shows. -->
