@@ -2398,6 +2398,13 @@
       ? $grantKeyScopeMessage.text
       : $grantKeyScopeErrors.hostId?.[0] ?? $grantKeyScopeErrors.scope?.[0] ?? $grantKeyScopeErrors.keyId?.[0] ?? $grantKeyScopeErrors._kind?.[0] ?? null,
   );
+  // portal#2468: the host error names the host that was refused, so picking another host clears it (on the
+  // picker's change, never on submit: a wrong re-pick is refused again by the next reply). Only the host field's
+  // error goes; a refusal that is not about the host stays.
+  function clearGrantHostError() {
+    if (!$grantKeyScopeErrors.hostId) return;
+    grantKeyScopeErrors.update((e) => ({ ...e, hostId: undefined }));
+  }
   const grantKeyScopeActionSuccess = $derived($grantKeyScopeMessage?.type === 'success' ? $grantKeyScopeMessage.text : null);
   const revokeKeyScopeActionError = $derived(
     $revokeKeyScopeMessage?.type === 'error'
@@ -4559,6 +4566,7 @@
                     bind:value={$grantKeyScopeForm.hostId}
                     held={heldHostId}
                     invalid={!!$grantKeyScopeErrors.hostId}
+                    onchange={clearGrantHostError}
                     describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
                     onretry={loadGrantHosts}
                   />
