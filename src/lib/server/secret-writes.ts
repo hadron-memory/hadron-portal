@@ -27,6 +27,7 @@ export async function secretWrite<D>(
   } catch (e) {
     const staged = readStagedChange(e, ceremonyOrigin());
     if (staged?.kind === 'staged') return staged;
+    if (staged?.kind === 'staged-unlinked') return { kind: 'refused', message: STAGED_UNLINKED_TEXT() };
     if (staged) return { kind: 'plain-protected' };
     if (extractGqlErrorCode(e) === 'SECRET_KEY_UNAVAILABLE') {
       return { kind: 'refused', message: t('secrets.write.no-key', 'This deployment cannot store secrets yet: its secret key is not set up. Nothing was changed.') };
@@ -34,6 +35,13 @@ export async function secretWrite<D>(
     return { kind: 'refused', message: extractGqlError(e, t('secrets.write.failed', "That didn't go through. Try again.")) };
   }
 }
+
+/**
+ * portal#2470: the server opened a change request but the portal cannot offer its signing page
+ * (its link failed the origin pin). Never shows the link, and never says nothing is open.
+ */
+export const STAGED_UNLINKED_TEXT = () =>
+  t('secrets.write.staged-unlinked', "This change was staged on the server, but this portal cannot offer its signing page. Open the request with the Hadron CLI or on the server's own page. Nothing has been changed yet.");
 
 export const PLAIN_PROTECTED_TEXT = () =>
   t('secrets.write.protected', 'This secret is protected, and only a person acting as themselves can change it. Nothing was changed.');
