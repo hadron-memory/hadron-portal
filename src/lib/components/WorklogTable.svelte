@@ -384,14 +384,15 @@
     >
       {#snippet cell(c, row)}
         {#if c.column.id === 'at'}
-          <span class="block truncate text-zinc-500 dark:text-zinc-400">
+          <!-- portal#2492: ellipsized cells keep the full value in a title; unbroken free text wraps anywhere inside its cell. -->
+          <span class="block truncate text-zinc-500 dark:text-zinc-400" title={formatAt(atMs(row.at), row.at)}>
             {formatAt(atMs(row.at), row.at)}
           </span>
         {:else if c.column.id === 'workerName'}
           <!-- workerName is denormalized at write, which is what makes it
                correct for a RETIRED worker and for pre-#974 records. Render it;
                never join through workerId to get a name. -->
-          <span class="font-medium text-zinc-900 dark:text-white">{row.workerName}</span>
+          <span class="[overflow-wrap:anywhere] font-medium text-zinc-900 dark:text-white">{row.workerName}</span>
           {#if !isWorkerAttributed(row)}
             <!-- A null workerId means this record is not attributed to a Worker.
                  It does NOT say why, and the badge must not invent one: the
@@ -409,11 +410,11 @@
             </span>
           {/if}
         {:else if c.column.id === 'action'}
-          <span class="rounded px-1.5 py-0.5 text-xs font-medium {actionClass(row.action)}">
+          <span class="inline-block max-w-full [overflow-wrap:anywhere] rounded px-1.5 py-0.5 text-xs font-medium {actionClass(row.action)}">
             {row.action}
           </span>
         {:else if c.column.id === 'kind'}
-          <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] uppercase text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+          <span class="inline-block max-w-full [overflow-wrap:anywhere] rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] uppercase text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
             {row.kind}
           </span>
         {:else if c.column.id === 'ref'}
@@ -427,9 +428,10 @@
                 target="_blank"
                 rel="noopener noreferrer"
                 class="truncate font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-300"
+                title={row.ref}
               >{row.ref}</a>
             {:else}
-              <span class="truncate font-mono text-xs text-zinc-700 dark:text-zinc-200">{row.ref}</span>
+              <span class="truncate font-mono text-xs text-zinc-700 dark:text-zinc-200" title={row.ref}>{row.ref}</span>
             {/if}
             {#if shared > 1}
               <!-- Several worker sessions on one artifact is the FEATURE, not
@@ -466,7 +468,7 @@
                provenance chain just because its session is out of reach. The
                CLI's provenance query behaves this way and the portal must not
                be lossier. -->
-          <span class="block truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">{row.sessionId}</span>
+          <span class="block truncate font-mono text-xs text-zinc-500 dark:text-zinc-400" title={row.sessionId}>{row.sessionId}</span>
         {:else}
           <span class="block truncate">{fallback(c.column.id, c.getValue())}</span>
         {/if}

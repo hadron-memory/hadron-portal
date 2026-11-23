@@ -73,18 +73,19 @@
 >
   {#snippet cell(c, row)}
     {#if c.column.id === 'kindText'}
-      <span class="text-xs text-zinc-700 dark:text-zinc-300">{row.kindText}</span>
+      <!-- portal#2492: a blocker kind, a loc and a detail have no break opportunity, so they wrap anywhere inside the cell. -->
+      <span class="block min-w-0 max-w-full [overflow-wrap:anywhere] text-xs text-zinc-700 dark:text-zinc-300">{row.kindText}</span>
     {:else if c.column.id === 'loc'}
       {#if row.urn}
         <Urn value={row.urn} type="node" linked size={9} />
       {:else}
-        <span class="font-mono text-xs">{row.loc}</span>
+        <span class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono text-xs">{row.loc}</span>
       {/if}
     {:else if c.column.id === 'detail'}
       {#if row.detail && row.detailIsUrn}
         <Urn value={row.detail} type="node" size={9} />
       {:else if row.detail}
-        <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{row.detail}</span>
+        <span class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono text-xs text-zinc-500 dark:text-zinc-400">{row.detail}</span>
       {/if}
     {/if}
   {/snippet}
