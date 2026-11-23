@@ -773,9 +773,11 @@ async function loadNodePageData(devServer, tab) {
    // (src/lib/i18n/t.ts) — no locale resolution exists to drift yet. Wiring a
    // real i18n library behind t() makes these locale-sensitive; they will
    // fail loudly here, not silently pass.
-   if (kind === 'agent-apps' || kind === 'agent-bundled') {
-    const label = kind === 'agent-apps' ? 'Apps' : 'Bundled agents';
-    const tab = page.getByRole('tab', { name: label, exact: true }).first();
+   if (kind === 'agent-apps' || kind === 'agent-bundled' || kind === 'memories-shared') {
+    const label = kind === 'agent-apps' ? 'Apps' : kind === 'agent-bundled' ? 'Bundled agents' : 'Memories shared with me';
+    // The shared tab's name carries a row-count badge, so only that one matches by prefix.
+    const exact = kind !== 'memories-shared';
+    const tab = page.getByRole('tab', { name: label, exact }).first();
     const more = page.getByRole('button', { name: /More/ });
     // WAIT for one of the two shapes before choosing (blind review, #2507):
     // isVisible() does not wait, and a strip that has not rendered yet fell
@@ -788,7 +790,7 @@ async function loadNodePageData(devServer, tab) {
     if (await tab.isVisible()) await tab.click();
     else {
      await more.click();
-     await page.getByRole('menuitem', { name: label, exact: true }).click();
+     await page.getByRole('menuitem', { name: label, exact }).click();
     }
    }
    await page.locator('tbody td').first().waitFor({ timeout: 15000 });
@@ -829,6 +831,7 @@ async function loadNodePageData(devServer, tab) {
     };
     if (kind === 'agents-mine') pin('name link', document.querySelector('a[href="/app/agents/agent-fixture"]'), V.LONG64);
     if (kind === 'memories-mine') pin('name link', document.querySelector('a[href="/app/memories/mem-fixture"]'), V.LONG64);
+    if (kind === 'memories-shared') pin('name link', document.querySelector('a[href="/app/memories/shared-fixture"]'), V.LONG64);
     if (kind === 'agent-apps') {
      pin('app name link', document.querySelector('a[href="/app/apps/app-fixture"]'), V.LONG64);
      const orgSpan = [...document.querySelectorAll('tbody span')].find(s => (s.getAttribute('title') ?? '').startsWith('FixtureOrg'));
