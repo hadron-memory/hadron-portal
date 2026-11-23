@@ -262,7 +262,7 @@
     >
       {#snippet cell(cell, run)}
         {#if cell.column.id === 'started'}
-          <!-- #2514: a timestamp and a duration share one treatment, the date one of #2515: wrap at the spaces, never split a token. -->
+          <!-- #2514: Started and Duration share one treatment, the date rule of #2515: they wrap at their spaces and never split a token. -->
           <span class="block min-w-0 max-w-full">{run.started}</span>
         {:else if cell.column.id === 'status'}
           <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusChipClass(run.status)}">{runStatusLabel(run.status)}</span>

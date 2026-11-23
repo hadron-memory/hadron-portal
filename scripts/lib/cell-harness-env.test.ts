@@ -114,14 +114,14 @@ describe('batteryFor', () => {
   it.each(ORGS_KINDS)('routes %s to the apps battery alone', (kind: string) => {
     expect(batteryFor(kind)).toEqual({ component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [kind], lib: [] });
   });
-  // portal#2514: the kind list and the fixture's mount table are two copies of one list, and the fixture type is a third.
-  // The fixture's own list is read as text (importing it would mount the route pages in the node lane).
   // portal#2514: the untitled-ellipsis rule is on for a named list of kinds; every one must be a real kind, and the two
   // memories tables whose titles #2510 added are on it (a title-removal mutant must turn them red).
   it('TITLE_CHECKED_KINDS names real kinds and includes the memories tables', () => {
     for (const kind of TITLE_CHECKED_KINDS) expect(KINDS, kind).toContain(kind);
     expect(TITLE_CHECKED_KINDS).toEqual(expect.arrayContaining(['orgs-memories-org', 'orgs-memories-subscriptions']));
   });
+  // portal#2514: the kind list and the fixture's mount table are two copies of one list, and the fixture type is a third.
+  // The fixture's own list is read as text (importing it would mount the route pages in the node lane).
   it('the Orgs fixture mounts exactly the ORGS_KINDS, and dispatches every one', () => {
     const source = readFileSync(new URL('../../src/lib/test/fixtures/orgs-cell-fixtures.ts', import.meta.url), 'utf8');
     const listed = [...(source.match(/export const ORGS_CELL_KINDS = \[([^\]]*)\]/)?.[1] ?? '').matchAll(/'(orgs-[a-z-]+)'/g)].map((m) => m[1]);

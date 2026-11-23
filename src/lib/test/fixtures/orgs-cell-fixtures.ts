@@ -28,7 +28,7 @@ const LONG_APP_NAME = 'AnAppNameWithNoBreakPointsAtAll0123456789ABCDEFGHIJKLMN';
 const LONG_AGENT_NAME = 'AnAgentNameWithNoBreakPointsAtAll0123456789ABCDEFGHIJ';
 const LONG_MEMBER_NAME = 'AMemberNameWithNoBreakPointsAtAll0123456789ABCDEFGHIJ';
 
-/** The props of a route page, typed from the page itself: a wrong prop name fails the type check (not `as never`). */
+/** The props of a route page: the target is typed from the page itself, so mount() checks the shape, while `data` stays a loose literal (the cells read a fraction of PageData). */
 const pageProps = <C extends Component<any>>(_page: C, data: object, form: unknown = null) => ({ data, form }) as unknown as ComponentProps<C>;
 
 /** Poll for what a page renders behind an async effect, instead of guessing that one tick is enough. */
@@ -46,10 +46,10 @@ const headersOf = (target: HTMLElement) => [...target.querySelectorAll('thead th
 
 /** The table the leg probes must be the one the kind names: fail loudly on a wrong tab instead of probing the default twice. */
 async function expectHeaders(target: HTMLElement, kind: string, has: string[], hasNot: string[] = []) {
-  const miss = (heads: string[]) => has.filter((h) => !heads.some((x) => x.startsWith(h)));
-  await settled(() => (miss(headersOf(target)).length === 0 ? true : null), `${kind} did not render its own table (headers ${JSON.stringify(headersOf(target))}, expected ${JSON.stringify(has)})`);
-  const extra = hasNot.filter((h) => headersOf(target).some((x) => x.startsWith(h)));
-  if (extra.length) throw new Error(`orgs-cell-fixtures: ${kind} rendered another table too (unexpected ${JSON.stringify(extra)}, headers ${JSON.stringify(headersOf(target))})`);
+  // One condition, polled together: the wanted headers present and the unwanted ones absent.
+  const verdict = (heads: string[]) => ({ missing: has.filter((h) => !heads.some((x) => x.startsWith(h))), extra: hasNot.filter((h) => heads.some((x) => x.startsWith(h))) });
+  await settled(() => { const v = verdict(headersOf(target)); return v.missing.length === 0 && v.extra.length === 0 ? true : null; },
+    `${kind} did not render its own table (headers ${JSON.stringify(headersOf(target))}, expected ${JSON.stringify(has)}, unexpected ${JSON.stringify(hasNot)})`);
 }
 
 /** TabRow marks the shown tab `aria-selected` on `id="tab-<item id>"`: the page must be on the tab the kind names. */
@@ -123,17 +123,17 @@ async function mountAgents(target: HTMLElement, kind: OrgsCellKind) {
   };
   const instance = mount(AgentsPage, { target, props: pageProps(AgentsPage, data) });
   return checked(instance, async () => {
-  if (kind === 'orgs-subscribed-agents') {
-    // TabRow gives each tab `id="tab-<item id>"`: the exact tab, never a text match on a button.
-    const tab = target.querySelector<HTMLElement>('button[role="tab"]#tab-subscribed');
-    if (!tab) throw new Error('orgs-cell-fixtures: the Subscribed tab was not found');
-    tab.click();
-    await expectTab(target, kind, 'subscribed');
-    await expectHeaders(target, kind, ['Owner', 'Status', 'Since'], ['Role', 'Memories']);
-  } else {
-    await expectTab(target, kind, 'own');
-    await expectHeaders(target, kind, ['Role', 'Memories'], ['Owner', 'Since']);
-  }
+    if (kind === 'orgs-subscribed-agents') {
+      // TabRow gives each tab `id="tab-<item id>"`: the exact tab, never a text match on a button.
+      const tab = target.querySelector<HTMLElement>('button[role="tab"]#tab-subscribed');
+      if (!tab) throw new Error('orgs-cell-fixtures: the Subscribed tab was not found');
+      tab.click();
+      await expectTab(target, kind, 'subscribed');
+      await expectHeaders(target, kind, ['Owner', 'Status', 'Since'], ['Role', 'Memories']);
+    } else {
+      await expectTab(target, kind, 'own');
+      await expectHeaders(target, kind, ['Role', 'Memories'], ['Owner', 'Since']);
+    }
   });
 }
 

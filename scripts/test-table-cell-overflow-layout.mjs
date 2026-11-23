@@ -191,6 +191,8 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
+// portal#2514: the narrowest a members Role select may get while still showing its value (the harness's narrowest column is 120px).
+const ROLE_SELECT_FLOOR_PX = 72;
 // The strict no-clipping oracle applies from this measured width up (blind review, #2507, named):
 // the sizing legs hold every declared minimum at 120px (the drag legs assert aria-valuemin >= 120),
 // so 119px is that floor within 1px of sub-pixel tolerance — narrower restored text columns are
@@ -1034,6 +1036,14 @@ async function loadNodePageData(devServer, tab) {
      const docWidth = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
      if (docWidth.scroll > docWidth.client) failures.push(`${leg}/${sizing}: the table widens the document to ${docWidth.scroll}px in a ${docWidth.client}px viewport`);
     }
+    // portal#2514: the Role select has no measured minSize any more (it is w-full min-w-0 and shrinks with its column), so a
+    // collapsed select would pass every containment check above. Pin a usable floor: at the narrowest column this harness sets
+    // (120px) the select must still show its value, and no select may be hidden or zero-width.
+    if (kind === 'orgs-members') {
+     const roles = await page.evaluate(() => [...document.querySelectorAll('tbody select[name="role"]')].map(s => Math.round(s.getBoundingClientRect().width)));
+     if (roles.length === 0) failures.push(`${leg}/${sizing}: no Role select rendered, the floor measured nothing`);
+     else if (roles.some(w => w < ROLE_SELECT_FLOOR_PX)) failures.push(`${leg}/${sizing}: a Role select collapsed below ${ROLE_SELECT_FLOOR_PX}px ${JSON.stringify(roles)}`);
+    }
     // portal#2526: the Team chat badge sits on the channel-name line. A `block` on the name anchor stacks the badge under the name and
     // every containment check above still passes, so this pins the row itself: the badge and the name anchor share a line (their vertical
     // centres within 4px; stacked they are a full line apart).
@@ -1070,6 +1080,12 @@ async function loadNodePageData(devServer, tab) {
     await page.evaluate(() => { document.querySelector('tbody td')?.replaceChildren(Object.assign(document.createElement('span'), { className: 'block truncate', style: 'max-width:60px', textContent: 'W'.repeat(120) })); });
     await settlePage(page);
     if ((await page.evaluate(probeUntitledEllipsis)).length === 0) failures.push(`${leg}: the untitled-ellipsis probe did not see a cut value with no title`);
+    // And the other direction: the same cut value WITH a title is reachable, and one with an empty title is not.
+    const cutValue = title => page.evaluate(title => { const span = Object.assign(document.createElement('span'), { className: 'block truncate', style: 'max-width:60px', textContent: 'W'.repeat(120) }); span.setAttribute('title', title); document.querySelector('tbody td')?.replaceChildren(span); }, title);
+    await cutValue('W'.repeat(120)); await settlePage(page);
+    if ((await page.evaluate(probeUntitledEllipsis)).length !== 0) failures.push(`${leg}: the untitled-ellipsis probe flagged a cut value that has a title`);
+    await cutValue(''); await settlePage(page);
+    if ((await page.evaluate(probeUntitledEllipsis)).length === 0) failures.push(`${leg}: the untitled-ellipsis probe accepted an empty title`);
    }
    await control.evaluate(el => el.remove()); await net.evaluate(el => el.remove());
    await unmountFixture(page);

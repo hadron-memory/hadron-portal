@@ -19,8 +19,8 @@ const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-
 export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions'];
 // portal#2514: the kinds whose ellipsized cells are checked for a reachable full value (probeUntitledEllipsis). The other
 // apps and orgs kinds have truncated cells with no title today (members Email and Member, apps Name and Agent, runs App,
-// agents, and the apps tables); turning the rule on for them is the follow-up that adds those titles, so the list grows by
-// one kind per fix instead of a red battery on a page this change does not touch.
+// agents, and the apps tables); turning the rule on for them is hadron-portal#2561, which adds those titles, so the list
+// grows by one kind per fix instead of a red battery on a page this change does not touch.
 export const TITLE_CHECKED_KINDS = ['orgs-mine', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions'];
 export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
 // portal#2492 (#1962 slice 6): the lib-rows kind mounts the real lib/route tables of slice 6 one case per row,
