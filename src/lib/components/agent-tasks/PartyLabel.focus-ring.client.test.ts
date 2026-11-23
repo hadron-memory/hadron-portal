@@ -1,8 +1,8 @@
 /**
  * portal#2413: nothing between PartyLabel's root and the Urn chip may clip
  * overflow, or it cuts the copy buttons' focus ring at its edge. Walks the real
- * ancestors of the Copy buttons (a sibling's `truncate`, like the name link's,
- * is not an ancestor). jsdom has no layout, so this pins the structural cause;
+ * ancestors of the Copy buttons (a sibling's clip, like the name link's
+ * #2506 clamp, is not an ancestor). jsdom has no layout, so this pins the structural cause;
  * Urn.focus-ring.client.test.ts pins the chip's own side.
  */
 import { afterEach, describe, expect, it } from 'vitest';

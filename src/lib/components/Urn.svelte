@@ -235,7 +235,13 @@
     style="font-size: 0.6rem;"
   >
     {#if compact}
-      <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'} bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{bareValue}{/if}</span>
+      <!-- portal#2506: the collapsed value uses a one-line clamp with
+           [overflow-wrap:anywhere], not `truncate`: nowrap carries the full
+           text width up as min-content (min-w-0 does not shrink intrinsic
+           contributions), so a caller wrapper without max-w-full/min-w-0 sized
+           past its cell. The clamp keeps the one-line ellipsis; `anywhere`
+           (not `break-word`) is what collapses min-content. -->
+      <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'line-clamp-1 [overflow-wrap:anywhere]'} bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{bareValue}{/if}</span>
       {#if chipToggle}
         <!-- The cue that this chip opens (#1642 UX P2): a chevron that turns
              down while the whole URN shows. -->

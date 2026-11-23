@@ -71,6 +71,13 @@ function mountUrn(props: Record<string, unknown>) {
 const toggle = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLButtonElement>('button[aria-expanded]');
 const valueSpan = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLElement>('span[title]')!;
 
+/** portal#2506: the collapsed value is a one-line clamp with wrap-anywhere — single-line
+ *  ellipsis whose min-content collapses, unlike a nowrap `truncate` whose min-content is
+ *  the full text width (which escapes a caller wrapper with no max-w-full/min-w-0). */
+const collapsedClasses = (cls: string) => cls.includes('line-clamp-1') && cls.includes('[overflow-wrap:anywhere]') && !cls.includes('whitespace-normal');
+/** The revealed value wraps freely: no clamp, break opportunities everywhere. */
+const expandedClasses = (cls: string) => cls.includes('whitespace-normal') && cls.includes('[overflow-wrap:anywhere]') && !cls.includes('line-clamp-1');
+
 describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
   it('a compact unlinked chip toggles between truncated and the full URN', () => {
     stubPointer(true);
@@ -79,7 +86,7 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
     expect(t).not.toBeNull();
     expect(t!.getAttribute('type')).toBe('button');
     expect(t!.getAttribute('aria-expanded')).toBe('false');
-    expect(valueSpan(m).className).toContain('truncate');
+    expect(collapsedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
     expect(valueSpan(m).textContent).toBe('hadronmemory.com:hadron-dev-team');
     // #1642 UX P2: a purpose in the name (with the value kept in it) and a
     // visible cue. #1686 keeps fine rows dense and uses 44px coarse targets.
@@ -92,14 +99,13 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
     t!.click();
     flushSync();
     expect(t!.getAttribute('aria-expanded')).toBe('true');
-    expect(valueSpan(m).className).not.toContain('truncate');
-    expect(valueSpan(m).className).toContain('[overflow-wrap:anywhere]');
+    expect(expandedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
     expect(valueSpan(m).textContent).toBe(URN);
 
     t!.click();
     flushSync();
     expect(t!.getAttribute('aria-expanded')).toBe('false');
-    expect(valueSpan(m).className).toContain('truncate');
+    expect(collapsedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
   });
 
   it('the copy buttons stay siblings outside the toggle and still copy the full URN', async () => {
@@ -138,7 +144,7 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
 
     media.setNarrow(false);
     expect(toggle(m)).toBeNull();
-    expect(valueSpan(m).className).toContain('truncate');
+    expect(collapsedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
 
     media.setNarrow(true);
     expect(toggle(m)!.getAttribute('aria-expanded')).toBe('false');
@@ -164,7 +170,7 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
     expect(anchor.hasAttribute('aria-expanded')).toBe(false);
     expect(t).not.toBeNull();
     expect(anchor.contains(t)).toBe(false);
-    expect(valueSpan(m).className).toContain('truncate');
+    expect(collapsedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
 
     t!.click();
     flushSync();
@@ -195,11 +201,11 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
     expect(toggle(m)).not.toBeNull();
     toggle(m)!.click();
     flushSync();
-    expect(valueSpan(m).className).toContain('[overflow-wrap:anywhere]');
+    expect(expandedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
 
     pointer.set(false);
     expect(toggle(m)).toBeNull();
-    expect(valueSpan(m).className).toContain('truncate');
+    expect(collapsedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
   });
 
   it('a chip that becomes linked moves the toggle outside the anchor; non-compact removes it', () => {
@@ -231,7 +237,7 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
     pointer.set(false);
     pointer.set(true);
     expect(toggle(m)!.getAttribute('aria-expanded')).toBe('false');
-    expect(valueSpan(m).className).toContain('truncate');
+    expect(collapsedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
   });
 
   it('a non-compact chip never listens; a linked compact chip follows both reveal queries', () => {

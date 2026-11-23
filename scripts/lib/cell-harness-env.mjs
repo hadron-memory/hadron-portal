@@ -3,16 +3,17 @@
 // runs, config), findings, wake and agent-tasks (each a battery of its own:
 // injection knobs / a different oracle; agent-tasks joined from portal#2502;
 // wake unioned from main's #2501 in #2507's carry), the six route-page kinds
-// of slice 4 (a mounted real page), and the ten Apps route pages (portal#2488,
+// of slice 4 (a mounted real page), the ten Apps route pages (portal#2488,
 // unioned from main in #2507's carry: real apps pages with the escape-probe
-// oracle). KINDS is derived so CELL_KIND's accepted set and the batteries' kind
-// lists cannot drift, and batteryFor is the ONE routing table: the script never
-// writes a kind list of its own.
+// oracle), and the PartyLabel component pin (portal#2506, its own battery
+// like agent-tasks). KINDS is derived so CELL_KIND's accepted set and the
+// batteries' kind lists cannot drift, and batteryFor is the ONE routing
+// table: the script never writes a kind list of its own.
 export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants'];
 // Not exported (blind review #2507, fold): nothing imports it — the tests build
 // ALL_KINDS literally and import KINDS/PAGE_KINDS/APPS_KINDS, the script imports
 // only parseHarnessEnv/injectionEcho/batteryFor. KINDS derives from it below.
-const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks'];
+const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label'];
 // portal#2491: the six Orgs route tables (#1962 slice 5) and three more, one kind per table. They are mounted real
 // route pages probed by the same escape-probe oracle as the Apps kinds, so they ride the apps battery.
 export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions'];
@@ -21,9 +22,9 @@ export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'agent-apps', 'agent-
 // judged by the same escape oracle as agent-tasks.
 export const LIB_KINDS = ['lib-rows'];
 export const KINDS = [...COMPONENT_KINDS, ...PAGE_KINDS, ...APPS_KINDS, ...ORGS_KINDS, ...LIB_KINDS];
-// The component battery's own kinds: findings, wake and agent-tasks are
-// COMPONENT_KINDS (CELL_KIND accepts them) but mount through their own
-// batteries, not this one.
+// The component battery's own kinds: findings, wake, agent-tasks and
+// party-label are COMPONENT_KINDS (CELL_KIND accepts them) but mount through
+// their own batteries, not this one.
 const COMPONENT_BATTERY_KINDS = ['alarms', 'runs', 'config'];
 // Which battery owns a CELL_KIND, and with which kinds (blind review, #2507):
 // null runs every battery at its full list; any specific kind routes to exactly
@@ -38,14 +39,15 @@ export function batteryFor(cellKind) {
     // Copies, not the module constants (blind review #2507, fold): the per-kind
     // arms below build fresh literals, and a caller mutating the null result's
     // arrays must not corrupt the constants every later call reads.
-    return { component: [...COMPONENT_BATTERY_KINDS], findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], pages: [...PAGE_KINDS], apps: [...APPS_KINDS, ...ORGS_KINDS], lib: [...LIB_KINDS] };
+    return { component: [...COMPONENT_BATTERY_KINDS], findings: ['findings'], wake: ['wake'], agentTasks: ['agent-tasks'], partyLabel: ['party-label'], pages: [...PAGE_KINDS], apps: [...APPS_KINDS, ...ORGS_KINDS], lib: [...LIB_KINDS] };
   }
-  if (cellKind === 'findings') return { component: [], findings: ['findings'], wake: [], agentTasks: [], pages: [], apps: [], lib: [] };
-  if (cellKind === 'wake') return { component: [], findings: [], wake: ['wake'], agentTasks: [], pages: [], apps: [], lib: [] };
-  if (cellKind === 'agent-tasks') return { component: [], findings: [], wake: [], agentTasks: ['agent-tasks'], pages: [], apps: [], lib: [] };
-  if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], pages: [cellKind], apps: [], lib: [] };
-  if (APPS_KINDS.includes(cellKind) || ORGS_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], pages: [], apps: [cellKind], lib: [] };
-  if (LIB_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], pages: [], apps: [], lib: [cellKind] };
+  if (cellKind === 'findings') return { component: [], findings: ['findings'], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [] };
+  if (cellKind === 'wake') return { component: [], findings: [], wake: ['wake'], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [] };
+  if (cellKind === 'agent-tasks') return { component: [], findings: [], wake: [], agentTasks: ['agent-tasks'], partyLabel: [], pages: [], apps: [], lib: [] };
+  if (cellKind === 'party-label') return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: ['party-label'], pages: [], apps: [], lib: [] };
+  if (PAGE_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [cellKind], apps: [], lib: [] };
+  if (APPS_KINDS.includes(cellKind) || ORGS_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [cellKind], lib: [] };
+  if (LIB_KINDS.includes(cellKind)) return { component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: [], lib: [cellKind] };
   if (COMPONENT_BATTERY_KINDS.includes(cellKind)) return { component: [cellKind], findings: [], wake: [], agentTasks: [], pages: [], apps: [], lib: [] };
   throw new Error(`batteryFor: unknown kind ${JSON.stringify(cellKind)} — parseHarnessEnv validates the accepted set first`);
 }

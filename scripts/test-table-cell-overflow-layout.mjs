@@ -1315,5 +1315,66 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   }
  }
 
+ // ══ portal#2506: the PartyLabel containment battery ═════════════════════════
+ // The shared component's own pin, independent of any one caller: a real DataTable whose
+ // Party cell carries the defeating caller wrapper verbatim (TasksRoster's reportsTo span,
+ // `inline-flex flex-wrap` with no max-w-full/min-w-0 — see fixtures/PartyLabelDefeatTable.svelte),
+ // a ~27-character worker name with its AI-worker badge and compact Urn chip, and a person of
+ // the same shape. Judged by the same escape oracle as agent-tasks and lib-rows: no element
+ // paints outside its td, every ellipsized value keeps its full text in a title (#2506's FIT
+ // conditions), and the negative control must be seen. Red on main: the nowrap `truncate` on
+ // the name link and the chip's text span carry full-width min-content up the intrinsic chain,
+ // so the unbounded wrapper sizes past the cell. Green at the fix: a one-line clamp with
+ // [overflow-wrap:anywhere] collapses min-content while keeping the single-line ellipsis.
+ if (battery.partyLabel.length) for (const width of widths) for (const dark of [false, true]) {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width === 390 });
+  const errors = await watchErrors(page);
+  await page.route('**/__cell_fixture', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Cell fixture</title>' }));
+  const leg = `party-label/${width}/${dark ? 'dark' : 'light'}`;
+  try {
+   await page.goto(new URL('/__cell_fixture', origin).href);
+   await page.evaluate(({ css, dark }) => {
+    document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
+    document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
+    document.body.innerHTML = '<main id="fixture" class="min-w-0 p-4"></main>';
+   }, { css, dark });
+   await page.evaluate(async () => { const { mountPartyLabelCell } = await import('/src/lib/test/fixtures/party-label-cell-harness.ts'); window.stopFixture = mountPartyLabelCell(document.getElementById('fixture')); });
+   // The cells this battery exists to measure must be on the page: the worker's linked name and its chip.
+   await page.locator('tbody a[href^="/app/workers/"]').first().waitFor({ timeout: 10000 });
+   await page.locator('tbody span[title^="hrn:worker:"]').first().waitFor({ timeout: 10000 });
+   await page.evaluate(() => { for (const t of window.__fixtureTables) for (const c of t.getAllLeafColumns()) c.toggleVisibility(true); });
+   await settlePage(page);
+   // Fonts settled before the measured read (the same race the pages battery guards).
+   await page.evaluate(() => document.fonts.ready);
+   const escapes = await cellEscapes(page, '');
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/party-label-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true });
+   if (escapes.length) failures.push(`${leg}: ${JSON.stringify(escapes)}`);
+   // TITLE pins — the truncate idiom's other half: the full values stay reachable (#2506 FIT).
+   const titles = await page.evaluate(async () => {
+    const { LONG_WORKER_NAME, LONG_WORKER_URN, LONG_PERSON_NAME } = await import('/src/lib/test/fixtures/party-label-cell-harness.ts');
+    return {
+      linkTitle: document.querySelector('tbody a[href^="/app/workers/"]')?.getAttribute('title') ?? null,
+      chipTitle: document.querySelector('tbody span[title^="hrn:worker:"]')?.getAttribute('title') ?? null,
+      personTitle: document.querySelector(`tbody [title="${LONG_PERSON_NAME}"]`)?.getAttribute('title') ?? null,
+      LONG_WORKER_NAME, LONG_WORKER_URN,
+    };
+   });
+   if (titles.linkTitle !== titles.LONG_WORKER_NAME) failures.push(`${leg}: the name link lost its full value in a title ${JSON.stringify(titles.linkTitle)}`);
+   if (titles.chipTitle !== titles.LONG_WORKER_URN) failures.push(`${leg}: the chip lost its full URN in a title ${JSON.stringify(titles.chipTitle)}`);
+   // Control: a nowrap string in the first cell must be seen escaping, or a clean leg proves nothing.
+   await page.locator('tbody td').first().evaluate(td => { const n = document.createElement('span'); n.dataset.negative = ''; n.style.whiteSpace = 'nowrap'; n.textContent = 'W'.repeat(120); td.append(n); });
+   if (!(await cellEscapes(page, '')).some(x => x.el.startsWith('span') && x.px > ESCAPE_PX)) failures.push(`${leg}: the negative control was not detected`);
+   await page.locator('[data-negative]').evaluate(el => el.remove());
+   console.log(escapes.length ? `${leg}: FAILED` : `${leg}: the defeating wrapper contains name and chip, titles carry the full values; control detected`, escapes);
+   if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))) failures.push(`${leg}: document overflow`);
+   await unmountFixture(page);
+   assertPatched();
+   if (errors.length) failures.push(`${leg}: browser errors ${JSON.stringify(errors)}`);
+  } catch (e) {
+   if (process.env.CELL_SHOTS) await page.screenshot({ path: `${process.env.CELL_SHOTS}/FAILED-party-label-${width}-${dark ? 'dark' : 'light'}.png`, fullPage: true }).catch(() => {});
+   throw e;
+  } finally { await page.close(); }
+ }
+
  assert.deepEqual(failures, []);
 } finally { await browser?.close(); await server.close(); }

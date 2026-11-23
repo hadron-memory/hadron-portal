@@ -124,7 +124,10 @@ const measure = (page, index) => page.evaluate((i) => {
     copies: copies.map((b) => ({ width: b.getBoundingClientRect().width, height: b.getBoundingClientRect().height })),
     copies: copies.map((b) => ({ width: b.getBoundingClientRect().width, height: b.getBoundingClientRect().height })),
     rootHeight: root.getBoundingClientRect().height,
-    truncated: value.scrollWidth > value.clientWidth + 1,
+    // portal#2506: the collapsed value clips on EITHER axis — horizontally as
+    // a nowrap `truncate`, or vertically as a one-line clamp whose
+    // [overflow-wrap:anywhere] breaks the text and hides the lines below.
+    truncated: value.scrollWidth > value.clientWidth + 1 || value.scrollHeight > value.clientHeight + 1,
     text: value.textContent,
     title: value.title,
     rowOverflow: row.scrollWidth - row.clientWidth,

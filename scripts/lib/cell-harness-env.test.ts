@@ -5,7 +5,7 @@ import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, APPS_KINDS, ORGS_KIN
 // The accepted set, spelled out here on purpose — see the accept test below.
 // The ten apps kinds join from main's portal#2488 slice and wake from main's
 // portal#2501 slice (both unioned in #2507's carries).
-const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants', 'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions', 'lib-rows'];
+const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label', 'agents-mine', 'memories-mine', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants', 'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories', 'orgs-memories-subscriptions', 'lib-rows'];
 
 // portal#2129 rows 1, 6, 8: every env knob is validated before any browser launches.
 describe('parseHarnessEnv', () => {
@@ -46,7 +46,7 @@ describe('parseHarnessEnv', () => {
 
 describe('injection knobs and CELL_KIND', () => {
   it.each(['CELL_INJECT_POINTER_FAILURE', 'CELL_INJECT_MISSING_TRIGGER'])('%s=1 is rejected for a kind that never reaches the findings leg', name => {
-    for (const kind of ['alarms', 'runs', 'config', 'wake', 'agent-tasks', 'lib-rows', ...APPS_KINDS]) {
+    for (const kind of ['alarms', 'runs', 'config', 'wake', 'agent-tasks', 'party-label', 'lib-rows', ...APPS_KINDS]) {
       expect(() => parseHarnessEnv({ [name]: '1', CELL_KIND: kind })).toThrow(`${name}=1 only acts on the findings leg, got CELL_KIND=${JSON.stringify(kind)}`);
     }
   });
@@ -91,13 +91,14 @@ describe('batteryFor', () => {
       findings: ['findings'],
       wake: ['wake'],
       agentTasks: ['agent-tasks'],
+      partyLabel: ['party-label'],
       pages: PAGE_KINDS,
       apps: [...APPS_KINDS, ...ORGS_KINDS],
       lib: ['lib-rows'],
     });
   });
   it('routes an Orgs kind to the apps battery alone', () => {
-    expect(batteryFor('orgs-mine')).toEqual({ component: [], findings: [], wake: [], agentTasks: [], pages: [], apps: ['orgs-mine'], lib: [] });
+    expect(batteryFor('orgs-mine')).toEqual({ component: [], findings: [], wake: [], agentTasks: [], partyLabel: [], pages: [], apps: ['orgs-mine'], lib: [] });
   });
   it('rejects a kind outside the accepted set', () => {
     expect(() => batteryFor('edge-removals')).toThrow('batteryFor: unknown kind "edge-removals"');
