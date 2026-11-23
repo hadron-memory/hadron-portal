@@ -8,6 +8,10 @@ describe('clipsOverflow', () => {
     'sm:overflow-hidden', 'hover:truncate',
     // portal#2506: the clamp is a clip (Tailwind compiles it to overflow:hidden).
     'line-clamp-1', 'block line-clamp-3', 'md:line-clamp-2',
+    // portal#2538 (blind F12): the arbitrary-value spellings of the same clamp —
+    // a bracketed line count and a CSS variable. The bare line-clamp-\d+ arm
+    // missed both.
+    'line-clamp-[3]', 'sm:line-clamp-[10]', 'line-clamp-(--lines)',
     // Variants the old single [a-z-]+: prefix never matched: a responsive tier
     // starting with a digit, and a bracketed variant whose selector contains a
     // colon. Both clip, wherever Tailwind puts them.

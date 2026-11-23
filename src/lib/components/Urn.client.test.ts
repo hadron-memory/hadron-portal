@@ -73,10 +73,30 @@ const valueSpan = (m: Mounted<Record<string, unknown>>) => m.target.querySelecto
 
 /** portal#2506: the collapsed value is a one-line clamp with wrap-anywhere — single-line
  *  ellipsis whose min-content collapses, unlike a nowrap `truncate` whose min-content is
- *  the full text width (which escapes a caller wrapper with no max-w-full/min-w-0). */
-const collapsedClasses = (cls: string) => cls.includes('line-clamp-1') && cls.includes('[overflow-wrap:anywhere]') && !cls.includes('whitespace-normal');
-/** The revealed value wraps freely: no clamp, break opportunities everywhere. */
-const expandedClasses = (cls: string) => cls.includes('whitespace-normal') && cls.includes('[overflow-wrap:anywhere]') && !cls.includes('line-clamp-1');
+ *  the full text width (which escapes a caller wrapper with no max-w-full/min-w-0).
+ *  portal#2538 (blind F12): tokens match exactly — the old substring includes()
+ *  read `line-clamp-10` as `line-clamp-1` (a collapsed chip clamping to ten lines),
+ *  and the expanded check's negative let any clamp that was not literally -1 through. */
+const hasToken = (cls: string, token: string) => cls.split(/\s+/).includes(token);
+const hasClamp = (cls: string) => cls.split(/\s+/).some(t => t.startsWith('line-clamp-') && t !== 'line-clamp-none');
+const collapsedClasses = (cls: string) => hasToken(cls, 'line-clamp-1') && hasToken(cls, '[overflow-wrap:anywhere]') && !hasToken(cls, 'whitespace-normal');
+/** The revealed value wraps freely: no clamp of any count, break opportunities everywhere. */
+const expandedClasses = (cls: string) => hasToken(cls, 'whitespace-normal') && hasToken(cls, '[overflow-wrap:anywhere]') && !hasClamp(cls);
+
+describe('Urn: the class matchers are token-exact (portal#2538 blind F12)', () => {
+  it('a multi-line clamp is not the collapsed single line', () => {
+    expect(collapsedClasses('min-w-0 line-clamp-10 [overflow-wrap:anywhere]')).toBe(false);
+  });
+
+  it('a value with any clamp left on it is not expanded', () => {
+    expect(expandedClasses('whitespace-normal [overflow-wrap:anywhere] line-clamp-2')).toBe(false);
+  });
+
+  it('the real tokens still match', () => {
+    expect(collapsedClasses('min-w-0 line-clamp-1 [overflow-wrap:anywhere]')).toBe(true);
+    expect(expandedClasses('whitespace-normal [overflow-wrap:anywhere]')).toBe(true);
+  });
+});
 
 describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
   it('a compact unlinked chip toggles between truncated and the full URN', () => {

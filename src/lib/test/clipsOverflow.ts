@@ -6,6 +6,10 @@
  * [overflow:hidden]-style properties, and paint containment. portal#2506 adds
  * `line-clamp-<n>` (Tailwind compiles it to overflow:hidden plus the box
  * display — a real clip); `line-clamp-none` resets to visible and stays out.
+ * portal#2538 (blind F12): the clamp's arbitrary-value spellings — a bracketed
+ * line count (`line-clamp-[3]`) and a CSS variable (`line-clamp-(--lines)`) —
+ * compile to the same clip, so both match; the value forms stay conservative
+ * (digits, or one bracket/paren group) so nothing else is swept in.
  *
  * Variants are stripped per token (portal#2506 review): a utility keeps its
  * clip wherever Tailwind puts it — `sm:` matched even when the prefix was a
@@ -17,7 +21,7 @@
  * to win a specificity fight is still a clip (#2506, delta review).
  */
 const CLIP =
-  /^(?:truncate|line-clamp-\d+|overflow(?:-[xy])?-(?:hidden|clip|auto|scroll)|contain-(?:paint|strict|content)|\[overflow(?:-[xy])?:(?:hidden|clip|auto|scroll)\]|\[contain:[^\]]*(?:paint|strict|content)[^\]]*\])$/;
+  /^(?:truncate|line-clamp-(?:\d+|\[\d+\]|\(--?[\w-]+\))|overflow(?:-[xy])?-(?:hidden|clip|auto|scroll)|contain-(?:paint|strict|content)|\[overflow(?:-[xy])?:(?:hidden|clip|auto|scroll)\]|\[contain:[^\]]*(?:paint|strict|content)[^\]]*\])$/;
 
 /**
  * The utility root of one class token: everything after the last top-level
