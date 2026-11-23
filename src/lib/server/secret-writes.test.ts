@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { env } from '$env/dynamic/public';
+import { internalErrorText } from '$lib/gql-error';
 import { parseSecretValue, secretWrite, validSecretName } from './secret-writes';
 
 const err = (extensions: Record<string, unknown>, message = 'nope') =>
@@ -24,30 +25,33 @@ describe('secretWrite (portal#2380)', () => {
 });
 
 describe('open-change cap refusals have their own copy (portal#2460)', () => {
-  const refuse = (code: string, message = 'server wording') => secretWrite(client(() => { throw err({ code }, message); }), 'q', {});
-  const GENERIC = 'Something went wrong on our side.';
+  const refuse = async (code: string, message = 'server wording') => {
+    const r = await secretWrite(client(() => { throw err({ code }, message); }), 'q', {});
+    if (r.kind !== 'refused') throw new Error(`expected a refusal, got ${r.kind}`);
+    return r.message;
+  };
   it('the per-requester cap says the person has too many open changes and what to do, with no number', async () => {
-    const r = await refuse('SECRET_CHANGE_REQUESTER_LIMIT');
-    expect(r.kind).toBe('refused');
-    const m = (r as { message: string }).message;
-    expect(m).not.toBe(GENERIC);
+    const m = await refuse('SECRET_CHANGE_REQUESTER_LIMIT');
+    expect(m).not.toBe(internalErrorText());
     expect(m).toMatch(/too many open changes/i);
     expect(m).toMatch(/withdraw/i);
     expect(m).toMatch(/expire/i);
     expect(m).not.toMatch(/\d/);
   });
   it('the per-secret cap has its own copy that does not blame the person, with no number', async () => {
-    const m = ((await refuse('SECRET_CHANGE_REQUEST_LIMIT')) as { message: string }).message;
-    expect(m).not.toBe(GENERIC);
+    const m = await refuse('SECRET_CHANGE_REQUEST_LIMIT');
+    expect(m).not.toBe(internalErrorText());
+    expect(m).toMatch(/too many open change requests/i);
+    expect(m).toMatch(/wait/i);
     expect(m).not.toMatch(/you have too many/i);
     expect(m).not.toMatch(/\d/);
+    expect(m).not.toBe(await refuse('SECRET_CHANGE_REQUESTER_LIMIT'));
   });
-  it('the copy is the portal own, not the server message', async () => {
-    const m = ((await refuse('SECRET_CHANGE_REQUESTER_LIMIT', 'leaks: 2 of 5 for user u1')) as { message: string }).message;
-    expect(m).not.toMatch(/leaks|u1/);
+  it.each(['SECRET_CHANGE_REQUESTER_LIMIT', 'SECRET_CHANGE_REQUEST_LIMIT'])('%s shows the portal copy, not the server message', async (code) => {
+    expect(await refuse(code, 'leaks: 2 of 5 for user u1')).not.toMatch(/leaks|u1/);
   });
-  it('an unknown code keeps the generic text', async () => {
-    expect(await refuse('SECRET_CHANGE_SOMETHING_ELSE')).toEqual({ kind: 'refused', message: GENERIC });
+  it('an unknown code keeps the generic text and never the server message', async () => {
+    expect(await refuse('SECRET_CHANGE_SOMETHING_ELSE', 'leaks: server text')).toBe(internalErrorText());
   });
 });
 
