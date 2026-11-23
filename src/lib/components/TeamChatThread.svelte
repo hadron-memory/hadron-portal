@@ -10,6 +10,7 @@
   import { t } from '$lib/i18n/t';
   import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
   import Urn from '$lib/components/Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import {
     annotateDays,
     authorHrefOf,
@@ -26,6 +27,7 @@
   import { clampProbe } from './clamp-probe';
   import {
     TEAM_CHAT_POLL_MS,
+    POST_PENDING_BOUND_MS,
     forwardPageCount,
     isAtBottom,
     mergeTranscript,
@@ -199,9 +201,28 @@
       },
     },
   );
+  // #1407: a post the server never answers must not lock the page for good.
+  // After POST_PENDING_BOUND_MS the thread stops reporting itself as busy, so
+  // navigation, the chat selector and the tabs come back, and says plainly that
+  // the post is unconfirmed. The draft stays in the composer and Post stays
+  // disabled while the request is still open, so waiting cannot double-send.
+  // Why 30 s: well past a slow-but-healthy post, short enough that the reader is
+  // not locked in for a minute. The request itself is not aborted, which is why
+  // the note says the message may still be sent.
+  let postStalled = $state(false);
   $effect(() => {
     const submitting = $postSubmitting;
-    untrack(() => onSubmittingChange?.(submitting));
+    if (!submitting) {
+      postStalled = false;
+      untrack(() => onSubmittingChange?.(false));
+      return;
+    }
+    const timer = setTimeout(() => {
+      postStalled = true;
+      onSubmittingChange?.(false);
+    }, POST_PENDING_BOUND_MS);
+    untrack(() => onSubmittingChange?.(true));
+    return () => clearTimeout(timer);
   });
   const replyTo = $derived($postFormData.replyToSeq ? Number($postFormData.replyToSeq) : null);
   const postError = $derived(
@@ -674,6 +695,9 @@
     if (restoredView && !restoredView.atBottom && messagesEl) messagesEl.scrollTop = restoredView.scrollTop;
     else scrollToBottom();
   });
+  // #1407: a thread torn down mid-post can no longer guard anything, so it
+  // never leaves the page locked behind it.
+  onDestroy(() => onSubmittingChange?.(false));
   onDestroy(() => {
     if (isBrowser && onViewStateChange && !shownLoadError) onViewStateChange({
       items: $state.snapshot(shownMessages), total: shownTotal,
@@ -1439,6 +1463,14 @@
             : t('app.team-chat.composer.post', 'Post')}
         </button>
       </div>
+      <!-- #1407: a persistent region; only its content comes and goes, so a screen reader announces the note. -->
+      <LiveRegion data-testid="team-chat-post-stalled">
+        {#if postStalled}
+          <p class="mt-2 text-xs text-amber-800 dark:text-amber-400">
+            {t('app.team-chat.composer.stalled', 'The server has not answered yet. Your message may still be sent: check the chat before posting it again.')}
+          </p>
+        {/if}
+      </LiveRegion>
       <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
         {t('app.team-chat.composer.attribution', 'Posts from here are attributed to you, not to a worker.')}
       </p>
