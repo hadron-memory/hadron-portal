@@ -69,3 +69,25 @@ export function probeUntitledEllipsis() {
   }
   return out;
 }
+
+// portal#2548: an `sr-only` label inside a cell is `position:absolute`, so with no positioned ancestor it is placed against the
+// page, not its cell: it can paint, and scroll, outside the table. Its offsetParent is the positioned ancestor that anchors it
+// (a `td` counts only when it is itself positioned), so the anchor must be the cell or something inside it. Self-contained, like the probes above.
+export function probeSrOnlyAnchors() {
+  const unanchored = [];
+  let seen = 0;
+  for (const td of document.querySelectorAll('tbody td')) {
+    for (const el of td.querySelectorAll('.sr-only')) {
+      // A label in a cell that is not rendered (a phone-hidden column is display:none) has no box and no offsetParent: it cannot escape anything.
+      if (el.getClientRects().length === 0) continue;
+      seen += 1;
+      const anchor = el.offsetParent;
+      if (!anchor || !td.contains(anchor)) {
+        const col = td.closest('table')?.querySelectorAll('thead th')[td.cellIndex]?.textContent?.trim() ?? String(td.cellIndex);
+        // anchoredBy: the element that anchors the label outside its cell; 'none' when nothing does (position:fixed labels have no offsetParent either, named apart).
+        unanchored.push({ col, what: (el.textContent ?? '').trim().slice(0, 40), anchoredBy: anchor ? anchor.tagName.toLowerCase() : getComputedStyle(el).position === 'fixed' ? 'fixed' : 'none' });
+      }
+    }
+  }
+  return { seen, unanchored };
+}

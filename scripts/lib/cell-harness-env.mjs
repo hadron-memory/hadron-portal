@@ -14,9 +14,9 @@ export const APPS_KINDS = ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine'
 // ALL_KINDS literally and import KINDS/PAGE_KINDS/APPS_KINDS, the script imports
 // only the env knobs, batteryFor and the party-label probe table. KINDS derives from it below.
 const COMPONENT_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label'];
-// portal#2491: the six Orgs route tables (#1962 slice 5) and three more, one kind per table. They are mounted real
+// portal#2491: the Orgs route tables (#1962 slice 5), one kind per table (portal#2548 added orgs-sessions). They are mounted real
 // route pages probed by the same escape-probe oracle as the Apps kinds, so they ride the apps battery.
-export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions'];
+export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions', 'orgs-sessions'];
 // portal#2514: the kinds whose ellipsized cells are checked for a reachable full value (probeUntitledEllipsis): a
 // non-empty `title` on the ellipsized element or an ancestor. portal#2561 turned it on for every apps and orgs kind
 // after adding the missing titles, so a new table of either family starts under the rule.

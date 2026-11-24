@@ -182,8 +182,8 @@
       {#snippet cell(cell, session)}
         {#if cell.column.id === 'worker'}
           {#if session.worker}
-            <div class="flex items-center gap-1.5 truncate">
-              <span class="truncate">{cell.getValue()}</span>
+            <div class="flex items-center gap-1.5 truncate" title={String(cell.getValue() ?? '')}>
+              <span class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue()}</span>
               <WorkerBadge retired={!!session.worker.retiredAt} size="xs" />
               {#if !session.worker.app}
                 <!--
@@ -217,7 +217,7 @@
           {/if}
         {:else}
           {@const f = fmt[cell.column.id]}
-          <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
+          <div class="truncate" title={String(f ? f(cell.getValue()) : cell.getValue() ?? '')}>{f ? f(cell.getValue()) : cell.getValue()}</div>
         {/if}
       {/snippet}
     </DataTable>
