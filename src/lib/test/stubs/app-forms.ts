@@ -30,6 +30,16 @@ import { page } from './app-stores';
  */
 const enhanced = new WeakMap<HTMLFormElement, (input: unknown) => unknown>();
 
+/** The AbortController each recorded submit was handed, so a test can assert on the request's own signal (portal#2542). */
+const controllers = new WeakMap<HTMLFormElement, AbortController>();
+
+/** The signal of the most recent submit `submitEnhanced` or `beginEnhanced` ran for `form`. */
+export function lastRequestSignal(form: HTMLFormElement): AbortSignal {
+  const c = controllers.get(form);
+  if (!c) throw new Error('lastRequestSignal: no submit has run for this form');
+  return c.signal;
+}
+
 export function enhance(form: HTMLFormElement, submit?: unknown): { destroy: () => void } {
   if (typeof submit === 'function') enhanced.set(form, submit as (input: unknown) => unknown);
   // Superforms calls kit's `enhance` and then reads `.destroy` off the result
@@ -56,11 +66,13 @@ export async function submitEnhanced(form: HTMLFormElement, includeFormData = fa
   if (!submit) throw new Error('submitEnhanced: this form was never enhanced');
   let cancelled = false;
   const formData = new FormData(form);
+  const controller = new AbortController();
+  controllers.set(form, controller);
   await submit({
     action: new URL(form.action || 'http://localhost/'),
     formData,
     formElement: form,
-    controller: new AbortController(),
+    controller,
     submitter: form.querySelector('[type="submit"]'),
     cancel: () => {
       cancelled = true;
@@ -85,11 +97,13 @@ export async function beginEnhanced(
   if (!submit) throw new Error('beginEnhanced: this form was never enhanced');
   const action = new URL(form.action || 'http://localhost/');
   const formData = new FormData(form);
+  const controller = new AbortController();
+  controllers.set(form, controller);
   const handler = await submit({
     action,
     formData,
     formElement: form,
-    controller: new AbortController(),
+    controller,
     submitter: form.querySelector('[type="submit"]'),
     cancel: () => {},
   });
@@ -203,8 +217,10 @@ export async function submitEnhancedDeferred(
   if (!submit) throw new Error('submitEnhancedDeferred: this form was never enhanced');
   const action = new URL(form.action || 'http://localhost/');
   const formData = new FormData(form);
+  const controller = new AbortController();
+  controllers.set(form, controller);
   const handler = await submit({
-    action, formData, formElement: form, controller: new AbortController(),
+    action, formData, formElement: form, controller,
     submitter: form.querySelector('[type="submit"]'), cancel: () => {},
   });
   if (typeof handler !== 'function') throw new Error('submitEnhancedDeferred: no result handler');
