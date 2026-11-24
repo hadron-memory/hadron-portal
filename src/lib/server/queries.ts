@@ -3049,8 +3049,8 @@ export const SESSIONS_QUERY = /* GraphQL */ `
 `;
 
 export const USAGE_EVENTS_QUERY = /* GraphQL */ `
-  query UsageEvents($type: String, $memoryId: ID, $limit: Int, $offset: Int) {
-    usageEvents(type: $type, memoryId: $memoryId, limit: $limit, offset: $offset) {
+  query UsageEvents($type: String, $memoryRef: ID, $limit: Int, $offset: Int) {
+    usageEvents(type: $type, memoryRef: $memoryRef, limit: $limit, offset: $offset) {
       id
       type
       nodeLoc
@@ -4178,7 +4178,7 @@ export const MEMORY_USAGE_SUMMARY_QUERY = /* GraphQL */ `
 // @deprecated in favour of `usageEvents(loc:)`.
 //
 // If a per-loc usage feed is ever needed here, use `usageEvents(loc: <loc>)`
-// and NOT `usageEvents(nodeId: <loc>)` — the latter's shape classification
+// and NOT `usageEvents(nodeRef: <loc>)` — the latter's shape classification
 // misroutes hierarchical locs, which is every spec citation (>=3 colon
 // segments). Recorded rather than left to be rediscovered from the issue.
 

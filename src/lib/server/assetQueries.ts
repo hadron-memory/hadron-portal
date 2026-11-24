@@ -76,8 +76,8 @@ export const COMPLETE_ASSET_UPLOAD_MUTATION = /* GraphQL */ `
 // uploads — a filter ON TOP of the read gate, not a substitute for it.
 export const MEMORY_ASSETS_QUERY = /* GraphQL */ `
   ${ASSET_FIELDS}
-  query MemoryAssets($memoryId: ID!, $mimeType: String, $skip: Int, $count: Int, $mine: Boolean) {
-    memoryAssets(memoryId: $memoryId, mimeType: $mimeType, skip: $skip, count: $count, mine: $mine) {
+  query MemoryAssets($memoryRef: ID!, $mimeType: String, $skip: Int, $count: Int, $mine: Boolean) {
+    memoryAssets(memoryRef: $memoryRef, mimeType: $mimeType, skip: $skip, count: $count, mine: $mine) {
       total
       hasMore
       assets {

@@ -6,7 +6,7 @@
  * call it with a hand-rolled SvelteKit-shaped event. No SvelteKit runtime.
  *
  * The load-bearing assertion is that the loader scopes the query to THIS
- * memory by passing `memoryId: params.id` — without it, the tab would render
+ * memory by passing `memoryRef: params.id` — without it, the tab would render
  * the global usage feed (the bug that motivated hadron-server #249).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -33,7 +33,7 @@ async function importLoad() {
 }
 
 describe('memory-detail Usage tab loader (#266)', () => {
-  it('scopes the query to the memory via memoryId and returns the events', async () => {
+  it('scopes the query to the memory via memoryRef and returns the events', async () => {
     const events = [{ id: 'ue-1', type: 'read', nodeLoc: 'a/b', createdAt: '2026-06-01' }];
     mockRequest.mockResolvedValueOnce({ usageEvents: events });
     const load = await importLoad();
@@ -42,7 +42,7 @@ describe('memory-detail Usage tab loader (#266)', () => {
 
     expect(result).toEqual({ events, eventsCapped: false });
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
-    expect(vars.memoryId).toBe('mem-xyz');
+    expect(vars.memoryRef).toBe('mem-xyz');
     expect(vars.limit).toBeGreaterThan(0);
   });
 
