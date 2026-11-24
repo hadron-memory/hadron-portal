@@ -74,17 +74,20 @@ export function probeUntitledEllipsis() {
 // page, not its cell: it can paint, and scroll, outside the table. Its offsetParent is the positioned ancestor that anchors it
 // (a `td` counts only when it is itself positioned), so the anchor must be the cell or something inside it. Self-contained, like the probes above.
 export function probeSrOnlyAnchors() {
-  const out = [];
+  const unanchored = [];
   let seen = 0;
   for (const td of document.querySelectorAll('tbody td')) {
     for (const el of td.querySelectorAll('.sr-only')) {
+      // A label in a cell that is not rendered (a phone-hidden column is display:none) has no box and no offsetParent: it cannot escape anything.
+      if (el.getClientRects().length === 0) continue;
       seen += 1;
       const anchor = el.offsetParent;
       if (!anchor || !td.contains(anchor)) {
         const col = td.closest('table')?.querySelectorAll('thead th')[td.cellIndex]?.textContent?.trim() ?? String(td.cellIndex);
-        out.push({ col, what: (el.textContent ?? '').trim().slice(0, 40), anchor: anchor ? anchor.tagName.toLowerCase() : 'none' });
+        // 'page' = no positioned ancestor inside the cell, so the page (or something outside the table) anchors the label.
+        unanchored.push({ col, what: (el.textContent ?? '').trim().slice(0, 40), anchoredBy: anchor ? anchor.tagName.toLowerCase() : 'page' });
       }
     }
   }
-  return { seen, out };
+  return { seen, unanchored };
 }

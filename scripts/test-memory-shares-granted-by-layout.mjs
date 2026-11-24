@@ -136,7 +136,7 @@ try {
     // portal#2548: the Role <label class="sr-only"> in each row is anchored by its cell, never by the page.
     const sr = await page.evaluate(probeSrOnlyAnchors);
     check(sr.seen > 0, 'no sr-only label rendered in a cell, the anchor check measured nothing');
-    check(sr.out.length === 0, `an sr-only label is not anchored inside its cell ${JSON.stringify(sr.out)}`);
+    check(sr.unanchored.length === 0, `an sr-only label is not anchored inside its cell ${JSON.stringify(sr.unanchored)}`);
     check(m.nameTruncated, 'the 64-character name did not truncate inside the cell');
     check(errors.length === 0, `page errors: ${errors.join('; ')}`);
     console.log(`${leg}: cell ${m.cellWidth.toFixed(0)}px, overshoot ${m.worst.toFixed(1)}px`);

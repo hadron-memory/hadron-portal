@@ -14,7 +14,8 @@ import { probeCellEscapes, probeUntitledEllipsis, probeSrOnlyAnchors, ESCAPE_PX 
 // so the harness's shell row cannot drift from the real layout. A constant that is missing or renamed fails loudly here.
 const appShellSource = await readFile(new URL('../src/lib/layout/app-shell.ts', import.meta.url), 'utf8');
 const shellClass = name => {
-  const found = new RegExp(`export const ${name} = '([^']+)'`).exec(appShellSource)?.[1];
+  // The quote may be ' " or `: a harmless reformat of the constant must not break the harness.
+  const found = new RegExp('export const ' + name + '\\s*=\\s*[\'"`]([^\'"`]+)[\'"`]').exec(appShellSource)?.[1];
   if (!found) throw new Error(`test-table-cell-overflow-layout: ${name} was not found in src/lib/layout/app-shell.ts`);
   return found;
 };
@@ -1044,8 +1045,18 @@ async function loadNodePageData(devServer, tab) {
     }
     // portal#2548: an sr-only label in a cell is anchored by the cell (or something inside it), never by the page.
     const srOnly = await page.evaluate(probeSrOnlyAnchors);
-    if (srOnly.out.length) failures.push(`${leg}/${sizing}: an sr-only label is not anchored inside its cell ${JSON.stringify(srOnly.out)}`);
-    if (SR_ONLY_KINDS.includes(kind) && srOnly.seen === 0) failures.push(`${leg}/${sizing}: no sr-only label rendered in a cell, the anchor check measured nothing`);
+    if (srOnly.unanchored.length) failures.push(`${leg}/${sizing}: an sr-only label is not anchored inside its cell ${JSON.stringify(srOnly.unanchored)}`);
+    if (SR_ONLY_KINDS.includes(kind)) {
+     if (srOnly.seen === 0) failures.push(`${leg}/${sizing}: no sr-only label rendered in a cell, the anchor check measured nothing`);
+     // Negative control, on the effect and not only the anchor: with the cells made static (what DataTable did before #2548) the label must
+     // be anchored by the page, and the probe must say so. Restored straight after.
+     else {
+      await page.evaluate(() => document.querySelectorAll('tbody td').forEach(td => { td.dataset.prevPosition = td.style.position; td.style.position = 'static'; }));
+      const control = await page.evaluate(probeSrOnlyAnchors);
+      await page.evaluate(() => document.querySelectorAll('tbody td').forEach(td => { td.style.position = td.dataset.prevPosition ?? ''; delete td.dataset.prevPosition; }));
+      if (control.unanchored.length === 0) failures.push(`${leg}/${sizing}: the sr-only probe did not flag a label in a static cell (the negative control)`);
+     }
+    }
     // The table keeps its width inside the page and scrolls internally. (The document's own scrollWidth is not used: the
     // page's TabRow keeps an invisible fixed measuring clone that widens it on main, with or without a table defect.)
     const scrollers = await page.locator('[data-testid="data-table-scroller"]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
@@ -1053,7 +1064,10 @@ async function loadNodePageData(devServer, tab) {
     // #2517: in the shell-row mount a table must not widen the DOCUMENT (the fixture has no TabRow clone, so scrollWidth is sound here).
     // clientWidth, not innerWidth: innerWidth includes the scrollbar, so it would excuse a few px of overflow.
     const docWidth = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
-    if (!DOC_WIDTH_EXEMPT_KINDS.includes(kind) && docWidth.scroll > docWidth.client) failures.push(`${leg}/${sizing}: the table widens the document to ${docWidth.scroll}px in a ${docWidth.client}px viewport`);
+    const widens = docWidth.scroll > docWidth.client;
+    if (!DOC_WIDTH_EXEMPT_KINDS.includes(kind) && widens) failures.push(`${leg}/${sizing}: the table widens the document to ${docWidth.scroll}px in a ${docWidth.client}px viewport`);
+    // An exemption that no longer applies must go: the fix it waits for has landed.
+    if (DOC_WIDTH_EXEMPT_KINDS.includes(kind) && !widens && width <= 390) failures.push(`${leg}/${sizing}: ${kind} no longer widens the document at ${width}px: remove it from DOC_WIDTH_EXEMPT_KINDS (hadron-portal#2591)`);
     // portal#2514: the Role select has no measured minSize any more (it is w-full min-w-0 and shrinks with its column), so a
     // collapsed select would pass every containment check above. Pin a usable floor: at the narrowest column this harness sets
     // (120px) the select must still show its value, and no select may be hidden or zero-width.
