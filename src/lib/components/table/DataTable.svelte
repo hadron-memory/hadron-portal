@@ -316,7 +316,7 @@
           {...rowAttrs ? rowAttrs(row.original) : {}}
         >
           {#each row.getVisibleCells() as c (c.id)}
-            <td data-cell-contained={containCells ? '' : undefined} class="{containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {phoneHidden.includes(c.column.id) ? 'max-sm:hidden ' : ''}{singleColumnFit ? 'max-sm:border-r-0 ' : ''}{c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:z-[1] max-sm:bg-inherit max-sm:focus-within:z-30 max-sm:has-[[data-menu-open]]:z-30' : ''}">
+            <td data-cell-contained={containCells ? '' : undefined} class="relative {containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {phoneHidden.includes(c.column.id) ? 'max-sm:hidden ' : ''}{singleColumnFit ? 'max-sm:border-r-0 ' : ''}{c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:z-[1] max-sm:bg-inherit max-sm:focus-within:z-30 max-sm:has-[[data-menu-open]]:z-30' : ''}">
               {@render cell(c, row.original)}
             </td>
           {/each}

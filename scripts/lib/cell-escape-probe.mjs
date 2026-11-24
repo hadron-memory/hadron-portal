@@ -69,3 +69,22 @@ export function probeUntitledEllipsis() {
   }
   return out;
 }
+
+// portal#2548: an `sr-only` label inside a cell is `position:absolute`, so with no positioned ancestor it is placed against the
+// page, not its cell: it can paint, and scroll, outside the table. Its offsetParent is the positioned ancestor that anchors it
+// (a `td` counts only when it is itself positioned), so the anchor must be the cell or something inside it. Self-contained, like the probes above.
+export function probeSrOnlyAnchors() {
+  const out = [];
+  let seen = 0;
+  for (const td of document.querySelectorAll('tbody td')) {
+    for (const el of td.querySelectorAll('.sr-only')) {
+      seen += 1;
+      const anchor = el.offsetParent;
+      if (!anchor || !td.contains(anchor)) {
+        const col = td.closest('table')?.querySelectorAll('thead th')[td.cellIndex]?.textContent?.trim() ?? String(td.cellIndex);
+        out.push({ col, what: (el.textContent ?? '').trim().slice(0, 40), anchor: anchor ? anchor.tagName.toLowerCase() : 'none' });
+      }
+    }
+  }
+  return { seen, out };
+}
