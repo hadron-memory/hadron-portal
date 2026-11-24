@@ -7,8 +7,9 @@ import type { PageServerLoad } from './$types';
 const PAGE_SIZE = 200;
 
 // #266 Usage tab — per-memory usage events. The server's `memoryRef` filter
-// (hadron-server #249) is FK-precise and access-scoped: it returns [] if the
-// caller can't read this memory, so no extra guard is needed here.
+// (hadron-server #249) is FK-precise and access-scoped: the server decides what a
+// memory the caller can't read answers (a gate refusal, identical for an id, a
+// URN and a missing memory, per hadron-server#4822), so no extra guard is needed here.
 export const load: PageServerLoad = async ({ params, locals }) => {
   const data = await gqlClient(locals.token).request<{ usageEvents: UsageEvent[] }>(
     USAGE_EVENTS_QUERY,

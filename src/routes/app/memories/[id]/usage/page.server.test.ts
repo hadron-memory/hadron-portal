@@ -43,6 +43,7 @@ describe('memory-detail Usage tab loader (#266)', () => {
     expect(result).toEqual({ events, eventsCapped: false });
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars.memoryRef).toBe('mem-xyz');
+    expect(vars).not.toHaveProperty('memoryId'); // #2588: the renamed-away argument is never sent
     expect(vars.limit).toBeGreaterThan(0);
   });
 
