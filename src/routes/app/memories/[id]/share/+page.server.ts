@@ -80,16 +80,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 };
 
 // @copilot on #839: `[id]` is a REF — the loader passes it to `memory(ref:)`,
-// which accepts an id OR a URN. But `createMemoryShare` / `updateMemoryShareRole`
-// take `memoryId`, and the server looks that up with
-// `findUnique({ where: { id: memoryId } })` (`isMemorySharePrincipal`) — a
-// strict id, no ref resolution. So on a URN-addressed page the list LOADS and
-// then every grant and role change fails FORBIDDEN, because the URN matched no
-// row and "no such memory" and "not the principal" are deliberately
-// indistinguishable.
+// which accepts an id OR a URN. `createMemoryShare` / `updateMemoryShareRole`
+// take `memoryRef` (hadron-server#4137 renamed it from `memoryId`), which accepts
+// an id or a URN too, so the URN would now resolve server-side. The page still
+// sends the canonical id, which is a valid ref, so an unknown memory stays a 404
+// here instead of an indistinguishable FORBIDDEN ("no such memory" and "not the
+// principal" are deliberately indistinguishable on the server).
 //
 // Resolving through the same query the page already ran gives the canonical id
 // and costs no extra round trip.
+//
+// Now optional (#4137: `memoryRef` takes the URN itself); kept so a non-reader gets the portal's 404 first.
 async function resolveMemoryId(token: string | null | undefined, ref: string): Promise<string> {
   const data = await gqlClient(token).request<{ memory: { id: string } | null }>(
     MEMORY_SHARES_QUERY,
@@ -105,7 +106,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(CREATE_MEMORY_SHARE_MUTATION, {
-        memoryId: await resolveMemoryId(locals.token, params.id),
+        memoryRef: await resolveMemoryId(locals.token, params.id),
         granteeRef: form.data.granteeRef,
         role: form.data.role,
       });
@@ -124,7 +125,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_SHARE_ROLE_MUTATION, {
-        memoryId: await resolveMemoryId(locals.token, params.id),
+        memoryRef: await resolveMemoryId(locals.token, params.id),
         granteeRef: form.data.granteeRef,
         role: form.data.role,
       });
