@@ -107,21 +107,21 @@ describe('#1075 Task Nodes operations match the server snapshot', () => {
   });
 });
 
-// #2498 — hadron-server#4141 S5 (PR #4789) renamed cancelAppRun's argument
-// `id` -> `ref`, a hard rename with no alias (hrn:node:hadronmemory.com:specs:cor:api:140:01). The kill switch is
-// the run page's cancel button, so a stale document would pass every handler
-// test (the mock answers whatever shape it is sent) and fail only on a live
-// stack. Pinned against the snapshot at the server head this PR stamps.
-describe('#2498 CancelAppRun matches the server snapshot', () => {
+// portal#2498: hadron-server#4141 S5 (hadron-server#4789) renamed cancelAppRun's
+// argument `id` -> `ref`, a hard rename with no alias (spec
+// hrn:node:hadronmemory.com:specs:cor:api:140:01). The kill switch is the run
+// page's cancel button, so a stale document would pass every handler test (the
+// mock answers whatever shape it is sent) and fail only on a live stack. Pinned
+// against the snapshot at the server head this PR stamps. The validator is the
+// proof; the drifted form is asserted refused so it cannot go green on a
+// validator that accepts everything.
+describe('portal#2498 cancelAppRun matches the server snapshot', () => {
   it('cancelAppRun is called with `ref`, never `id`', () => {
     expect(errors(CANCEL_APP_RUN_MUTATION)).toEqual([]);
-    expect(CANCEL_APP_RUN_MUTATION).toContain('cancelAppRun(ref: $ref)');
-    expect(CANCEL_APP_RUN_MUTATION).toContain('$ref: ID!');
-    expect(CANCEL_APP_RUN_MUTATION).not.toMatch(/cancelAppRun\(\s*id:/);
-    // The drifted form is refused by the same validator.
     const drifted = CANCEL_APP_RUN_MUTATION.replace('cancelAppRun(ref: $ref)', 'cancelAppRun(id: $ref)');
     expect(drifted).not.toBe(CANCEL_APP_RUN_MUTATION);
-    expect(errors(drifted).join('\n')).toContain('Unknown argument "id" on field "Mutation.cancelAppRun"');
+    // Only that the drift is refused naming the argument, not graphql-js's exact sentence.
+    expect(errors(drifted).join('\n')).toMatch(/Unknown argument "id"/);
   });
 });
 

@@ -222,6 +222,33 @@ describe('run detail cancel action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  // portal#2574. A typed refusal is not a fault: the server answered on purpose, and BAD_USER_INPUT is
+  // reachable from any URL segment (`ref` takes the route's runId unvalidated). Kills: the catch mapping
+  // every failure to 500.
+  it.each([
+    ['BAD_USER_INPUT', 400],
+    ['NOT_FOUND', 404],
+    ['FORBIDDEN', 403],
+  ])('answers a %s refusal with HTTP %i and the server\'s own message', async (code, status) => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: `refused: ${code}`, extensions: { code } }] } });
+    const { actions } = await import('./+page.server');
+
+    const result = await actions.cancel(actionEvent() as never);
+
+    expect((result as { status: number }).status).toBe(status);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: `refused: ${code}` });
+  });
+
+  it('keeps a server fault at 500 with the generic copy', async () => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } });
+    const { actions } = await import('./+page.server');
+
+    const result = await actions.cancel(actionEvent() as never);
+
+    expect((result as { status: number }).status).toBe(500);
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error', text: expect.not.stringContaining('boom') });
+  });
+
   it('returns the fallback copy, not the raw text, when cancellation fails in transport', async () => {
     mockRequest.mockRejectedValueOnce(new Error('already completed'));
     const { actions } = await import('./+page.server');
