@@ -175,6 +175,7 @@
       // #2542: keep the in-flight request's controller and superforms' own
       // cancel, so "Stop waiting" can abort the request itself.
       onSubmit: ({ controller, cancel }) => {
+        postAbandoned = false;
         postRequest = { controller, cancel };
       },
       validators: zod4Client(postTeamChatMessageSchema),
@@ -229,6 +230,10 @@
   // stay `submitting` for good; its own `cancel` is what completes the submit,
   // which is why both are kept and called together.
   let postStalled = $state(false);
+  // Set once the reader has stopped waiting: the draft is back in the composer
+  // with Post enabled, and the server may still have taken the message, so the
+  // note stays (announced) until they edit the draft or post again.
+  let postAbandoned = $state(false);
   let postRequest: { controller: AbortController; cancel: () => void } | null = null;
   function stopWaiting() {
     const request = postRequest;
@@ -240,6 +245,7 @@
     } finally {
       request.cancel();
     }
+    postAbandoned = true;
     // The button that held focus is gone with the note: hand focus to the composer.
     void tick().then(() => composerEl?.focus());
   }
@@ -1487,7 +1493,7 @@
           bind:this={composerEl}
           name="body"
           bind:value={$postFormData.body}
-          oninput={(event) => onDraftChange?.({ body: event.currentTarget.value, replyToSeq: replyTo === null ? undefined : String(replyTo) })}
+          oninput={(event) => { postAbandoned = false; onDraftChange?.({ body: event.currentTarget.value, replyToSeq: replyTo === null ? undefined : String(replyTo) }); }}
           placeholder={postForm.data.channelRef ? t('app.channel.composer.placeholder', 'Post to this chat… (Ctrl/Cmd+Enter to send).') : t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl/Cmd+Enter to send). Mention a teammate with @name.')}
           rows="3"
           disabled={$postSubmitting}
@@ -1510,6 +1516,10 @@
         {#if postStalled}
           <p class="mt-2 text-xs text-amber-800 dark:text-amber-400">
             {t('app.team-chat.composer.stalled', 'The server has not answered yet. Your message may still be sent: check the chat before posting it again.')}
+          </p>
+        {:else if postAbandoned}
+          <p class="mt-2 text-xs text-amber-800 dark:text-amber-400">
+            {t('app.team-chat.composer.stopped', 'You stopped waiting. Your message may already have been sent: check the chat before posting it again.')}
           </p>
         {/if}
       </LiveRegion>

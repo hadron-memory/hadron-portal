@@ -70,8 +70,11 @@ describe('TeamChatThread — Stop waiting (#2542)', () => {
 
     // Kills: calling only the cancel (no abort), or only the abort (superforms stays `submitting`).
     expect(lastRequestSignal(form).aborted).toBe(true);
-    expect(note(target)).toBeNull();
     expect(stopButton(target)).toBeNull();
+    // Post is enabled with the draft, so the region keeps saying the message may have gone (UX seat P2):
+    // the stalled wording is replaced, in the same live region, not removed.
+    expect(note(target)?.textContent).toMatch(/You stopped waiting.*may already have been sent/);
+    expect(note(target)?.textContent).not.toMatch(/has not answered/);
     expect(composer.disabled).toBe(false);
     expect(composer.value).toBe('never answered');
     expect(postButton(target).disabled).toBe(false);
@@ -79,6 +82,25 @@ describe('TeamChatThread — Stop waiting (#2542)', () => {
     expect(busy).toHaveBeenLastCalledWith(false);
     // Focus returns to the composer: the button that held it is gone.
     expect(document.activeElement).toBe(composer);
+
+    // Editing the draft is the reader acting on it: the note goes.
+    composer.value = 'never answered, edited';
+    composer.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(note(target)).toBeNull();
+  });
+
+  it('posting again after Stop waiting clears the stopped note', async () => {
+    vi.useFakeTimers();
+    const { target } = await mountComposer();
+    const first = await startPost(target, 'retry');
+    await stall();
+    stopButton(target)!.click();
+    await tick(3);
+    expect(note(target)).not.toBeNull();
+    await submitEnhancedDeferred(first.form);
+    await tick(2);
+    expect(note(target)).toBeNull();
   });
 
   it('a post that settles before the bound shows neither the note nor the control', async () => {
@@ -115,7 +137,6 @@ describe('TeamChatThread — Stop waiting (#2542)', () => {
     // The first request stays aborted, and the late result neither re-locks the thread nor re-shows the note.
     expect(first.aborted).toBe(true);
     expect(busy).toHaveBeenLastCalledWith(false);
-    expect(note(target)).toBeNull();
     expect(stopButton(target)).toBeNull();
     expect(composer.disabled).toBe(false);
   });
