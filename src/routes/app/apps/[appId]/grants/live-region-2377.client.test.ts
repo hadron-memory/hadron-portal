@@ -82,3 +82,18 @@ it("'Refreshing grants…' (a held list read) is one persistent region", async (
   expect(during!.isConnected).toBe(true);
   expect(during!.textContent?.trim()).toBe("");
 });
+
+it("'Grant created.' is announced by a region that was mounted before the create (portal#2581)", async () => {
+  mounted = mountComponent(Harness, { data: grantsFixture(), form: null } as never);
+  const form = mounted.target.querySelector<HTMLFormElement>('form[action*="/create"]')!;
+  const setForm = (f: unknown) => { (mounted!.instance.setForm as (f: never) => void)(f as never); flushSync(); };
+  const idle = idleStatusRegions(mounted.target);
+  expect(regionSaying("Grant created.")).toBeNull();
+
+  const finish = await beginEnhanced(form, { update: async () => setForm(created.data) });
+  await finish(created);
+  await tick(3);
+  const region = regionSaying("Grant created.");
+  expect(region, "the confirmation is announced").not.toBeNull();
+  expect(idle, "by a region that existed, empty, before it").toContain(region);
+});

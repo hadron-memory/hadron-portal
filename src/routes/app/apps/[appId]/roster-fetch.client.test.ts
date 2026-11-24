@@ -36,6 +36,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
+import { idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import type { TeamRosterRead } from '$lib/server/app-team-roster';
@@ -420,6 +421,27 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     expect(link!.closest('[role="status"]')).toBeNull();
     // The message itself is the polite live region.
     expect([...panel.querySelectorAll('[role="status"]')].some((e) => e.textContent?.includes('Your session has ended'))).toBe(true);
+  });
+
+  // portal#2581: both roster notices arrive in a region that was already mounted, empty, while the read
+  // was pending (a status inserted already populated is not reliably announced).
+  it.each([
+    ['failed', 200, { kind: 'failed' }, 'could not be loaded'],
+    ['signed out', 401, { kind: 'failed' }, 'Your session has ended'],
+  ] as const)('portal#2581: the %s notice is announced by a region mounted before the read answered', async (_name, status, body, text) => {
+    let release: (r: Response) => void = () => {};
+    stubRosterResponses(() => new Promise<Response>((resolve) => { release = resolve; }));
+    const target = await mountPage({ teamRoster: null });
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+    await settled();
+    const panel = target.querySelector('#panel-staff')!;
+    const idle = idleStatusRegions(panel);
+    release(json(status, body));
+    await settled(3);
+    const region = [...panel.querySelectorAll<HTMLElement>('[role="status"]')].find((e) => e.textContent?.includes(text));
+    expect(region, 'the notice is in a status region').toBeDefined();
+    expect(idle, 'and that region existed, empty, before the answer').toContain(region);
   });
 
   it('portal#2282: the retry control sits outside the status text, shows loading, and a double click asks once', async () => {
