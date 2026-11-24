@@ -954,7 +954,7 @@
         {/key}
       {:else if data.bootSource.mode === 'compiled-only'}
         <section data-boot-compiled-only>
-          <p role="status" class="mb-2 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.compiled-only', 'You can’t see this Agent’s source, so this is the compiled prompt, read-only.')}</p>
+          <p class="mb-2 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.compiled-only', 'You can’t see this Agent’s source, so this is the compiled prompt, read-only.')}</p>
           <p class="mb-3 text-xs"><Urn value={data.bootSource.compiled.urn} type="node" /> <span class="text-zinc-500 dark:text-zinc-400">{t('agent.boot.source-revision', 'revision {n}', { n: data.bootSource.compiled.revision })}</span></p>
           <!-- svelte-ignore a11y_no_noninteractive_tabindex: a scrollable text region must be reachable by keyboard (WCAG 2.1.1) -->
           <pre tabindex="0" aria-label={t('agent.boot.compiled-text-label', 'Compiled prompt text')} class="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{data.bootSource.compiled.content}</pre>

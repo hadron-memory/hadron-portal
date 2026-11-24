@@ -3241,7 +3241,7 @@
         </div>
       {:else if appChatRender === 'withheld'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
-          <p role="status" class="max-w-md text-center text-sm text-zinc-500">
+          <p class="max-w-md text-center text-sm text-zinc-500">
             {t('app-chat.withheld', 'The agent linked to this App isn’t visible to you, so agent chat isn’t available here. This is not an App with no agent.')}
           </p>
         </div>
@@ -3874,9 +3874,10 @@
           </div>
         {/if}
         <!-- portal#2581: the notice text lives in a region that is mounted before the read answers, so it is
-             announced as a change. The row hides while that region is idle; the retry control and the sign-in
-             link stay OUTSIDE the region. -->
-        <div class="flex items-center gap-2 text-xs text-zinc-500 has-[>:is(:empty,[data-idle])]:hidden">
+             announced as a change. While the region is idle the row is `sr-only` (out of flow, so the space-y
+             parent leaves no gap, but still in the accessibility tree: `display:none` would take the region out of
+             it). The retry control and the sign-in link stay OUTSIDE the region. -->
+        <div class="flex items-center gap-2 text-xs text-zinc-500 has-[>:is(:empty,[data-idle])]:sr-only">
           <LiveRegion>
             {#if teamRoster?.kind === 'failed'}
               <p>{t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}</p>

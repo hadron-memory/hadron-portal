@@ -393,8 +393,8 @@
     <div class="mt-1"><Urn value={data.app.urn} linked /></div>
   </div>
   <!-- portal#2581: "Grant created." is spoken from this region, which exists before the create; the visible
-       confirmation inside the result section is hidden from assistive technology so it is not read twice. -->
-  <LiveRegion>{#if !current}<p>{t("grants.loading", "Loading…")}</p>{:else if returned}<p class="sr-only">{t("grants.created-confirmation", "Grant created.")}</p>{/if}</LiveRegion>
+       confirmation inside the result section is hidden from assistive technology so it is not read twice. Keyed on the grant, so a second create is a new element and is announced again. -->
+  <LiveRegion>{#if !current}<p>{t("grants.loading", "Loading…")}</p>{:else if returned}{#key returned.id}<p class="sr-only">{t("grants.created-confirmation", "Grant created.")}</p>{/key}{/if}</LiveRegion>
   {#if current}
     {#if feedback && !(form && "operation" in form && form.operation === "create")}<p
         role="alert"
