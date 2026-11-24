@@ -404,6 +404,7 @@
       ownerUrn={org.urn}
       configs={data.configs}
       canManage={orgRoleCanManage(org.members, data.currentUserId)}
+          ownerIsPerson={false}
       currentUserId={data.currentUserId}
       configsError={data.configsError}
     />

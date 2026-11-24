@@ -46,10 +46,12 @@ describe('a person\'s App, AI tab', () => {
     expect(p.textContent).toContain(OWNER_ONLY);
     expect(p.textContent).not.toContain('organization');
   });
-  it('an owner-role member whom the server refuses (flag false) is read-only, never offered a control that fails', async () => {
-    const p = await mountAi({ canManageApp: false, viewerManages: { kind: 'known', manages: true } });
+  it('a platform admin is decided by the server flag like anyone else: a person\'s App has no platform-admin term, and effectiveAccess gives manage to its owner and nobody else', async () => {
+    const p = await mountAi({ canManageApp: false, user: { roles: ['ADMIN'] } });
     expect(hasAdd(p)).toBe(false);
     expect(p.textContent).toContain(OWNER_ONLY);
+    const owner = await mountAi({ canManageApp: true, user: { roles: ['ADMIN'] } });
+    expect(hasAdd(owner)).toBe(true);
   });
   it('an impersonated session is read-only even for the owner', async () => {
     const p = await mountAi({ canManageApp: true, impersonation: { sessionId: 's', actorUserId: 'admin', orgId: 'o', expiresAt: Date.now() + 60_000 } });
@@ -62,6 +64,10 @@ describe('an organization\'s App, AI tab (unchanged)', () => {
   const org = (role: string) => ({ id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [{ user: { id: 'u1' }, role }] });
   it('an org ADMIN sees the controls whatever the manage flag says', async () => {
     const p = await mountAi({ org: org('ADMIN'), canManageApp: null }, { organizationId: 'o1' });
+    expect(hasAdd(p)).toBe(true);
+  });
+  it('an org ADMIN while impersonating keeps today\'s org rule (the server refuses the writes, cor:acl:100:02)', async () => {
+    const p = await mountAi({ org: org('ADMIN'), canManageApp: null, impersonation: { sessionId: 's', actorUserId: 'admin', orgId: 'o1', expiresAt: Date.now() + 60_000 } }, { organizationId: 'o1' });
     expect(hasAdd(p)).toBe(true);
   });
   it('an org member below ADMIN keeps the admin line, even when the flag says manage', async () => {
@@ -87,7 +93,9 @@ describe('Chats tab, no LLM config', () => {
     const m = await mountChats({ organizationId: null });
     expect(m.target.textContent).toContain('Connect an LLM provider to enable agent chat');
     expect(m.target.textContent).toContain('Add one for this App or its agent.');
-    expect(m.target.textContent).not.toMatch(/no AI service configuration with an? (API )?key resolves for it yet\. Add one for this App, its agent, or the organization/);
+    // The description paragraph itself, not the whole page: only a person's App drops the organization.
+    const description = [...m.target.querySelectorAll('p')].find((el) => el.textContent?.includes('chatbot agent linked'))!;
+    expect(description.textContent).not.toContain('organization');
     const cta = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.includes('Configure AI Service Configs'))!;
     cta.click();
     await tick(2);

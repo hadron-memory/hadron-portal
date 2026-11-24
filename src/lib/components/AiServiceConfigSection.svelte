@@ -24,7 +24,7 @@
     ownerUrn = null,
     configs,
     canManage,
-    ownerIsPerson = false,
+    ownerIsPerson,
     currentUserId = null,
     configsError = false,
     allowTest = true,
@@ -41,7 +41,7 @@
     /** Whether the viewer is shown the controls; see `aiConfigCanManage`. */
     canManage: boolean;
     /** True for a person's App or Agent: picks the read-only text that names its owner, not an organization. */
-    ownerIsPerson?: boolean;
+    ownerIsPerson: boolean;
     currentUserId?: string | null;
     /** True when the (admin-gated) masked list failed to load. */
     configsError?: boolean;

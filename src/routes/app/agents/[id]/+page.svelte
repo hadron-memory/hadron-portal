@@ -76,6 +76,8 @@
   }
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
+  // Platform roles (ADMIN, OWNER), not the organization roles the same words name elsewhere on this page.
+  const viewerIsPlatformAdmin = $derived(!!(data.user?.roles?.includes('ADMIN') || data.user?.roles?.includes('OWNER')));
   const agent = $derived(data.agent);
   const org = $derived(data.org);
   // #647: the "Agents" list this agent belongs to — the org grid for an org
@@ -1647,7 +1649,7 @@
         ownerLabel={agent.name}
         ownerUrn={agent.urn}
         configs={data.agentConfigs ?? []}
-        canManage={aiConfigCanManage({ ownerIsPerson: !agent.organizationId, orgMembers: org?.members, userId: data.currentUserId, canManageFlag: data.canManageAgent, impersonating: !!data.impersonating, platformAdmin: !!(data.user?.roles?.includes('ADMIN') || data.user?.roles?.includes('OWNER')) })}
+        canManage={aiConfigCanManage({ ownerIsPerson: !agent.organizationId, orgMembers: org?.members, userId: data.currentUserId, canManageFlag: data.canManageAgent, impersonating: !!data.impersonating, platformAdmin: viewerIsPlatformAdmin })}
         ownerIsPerson={!agent.organizationId}
         currentUserId={data.currentUserId}
         configsError={data.configsError}

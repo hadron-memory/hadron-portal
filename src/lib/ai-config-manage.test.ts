@@ -38,6 +38,9 @@ describe('aiConfigCanManage (portal#2567)', () => {
     expect(aiConfigCanManage({ ...org, orgMembers: [member('u1', 'CONTRIBUTOR')], canManageFlag: true })).toBe(false);
     expect(aiConfigCanManage({ ...org, orgMembers: [], canManageFlag: true })).toBe(false);
   });
+  it('an organization\'s thing while impersonating keeps the org rule: unchanged from before, the server refuses the writes (cor:acl:100:02)', () => {
+    expect(aiConfigCanManage({ ownerIsPerson: false, userId: 'u1', orgMembers: [member('u1', 'ADMIN')], impersonating: true })).toBe(true);
+  });
   it('no signed-in viewer manages nothing', () => {
     expect(aiConfigCanManage({ ownerIsPerson: true, userId: null, canManageFlag: true })).toBe(false);
   });

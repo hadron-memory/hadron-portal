@@ -67,7 +67,7 @@ async function open(fresh: AiServiceConfig[] | null) {
     throw new Error(`Unexpected fetch ${init?.method ?? 'GET'} ${url}`);
   }));
   const initialProps: SectionProps = {
-    ownerType: 'APP', ownerId: 'app1', currentUserId: 'u1', canManage: true,
+    ownerType: 'APP', ownerId: 'app1', currentUserId: 'u1', canManage: true, ownerIsPerson: false,
     configs: all.slice(20, 40), pagination: page,
   };
   mounted = mountComponent(AiServiceConfigSection, reactiveProps(initialProps));
