@@ -162,7 +162,7 @@
   async function load(nextOffset = offset, nextLoc = loc, discard = false) {
     pendingSave++;
     busy = false;
-    if (listZone?.contains(document.activeElement)) focusPending = true;
+    focusPending ||= listZone?.contains(document.activeElement) ?? false;
     const serial = ++sequence;
     const key = customisationKey(appRef, agent.id, nextLoc);
     const url = `/app/apps/${encodeURIComponent(appRef)}/customisation?agent=${encodeURIComponent(agent.id)}&offset=${nextOffset}${nextLoc ? `&loc=${encodeURIComponent(nextLoc)}` : ''}`;
@@ -210,6 +210,7 @@
           replacement: { state: 'failed' },
           original: { state: 'failed' },
         };
+      if (alive && serial === sequence) void restoreFocus();
     }
   }
   const showSearch = $derived(!oneRow || customisationFilter !== '');
@@ -217,8 +218,7 @@
     if (!showSearch) return;
     return () => {
       // Runs before the DOM update that removes the box, while it still holds focus.
-      const b = listZone?.querySelector('input[type="text"]');
-      if (b && b === document.activeElement) focusPending = true;
+      if (listZone?.contains(document.activeElement)) focusPending = true;
     };
   });
   $effect(() => {

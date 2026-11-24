@@ -958,6 +958,18 @@ describe('focus survives the list controls unmounting (#2549)', () => {
     expect(document.activeElement).toBe(root.querySelector('h3'));
   });
 
+  it('a load that fails also leaves focus on the heading, not body', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    const next = button(root, 'Next');
+    next.focus();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })));
+    next.click();
+    await settle();
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t load customisations');
+    expect(document.activeElement).toBe(root.querySelector('h3'));
+  });
+
   it('control: focus the reader did not have in the list is not stolen by a load', async () => {
     serve(listOf(25, two));
     const root = await panel();
