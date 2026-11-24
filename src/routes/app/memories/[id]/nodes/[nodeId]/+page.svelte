@@ -1386,13 +1386,21 @@
   // so they persist across node navigation; only `downloadOpen` + `dlError`
   // reset in the per-node effect.
   let dlSections = $state({ METADATA: true, CONTENT: true, ABSTRACT: true, DATA: true, PROPERTIES: true, EDGES: true });
+  // A PDF is always the title and content; these are the sections the reader adds (portal#426). None is the content-only PDF, and
+  // Print (#1073) never sends any. Comments joins when its ruling lands (hadron-portal#426). The sort only makes the list stable; the
+  // server owns the order of the sections in the PDF.
+  let dlPdfSections = $state({ ABSTRACT: false, DATA: false, PROPERTIES: false, EDGES: false, METADATA: false });
+  const PDF_SECTION_CHOICES = [['ABSTRACT', 'Abstract'], ['DATA', 'Data'], ['PROPERTIES', 'Properties'], ['EDGES', 'Edges'], ['METADATA', 'Metadata']] as const;
+  const dlPdfSelected = $derived(
+    (Object.keys(dlPdfSections) as (keyof typeof dlPdfSections)[]).filter((k) => dlPdfSections[k]).sort(),
+  );
   let dlBusy = $state(false);
   let dlError = $state<string | null>(null);
   const dlSelectedSections = $derived(
     (Object.keys(dlSections) as (keyof typeof dlSections)[]).filter((k) => dlSections[k]),
   );
   // A full export is always valid; a custom one needs at least one section.
-  // PDF is a presentation render (no scope/sections), so it's always valid.
+  // A PDF is always valid: with no section added it is the content-only PDF.
   const dlCanDownload = $derived(dlFormat === 'PDF' || dlFull || dlSelectedSections.length > 0);
 
   // Decode a base64 string to raw bytes for a binary (encoding: BASE64)
@@ -1446,9 +1454,10 @@
       const { blob, filename } = await fetchNodeExport({
         id: node.id,
         format: dlFormat,
-        // PDF is a presentation render; scope/sections don't apply.
-        full: dlFormat === 'PDF' ? true : dlFull,
-        ...(dlFormat === 'PDF' || dlFull ? {} : { sections: dlSelectedSections }),
+        // A PDF is a presentation render: full:false explicitly (the server's reading of full:true for a PDF is not relied on) with
+        // the sections the reader added; none is the content-only PDF.
+        full: dlFormat === 'PDF' ? false : dlFull,
+        ...(dlFormat === 'PDF' ? { sections: dlPdfSelected } : dlFull ? {} : { sections: dlSelectedSections }),
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -3165,8 +3174,8 @@
                 </label>
               </div>
             </fieldset>
-            <!-- Scope/sections apply to the canonical MD/JSON file only. PDF is a
-                 presentation render of the node content, so hide them for PDF. -->
+            <!-- Scope applies to the canonical MD/JSON file only. A PDF is always the title and content; it takes the sections the
+                 reader adds (portal#426), with no Content toggle. -->
             {#if dlFormat !== 'PDF'}
             <fieldset class="mb-3">
               <legend class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">Scope</legend>
@@ -3206,6 +3215,18 @@
                 </div>
               </fieldset>
             {/if}
+            {:else}
+              <fieldset class="mb-3">
+                <legend class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">Sections</legend>
+                <div class="space-y-1.5">
+                  {#each PDF_SECTION_CHOICES as [key, label] (key)}
+                    <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                      <input type="checkbox" bind:checked={dlPdfSections[key]} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> {label}
+                    </label>
+                  {/each}
+                </div>
+                <p class="mt-1.5 text-xs text-zinc-500">The title and content are always included.</p>
+              </fieldset>
             {/if}
             {#if dlError}
               <p class="mb-2 text-xs text-red-500">{dlError}</p>
