@@ -10,14 +10,17 @@
   would widen the Party column and the defeat would never bind (the wake
   battery documented the same skip).
 -->
+<script module lang="ts">
+  import type { AgentTaskParty } from '$lib/agent-tasks/types';
+
+  export type PartyLabelDefeatRow = { id: string; party: AgentTaskParty | null; note: string };
+</script>
+
 <script lang="ts">
   import DataTable from '$lib/components/table/DataTable.svelte';
   import PartyLabel from '$lib/components/agent-tasks/PartyLabel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AgentTaskParty } from '$lib/agent-tasks/types';
-
-  export type PartyLabelDefeatRow = { id: string; party: AgentTaskParty | null; note: string };
 
   let { rows }: { rows: PartyLabelDefeatRow[] } = $props();
 
