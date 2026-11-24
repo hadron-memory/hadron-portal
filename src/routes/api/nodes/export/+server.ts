@@ -19,7 +19,7 @@ interface NodeExportResult {
 }
 
 const FORMATS = new Set(['MD', 'JSON', 'PDF']);
-const SECTIONS = new Set(['METADATA', 'CONTENT', 'ABSTRACT', 'DATA', 'PROPERTIES', 'EDGES']);
+const SECTIONS = new Set(['METADATA', 'CONTENT', 'ABSTRACT', 'DATA', 'PROPERTIES', 'EDGES', 'COMMENTS']);
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -42,11 +42,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!id) return json({ error: 'Missing node id' }, { status: 400 });
   const format = typeof payload.format === 'string' && FORMATS.has(payload.format) ? payload.format : 'MD';
   const full = payload.full !== false; // default true (canonical)
-  // `sections` only applies to a presentation (full:false) export; the server
-  // ignores it otherwise. Filter to known enum values so a bad client can't
-  // push an invalid enum into the query.
+  // `sections` applies to a custom (full:false) MD/JSON export, and to a PDF whatever `full` says: a PDF is always the title and
+  // content, plus the sections the caller adds, which the server places in its own fixed order (portal#426). Filter to known enum
+  // values so a bad client can't push an invalid enum into the query.
   const sections =
-    !full && Array.isArray(payload.sections)
+    (!full || format === 'PDF') && Array.isArray(payload.sections)
       ? payload.sections.filter((s: unknown): s is string => typeof s === 'string' && SECTIONS.has(s))
       : undefined;
 
