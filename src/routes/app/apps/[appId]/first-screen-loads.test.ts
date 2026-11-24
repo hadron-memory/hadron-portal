@@ -138,9 +138,9 @@ const TAB_OPS: Record<string, string[]> = {
 
 const opSet = () => [...new Set(h.ops)].sort();
 const expected = (tab: string) => [...new Set([...FRAME, ...TAB_OPS[tab]])].sort();
-/** App Keys and AI Service Configs are sections of Settings. A link that still says `?tab=keys` opens Settings with that
+/** App Keys, AI Service Configs and Node-role templates are sections of Settings. A link that still says `?tab=keys` opens Settings with that
  *  section open, so its first screen is Settings' reads plus the section's own. */
-const SECTION_TABS = ['keys', 'ai-configs'];
+const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates'];
 const expectedOpening = (tab: string) => SECTION_TABS.includes(tab)
   ? [...new Set([...FRAME, ...TAB_OPS.settings, ...TAB_OPS[tab]])].sort()
   : expected(tab);

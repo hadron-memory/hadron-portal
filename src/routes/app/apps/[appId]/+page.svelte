@@ -1246,7 +1246,7 @@
   // together, so one key present means the group was read), or when its own
   // read has arrived. The banner's worker names alone do not cover AI Team:
   // its install marks are a group of their own.
-  const NAVIGATING_TABS: readonly AppTabId[] = ['runs', 'node-role-templates'];
+  const NAVIGATING_TABS: readonly AppTabId[] = ['runs'];
   function coveredByData(id: AppTabId): boolean {
     return TAB_READS[id].every((group) => READ_GROUP_KEYS[group].length === 0 || READ_GROUP_KEYS[group].some((key) => key in data));
   }
@@ -1386,9 +1386,6 @@
     // App Keys and AI Service Configs are collapsed sections of Settings (the App's setup is one place); their
     // old `?tab=` ids still resolve there, with the section open.
     { id: 'settings', label: 'Settings' },
-    // #1936: the former /node-role-templates page, in place. Shown to everyone who
-    // saw the old link (the page itself); writes stay gated on `canManage`.
-    { id: 'node-role-templates', label: t('config.templates', 'Node-role templates') },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
   $effect(() => {
@@ -1552,11 +1549,12 @@
     // re-latches; its own goto returned above.
     tabNavigationPending = false;
   });
-  // #1936: the templates manager guards its draft against ROUTE changes (beforeNavigate), but a
-  // declined route change only cancels the router: this function would still select the tab and
-  // unmount the draft (LOCAL P2 D1). So the page asks first, for every way out of the tab, and
-  // clears the manager's copy of the question so its own route guard does not ask a second time.
-  // If we then do not land on the chosen tab, the question is put back with the draft.
+  // #1936: the templates manager (a section of Settings) guards its draft against ROUTE changes (beforeNavigate), but a
+  // declined route change only cancels the router: focusTab would still select the tab the router never reached
+  // (LOCAL P2 D1). So for a choice that navigates (Runs, or any choice made while a navigation is pending) the page asks
+  // first and clears the manager's copy of the question, so its own route guard does not ask a second time. If we then
+  // do not land on the chosen tab, the question is put back with the draft. A choice that stays local needs no question:
+  // the Settings panel stays mounted, so the draft survives it.
   let templatesLeaveMessage = $state<string | null>(null);
   // #2288: set only when the navigation THIS choice owns rejects; cleared by the next choice (a landing always follows one).
   let tabNavigationFailed = $state(false);
@@ -1583,18 +1581,18 @@
     const stayOnRuns = id === 'runs' && activeTab === 'runs';
     if (stayOnRuns && !tabNavigationPending) return;
     let asked: string | null = null;
-    if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
+    let landed = false;
+    if (activeTab === 'settings' && id !== activeTab && (id === 'runs' || tabNavigationPending) && templatesLeaveMessage) {
       if (!window.confirm(templatesLeaveMessage)) return;
       asked = templatesLeaveMessage;
       templatesLeaveMessage = null;
     }
-    let landed = false;
     const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
-      if (id === 'runs' || id === 'node-role-templates' || tabNavigationPending) {
+      if (id === 'runs' || tabNavigationPending) {
         tabNavigationPending = true;
         // Staying on Runs keeps the reader's page, status and sort: the URL they are on, not a clean ?tab=runs.
         const href = stayOnRuns ? window.location.pathname + window.location.search : `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
@@ -1642,7 +1640,7 @@
     finally {
       if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
       if (mine === tabNavigation) tabNavigationPending = false;
-      if (asked && !landed && tabAlive && activeTab === 'node-role-templates') templatesLeaveMessage = asked;
+      if (asked && !landed && tabAlive && activeTab === 'settings') templatesLeaveMessage = asked;
     }
   }
 
@@ -3512,12 +3510,6 @@
     </div>
   {/if}
 
-  {#if activeTab === 'node-role-templates'}
-    <div id="panel-node-role-templates" role="tabpanel" aria-labelledby="tab-node-role-templates" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      <LiveRegion>{#if !tabData.templatesPanel}<p>{t('config.templates-loading', 'Loading templates…')}</p>{/if}</LiveRegion>
-      {#if tabData.templatesPanel}<AppNodeRoleTemplates data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{/if}
-    </div>
-  {/if}
 
   {#if activeTab === 'worklog' && tabShown('worklog')}
     <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
@@ -4674,6 +4666,7 @@
       {#if tabShown('ai-configs')}
       <section class="max-w-2xl">
         <AiServiceConfigSection
+          embedded
           ownerType="APP"
           ownerId={app.id}
           ownerLabel={app.name}
@@ -4931,6 +4924,17 @@
 
       <CollapsibleSection id="ai-configs" title={t('app.tabs.ai-configs', 'AI Service Configs')} bind:open={openSections['ai-configs']}>
         <div class="max-w-2xl">{@render aiConfigsBody()}</div>
+      </CollapsibleSection>
+
+      <!-- #1936: the former /node-role-templates page, in place: shown to everyone who saw the old link (the page itself);
+           writes stay gated on `canManage`. The manager guards an unsaved draft against route changes itself; the Settings
+           panel stays mounted, so a tab switch cannot lose it. -->
+      <CollapsibleSection id="node-role-templates" title={t('config.templates', 'Node-role templates')} bind:open={openSections['node-role-templates']}>
+        {#if tabData.templatesPanel}
+          <AppNodeRoleTemplates embedded data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />
+        {:else}
+          {@render tabArriving('node-role-templates')}
+        {/if}
       </CollapsibleSection>
 
       <!-- Danger zone -->

@@ -56,9 +56,9 @@ export const RETIRED_TAB_ALIASES: Record<string, { tab: string; chat: string }> 
 /**
  * The sections of the Settings tab, for `?section=` (a section opens collapsed unless a link names it).
  *
- * App Keys and AI Service Configs were tabs of their own (#1007/#1008) and are sections of Settings again:
- * the App's setup is one place, and a section nobody opens costs no read. Their old `?tab=` ids still resolve,
- * to Settings with that section open, for the same reason the retired chat ids do.
+ * App Keys, AI Service Configs and Node-role templates were tabs of their own (#1007/#1008, #1936) and are
+ * sections of Settings: the App's setup is one place, and a section nobody opens costs no read. Their old
+ * `?tab=` ids still resolve, to Settings with that section open, for the same reason the retired chat ids do.
  */
 export const SETTINGS_SECTION_IDS = [
   'app',
@@ -80,20 +80,22 @@ export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 export const SECTION_DATA_TAB: Partial<Record<SettingsSectionId, AppTabId>> = {
   keys: 'keys',
   'ai-configs': 'ai-configs',
+  'node-role-templates': 'node-role-templates',
 };
 
 /** Tabs that became Settings sections: the tab id, and the section it now is. */
 const TAB_TO_SECTION: Record<string, SettingsSectionId> = {
   keys: 'keys',
   'ai-configs': 'ai-configs',
+  'node-role-templates': 'node-role-templates',
 };
 
-/** The tab that shows a tab id: Settings for a retired id that became one of its sections, else the id itself. */
 /** The Settings section a retired tab id became, or null. */
 export function sectionForTab(id: string | null): SettingsSectionId | null {
   return id === null ? null : (lookupOwn(TAB_TO_SECTION, id) ?? null);
 }
 
+/** The tab that shows a tab id: Settings for a retired id that became one of its sections, else the id itself. */
 export function visibleTabFor<T extends string | null>(id: T): T | 'settings' {
   return id !== null && lookupOwn(TAB_TO_SECTION, id) ? 'settings' : id;
 }

@@ -44,8 +44,7 @@
     "p:a50b08d0",
     "testid:cast-refresh-status",
     "p:1de6106a",
-    "p:e97eaf13",
-    "testid:key-copy-status"
+    "p:e97eaf13"
   ],
   "src/routes/app/apps/[appId]/grants/+page.svelte": [
     "p:da6f65da"

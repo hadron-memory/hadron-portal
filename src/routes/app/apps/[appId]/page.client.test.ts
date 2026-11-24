@@ -1368,8 +1368,9 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     (m.target.querySelector('#section-ai-configs-toggle') as HTMLButtonElement).click();
     await tick(2);
     const configsPanel = m.target.querySelector('#section-ai-configs-body')!;
-    expect(configsPanel.textContent).toContain('AI provider configurations');
     expect(configsPanel.textContent).toContain('Owned by Team');
+    // One title per section: the toggle names it, the body does not print it again.
+    expect(configsPanel.textContent).not.toContain('AI provider configurations');
     // Folding the keys again hides them but keeps them mounted, so a draft survives.
     (m.target.querySelector('#section-keys-toggle') as HTMLButtonElement).click();
     await tick(2);
@@ -2394,7 +2395,7 @@ describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
     await tick(2);
     expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-settings');
     expect(m.target.querySelector('#section-ai-configs-toggle')!.getAttribute('aria-expanded')).toBe('true');
-    expect(m.target.querySelector('#section-ai-configs-body')!.textContent).toContain('AI provider configurations');
+    expect(m.target.querySelector('#section-ai-configs-body')!.textContent).toContain('Owned by');
   });
 });
 

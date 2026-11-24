@@ -18,11 +18,15 @@
   import type { Rule, Template, OwnerType, ApplyPreview } from '$lib/memory-config/types';
   import TaskWarnings from './TaskWarnings.svelte';
   import { normalizeWarnings } from '$lib/memory-config/warnings';
-  let { initial, ownerType, ownerRef, readOnly, canManage, memories, memoriesFailed, leaveMessage = $bindable(null) }: { leaveMessage?: string | null; initial: Template[]; ownerType: OwnerType; ownerRef: string; readOnly: boolean; canManage: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed: boolean } = $props();
+  let { initial, ownerType, ownerRef, readOnly, canManage, memories, memoriesFailed, embedded = false, leaveMessage = $bindable(null) }: { leaveMessage?: string | null; /** Inside a titled section: the section's heading is the title, so none is drawn here. */ embedded?: boolean; initial: Template[]; ownerType: OwnerType; ownerRef: string; readOnly: boolean; canManage: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed: boolean } = $props();
   let snapshot = untrack(() => initial);
   let templates = $state(untrack(() => initial)), editing = $state<Template | null | undefined>(undefined);
   let nameInput = $state<HTMLInputElement>();
   let heading = $state<HTMLHeadingElement>();
+  let rootEl = $state<HTMLElement>();
+  // Where focus lands after the apply panel or an editor closes. The page's own heading; inside a titled section there
+  // is none, so it is the section's toggle (the one title that names this part of the page).
+  const anchor = () => heading ?? rootEl?.closest<HTMLElement>('[data-section]')?.querySelector<HTMLElement>('h2 > button') ?? undefined;
   const uid = $props.id();
   const formId = `${uid}-template-form`;
   const fields = ['authorTask', 'validationTask', 'descriptionNode'] as const;
@@ -110,8 +114,8 @@
     finally { pending = false; }
   }
 </script>
-<section class="space-y-4">
-  <h1 bind:this={heading} tabindex="-1" class="text-2xl font-semibold">{t('config.templates', 'Node-role templates')}</h1>
+<section class="space-y-4" bind:this={rootEl}>
+  {#if !embedded}<h1 bind:this={heading} tabindex="-1" class="text-2xl font-semibold">{t('config.templates', 'Node-role templates')}</h1>{/if}
   {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>{/if}
   <LiveRegion>
     {#if notice}<p class="text-green-700 dark:text-green-300">{notice}</p>{/if}
@@ -150,7 +154,7 @@
       </fieldset>
     </div>
     {#if ruleIndex !== null}
-      <RuleEditor fallbackFocus={heading} templateDraft rule={rules[ruleIndex] ?? null} {memories} {memoriesFailed} oncancel={() => ruleIndex = null} onsave={async (input) => {
+      <RuleEditor fallbackFocus={anchor()} templateDraft rule={rules[ruleIndex] ?? null} {memories} {memoriesFailed} oncancel={() => ruleIndex = null} onsave={async (input) => {
         const index = ruleIndex!;
         if (rules.some((r, i) => i !== index && r.role === input.role)) return { error: t('config.duplicate-role', 'A rule already uses this role.'), field: 'role' };
         const previous = rules[index];
@@ -163,7 +167,7 @@
       }} />
     {/if}
   {/if}
-  {#if bulk && writable}<p class="text-sm text-zinc-600 dark:text-zinc-400">{t('config.bulk.close-first', 'Close the apply panel to change templates.')}</p><BulkApply template={bulk} {memories} {memoriesFailed} bind:pending={bulkPending} onclose={() => { bulk = null; heading?.focus(); }} />{/if}
+  {#if bulk && writable}<p class="text-sm text-zinc-600 dark:text-zinc-400">{t('config.bulk.close-first', 'Close the apply panel to change templates.')}</p><BulkApply template={bulk} {memories} {memoriesFailed} bind:pending={bulkPending} onclose={() => { bulk = null; anchor()?.focus(); }} />{/if}
   {#if chosen && writable}
     <section class="space-y-4 rounded-xl border p-5 dark:border-zinc-700">
       <h2 class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: chosen.name })}</h2>

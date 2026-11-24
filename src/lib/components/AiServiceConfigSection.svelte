@@ -28,8 +28,11 @@
     currentUserId = null,
     configsError = false,
     allowTest = true,
+    embedded = false,
     onRefreshed = () => true,
   }: {
+    /** Inside a titled section: the section's heading is the title, so none is drawn here. */
+    embedded?: boolean;
     pagination?: ListPageNavigation;
     ownerType: AiConfigOwnerType;
     ownerId: string;
@@ -357,7 +360,7 @@
 </div>
 
 {#if !canManage}
-  <h2 class="mb-2 font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>
+  {#if !embedded}<h2 class="mb-2 font-semibold text-zinc-900 dark:text-white">{s.heading()}</h2>{/if}
   {#if ownerLabel}
     <p class="mb-1 text-sm text-zinc-500 dark:text-zinc-400">{s.ownerCaption(ownerLabel)}</p>
     {#if ownerUrn}
@@ -381,6 +384,7 @@
       {ownerUrn}
       {currentUserId}
       {selectedContext}
+      {embedded}
       configs={visibleConfigs}
       canManage
       {allowTest}

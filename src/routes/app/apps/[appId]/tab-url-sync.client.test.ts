@@ -1,7 +1,7 @@
 /**
  * portal#1943 — the address bar names the shown tab.
  *
- * Only Runs and Templates navigate on click; every other tab was local state, so after leaving Runs the
+ * Only Runs navigates on click; every other tab was local state, so after leaving Runs the
  * URL kept a stale `?tab=runs` and a reload landed on the wrong tab. Each tab switch now writes `?tab=<id>`
  * by `replaceState` (no history entry), the same mechanism `?chat=` and `?view=` use on this page.
  */
@@ -78,7 +78,7 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
   it('every local tab writes its own id to the URL, and pushes no history entry', async () => {
     const target = await mountAt('chats');
     const ids = [...target.querySelectorAll<HTMLElement>('[role="tab"]')].map((t) => t.id.replace(/^tab-/, ''))
-      .filter((id) => id !== 'runs' && id !== 'node-role-templates' && id !== 'chats');
+      .filter((id) => id !== 'runs' && id !== 'chats');
     expect(ids.length).toBeGreaterThanOrEqual(5);
     for (const id of ids) {
       resetNavigationCalls();
@@ -121,14 +121,14 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
     expect(navigationCalls.filter((c) => c.fn === 'replaceState')).toHaveLength(0);
   });
 
-  it('a tab that navigates (Templates) goes by goto alone, with no second replaceState', async () => {
+  it('a tab that navigates (Runs) goes by goto alone, with no second replaceState', async () => {
     const target = await mountAt('chats');
-    const tab = target.querySelector<HTMLElement>('#tab-node-role-templates');
+    const tab = target.querySelector<HTMLElement>('#tab-runs');
     expect(tab).not.toBeNull();
     resetNavigationCalls();
     tab!.click();
     await tick(4);
-    expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=node-role-templates']);
+    expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=runs']);
     expect(navigationCalls.filter((c) => c.fn === 'replaceState')).toHaveLength(0);
   });
 
@@ -151,26 +151,9 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
       await tick(4);
       expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0]))).toEqual(['/app/apps/a1?tab=runs']);
     });
-    // portal#2313 (Petra BUILD, #131879): the rule is "the tab you are on is not a request to leave it",
-    // so a click on it while a DIFFERENT tab's navigation is in flight cancels that departure.
-    it('supersedes a different-tab navigation already in flight and stays on Runs', async () => {
-      const target = await mountAt('runs', { search: runsSearch });
-      let release!: () => void;
-      resetNavigationCalls(); // clears the hooks too, so it goes before the hold
-      navigationHooks.onGoto = () => new Promise<void>((r) => { release = r; });
-      target.querySelector<HTMLElement>('#tab-node-role-templates')!.click();
-      await tick(4);
-      navigationHooks.onGoto = undefined;
-      target.querySelector<HTMLElement>('#tab-runs')!.click();
-      await tick(4);
-      release();
-      await tick(6);
-      expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
-      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('false');
-      // The second goto returns to the reader's own place, not a clean ?tab=runs.
-      expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => String(c.args[0])).at(-1)).toBe(`/app/apps/a1${runsSearch}`);
-    });
-
+    // portal#2313's "a click on the tab you are on cancels a different tab's navigation in flight" needs a second
+    // navigating tab. Runs is the only one now (Templates is a section of Settings), so a different-tab navigation can no
+    // longer be in flight while Runs is shown: the case cannot be reached by a click, and its pin went with it.
   });
 
   // QA on #2146: runs -> AI Team (replaceState, so SvelteKit keeps the Runs load URL) -> Templates -> Back.
