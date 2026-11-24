@@ -20,15 +20,15 @@
 
   const basePath = $derived(`/app/orgs/${data.org.id}`);
 
-  // Consumer-mode users only get the dashboard (Profile); their other sections
-  // (Memories) live in the sidebar nav and the admin sub-routes redirect them
-  // away anyway. Full-mode org sections: Profile, Team, Integrations, Usage.
   // C2 (#2568): the viewer's role in THIS org, so an extension can hide a tab.
   // Cosmetic only; the extension's routes are gated by the server when they load.
   const viewerOrgRole = $derived(
     data.navOrgs?.find((o) => o.id === data.org.id)?.members?.find((m) => m.user.id === data.user?.id)?.role ?? null,
   );
 
+  // Consumer-mode users only get the dashboard (Profile); their other sections
+  // (Memories) live in the sidebar nav and the admin sub-routes redirect them
+  // away anyway. Full-mode org sections: Profile, Team, Integrations, Usage.
   const tabs = $derived(
     data.isConsumerMode
       ? [

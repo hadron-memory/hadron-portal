@@ -5,6 +5,9 @@
  * `/a/fx-x`.
  */
 export function tabIsActive(pathname: string, tab: { href: string; match?: 'exact' | 'prefix' }): boolean {
-  if (tab.match === 'prefix') return pathname === tab.href || pathname.startsWith(tab.href + '/');
+  if (tab.match === 'prefix') {
+    const base = tab.href.length > 1 ? tab.href.replace(/\/+$/, '') : tab.href;
+    return pathname === base || pathname.startsWith(base + '/');
+  }
   return pathname === tab.href;
 }

@@ -166,15 +166,21 @@ export function mergeCommands(
   builtins: CommandSpec[],
   ext: ExtCommand[],
 ): { commands: CommandSpec[]; extById: Map<string, ExtCommand> } {
+  // Compared the way `parseCommand` reads input: lowercased, edge whitespace trimmed.
+  const norm = (trig: string) => trig.trim().toLowerCase();
   const ids = new Set(builtins.map((c) => c.id));
-  const triggers = new Set(builtins.flatMap((c) => c.triggers));
+  const triggers = new Set(builtins.flatMap((c) => c.triggers.map(norm)));
   const extById = new Map<string, ExtCommand>();
   const added: CommandSpec[] = [];
   for (const c of ext) {
-    if (ids.has(c.id)) throw new Error(`Extension command id "${c.id}" clashes with a built-in command.`);
-    for (const trig of c.triggers) {
-      if (triggers.has(trig)) throw new Error(`Extension command trigger "${trig}" (command "${c.id}") clashes with a built-in command.`);
+    if (ids.has(c.id)) throw new Error(`Extension command id "${c.id}" clashes with another command.`);
+    const own = c.triggers.map(norm);
+    for (const trig of own) {
+      if (triggers.has(trig)) throw new Error(`Extension command trigger "${trig}" (command "${c.id}") clashes with another command.`);
     }
+    // Accepted: later extension commands are checked against this one too.
+    ids.add(c.id);
+    for (const trig of own) triggers.add(trig);
     extById.set(c.id, c);
     added.push({ id: c.id, title: c.label, triggers: c.triggers, desc: c.desc, tint: 'blue', arg: null });
   }
@@ -268,6 +274,8 @@ export interface CommandContext {
   resolve: ResolveFn;
 }
 
+const NO_ACTIVE_ORG = 'No active organization yet.';
+
 /** Map a chosen command + argument to the action the component should perform. */
 export async function resolveCommandAction(
   command: CommandSpec,
@@ -278,17 +286,24 @@ export async function resolveCommandAction(
     if (ctx.activeOrgId) return { type: 'navigate', path: `/app/orgs/${ctx.activeOrgId}${suffix}` };
     // No active org PK: the bare org page has a redirector; sub-pages don't.
     if (suffix === '') return { type: 'navigate', path: '/app/dashboard' };
-    return { type: 'error', message: 'No active organization yet.' };
+    return { type: 'error', message: NO_ACTIVE_ORG };
   };
 
   const ext = extCommandsById.get(command.id);
   if (ext) {
-    const href = ext.href({ activeOrgId: ctx.activeOrgId });
-    if (href === null) return { type: 'error', message: 'No active organization yet.' };
-    // C2-R2: an internal path only; `goto` refuses an external URL anyway.
-    if (!href.startsWith('/') || href.startsWith('//')) {
-      return { type: 'error', message: `Don't know how to run "${command.title}".` };
+    const unknown: CommandAction = { type: 'error', message: `Don't know how to run "${command.title}".` };
+    let href: string | null;
+    try {
+      href = ext.href({ activeOrgId: ctx.activeOrgId });
+    } catch {
+      return unknown;
     }
+    if (href === null) return { type: 'error', message: NO_ACTIVE_ORG };
+    // C2-R2: an internal path only. A URL parser reads `/\host` and `/<TAB>/host`
+    // as `//host`, so backslashes and control characters are refused outright;
+    // `goto` refuses an external URL as well, but this is the stated contract.
+    // eslint-disable-next-line no-control-regex
+    if (!href.startsWith('/') || href.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(href)) return unknown;
     return { type: 'navigate', path: href };
   }
 
