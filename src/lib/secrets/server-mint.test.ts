@@ -1,22 +1,22 @@
 /**
  * portal#2582 (from #2580 LOCAL F1): `rebuildCeremonyUrl` copies the server's mint shape by hand.
- * Nothing tied the two together, so a server path change would break only the portal's revisit
- * links. This pin builds the link the way the server does (the fixture) and requires the portal's
- * rebuild to equal it, and to be accepted by the staged-refusal path too.
+ * This pin ties it to a RECORDED copy of that shape (the fixture), so the portal cannot drift from
+ * what was recorded. It cannot see the server change: that needs a server `ceremonyUrl` field.
  */
 import { describe, expect, it } from 'vitest';
 import { rebuildCeremonyUrl, safeCeremonyUrl } from './staged';
-import { SERVER_REQUEST_IDS, serverMint } from '$lib/test/fixtures/server-secret-change-mint';
+import { recordedServerMint, SERVER_REQUEST_IDS } from '$lib/test/fixtures/server-secret-change-mint';
 
 const ORIGINS = ['https://hadron.example', 'https://hadronmemory.com', 'http://localhost:4000'];
+const CASES = ORIGINS.flatMap((origin) => SERVER_REQUEST_IDS.map((id) => ({ origin, id })));
 
-describe('the revisit link equals the server mint (portal#2582)', () => {
-  // Kills: either side changing the ceremony path or shape alone. Mutate the fixture's path or staged.ts's '/secret-changes/' and this goes red.
-  it.each(ORIGINS.flatMap((o) => SERVER_REQUEST_IDS.map((id) => [o, id] as const)))('%s + %s', (origin, id) => {
-    expect(rebuildCeremonyUrl(id, origin)).toBe(serverMint(origin, id));
+describe('the revisit link matches the recorded server mint (portal#2582)', () => {
+  // Kills: the fixture's path or shape, or staged.ts's '/secret-changes/' or shape, changing alone.
+  it.each(CASES)('rebuild on $origin for request $id', ({ origin, id }) => {
+    expect(rebuildCeremonyUrl(id, origin)).toBe(recordedServerMint(origin, id));
   });
-  // The staged refusal link (the server's own, copied verbatim) must pass the same pin the rebuild goes through.
-  it('the pinned check accepts what the server mints', () => {
-    for (const o of ORIGINS) for (const id of SERVER_REQUEST_IDS) expect(safeCeremonyUrl(serverMint(o, id), o)).toBe(serverMint(o, id));
+  // The staged-refusal link (the server's own, copied verbatim) goes through the same pin; its negative cases live in staged.test.ts.
+  it.each(CASES)('the pinned check accepts the recorded mint on $origin for request $id', ({ origin, id }) => {
+    expect(safeCeremonyUrl(recordedServerMint(origin, id), origin)).toBe(recordedServerMint(origin, id));
   });
 });
