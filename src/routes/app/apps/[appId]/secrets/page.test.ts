@@ -19,7 +19,7 @@ const LINK = 'https://hadron.example/secret-changes/r1';
 const pending = { requestId: 'r1', secretId: 's1', ceremonyUrl: LINK, state: 'open', operation: 'STORE', expiresAt: '2026-11-21T01:00:00Z' };
 
 const detail = (data: Record<string, unknown>, form: unknown = null) =>
-  render(Detail as never, { props: { data: { app, secret, signing: 'on', pending: [], impersonating: null, ...data }, form } } as never).body;
+  render(Detail as never, { props: { data: { app, secret, signing: 'on', pending: [], pendingUnread: 0, impersonating: null, ...data }, form } } as never).body;
 
 describe('a staged edit (acceptance 1)', () => {
   it('shows the pending notice with the server link, and the form does not claim a save', () => {
@@ -116,5 +116,32 @@ describe('portal#2436 item 1/2: the list notice for a staged create and a declin
   });
   it('a declined request reads as Declined, not as its raw state', () => {
     expect(list({ ...pending, state: 'declined' })).toContain('>Declined<');
+  });
+});
+
+describe('the secrets list after a create and after a failed read (portal#2436)', () => {
+  const data = (extra: Record<string, unknown> = {}) => ({ app, secrets: { kind: 'ok', secrets: [secret], total: 1 }, signing: 'on', pending: [], pendingUnread: 0, impersonating: null, ...extra });
+  const nameTag = (form: unknown, extra: Record<string, unknown> = {}) => {
+    const html = render(List as never, { props: { data: data(extra), form } } as never).body;
+    return html.match(/<input\b[^>]*\bid="secret-name"[^>]*>/)?.[0] ?? '';
+  };
+  it('a successful create clears the name field', () => {
+    const tag = nameTag({ action: 'create', ok: true, name: 'new-key' });
+    expect(tag).not.toBe('');
+    expect(tag).not.toContain('new-key');
+  });
+  it('a refused create keeps the typed name so it can be corrected', () => {
+    expect(nameTag({ action: 'create', name: 'Bad Name', message: 'Use lowercase letters.' })).toContain('Bad Name');
+  });
+  it('says so when a waiting request could not be checked, and stays quiet otherwise', () => {
+    const noted = render(List as never, { props: { data: data({ pendingUnread: 1 }), form: null } } as never).body;
+    expect(noted).toContain('data-testid="pending-unread"');
+    expect(noted).toMatch(/Couldn.{1,8}t check/);
+    const quiet = render(List as never, { props: { data: data(), form: null } } as never).body;
+    expect(quiet).not.toContain('data-testid="pending-unread"');
+  });
+  it('the secret page says so too when a waiting request could not be checked', () => {
+    expect(detail({ pendingUnread: 1 })).toContain('data-testid="pending-unread"');
+    expect(detail({})).not.toContain('data-testid="pending-unread"');
   });
 });
