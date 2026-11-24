@@ -135,7 +135,7 @@ export async function loadHistory(
     const { events, over } = await readEvents(async (after) => {
       const r = await client.request<{ agentTeamEvents: AgentTeamEvent[] }>(AGENT_TASK_EVENTS_QUERY, {
         appRef,
-        taskId,
+        taskRef: taskId,
         after,
         limit: EVENTS_PAGE,
       });
@@ -173,7 +173,7 @@ export async function loadReview(client: GraphQLClient, appRef: string, taskId: 
     stream = await readEvents(async (after) => {
       const r = await client.request<{ agentTeamEvents: ReviewEvent[] }>(TASK_REVIEW_EVENTS_QUERY, {
         appRef,
-        taskId,
+        taskRef: taskId,
         types: REVIEW_EVENT_TYPES,
         after,
         limit: EVENTS_PAGE,
@@ -224,7 +224,7 @@ export async function loadAncestors(
     while (next && chain.length < ANCESTOR_LIMIT) {
       const r = await client.request<{ agentTask: { id: string; handle: string; title: string; parentTaskId: string | null } | null }>(
         AGENT_TASK_ANCESTOR_QUERY,
-        { id: next },
+        { ref: next },
       );
       if (!r.agentTask) return { ancestors: chain.reverse(), truncated: true };
       chain.push({ id: r.agentTask.id, handle: r.agentTask.handle, title: r.agentTask.title });
@@ -291,7 +291,7 @@ export async function canonicalTaskRef(client: GraphQLClient, appId: string, seg
   if (seg.kind === 'unknown') throw error(404, TASK_NOT_FOUND_MESSAGE);
   let r: { agentTask: { id: string; appId: string } | null };
   try {
-    r = await client.request(AGENT_TASK_REF_QUERY, { id: seg.ref });
+    r = await client.request(AGENT_TASK_REF_QUERY, { ref: seg.ref });
   } catch (e) {
     // A refusal is the same 404 as a null answer; any other failure is the caller's to classify.
     if (TASK_REF_REFUSALS.has(extractGqlErrorCode(e) ?? '')) throw error(404, TASK_NOT_FOUND_MESSAGE);
@@ -309,7 +309,7 @@ export const HYDRATE_CONCURRENCY = 6;
 
 /**
  * portal#1349 — display info for the bare task ids the Roster, Alarms and AI
- * Team grid carry. Each distinct id is read once through `agentTask(id)`, the
+ * Team grid carry. Each distinct id is read once through `agentTask(ref:)`, the
  * server's own readable-task gate, so terminal children and old alarm tasks
  * resolve as completely as open ones (a capped open-only scan would not).
  *
@@ -331,7 +331,7 @@ export async function hydrateTaskRefs(
       try {
         const r = await client.request<{ agentTask: { id: string; appId: string; handle: string; title: string } | null }>(
           AGENT_TASK_REF_QUERY,
-          { id },
+          { ref: id },
         );
         const task = r.agentTask;
         out[id] = task && task.appId === appId ? { id: task.id, handle: task.handle, title: task.title } : null;

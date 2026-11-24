@@ -18,7 +18,7 @@ type FindingsResponse = { agentTask: { id: string; appId: string; result: { find
 export async function taskFindingsPage(client: GraphQLClient, appId: string, taskId: string, offset: number): Promise<FindingsRead> {
   let response: FindingsResponse;
   try {
-    response = await client.request<FindingsResponse>(AGENT_TASK_FINDINGS_QUERY, { id: taskId, limit: FINDINGS_PAGE_SIZE, offset });
+    response = await client.request<FindingsResponse>(AGENT_TASK_FINDINGS_QUERY, { ref: taskId, limit: FINDINGS_PAGE_SIZE, offset });
   } catch {
     console.warn('[task-findings] read failed');
     return { kind: 'failed' };

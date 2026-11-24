@@ -55,7 +55,7 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   // unknown before any task read, same as a task that does not exist.
   const seg = resolveSegment(params.taskId, app.urn);
   if (seg.kind === 'unknown') throw error(404, TASK_NOT_FOUND_MESSAGE);
-  const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
+  const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { ref: seg.ref });
   const task = taskData.agentTask;
   if (!task) throw error(404, TASK_NOT_FOUND_MESSAGE);
 
@@ -155,9 +155,8 @@ async function write(
     if (isHttpError(e)) throw e;
     return writeFailure(action, { kind: 'uncertain' }, values);
   }
-  // These writes name the task by `taskRef` (the canonical id); the rest still send `taskId`.
-  const takesTaskRef = action === 'handBack' || action === 'disposeFinding' || action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
-  const vars: Record<string, unknown> = { ...(takesTaskRef ? { taskRef: taskId } : { taskId }), ...built.vars };
+  // Every task write names the task by `taskRef` (hrn:node:hadronmemory.com:specs:cor:api:140:01), the canonical id.
+  const vars: Record<string, unknown> = { taskRef: taskId, ...built.vars };
   // portal#1214: a write whose response can carry warnings keeps them.
   if (built.path) {
     const out = await taskWrite(gqlClient(locals.token), built.doc, vars, built.path);

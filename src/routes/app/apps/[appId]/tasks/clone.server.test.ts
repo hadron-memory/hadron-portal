@@ -16,7 +16,7 @@ const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizat
 const gated = async (q: string, v?: unknown) => {
   if (q === AGENT_TASKS_APP_QUERY) return { app };
   if (q === AGENT_TASK_REF_QUERY) {
-    const id = (v as { id: string }).id;
+    const id = (v as { ref: string }).ref;
     // The source resolves canonically inside THIS App; a crafted `from` that names
     // nothing readable answers null (the neutral-404 branch of canonicalTaskId).
     if (id === 'src-1' || id === 'canon-1') return { agentTask: { id: 'canon-1', appId: 'app-1' } };
@@ -67,7 +67,7 @@ async function post(over: Record<string, string | string[]> = {}, impersonation:
     return { thrown: e as { status?: number; location?: string; body?: { message?: string } } };
   }
 }
-const cloneVars = () => rawRequest.mock.calls.at(-1)![1] as { taskId: string; input: Record<string, unknown> };
+const cloneVars = () => rawRequest.mock.calls.at(-1)![1] as { taskRef: string; input: Record<string, unknown> };
 
 describe('clone save: the call (acceptance 2, 3, 5)', () => {
   it('an unchanged pre-filled form clones the canonical source with an empty input, and never creates', async () => {
@@ -78,8 +78,8 @@ describe('clone save: the call (acceptance 2, 3, 5)', () => {
     expect(rawRequest).toHaveBeenCalledTimes(1);
     const [doc] = rawRequest.mock.calls[0]!;
     expect(doc).toBe(CLONE_AGENT_TASK_MUTATION);
-    expect(doc).toContain('cloneAgentTask(taskId: $taskId, input: $input)');
-    expect(cloneVars()).toEqual({ taskId: 'canon-1', input: {} });
+    expect(doc).toContain('cloneAgentTask(taskRef: $taskRef, input: $input)');
+    expect(cloneVars()).toEqual({ taskRef: 'canon-1', input: {} });
     // Priority left copied and properties untouched name neither (acceptance 5).
     expect(cloneVars().input).not.toHaveProperty('priority');
     expect(cloneVars().input).not.toHaveProperty('properties');
@@ -91,7 +91,7 @@ describe('clone save: the call (acceptance 2, 3, 5)', () => {
   it('a changed title goes as the override; nothing else does', async () => {
     request.mockResolvedValue({ cloneAgentTask: { id: 'new-1' } });
     await post({ title: 'Redone' });
-    expect(cloneVars()).toEqual({ taskId: 'canon-1', input: { title: 'Redone' } });
+    expect(cloneVars()).toEqual({ taskRef: 'canon-1', input: { title: 'Redone' } });
   });
 
   it('choosing "No project" sends parentTaskId: null; picking another parent sends its id', async () => {
@@ -105,7 +105,7 @@ describe('clone save: the call (acceptance 2, 3, 5)', () => {
   it('a "No project" pre-fill left unchanged sends no parentTaskId at all (acceptance 4)', async () => {
     request.mockResolvedValue({ cloneAgentTask: { id: 'new-1' } });
     await post({ cloneParent: 'none', cloneParentBase: 'none' });
-    expect(cloneVars()).toEqual({ taskId: 'canon-1', input: {} });
+    expect(cloneVars()).toEqual({ taskRef: 'canon-1', input: {} });
     expect(cloneVars().input).not.toHaveProperty('parentTaskId');
   });
 

@@ -50,7 +50,7 @@ describe('taskFindingsPage', () => {
     const c = { request: vi.fn(provider()) };
     const out = await taskFindingsPage(c as never, 'app', 'canonical', 20);
     expect(c.request).toHaveBeenCalledTimes(1);
-    expect(c.request.mock.calls[0]).toEqual([AGENT_TASK_FINDINGS_QUERY, { id: 'canonical', limit: 20, offset: 20 }]);
+    expect(c.request.mock.calls[0]).toEqual([AGENT_TASK_FINDINGS_QUERY, { ref: 'canonical', limit: 20, offset: 20 }]);
     expect(out).toEqual({ kind: 'page', page: { taskId: 'canonical', offset: 20, items: stored.slice(20, 40), total: 57, hasMore: true } });
   });
   it('legacy finished result: a valid zero page is a page, never no-result and never failed', async () => {
@@ -80,7 +80,7 @@ describe('taskFindingsPage', () => {
     expect(out).toEqual({ kind: 'failed' });
   });
   it('the real document is legal under the pinned SDL, and an invented selection is not (the check can fail)', async () => {
-    const vars = { id: 'x', limit: 20, offset: 0 };
+    const vars = { ref: 'x', limit: 20, offset: 0 };
     const rootValue = { agentTask: () => ({ id: 'x', appId: 'app', result: { findings: () => ({ items: [], total: 0, hasMore: false }) } }) };
     expect((await graphql({ schema, source: AGENT_TASK_FINDINGS_QUERY, variableValues: vars, rootValue })).errors).toBeUndefined();
     const mutant = AGENT_TASK_FINDINGS_QUERY.replace(/\bseverity\b/, 'severityLevel');

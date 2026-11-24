@@ -30,7 +30,7 @@ describe('task page sections: findings', () => {
     task = { id: 'T1', appId: 'app-1', status: 'FINISHED', result: { outcome: 'ok', summary: null, evidence: null } };
     const data = await run();
     expect(await data.findings).toEqual({ kind: 'page', page: { taskId: 'T1', offset: 0, items: [{ id: 'F1', severity: 'P1', text: 'one' }], total: 1, hasMore: false } });
-    expect(request).toHaveBeenCalledWith(AGENT_TASK_FINDINGS_QUERY, { id: 'T1', limit: 20, offset: 0 });
+    expect(request).toHaveBeenCalledWith(AGENT_TASK_FINDINGS_QUERY, { ref: 'T1', limit: 20, offset: 0 });
   });
   it('a failed findings read RESOLVES {kind:"failed"} (never rejects, never empty); the page still loads', async () => {
     task = { id: 'T3', appId: 'app-1', status: 'FINISHED', result: { outcome: 'ok', summary: null, evidence: null } };

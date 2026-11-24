@@ -21,7 +21,7 @@ const rawRequest = vi.fn();
 const delegate = async (q: string, v: unknown) => ({ data: await request(q, v), extensions: undefined, status: 200 });
 const gated = async (q: string, v?: unknown) => {
   if (q === AGENT_TASKS_APP_QUERY) return { app };
-  if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: (v as { id: string }).id, appId: 'app-1' } };
+  if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: (v as { ref: string }).ref, appId: 'app-1' } };
   return request(q, v);
 };
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: gated, rawRequest }) }));

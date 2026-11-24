@@ -90,7 +90,7 @@ describe('task search results', () => {
     const { gqlClient } = await import('$lib/server/api');
     expect(gqlClient).toHaveBeenCalledWith('tok');
     expect(mockRequest).toHaveBeenCalledTimes(1);
-    expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'task-id' });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ ref: 'task-id' });
   });
   it('a missing or no-longer-readable task is the same neutral 404', async () => {
     mockRequest.mockResolvedValueOnce({ agentTask: null });

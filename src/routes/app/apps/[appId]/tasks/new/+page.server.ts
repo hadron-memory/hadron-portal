@@ -80,7 +80,7 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   if (fromRaw) {
     const seg = resolveSegment(fromRaw, app.urn);
     if (seg.kind === 'unknown') throw error(404, TASK_NOT_FOUND_MESSAGE);
-    const srcData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
+    const srcData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { ref: seg.ref });
     const src = srcData.agentTask;
     if (!src) throw error(404, TASK_NOT_FOUND_MESSAGE);
     if (src.appId !== app.id) {
@@ -142,7 +142,7 @@ async function clonePrefill(client: GraphQLClient, src: AgentTaskDetail): Promis
   if (src.parentTaskId) {
     const p = await client.request<{ agentTask: { id: string; handle: string; title: string; status: string } | null }>(
       AGENT_TASK_CLONE_PARENT_QUERY,
-      { id: src.parentTaskId },
+      { ref: src.parentTaskId },
     );
     const parent = p.agentTask;
     if (!parent) {
@@ -246,7 +246,7 @@ async function cloneTask(fd: FormData, values: Record<string, string | string[]>
   const out = await taskWrite<{ cloneAgentTask: { id: string; handle?: string | null } | null }>(
     client,
     CLONE_AGENT_TASK_MUTATION,
-    { taskId: sourceId, input },
+    { taskRef: sourceId, input },
     'cloneAgentTask',
   );
   return createdResult('clone', out, (d) => d?.cloneAgentTask, `/app/apps/${appId}`, values, cloneRefusal, { cloned: true });
