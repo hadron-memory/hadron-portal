@@ -2,6 +2,8 @@ import { CANONICAL_SCHEME, parseUrn, UrnParseError } from '$lib/urn/parse-urn';
 import { t } from '$lib/i18n/t';
 import { parseHandle } from '$lib/agent-tasks/handle';
 import { openUrnCandidates } from '$lib/urn/open-urn-candidates';
+import { extensionCommands } from '$lib/ext/registry';
+import type { ExtCommand } from '$lib/ext/types';
 
 /**
  * #337/#339 — header command bar logic. The bar is a single input that behaves
@@ -49,7 +51,7 @@ export interface CommandSpec {
   arg: CommandArg | null;
 }
 
-export const COMMANDS: CommandSpec[] = [
+export const BUILTIN_COMMANDS: CommandSpec[] = [
   // — view / open (blue) —
   {
     id: 'open',
@@ -154,6 +156,41 @@ export const COMMANDS: CommandSpec[] = [
   },
 ];
 
+/**
+ * C2 (#2568): the built-ins followed by an extension's commands (ruling C2-R3),
+ * each mapped to a `CommandSpec`. Throws when an extension command's id, or any
+ * trigger, equals a built-in's, so a clash is a load-time failure and never a
+ * silent shadowing. `extById` is how `resolveCommandAction` finds the `href`.
+ */
+export function mergeCommands(
+  builtins: CommandSpec[],
+  ext: ExtCommand[],
+): { commands: CommandSpec[]; extById: Map<string, ExtCommand> } {
+  // Compared the way `parseCommand` reads input: lowercased, edge whitespace trimmed.
+  const norm = (trig: string) => trig.trim().toLowerCase();
+  const ids = new Set(builtins.map((c) => c.id));
+  const triggers = new Set(builtins.flatMap((c) => c.triggers.map(norm)));
+  const extById = new Map<string, ExtCommand>();
+  const added: CommandSpec[] = [];
+  for (const c of ext) {
+    if (ids.has(c.id)) throw new Error(`Extension command id "${c.id}" clashes with another command.`);
+    const own = c.triggers.map(norm);
+    for (const trig of own) {
+      if (triggers.has(trig)) throw new Error(`Extension command trigger "${trig}" (command "${c.id}") clashes with another command.`);
+    }
+    // Accepted: later extension commands are checked against this one too.
+    ids.add(c.id);
+    for (const trig of own) triggers.add(trig);
+    extById.set(c.id, c);
+    added.push({ id: c.id, title: c.label, triggers: c.triggers, desc: c.desc, tint: 'blue', arg: null });
+  }
+  return { commands: [...builtins, ...added], extById };
+}
+
+const merged = mergeCommands(BUILTIN_COMMANDS, extensionCommands());
+export const COMMANDS: CommandSpec[] = merged.commands;
+const extCommandsById = merged.extById;
+
 /** Shape returned by `resolveUrn` (mirrors the GraphQL query + #262 route). */
 export interface UrnResolution {
   kind: 'memory' | 'node' | 'agent' | 'org' | 'app';
@@ -237,6 +274,8 @@ export interface CommandContext {
   resolve: ResolveFn;
 }
 
+const NO_ACTIVE_ORG = 'No active organization yet.';
+
 /** Map a chosen command + argument to the action the component should perform. */
 export async function resolveCommandAction(
   command: CommandSpec,
@@ -247,8 +286,26 @@ export async function resolveCommandAction(
     if (ctx.activeOrgId) return { type: 'navigate', path: `/app/orgs/${ctx.activeOrgId}${suffix}` };
     // No active org PK: the bare org page has a redirector; sub-pages don't.
     if (suffix === '') return { type: 'navigate', path: '/app/dashboard' };
-    return { type: 'error', message: 'No active organization yet.' };
+    return { type: 'error', message: NO_ACTIVE_ORG };
   };
+
+  const ext = extCommandsById.get(command.id);
+  if (ext) {
+    const unknown: CommandAction = { type: 'error', message: `Don't know how to run "${command.title}".` };
+    let href: string | null;
+    try {
+      href = ext.href({ activeOrgId: ctx.activeOrgId });
+    } catch {
+      return unknown;
+    }
+    if (href === null) return { type: 'error', message: NO_ACTIVE_ORG };
+    // C2-R2: an internal path only. A URL parser reads `/\host` and `/<TAB>/host`
+    // as `//host`, so backslashes and control characters are refused outright;
+    // `goto` refuses an external URL as well, but this is the stated contract.
+    // eslint-disable-next-line no-control-regex
+    if (!href.startsWith('/') || href.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(href)) return unknown;
+    return { type: 'navigate', path: href };
+  }
 
   switch (command.id) {
     case 'open':

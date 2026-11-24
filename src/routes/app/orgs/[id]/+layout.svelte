@@ -12,11 +12,19 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
   import { scrollHint } from '$lib/scroll-hint';
+  import { extensionOrgNavTabs } from '$lib/ext/registry';
+  import { tabIsActive } from '$lib/ext/tab-match';
   import type { LayoutData } from './$types';
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
   const basePath = $derived(`/app/orgs/${data.org.id}`);
+
+  // C2 (#2568): the viewer's role in THIS org, so an extension can hide a tab.
+  // Cosmetic only; the extension's routes are gated by the server when they load.
+  const viewerOrgRole = $derived(
+    data.navOrgs?.find((o) => o.id === data.org.id)?.members?.find((m) => m.user.id === data.user?.id)?.role ?? null,
+  );
 
   // Consumer-mode users only get the dashboard (Profile); their other sections
   // (Memories) live in the sidebar nav and the admin sub-routes redirect them
@@ -34,6 +42,7 @@
           { id: 'channels', label: t('org-detail.tab.channels', 'Channels'), href: `${basePath}/channels` },
           { id: 'node-role-templates', label: t('config.templates', 'Node-role templates'), href: `${basePath}/node-role-templates` },
           { id: 'usage', label: t('org-detail.tab.usage', 'Usage'), href: `${basePath}/sessions` },
+          ...extensionOrgNavTabs({ orgId: data.org.id, basePath, viewerOrgRole }),
         ],
   );
 
@@ -41,7 +50,7 @@
   // (e.g. /memories/new, /apps/[appId], /create-chatbot, /exchange/...) bring
   // their own full-page chrome — match on exact pathname so they opt out.
   const path = $derived($page.url.pathname);
-  const activeTab = $derived(tabs.find((tb) => path === tb.href));
+  const activeTab = $derived(tabs.find((tb) => tabIsActive(path, tb)));
   const showChrome = $derived(!!activeTab);
   // #364: the "Organization: <name>" caption + URN belong to the Profile tab
   // only. On every other tab the sub-route renders its own section heading
