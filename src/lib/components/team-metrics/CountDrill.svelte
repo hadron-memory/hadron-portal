@@ -11,6 +11,9 @@
 
   const href = (id: string) => (kind === 'task' ? `/app/apps/${appId}/tasks/${id}` : `/app/workers/${id}`);
   const shown = $derived(count.ids.length);
+  // `named` rides the same call as `ids`, in the same order (hadron-server#5029). An id with no readable
+  // name (denied reads as missing) keeps the plain type + id chip; `ids` stays the list if `named` is absent.
+  const chips = $derived(count.named?.length ? count.named : count.ids.map((id) => ({ id, name: null as string | null })));
 </script>
 
 {#if count.total === 0}
@@ -25,8 +28,17 @@
         <p class="text-amber-800 dark:text-amber-300" data-testid="metrics-truncated">{t('team-metrics.drill.partial', 'First {shown} of {total}', { shown, total: count.total })}</p>
       {/if}
       <ul class="flex flex-wrap gap-1">
-        {#each count.ids as id (id)}
-          <li><a href={href(id)} class="block rounded border border-zinc-200 px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"><span class="text-zinc-500 dark:text-zinc-400">{kind === 'task' ? t('team-metrics.drill.task', 'task') : t('team-metrics.drill.worker', 'worker')}</span> {id.slice(0, 8)}</a></li>
+        {#each chips as chip (chip.id)}
+          <li>
+            <a href={href(chip.id)} class="block max-w-[16rem] rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800" data-testid="metrics-chip">
+              {#if chip.name}
+                <span class="block truncate font-sans text-xs" title={chip.name} data-testid="metrics-chip-name">{chip.name}</span>
+                <span class="block font-mono text-zinc-500 dark:text-zinc-400">{chip.id.slice(0, 8)}</span>
+              {:else}
+                <span class="font-mono"><span class="text-zinc-500 dark:text-zinc-400">{kind === 'task' ? t('team-metrics.drill.task', 'task') : t('team-metrics.drill.worker', 'worker')}</span> {chip.id.slice(0, 8)}</span>
+              {/if}
+            </a>
+          </li>
         {/each}
       </ul>
     </div>

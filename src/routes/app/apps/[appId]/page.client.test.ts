@@ -1757,12 +1757,47 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
   });
 
-  // #2420 (BLIND, unverified until now): a host refusal is an error on the host field, and it stays
-  // until the form is reset or resubmitted. Picking another host does NOT clear it, so the group
-  // keeps aria-invalid while the reader fixes it; the next submit's reply replaces it. Pinned as
-  // today's behaviour so a change to it is a decision, not an accident.
-  it('a host refusal stays on the host group while the reader picks another host, and a reopen clears it', async () => {
+  // #2468 (decided, was pinned the other way by #2420's BLIND): a host refusal is an error on the host
+  // field, and picking another host clears it on the picker's change, so a screen-reader user is not
+  // told the field is invalid after fixing it. It clears on the change, never on submit, so a refusal
+  // that is still current is never hidden: a wrong re-pick is refused again by the next submit's reply.
+  it('picking another host clears the host refusal, and a wrong re-pick is refused and shown again', async () => {
     const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const refuse = async (hostId: string, text: string) => {
+      const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId }, zod4(grantAppKeyScopeSchema));
+      f.errors = { hostId: [text] };
+      await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+      flushSync(); await tick(2);
+    };
+    await refuse('h-2', 'This key already operates as host h-1.');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeTruthy();
+    // The picker's change clears the field error and its alert, and the group stops naming the alert.
+    pickHost(dialog, 'h-1');
+    await tick(2);
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).not.toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
+    expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help');
+    // A wrong re-pick is still refused on submit, and shown.
+    await refuse('h-1', 'This host is not registered.');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('This host is not registered.');
+    // A reopen still starts clean.
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const reopened = await openGrant(panel);
+    await chooseScope(reopened, 'host:operate');
+    expect(hostGroup(reopened)!.getAttribute('aria-invalid')).not.toBe('true');
+  });
+
+  // #2420 (BLIND, unverified until now): the host refusal names the host that was refused, so it must not
+  // outlive the host field. Switching to a scope that takes no host removes the field, and the alert
+  // beside it would go on blaming a host the form no longer asks for.
+  it('switching to a scope with no host clears the host refusal', async () => {
+    const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
     pickHost(dialog, 'h-2');
@@ -1770,15 +1805,39 @@ describe('App key scope grant dialog (portal#1487)', () => {
     f.errors = { hostId: ['This key already operates as host h-1.'] };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
     flushSync(); await tick(2);
-    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeTruthy();
+    await chooseScope(dialog, 'attention:deliver');
+    await tick(2);
+    expect(hostGroup(dialog)).toBeNull();
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
+  });
+
+  it('switching scope drops only the host refusal and leaves another field error in place', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.errors = { hostId: ['This key already operates as host h-1.'], keyId: ['This key was removed.'] };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 400, data: { form: f } });
+    flushSync(); await tick(2);
+    await chooseScope(dialog, 'attention:deliver');
+    await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('This key was removed.');
+  });
+
+  it('picking another host leaves a refusal that is not about the host in place', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'error', text: 'Only the App’s managers can do this.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
+    flushSync(); await tick(2);
     pickHost(dialog, 'h-1');
     await tick(2);
-    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
-    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
-    flushSync(); await tick(2);
-    const reopened = await openGrant(panel);
-    await chooseScope(reopened, 'host:operate');
-    expect(hostGroup(reopened)!.getAttribute('aria-invalid')).not.toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('Only the App’s managers can do this.');
   });
 
   it('a success closes the dialog and announces the granted scope', async () => {

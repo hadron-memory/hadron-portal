@@ -1843,8 +1843,8 @@ export const NODE_EDGE_REMOVALS_QUERY = /* GraphQL */ `
 // #529: a single revision's full snapshot (incl. content) for the read-only
 // "Display" view. Access-gated server-side; null when unreadable/missing.
 export const NODE_REVISION_QUERY = /* GraphQL */ `
-  query NodeRevision($revisionId: ID!) {
-    nodeRevision(revisionId: $revisionId) {
+  query NodeRevision($nodeRevRef: String!) {
+    nodeRevision(nodeRevRef: $nodeRevRef) {
       id
       revNo
       nodeId
@@ -1956,8 +1956,8 @@ export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
 
 export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
   ${PROVENANCE_FIELDS}
-  query NodeRevisionProvenance($revisionId: ID!) {
-    nodeRevision(revisionId: $revisionId) {
+  query NodeRevisionProvenance($nodeRevRef: String!) {
+    nodeRevision(nodeRevRef: $nodeRevRef) {
       id
       revNo
       authorship { ...NodeAuthorshipFields }
@@ -1970,20 +1970,20 @@ export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
 // restores the node to the revision AND deletes newer snapshots (atomic); delete
 // removes one snapshot; clear removes all for a node (returns the count).
 export const RESTORE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation RestoreNodeRevision($revisionId: ID!, $truncate: Boolean) {
-    restoreNodeRevision(revisionId: $revisionId, truncate: $truncate) { id }
+  mutation RestoreNodeRevision($nodeRevRef: String!, $truncate: Boolean) {
+    restoreNodeRevision(nodeRevRef: $nodeRevRef, truncate: $truncate) { id }
   }
 `;
 
 export const DELETE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation DeleteNodeRevision($revisionId: ID!) { deleteNodeRevision(revisionId: $revisionId) }
+  mutation DeleteNodeRevision($nodeRevRef: String!) { deleteNodeRevision(nodeRevRef: $nodeRevRef) }
 `;
 
 // #534: set or clear a revision's user-facing label (NodeRevision.revLabel,
 // 500-char cap on the server). Passing null clears it; omitting preserves.
 export const UPDATE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation UpdateNodeRevision($revisionId: ID!, $revLabel: String) {
-    updateNodeRevision(revisionId: $revisionId, revLabel: $revLabel) { id revLabel }
+  mutation UpdateNodeRevision($nodeRevRef: String!, $revLabel: String) {
+    updateNodeRevision(nodeRevRef: $nodeRevRef, revLabel: $revLabel) { id revLabel }
   }
 `;
 
@@ -3049,8 +3049,8 @@ export const SESSIONS_QUERY = /* GraphQL */ `
 `;
 
 export const USAGE_EVENTS_QUERY = /* GraphQL */ `
-  query UsageEvents($type: String, $memoryId: ID, $limit: Int, $offset: Int) {
-    usageEvents(type: $type, memoryId: $memoryId, limit: $limit, offset: $offset) {
+  query UsageEvents($type: String, $memoryRef: ID, $limit: Int, $offset: Int) {
+    usageEvents(type: $type, memoryRef: $memoryRef, limit: $limit, offset: $offset) {
       id
       type
       nodeLoc
@@ -4178,7 +4178,7 @@ export const MEMORY_USAGE_SUMMARY_QUERY = /* GraphQL */ `
 // @deprecated in favour of `usageEvents(loc:)`.
 //
 // If a per-loc usage feed is ever needed here, use `usageEvents(loc: <loc>)`
-// and NOT `usageEvents(nodeId: <loc>)` — the latter's shape classification
+// and NOT `usageEvents(nodeRef: <loc>)` — the latter's shape classification
 // misroutes hierarchical locs, which is every spec citation (>=3 colon
 // segments). Recorded rather than left to be rediscovered from the issue.
 
@@ -4342,10 +4342,12 @@ export const MEMORY_SHARES_QUERY = /* GraphQL */ `
 
 // #668: grant a share. `granteeRef` (server #769) resolves an id, email, handle
 // or hrn:user URN server-side, so the picker can pass whatever it has and the
-// resolution rules stay in one place.
+// resolution rules stay in one place. The variable is `ID!` to match the SDL
+// (hadron-server#4137); RevokeMemoryShare below deliberately keeps `String!`
+// because deleteMemoryShare's granteeRef is a nullable `String` in the schema.
 export const CREATE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
-  mutation CreateMemoryShare($memoryId: ID!, $granteeRef: String!, $role: MemoryShareRole!) {
-    createMemoryShare(memoryId: $memoryId, granteeRef: $granteeRef, role: $role) {
+  mutation CreateMemoryShare($memoryRef: ID!, $granteeRef: ID!, $role: MemoryShareRole!) {
+    createMemoryShare(memoryRef: $memoryRef, granteeRef: $granteeRef, role: $role) {
       memoryShare { role grantee { id handle name } }
     }
   }
@@ -4353,8 +4355,8 @@ export const CREATE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
 
 // #668: change an existing grantee's role.
 export const UPDATE_MEMORY_SHARE_ROLE_MUTATION = /* GraphQL */ `
-  mutation UpdateMemoryShareRole($memoryId: ID!, $granteeRef: String!, $role: MemoryShareRole!) {
-    updateMemoryShareRole(memoryId: $memoryId, granteeRef: $granteeRef, role: $role) {
+  mutation UpdateMemoryShareRole($memoryRef: ID!, $granteeRef: ID!, $role: MemoryShareRole!) {
+    updateMemoryShareRole(memoryRef: $memoryRef, granteeRef: $granteeRef, role: $role) {
       memoryShare { role grantee { id handle name } }
     }
   }
@@ -4715,10 +4717,12 @@ export const APP_RUN_HOPS_QUERY = /* GraphQL */ `
 
 // The kill switch (guarded server-side: only a still-RUNNING/PENDING row
 // transitions; a raced terminal state survives in the audit log).
+// `id:` -> `ref:` per hadron-server#4141 S5 (#4789, hard rename, no alias —
+// hrn:node:hadronmemory.com:specs:cor:api:140:01); portal#2498.
 export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  mutation CancelAppRun($id: ID!) {
-    cancelAppRun(id: $id) {
+  mutation CancelAppRun($ref: ID!) {
+    cancelAppRun(ref: $ref) {
       ...AppRunFields
     }
   }
@@ -6357,5 +6361,5 @@ export const TEAM_METRICS_QUERY = /* GraphQL */ `
       flow { completed { ...TeamMetricsCountFields } started { ...TeamMetricsCountFields } }
     }
   }
-  fragment TeamMetricsCountFields on TeamMetricsCount { total ids truncated }
+  fragment TeamMetricsCountFields on TeamMetricsCount { total ids truncated named { id name } }
 `;

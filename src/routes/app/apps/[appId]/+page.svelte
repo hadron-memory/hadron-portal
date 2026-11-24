@@ -2400,6 +2400,14 @@
       ? $grantKeyScopeMessage.text
       : $grantKeyScopeErrors.hostId?.[0] ?? $grantKeyScopeErrors.scope?.[0] ?? $grantKeyScopeErrors.keyId?.[0] ?? $grantKeyScopeErrors._kind?.[0] ?? null,
   );
+  // portal#2468: the host error names the host that was refused, so picking another host clears it (on the
+  // picker's change, never on submit: a wrong re-pick is refused again by the next reply). Only the host field's
+  // error goes; a refusal that is not about the host stays. portal#2420: the scope select clears it too,
+  // because a scope with no host removes the field the refusal was about.
+  function clearGrantHostError() {
+    if (!$grantKeyScopeErrors.hostId) return;
+    grantKeyScopeErrors.update((e) => ({ ...e, hostId: undefined }));
+  }
   const grantKeyScopeActionSuccess = $derived($grantKeyScopeMessage?.type === 'success' ? $grantKeyScopeMessage.text : null);
   const revokeKeyScopeActionError = $derived(
     $revokeKeyScopeMessage?.type === 'error'
@@ -3902,6 +3910,7 @@
                   <!-- BARE name: this is App context. -->
                   <a
                     href="/app/workers/{worker.id}"
+                    title={worker.name}
                     class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white {worker.retiredAt ? 'line-through' : ''}"
                   >
                     {worker.name}
@@ -3958,7 +3967,7 @@
               {:else if task}
                 <div class="min-w-0 text-xs">
                   <span class="flex min-w-0 items-center gap-1.5">
-                    <a href={taskHref(`/app/apps/${app.id}`, task)} class="min-w-0 truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
+                    <a href={taskHref(`/app/apps/${app.id}`, task)} title={task.title} class="min-w-0 truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
                     <TaskHandle handle={task.handle} />
                   </span>
                   <span class="text-zinc-500">{TASK_STATUS[task.status]?.() ?? task.status}</span>
@@ -4063,7 +4072,7 @@
                 />
               {/if}
             {:else}
-              <div class="truncate">{cell.getValue() ?? '—'}</div>
+              <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue() ?? '—'}</div>
             {/if}
           {/snippet}
         </DataTable>
@@ -4178,7 +4187,7 @@
                 compact
               />
             {:else}
-              <div class="truncate">{cell.getValue() ?? '—'}</div>
+              <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue() ?? '—'}</div>
             {/if}
           {/snippet}
         </DataTable>
@@ -4485,7 +4494,8 @@
                 />
               {:else}
                 {@const f = appKeyFmt[cell.column.id]}
-                <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+                {@const text = String((f ? f(cell.getValue()) : cell.getValue()) ?? '')}
+                <div class="truncate" title={text}>{text || '—'}</div>
               {/if}
             {/snippet}
           </DataTable>
@@ -4529,7 +4539,7 @@
               </p>
               <div>
                 <label for="grant-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.scope', 'Scope')}</label>
-                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} aria-describedby={hostsBlocked ? 'grant-scope-help' : undefined} class={inputClass}>
+                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} onchange={clearGrantHostError} aria-describedby={hostsBlocked ? 'grant-scope-help' : undefined} class={inputClass}>
                   <option value="attention:deliver">attention:deliver</option>
                   <option value="host:operate" disabled={hostsBlocked || hostsState.kind === 'loading'}>host:operate</option>
                 </select>
@@ -4558,6 +4568,7 @@
                     bind:value={$grantKeyScopeForm.hostId}
                     held={heldHostId}
                     invalid={!!$grantKeyScopeErrors.hostId}
+                    onchange={clearGrantHostError}
                     describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
                     onretry={loadGrantHosts}
                   />

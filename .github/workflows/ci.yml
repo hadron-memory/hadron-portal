@@ -117,6 +117,10 @@ jobs:
       - name: Check memory Usage toolbar phone layout
         run: pnpm test:usage-toolbar-layout
 
+      # portal#2564: a 64-character worker name wraps in the detail H1 instead of widening the page.
+      - name: Check worker detail title row layout
+        run: pnpm test:worker-title-row-layout
+
       # portal#1826: the Org Integrations Add/select/Configure row at 390px.
       - name: Check Org Integrations add-row phone layout
         run: pnpm test:org-integrations-row-layout

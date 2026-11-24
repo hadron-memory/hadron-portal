@@ -1,6 +1,6 @@
 // #1942: real components/CSS, synthetic data only. No production or backend.
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
@@ -8,7 +8,19 @@ import { chromium, firefox, webkit } from 'playwright';
 import { parseHarnessEnv, injectionEcho, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH, ORGS_KINDS, TITLE_CHECKED_KINDS } from './lib/cell-harness-env.mjs';
 import { sameMembers, pointerVerdict } from './lib/cell-harness-checks.mjs';
 import { messages } from './lib/cell-harness-messages.mjs';
-import { probeCellEscapes, probeUntitledEllipsis, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
+import { probeCellEscapes, probeUntitledEllipsis, probeSrOnlyAnchors, ESCAPE_PX as CELL_ESCAPE_PX } from './lib/cell-escape-probe.mjs';
+
+// portal#2548: the shell classes come from src/lib/layout/app-shell.ts itself, read as text (this script cannot import a .ts file),
+// so the harness's shell row cannot drift from the real layout. A constant that is missing or renamed fails loudly here.
+const appShellSource = await readFile(new URL('../src/lib/layout/app-shell.ts', import.meta.url), 'utf8');
+const shellClass = name => {
+  // The quote may be ' " or `: a harmless reformat of the constant must not break the harness.
+  const found = new RegExp('export const ' + name + '\\s*=\\s*([\'"`])([^\'"`]+)\\1').exec(appShellSource)?.[2];
+  if (!found) throw new Error(`test-table-cell-overflow-layout: ${name} was not found in src/lib/layout/app-shell.ts`);
+  return found;
+};
+const APP_SHELL_ROW = shellClass('APP_SHELL_ROW');
+const APP_SHELL_CONTENT = shellClass('APP_SHELL_CONTENT');
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // portal#2129: every env knob is validated, and any active injection announced, before the dev server or a browser starts.
 const env = parseHarnessEnv(process.env);
@@ -191,6 +203,11 @@ const settlePage = page => page.evaluate(async () => {
 });
 // Glyph pixels outside the owning cell that count as an escape (sub-pixel rounding stays below it).
 const ESCAPE_PX = 0.5;
+// portal#2548: the kinds whose fixture is built to carry an sr-only label in a cell (a vacuous pass fails for these).
+const SR_ONLY_KINDS = ['orgs-sessions'];
+// portal#2548: the document-width check runs for every kind in this battery except the one that widens the document today (hadron-portal#2591);
+// the exemption goes with that fix.
+const DOC_WIDTH_EXEMPT_KINDS = ['apps-channels'];
 // portal#2514: the narrowest a members Role select may get while still showing its value (the harness's narrowest column is 120px).
 const ROLE_SELECT_FLOOR_PX = 72;
 // The strict no-clipping oracle applies from this measured width up (blind review, #2507, named):
@@ -273,7 +290,9 @@ try {
  }
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
- const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
+ // The phone width every battery runs: also where an exempt kind is expected to still widen the document (DOC_WIDTH_EXEMPT_KINDS).
+const PHONE_WIDTH = 390;
+const widths = cellWidth !== null ? [cellWidth] : [PHONE_WIDTH, 1280];
  // The component battery's kinds come from the one routing table above — never
  // a hand-written list (blind review, #2507): a page kind belongs to the pages
  // battery below, findings and agent-tasks to their own.
@@ -986,13 +1005,13 @@ async function loadNodePageData(devServer, tab) {
   const orgsKind = ORGS_KINDS.includes(kind);
   try {
    await page.goto(new URL('/__cell_fixture', origin).href);
-   await page.evaluate(({ css, dark, orgsKind }) => {
+   await page.evaluate(({ css, dark, shellRow, shellContent }) => {
     document.head.innerHTML = `<style>${css}</style>`; document.documentElement.classList.toggle('dark', dark);
     document.body.className = 'bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100';
-    // #2517: orgs pages mount in a copy of the /app shell row (the classes of APP_SHELL_ROW > APP_SHELL_CONTENT in src/lib/layout/app-shell.ts,
-    // hand-copied: this script cannot import the .ts), not a bare min-w-0 main, so a table that widens its column shows up as document overflow.
-    document.body.innerHTML = orgsKind ? '<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6"><div class="min-w-0 flex-1"><div id="fixture"></div></div></div>' : '<main id="fixture" class="min-w-0 p-4"></main>';
-   }, { css, dark, orgsKind });
+    // #2517: apps and orgs pages mount in the /app shell row (APP_SHELL_ROW > APP_SHELL_CONTENT, read from src/lib/layout/app-shell.ts), not a bare
+    // min-w-0 main, so a table that widens its column shows up as document overflow.
+    document.body.innerHTML = `<div class="${shellRow}"><div class="${shellContent}"><div id="fixture"></div></div></div>`;
+   }, { css, dark, shellRow: APP_SHELL_ROW, shellContent: APP_SHELL_CONTENT });
    await page.evaluate(async ({ kind, orgs }) => { const m = await import(orgs ? '/src/lib/test/fixtures/orgs-cell-fixtures.ts' : '/src/lib/test/fixtures/apps-cell-fixtures.ts'); window.stopFixture = await (orgs ? m.mountOrgsCellFixture : m.mountAppsCellFixture)(document.getElementById('fixture'), kind); }, { kind, orgs: orgsKind });
    await page.locator('tbody td').first().waitFor({ timeout: 10000 });
    await settlePage(page);
@@ -1026,16 +1045,35 @@ async function loadNodePageData(devServer, tab) {
      const untitled = await page.evaluate(probeUntitledEllipsis);
      if (untitled.length) failures.push(`${leg}/${sizing}: an ellipsized value has no title ${JSON.stringify(untitled)}`);
     }
+    // portal#2548: an sr-only label in a cell is anchored by the cell (or something inside it), never by the page.
+    const srOnly = await page.evaluate(probeSrOnlyAnchors);
+    if (srOnly.unanchored.length) failures.push(`${leg}/${sizing}: an sr-only label is not anchored inside its cell ${JSON.stringify(srOnly.unanchored)}`);
+    if (SR_ONLY_KINDS.includes(kind)) {
+     if (srOnly.seen === 0) failures.push(`${leg}/${sizing}: no sr-only label rendered in a cell, the anchor check measured nothing`);
+     else {
+      // Negative control, on the effect and not only the anchor: with the cells made static (what DataTable did before #2548) the label must
+      // be anchored by the page and the probe must say so. The cells are restored in a finally, so a throw cannot leave them static.
+      let control;
+      try {
+       await page.evaluate(() => document.querySelectorAll('tbody td').forEach(td => { td.dataset.prevPosition = td.style.position; td.style.position = 'static'; }));
+       control = await page.evaluate(probeSrOnlyAnchors);
+      } finally {
+       await page.evaluate(() => document.querySelectorAll('tbody td').forEach(td => { td.style.position = td.dataset.prevPosition ?? ''; delete td.dataset.prevPosition; }));
+      }
+      if (control.unanchored.length === 0) failures.push(`${leg}/${sizing}: the sr-only probe did not flag a label in a static cell (the negative control)`);
+     }
+    }
     // The table keeps its width inside the page and scrolls internally. (The document's own scrollWidth is not used: the
     // page's TabRow keeps an invisible fixed measuring clone that widens it on main, with or without a table defect.)
     const scrollers = await page.locator('[data-testid="data-table-scroller"]').evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().right)));
     if (!scrollers.length || scrollers.some(r => r > width + 0.5)) failures.push(`${leg}/${sizing}: the table scroller leaves the page ${JSON.stringify(scrollers)}`);
-    // #2517: in the shell-row mount an orgs table must not widen the DOCUMENT (the fixture has no TabRow clone, so scrollWidth is sound here).
+    // #2517: in the shell-row mount a table must not widen the DOCUMENT (the fixture has no TabRow clone, so scrollWidth is sound here).
     // clientWidth, not innerWidth: innerWidth includes the scrollbar, so it would excuse a few px of overflow.
-    if (orgsKind) {
-     const docWidth = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
-     if (docWidth.scroll > docWidth.client) failures.push(`${leg}/${sizing}: the table widens the document to ${docWidth.scroll}px in a ${docWidth.client}px viewport`);
-    }
+    const docWidth = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+    const widens = docWidth.scroll > docWidth.client;
+    if (!DOC_WIDTH_EXEMPT_KINDS.includes(kind) && widens) failures.push(`${leg}/${sizing}: the table widens the document to ${docWidth.scroll}px in a ${docWidth.client}px viewport`);
+    // An exemption that no longer applies must go: the fix it waits for has landed.
+    if (DOC_WIDTH_EXEMPT_KINDS.includes(kind) && !widens && width === PHONE_WIDTH) failures.push(`${leg}/${sizing}: ${kind} no longer widens the document at ${PHONE_WIDTH}px: remove it from DOC_WIDTH_EXEMPT_KINDS (hadron-portal#2591)`);
     // portal#2514: the Role select has no measured minSize any more (it is w-full min-w-0 and shrinks with its column), so a
     // collapsed select would pass every containment check above. Pin a usable floor: at the narrowest column this harness sets
     // (120px) the select must still show its value, and no select may be hidden or zero-width.
@@ -1179,6 +1217,23 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   } finally { await page.close(); }
  };
 
+ // portal#2541: containment alone passed while the compact Urn chip painted "example.te…" — the clamp's
+ // [overflow-wrap:anywhere] lets an auto-sized column squeeze the value to a stub. The chip cannot fix that (a
+ // min-width on it trades against containment, #2538); the caller's column floor does. Every compact worker chip
+ // in the tables below must show its whole value, or at least CHIP_VALUE_MIN_PX of it (about 26 characters of the chip's
+ // 0.6rem mono, the shape "e2e-alpha:team:bartholomew"), at every width, and must still carry the full URN as its title.
+ const CHIP_VALUE_MIN_PX = 150;
+ const CHIP_READABLE_ROWS = ['app-tasks:roster', 'app-tasks:composition-workers', 'app-tasks:composition-lanes', 'task-review-slots'];
+ const chipReadable = scope => async (page, leg) => {
+  const chips = await page.locator(`${scope}tbody td span[title^="hrn:"].line-clamp-1`).evaluateAll(els => els.map(el => ({ urn: el.title, titled: /^hrn:worker:example\.test:fixture:[a-z0-9]+$/.test(el.title), px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 })));
+  if (!chips.length) failures.push(`${leg}: no compact URN chip found to measure`);
+  const untitled = chips.filter(c => !c.titled);
+  if (untitled.length) failures.push(`${leg}: compact URN chip title is not the fixture row's full worker URN ${JSON.stringify(untitled)}`);
+  const narrow = chips.filter(c => c.px < CHIP_VALUE_MIN_PX && !c.whole);
+  if (narrow.length) failures.push(`${leg}: compact URN chip value narrower than ${CHIP_VALUE_MIN_PX}px ${JSON.stringify(narrow)}`);
+  else if (chips.length) console.log(`${leg}: ${chips.length} compact URN chip(s), narrowest value ${Math.min(...chips.map(c => c.px))}px`);
+ };
+
  // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and
  // legal synthetic data, default column sizes. A cell passes when no element inside it paints outside its
  // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
@@ -1202,7 +1257,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   } finally { await rowsPage.close(); }
   assert.ok(taskRows.length >= 7, 'the fixture lists every #2487 row');
   const fixture = { module: '/src/lib/test/fixtures/agent-tasks-cell-harness.ts', mount: 'mountAgentTaskCell' };
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) await runCellLeg({ name: 'agent-tasks', listKey, width, dark, scope, fixture, measured });
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) await runCellLeg({ name: 'agent-tasks', listKey, width, dark, scope, fixture, measured, extra: CHIP_READABLE_ROWS.includes(listKey) ? chipReadable(scope) : null });
  }
 
 

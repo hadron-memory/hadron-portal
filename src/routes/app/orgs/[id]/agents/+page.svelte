@@ -453,7 +453,7 @@
               />
             {/if}
           {:else}
-            <div class="truncate">{cell.getValue()}</div>
+            <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue()}</div>
           {/if}
         {/snippet}
       </DataTable>
@@ -479,7 +479,7 @@
     >
       {#snippet cell(cell, agent)}
         {#if cell.column.id === 'name'}
-          <div class="truncate">
+          <div class="truncate" title={agent.name}>
             <a href="/app/orgs/{org.id}/agents/{agent.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{agent.name}</a>
           </div>
         {:else if cell.column.id === 'urn'}
@@ -495,7 +495,8 @@
           />
         {:else}
           {@const f = fmt[cell.column.id]}
-          <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
+          {@const text = String((f ? f(cell.getValue()) : cell.getValue()) ?? '')}
+          <div class="truncate" title={text}>{text}</div>
         {/if}
       {/snippet}
     </DataTable>
