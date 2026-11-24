@@ -60,7 +60,7 @@
       <p class="rounded-lg border border-zinc-300 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{t('secrets.impersonating', 'Impersonation sessions are read-only.')}</p>
     {/if}
 
-    <PendingUnread count={data.pendingUnread} />
+    <PendingUnread count={data.pendingUnchecked} />
     {#each data.pending as p (p.requestId)}
       <PendingChange {...p} impersonating={ro} />
     {/each}
