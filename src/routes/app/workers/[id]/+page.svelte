@@ -18,6 +18,7 @@
   import type { ApplyResult } from '$lib/tickers/apply';
   import { workerOfPage } from '$lib/tickers/refresh-page';
   import WorkerSignatureSection from './WorkerSignatureSection.svelte';
+  import WorkerTitleRow from './WorkerTitleRow.svelte';
   import ChangeWorkerAgent from './ChangeWorkerAgent.svelte';
   import { changeAgentResultFor, type ChangeAgentResult } from '$lib/workers/change-agent';
   import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
@@ -258,8 +259,7 @@
       ]}
     />
 
-    <div class="mt-2 flex flex-wrap items-center gap-3">
-      <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{worker.name}</h1>
+    <WorkerTitleRow name={worker.name}>
       <WorkerBadge {retired} />
       {#if canManageHere}
         <!-- portal#2205 — Retire/Delete, in the header so they are reachable from
@@ -278,7 +278,7 @@
           <input type="hidden" name="_kind" value="retireWorker" />
         </form>
       {/if}
-    </div>
+    </WorkerTitleRow>
 
     <LiveOutcome failed={retireNotice ? !retireNotice.ok : false}>
       {#if retireNotice}

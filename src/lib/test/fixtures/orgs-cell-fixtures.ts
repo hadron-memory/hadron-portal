@@ -13,12 +13,13 @@ import { orgAgentSubscribeSchema, orgAgentUnsubscribeSchema } from '../../../rou
 import RunsPage from '../../../routes/app/orgs/[id]/runs/+page.svelte';
 import MembersPage from '../../../routes/app/orgs/[id]/members/+page.svelte';
 import { addOrgMemberSchema, impersonateMemberSchema, inviteMemberSchema, leaveOrgSchema, removeOrgMemberSchema, updateOrgMemberSchema } from '../../../routes/app/orgs/[id]/members/schema';
+import SessionsPage from '../../../routes/app/orgs/[id]/sessions/+page.svelte';
 import MemoriesPage from '../../../routes/app/orgs/[id]/memories/+page.svelte';
 import { deleteOrgMemorySchema, orgMemorySubscribeSchema, syncOrgMemoriesSchema, unsubscribeOrgMemorySchema } from '../../../routes/app/orgs/[id]/memories/schema';
 
 // The kinds this module mounts. scripts/lib/cell-harness-env.mjs lists the same kinds as ORGS_KINDS; a test in
 // cell-harness-env.test.ts pins the two lists to each other, so a kind cannot be added to one alone.
-export const ORGS_CELL_KINDS = ['orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-apps', 'orgs-mine', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions'] as const;
+export const ORGS_CELL_KINDS = ['orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-apps', 'orgs-mine', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions', 'orgs-sessions'] as const;
 export type OrgsCellKind = (typeof ORGS_CELL_KINDS)[number];
 
 // One long, unbreakable value per entity, shared by every table that shows it.
@@ -149,6 +150,27 @@ async function mountRuns(target: HTMLElement) {
   return checked(instance, () => expectHeaders(target, 'orgs-runs', ['Started', 'Trigger', 'Entry node', 'Duration', 'Failure']));
 }
 
+// portal#2548: one row per worker shape. The unqualified worker (its App hidden) is the row that carries the `sr-only` sentence.
+async function mountSessions(target: HTMLElement) {
+  const session = (i: number, worker: { id: string; name: string; retiredAt: string | null; app: { id: string; urn: string } | null } | null) => ({
+    id: `s${i}`, type: 'DEVELOPER', appId: null, repo: null, branch: null, llmModel: 'a-model-name-with-no-break-points-0123456789',
+    summary: 'A session summary with a-long-token-that-has-no-break-points-at-all-0123456789', inputTokens: 1200, outputTokens: 3400,
+    turnCount: 12, errorCount: 0, startedAt: '2026-11-01T02:04:36Z', endedAt: '2026-11-01T02:09:41Z', worker,
+  });
+  const sessions = [
+    session(1, { id: 'w1', name: 'AWorkerNameWithNoBreakPointsAtAll0123456789', retiredAt: null, app: null }),
+    session(2, { id: 'w2', name: 'Qualified', retiredAt: null, app: { id: 'app1', urn: 'hrn:app:example.test:an-app' } }),
+    session(3, null),
+  ];
+  const data = { org: { id: 'org1', name: 'Acme', urn: 'hrn:org:example.test:acme' }, sessions, pageNum: 1, hasMore: false };
+  const instance = mount(SessionsPage, { target, props: pageProps(SessionsPage, data) });
+  return checked(instance, async () => {
+    await expectHeaders(target, 'orgs-sessions', ['Started', 'Type', 'Summary', 'Worker']);
+    // The row this kind exists for: without it the sr-only leg would pass on nothing.
+    if (!target.querySelector('tbody td .sr-only')) throw new Error('orgs-cell-fixtures: orgs-sessions rendered no sr-only label in a cell');
+  });
+}
+
 async function mountMembers(target: HTMLElement) {
   const [addForm, impersonateForm, inviteForm, leaveForm, removeForm, updateForm] = await Promise.all(
     [addOrgMemberSchema, impersonateMemberSchema, inviteMemberSchema, leaveOrgSchema, removeOrgMemberSchema, updateOrgMemberSchema].map((schema) => superValidate(zod4(schema as never), { errors: false })),
@@ -176,6 +198,7 @@ export async function mountOrgsCellFixture(target: HTMLElement, kind: string): P
   if (kind === 'orgs-apps') return mountApps(target);
   if (kind === 'orgs-members') return mountMembers(target);
   if (kind === 'orgs-runs') return mountRuns(target);
+  if (kind === 'orgs-sessions') return mountSessions(target);
   if (kind === 'orgs-agents' || kind === 'orgs-subscribed-agents') return mountAgents(target, kind);
   if (kind === 'orgs-memories-personal' || kind === 'orgs-memories-org' || kind === 'orgs-memories-subscriptions') return mountMemories(target, kind);
   throw new Error(`orgs-cell-fixtures: no fixture for ${kind}`);

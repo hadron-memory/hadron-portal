@@ -15,8 +15,8 @@ import type { RequestHandler } from './$types';
 // NodeVersion). GraphQL runs server-side only (token in locals), so the browser
 // POSTs here.
 //
-//   { action: 'restore', revisionId } → restoreNodeRevision(revisionId, truncate:true)
-//   { action: 'delete',  revisionId } → deleteNodeRevision(revisionId)
+//   { action: 'restore', revisionId } → restoreNodeRevision(nodeRevRef, truncate:true)
+//   { action: 'delete',  revisionId } → deleteNodeRevision(nodeRevRef)
 //   { action: 'label',   revisionId, revLabel } → updateNodeRevision (#534; blank clears)
 //   { action: 'clear' }               → clearNodeHistory(nodeRef = params.nodeId)
 //
@@ -40,12 +40,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   try {
     if (action === 'restore') {
       if (!revisionId) return json({ error: 'revisionId is required.' }, { status: 400 });
-      await client.request(RESTORE_NODE_REVISION_MUTATION, { revisionId, truncate: true });
+      await client.request(RESTORE_NODE_REVISION_MUTATION, { nodeRevRef: revisionId, truncate: true });
       return json({ ok: true });
     }
     if (action === 'delete') {
       if (!revisionId) return json({ error: 'revisionId is required.' }, { status: 400 });
-      await client.request(DELETE_NODE_REVISION_MUTATION, { revisionId });
+      await client.request(DELETE_NODE_REVISION_MUTATION, { nodeRevRef: revisionId });
       return json({ ok: true });
     }
     if (action === 'label') {
@@ -53,7 +53,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       if (typeof body?.revLabel !== 'string') return json({ error: 'revLabel must be a string.' }, { status: 400 });
       const revLabel = body.revLabel.trim();
       // A blank label clears it: null, never an empty string the server would store.
-      await client.request(UPDATE_NODE_REVISION_MUTATION, { revisionId, revLabel: revLabel || null });
+      await client.request(UPDATE_NODE_REVISION_MUTATION, { nodeRevRef: revisionId, revLabel: revLabel || null });
       return json({ ok: true });
     }
     if (action === 'clear') {
