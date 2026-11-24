@@ -39,6 +39,20 @@ vi.mock('$app/stores', async () => {
   };
 });
 
+// C2 (#2568): the layout reads extension tabs through the registry. Mocked in
+// BOTH directions (a hoisted holder), so these cases hold in a tree where a real
+// extension is installed too, and never lean on the public tree having none.
+import type { PortalExtension } from '$lib/ext/types';
+const fx = vi.hoisted(() => ({ exts: [] as unknown[], orgTabsSpy: vi.fn() }));
+vi.mock('$lib/ext/registry', async (orig) => {
+  const real = await orig<typeof import('$lib/ext/registry')>();
+  return {
+    ...real,
+    extensionOrgNavTabs: (c: Parameters<typeof real.extensionOrgNavTabs>[0]) =>
+      real.extensionOrgNavTabs(c, fx.exts as PortalExtension[]),
+  };
+});
+
 import Layout from './+layout.svelte';
 
 // A full `Organization`, not a cast partial: the layout's prop type is the real
@@ -70,7 +84,7 @@ const user = {
 
 const children = createRawSnippet(() => ({ render: () => '<div>tab body</div>' }));
 
-function renderAt(path: string, isConsumerMode = false) {
+function renderAt(path: string, isConsumerMode = false, role: string = 'OWNER') {
   pathname.value = path;
   return render(Layout, {
     props: {
@@ -78,7 +92,7 @@ function renderAt(path: string, isConsumerMode = false) {
         user,
         activeOrgId: org.id,
         activeOrg: org,
-        navOrgs: [org],
+        navOrgs: [{ ...org, members: [{ id: 'm1', role, user: { id: user.id } }] }],
         nodeAdvice: [],
         impersonation: null,
         isConsumerMode,
@@ -159,5 +173,74 @@ describe('org-detail header symbol (#729)', () => {
     // Consumer mode has a single tab, so the tab bar is suppressed — the
     // symbol must not have been riding on that chrome.
     expect(html).not.toContain('Organization sections');
+  });
+});
+
+// ── C2 (#2568): extension tabs in the org strip ────────────────────────────
+const fixture: PortalExtension = {
+  id: 'fx',
+  orgTabs(ctx) {
+    fx.orgTabsSpy(ctx);
+    if (ctx.viewerOrgRole !== 'OWNER' && ctx.viewerOrgRole !== 'ADMIN') return [];
+    return [{ id: 'fx', label: 'Fixture', href: `${ctx.basePath}/fx`, match: 'prefix' }];
+  },
+};
+
+/** The strip's links, in order: [label, current?]. */
+function strip(html: string): Array<[string, boolean]> {
+  const nav = html.slice(html.indexOf('<nav'), html.indexOf('</nav>'));
+  return [...nav.matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)].map((m) => [m[2], m[1].includes('aria-current="page"')]);
+}
+
+describe('org layout extension tabs (C2, #2568)', () => {
+  it('shows the extension tab last, current on its own path, with the tab bar', () => {
+    fx.exts = [fixture];
+    const html = renderAt('/app/orgs/org-1/fx');
+    const links = strip(html);
+    expect(links.at(-1)).toEqual(['Fixture', true]);
+    expect(links.filter(([, cur]) => cur)).toHaveLength(1);
+  });
+
+  it('keeps it current, with the chrome, on a path below it (prefix)', () => {
+    fx.exts = [fixture];
+    const html = renderAt('/app/orgs/org-1/fx/deeper');
+    expect(strip(html).at(-1)).toEqual(['Fixture', true]);
+    expect(html).toContain('Organizations');
+  });
+
+  it('does not mark it current on a sibling that only shares the prefix', () => {
+    fx.exts = [fixture];
+    const html = renderAt('/app/orgs/org-1/fx-x');
+    expect(html).not.toContain('aria-current="page"');
+    expect(html).not.toContain('Organization sections');
+    expect(html).toContain('tab body');
+  });
+
+  it('reads the viewer role from navOrgs: a READER does not see it', () => {
+    fx.exts = [fixture];
+    const html = renderAt('/app/orgs/org-1/members', false, 'READER');
+    expect(strip(html).map(([l]) => l)).not.toContain('Fixture');
+  });
+
+  it('does not ask an extension for tabs in consumer mode', () => {
+    fx.exts = [fixture];
+    fx.orgTabsSpy.mockClear();
+    const html = renderAt('/app/orgs/org-1', true);
+    expect(html).not.toContain('Fixture');
+    expect(fx.orgTabsSpy).not.toHaveBeenCalled();
+  });
+
+  it('with no extension the labels are today\'s, in order', () => {
+    fx.exts = [];
+    expect(strip(renderAt('/app/orgs/org-1')).map(([l]) => l)).toEqual([
+      'Profile', 'Team', 'Integrations', 'Channels', 'Node-role templates', 'Usage',
+    ]);
+  });
+
+  it('renders a fixture tab whose id is "profile" beside the built-in Profile (C2-R1)', () => {
+    fx.exts = [{ id: 'fx', orgTabs: (c) => [{ id: 'profile', label: 'Mine', href: `${c.basePath}/fx` }] }];
+    const labels = strip(renderAt('/app/orgs/org-1')).map(([l]) => l);
+    expect(labels.filter((l) => l === 'Profile')).toHaveLength(1);
+    expect(labels.at(-1)).toBe('Mine');
   });
 });
