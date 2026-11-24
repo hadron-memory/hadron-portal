@@ -6,7 +6,7 @@
 // fully-qualified shape the server returns.
 import { mount, unmount } from 'svelte';
 import type { AgentTaskParty } from '$lib/agent-tasks/types';
-import PartyLabelDefeatTable from './PartyLabelDefeatTable.svelte';
+import PartyLabelUnboundedWrapperTable from './PartyLabelUnboundedWrapperTable.svelte';
 
 /** 27 characters — the worker-name length the #2506 report escapes with. */
 export const LONG_WORKER_NAME = 'ConstantinThePortalEngineer';
@@ -32,7 +32,7 @@ const personParty: AgentTaskParty = { id: `u-${LONG_PERSON_NAME}`, kind: 'USER',
  * no-chip row is the name row on its own, for the pins the chip would widen.
  */
 export function mountPartyLabelCell(target: HTMLElement) {
-  const instance = mount(PartyLabelDefeatTable, {
+  const instance = mount(PartyLabelUnboundedWrapperTable, {
     target,
     props: {
       rows: [

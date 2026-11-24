@@ -11,6 +11,7 @@ import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
 import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
 import TasksComposition from '$lib/components/agent-tasks/TasksComposition.svelte';
 import TasksRoster from '$lib/components/agent-tasks/TasksRoster.svelte';
+import { LONG_WORKER_NAME } from './party-label-cell-harness';
 
 /**
  * The rows of #2487, by listKey, consumed by scripts/test-table-cell-overflow-layout.mjs (real Chromium, kind
@@ -37,8 +38,6 @@ const LONG_TITLE = 'LongTaskTitleWithSixtyUnbrokenCharactersABCDEFGHIJKLMNOPQRST
 // PartyLabel (shared by 25 callers) is judged at a realistic name; the long-name containment
 // limit is #2506, pinned by the party-label battery and this roster row's reportsTo cell.
 const LONG_NAME = 'GabrielaTheEngineer';
-/** 27 characters — the worker-name length the #2506 report escapes with (roster reportsTo cell). */
-const LONG_REPORTS_NAME = 'ConstantinThePortalEngineer';
 const LONG_ROLE = 'a-very-long-role-token-with-no-spaces-in-it-at-all-0123456789';
 const LONG_STATE = 'A_STATE_THE_SERVER_ADDED_AFTER_THIS_PORTAL_SHIPPED';
 const time = '2026-11-01T02:04:36Z';
@@ -97,6 +96,6 @@ export function mountAgentTaskCell(target: HTMLElement, row: AgentTaskCellRow) {
   });
   // portal#2506: Ada's reportsTo is a 27-character worker, so the real caller's
   // defeating wrapper (`inline-flex flex-wrap`, no max-w-full/min-w-0) is judged.
-  const instance = mount(TasksRoster, { target, props: { basePath: '/app/apps/fixture', refs: {}, roster: { kind: 'ok', value: { asOf: time, workers: [entry(LONG_STATE, 'Ada', worker(LONG_REPORTS_NAME)), entry('WORKING', 'Bea')] } } } as never });
+  const instance = mount(TasksRoster, { target, props: { basePath: '/app/apps/fixture', refs: {}, roster: { kind: 'ok', value: { asOf: time, workers: [entry(LONG_STATE, 'Ada', worker(LONG_WORKER_NAME)), entry('WORKING', 'Bea')] } } } as never });
   return () => unmount(instance);
 }
