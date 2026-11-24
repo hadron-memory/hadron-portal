@@ -47,13 +47,15 @@ it('the withdraw and create result regions exist before a result and keep their 
 
   props.form = { action: 'create', name: 'k', message: 'Use lowercase letters.' }; await tick(6);
   const after = live(m.target).filter((r) => r.getAttribute('aria-live') === 'polite');
-  expect(after).toEqual(before); // the same elements, in the same order
+  expect(after).toHaveLength(before.length);
+  after.forEach((r, i) => expect(r === before[i]).toBe(true)); // the same elements (identity, not structure), in the same order
   const withText = after.filter((r) => r.textContent?.includes('Use lowercase letters.'));
   expect(withText).toHaveLength(1);
   expect(withText[0].querySelector('[data-testid="create-error"]')).not.toBeNull();
 
   props.form = { action: 'withdraw', message: 'Nothing was withdrawn.' }; await tick(6);
   const again = live(m.target).filter((r) => r.getAttribute('aria-live') === 'polite');
-  expect(again).toEqual(before);
+  expect(again).toHaveLength(before.length);
+  again.forEach((r, i) => expect(r === before[i]).toBe(true));
   expect(again.filter((r) => r.querySelector('[data-testid="withdraw-error"]'))).toHaveLength(1);
 });

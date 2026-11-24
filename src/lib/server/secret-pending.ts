@@ -26,6 +26,7 @@ export interface PendingRow {
 
 const OPTS = { path: '/app/apps', httpOnly: true, sameSite: 'lax' as const, maxAge: 7200 };
 
+const withoutMisses = ({ misses: _misses, ...rest }: Tracked): Tracked => rest as Tracked;
 export const readTracked = (cookies: Cookies): Tracked[] => parseTracked(cookies.get(TRACKED_COOKIE));
 export const writeTracked = (cookies: Cookies, list: Tracked[]) => {
   if (list.length === 0) cookies.delete(TRACKED_COOKIE, { path: OPTS.path });
@@ -39,6 +40,7 @@ export const trackRequest = (cookies: Cookies, t: Tracked) => writeTracked(cooki
  * open one, or one in a state this code does not know, stays, and a failed read keeps it for the
  * next visit, up to READ_FAILURE_LIMIT failed loads in a row (portal#2578): the last of them is
  * still counted, then the request is dropped so a read that keeps failing is not retried forever.
+ * The limit counts loads, not time: reloads during a short outage use it up (a deliberate, simple bound).
  */
 export async function loadPending(
   client: Pick<GraphQLClient, 'request'>,
@@ -68,7 +70,7 @@ export async function loadPending(
     }
     if (r === null) { if (!readOnly) kept = removeTracked(kept, tr.requestId); continue; }
     // A read that worked ends the run of failures.
-    if (tr.misses) kept = kept.map((k) => (k.requestId === tr.requestId ? { ...k, misses: undefined } : k));
+    if (tr.misses) kept = kept.map((k) => (k.requestId === tr.requestId ? withoutMisses(k) : k));
     // The server stages a protected create as a STORE; the tracked create says which it was.
     const operation = r.operation.toUpperCase() === 'STORE' && tr.create ? 'CREATE' : r.operation;
     rows.push({ requestId: r.id, secretId: tr.secretId ?? null, createName: tr.create?.name ?? null, ceremonyUrl: rebuildCeremonyUrl(r.id, origin), state: r.state, operation, expiresAt: r.expiresAt });
