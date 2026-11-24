@@ -6,9 +6,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExtCommand } from '$lib/ext/types';
 
-const base = { desc: 'd' };
 const fixture: ExtCommand = {
-  ...base,
+  desc: 'd',
   id: 'fx',
   label: 'Fixture',
   triggers: ['fixture'],
@@ -45,7 +44,7 @@ describe('extension commands (C2, #2568)', () => {
     });
   });
 
-  it.each(['https://evil.example/x', '//evil.example/x', 'app/x'])(
+  it.each(['https://evil.example/x', '//evil.example/x', 'app/x', '/\\evil.example/x', '/\t/evil.example/x', '/a\nb'])(
     'refuses a non-internal href %s with the unknown-command error (C2-R2)',
     async (href) => {
       const m = await load([{ ...fixture, href: () => href }]);
@@ -75,9 +74,37 @@ describe('extension commands (C2, #2568)', () => {
     expect(() => m.mergeCommands(m.BUILTIN_COMMANDS, [{ ...fixture, triggers: ['sign out'] }])).toThrow();
   });
 
-  it('with no extension the ids are today\'s 16, in order', async () => {
+  it('with no extension the commands are exactly the built-ins, in order', async () => {
     const m = await load([]);
     expect(m.COMMANDS.map((c) => c.id)).toEqual(m.BUILTIN_COMMANDS.map((c) => c.id));
-    expect(m.COMMANDS).toHaveLength(16);
+  });
+
+  it('mergeCommands: two extension commands clashing on id or trigger throw', async () => {
+    const m = await load([]);
+    const other: ExtCommand = { ...fixture, id: 'other', triggers: ['other'] };
+    expect(() => m.mergeCommands(m.BUILTIN_COMMANDS, [fixture, { ...other, id: 'fx' }])).toThrow(/fx/);
+    expect(() => m.mergeCommands(m.BUILTIN_COMMANDS, [fixture, { ...other, triggers: ['fixture'] }])).toThrow(/fixture/);
+    expect(m.mergeCommands(m.BUILTIN_COMMANDS, [fixture, other]).commands.at(-1)?.id).toBe('other');
+  });
+
+  it('compares triggers the way parseCommand reads them: case and edge whitespace', async () => {
+    const m = await load([]);
+    expect(() => m.mergeCommands(m.BUILTIN_COMMANDS, [{ ...fixture, triggers: [' Account '] }])).toThrow(/account/i);
+  });
+
+  it('answers a throwing href with the unknown-command error, not a rejection', async () => {
+    const m = await load([{ ...fixture, href: () => { throw new Error('boom'); } }]);
+    expect(await m.resolveCommandAction(m.parseCommand('fixture').command!, '', ctx('o1'))).toEqual({
+      type: 'error',
+      message: 'Don\'t know how to run "Fixture".',
+    });
+  });
+
+  it('keeps the query and hash of an internal href', async () => {
+    const m = await load([{ ...fixture, href: () => '/app/orgs/o1/fx?a=1#h' }]);
+    expect(await m.resolveCommandAction(m.parseCommand('fixture').command!, '', ctx('o1'))).toEqual({
+      type: 'navigate',
+      path: '/app/orgs/o1/fx?a=1#h',
+    });
   });
 });

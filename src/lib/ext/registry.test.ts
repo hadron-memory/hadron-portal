@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   assertIdsMatchPaths,
   assertNoClashes,
+  extensionAccountNavTabs,
   extensionAccountTabs,
   extensionCommands,
   extensionLimitAction,
+  extensionOrgNavTabs,
   extensionOrgTabs,
 } from './registry';
 import type { ExtCommand, LimitActionContext, OrgTabContext, PortalExtension } from './types';
@@ -183,5 +185,24 @@ describe('assertIdsMatchPaths', () => {
 
   it('throws naming the path and the id when they differ', () => {
     expect(() => assertIdsMatchPaths([['./alpha/index.ts', { id: 'beta' }]])).toThrow(/alpha.*beta/s);
+  });
+});
+
+describe('namespaced nav tabs (C2, #2568, C2-R1)', () => {
+  const ext: PortalExtension = {
+    id: 'fx',
+    orgTabs: () => [{ id: 'profile', label: 'Mine', href: '/o/fx' }],
+    accountTabs: () => [{ id: 'account', label: 'Mine', href: '/a/fx', match: 'prefix' }],
+  };
+  it('prefixes the tab id with ext:<extId>: and keeps the rest', () => {
+    expect(extensionOrgNavTabs({ orgId: 'o', basePath: '/o', viewerOrgRole: null }, [ext])).toEqual([
+      { id: 'ext:fx:profile', label: 'Mine', href: '/o/fx' },
+    ]);
+    expect(extensionAccountNavTabs({ basePath: '/a' }, [ext])).toEqual([
+      { id: 'ext:fx:account', label: 'Mine', href: '/a/fx', match: 'prefix' },
+    ]);
+  });
+  it('leaves the un-namespaced helpers unchanged', () => {
+    expect(extensionOrgTabs({ orgId: 'o', basePath: '/o', viewerOrgRole: null }, [ext])[0].id).toBe('profile');
   });
 });

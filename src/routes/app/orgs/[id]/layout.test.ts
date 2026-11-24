@@ -14,7 +14,7 @@
  * `<svg` assertion passes with the org symbol deleted — a test that cannot fail
  * for the reason it was written (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail).
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 import { createRawSnippet } from 'svelte';
 
@@ -43,13 +43,13 @@ vi.mock('$app/stores', async () => {
 // BOTH directions (a hoisted holder), so these cases hold in a tree where a real
 // extension is installed too, and never lean on the public tree having none.
 import type { PortalExtension } from '$lib/ext/types';
-const fx = vi.hoisted(() => ({ exts: [] as unknown[], orgTabsSpy: vi.fn() }));
+const fx = vi.hoisted(() => ({ exts: [] as PortalExtension[], orgTabsSpy: vi.fn() }));
 vi.mock('$lib/ext/registry', async (orig) => {
   const real = await orig<typeof import('$lib/ext/registry')>();
   return {
     ...real,
     extensionOrgNavTabs: (c: Parameters<typeof real.extensionOrgNavTabs>[0]) =>
-      real.extensionOrgNavTabs(c, fx.exts as PortalExtension[]),
+      real.extensionOrgNavTabs(c, fx.exts),
   };
 });
 
@@ -195,6 +195,10 @@ function strip(html: string): Array<[string, boolean]> {
 }
 
 describe('org layout extension tabs (C2, #2568)', () => {
+  beforeEach(() => {
+    fx.exts = [];
+  });
+
   it('shows the extension tab last, current on its own path, with the tab bar', () => {
     fx.exts = [fixture];
     const html = renderAt('/app/orgs/org-1/fx');
@@ -241,8 +245,9 @@ describe('org layout extension tabs (C2, #2568)', () => {
 
   it('renders a fixture tab whose id is "profile" beside the built-in Profile (C2-R1)', () => {
     fx.exts = [{ id: 'fx', orgTabs: (c: { basePath: string }) => [{ id: 'profile', label: 'Mine', href: `${c.basePath}/fx` }] }];
-    const labels = strip(renderAt('/app/orgs/org-1')).map(([l]) => l);
-    expect(labels.filter((l) => l === 'Profile')).toHaveLength(1);
-    expect(labels.at(-1)).toBe('Mine');
+    const links = strip(renderAt('/app/orgs/org-1'));
+    expect(links.at(-1)).toEqual(['Mine', false]);
+    // Unnamespaced, both tabs share the id "profile" and BOTH read as current.
+    expect(links.filter(([, cur]) => cur)).toEqual([['Profile', true]]);
   });
 });

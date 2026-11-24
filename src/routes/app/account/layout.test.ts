@@ -2,7 +2,7 @@
  * Account layout extension tabs (C2, #2568). The account strip is one shared
  * TabRow; an extension tab is appended and matched with the shared helper.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 import { createRawSnippet } from 'svelte';
 
@@ -25,13 +25,13 @@ vi.mock('$app/stores', async () => {
 });
 
 import type { PortalExtension } from '$lib/ext/types';
-const fx = vi.hoisted(() => ({ exts: [] as unknown[] }));
+const fx = vi.hoisted(() => ({ exts: [] as PortalExtension[] }));
 vi.mock('$lib/ext/registry', async (orig) => {
   const real = await orig<typeof import('$lib/ext/registry')>();
   return {
     ...real,
     extensionAccountNavTabs: (c: Parameters<typeof real.extensionAccountNavTabs>[0]) =>
-      real.extensionAccountNavTabs(c, fx.exts as PortalExtension[]),
+      real.extensionAccountNavTabs(c, fx.exts),
   };
 });
 
@@ -55,6 +55,10 @@ function links(path: string): Array<[string, boolean]> {
 }
 
 describe('account layout extension tabs (C2, #2568)', () => {
+  beforeEach(() => {
+    fx.exts = [];
+  });
+
   it('shows the extension tab last and current on its own path', () => {
     fx.exts = [fixture];
     expect(links('/app/account/fx').at(-1)).toEqual(['Fixture', true]);
@@ -80,8 +84,9 @@ describe('account layout extension tabs (C2, #2568)', () => {
 
   it('renders a fixture tab whose id is "account" beside the built-in (C2-R1)', () => {
     fx.exts = [{ id: 'fx', accountTabs: (c: { basePath: string }) => [{ id: 'account', label: 'Mine', href: `${c.basePath}/fx` }] }];
-    const labels = links('/app/account').map(([l]) => l);
-    expect(labels.at(-1)).toBe('Mine');
-    expect(labels.filter((l) => l === 'Account')).toHaveLength(1);
+    const l = links('/app/account');
+    expect(l.at(-1)).toEqual(['Mine', false]);
+    // Unnamespaced, both tabs share the id "account" and BOTH read as current.
+    expect(l.filter(([, cur]) => cur)).toEqual([['Account', true]]);
   });
 });
