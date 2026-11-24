@@ -188,7 +188,9 @@ const fixture: PortalExtension = {
 
 /** The strip's links, in order: [label, current?]. */
 function strip(html: string): Array<[string, boolean]> {
-  const nav = html.slice(html.indexOf('<nav'), html.indexOf('</nav>'));
+  const from = html.indexOf('Organization sections');
+  if (from < 0) return [];
+  const nav = html.slice(from, html.indexOf('</nav>', from));
   return [...nav.matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)].map((m) => [m[2], m[1].includes('aria-current="page"')]);
 }
 
