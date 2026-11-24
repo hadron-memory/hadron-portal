@@ -13,6 +13,7 @@
     "test:team-chat-chips-layout": "node scripts/test-team-chat-chips-layout.mjs",
     "test:node-phone-layout": "node scripts/test-node-phone-layout.mjs",
     "test:usage-toolbar-layout": "node scripts/test-usage-toolbar-layout.mjs",
+    "test:worker-title-row-layout": "node scripts/test-worker-title-row-layout.mjs",
     "test:org-integrations-row-layout": "node scripts/test-org-integrations-row-layout.mjs",
     "test:conversation-panel-buttons-layout": "node scripts/test-conversation-panel-buttons-layout.mjs",
     "test:apply-agent-tickers-focus": "node scripts/test-apply-agent-tickers-focus.mjs",
