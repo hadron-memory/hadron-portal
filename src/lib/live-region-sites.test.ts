@@ -76,7 +76,6 @@ const unreviewedSites: string[] = [
   'src/routes/app/apps/[appId]/+page.svelte#testid:cast-refresh-status',
   'src/routes/app/apps/[appId]/+page.svelte#p:1de6106a',
   'src/routes/app/apps/[appId]/+page.svelte#p:e97eaf13',
-  'src/routes/app/apps/[appId]/+page.svelte#testid:key-copy-status',
   'src/routes/app/apps/[appId]/grants/+page.svelte#p:da6f65da',
   'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte#span:7ed159ba'
 ];
