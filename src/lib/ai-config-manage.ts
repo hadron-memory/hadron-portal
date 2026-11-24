@@ -25,12 +25,12 @@ export function aiConfigCanManage(input: {
   canManageFlag?: boolean | null;
   /**
    * Read for a person's App or Agent only. An organization's keeps the rule it had before this change: the
-   * org role decides, and the server refuses every write from an impersonated session anyway (cor:acl:100:02),
+   * org role decides, and the server refuses every write from an impersonated session anyway (hrn:node:hadronmemory.com:specs:cor:acl:100:02),
    * so for an organization the worst case is a control the server already refused before.
    */
   impersonating?: boolean;
   /**
-   * A platform admin is never shown the controls on a person's App or Agent (cor:dmo:050:12 and :13: they may
+   * A platform admin is never shown the controls on a person's App or Agent (hrn:node:hadronmemory.com:specs:cor:dmo:050:12, and :13 beside it: they may
    * only clear a key). `effectiveAccess` can report manage to one on a personal Agent, and the AI-config gate
    * refuses them, so this term does not lean on the flag. Neither the App nor the Agent has an owner field
    * here to tell an admin who is also the owner apart, so such an admin is read-only (the CLI still works).
