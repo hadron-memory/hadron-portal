@@ -4070,7 +4070,7 @@
                 />
               {/if}
             {:else}
-              <div class="truncate" title={String(cell.getValue() ?? '—')}>{cell.getValue() ?? '—'}</div>
+              <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue() ?? '—'}</div>
             {/if}
           {/snippet}
         </DataTable>
@@ -4185,7 +4185,7 @@
                 compact
               />
             {:else}
-              <div class="truncate" title={String(cell.getValue() ?? '—')}>{cell.getValue() ?? '—'}</div>
+              <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue() ?? '—'}</div>
             {/if}
           {/snippet}
         </DataTable>
@@ -4495,8 +4495,8 @@
                 />
               {:else}
                 {@const f = appKeyFmt[cell.column.id]}
-                {@const text = String((f ? f(cell.getValue()) : cell.getValue()) ?? '—')}
-                <div class="truncate" title={text}>{text}</div>
+                {@const text = String((f ? f(cell.getValue()) : cell.getValue()) ?? '')}
+                <div class="truncate" title={text}>{text || '—'}</div>
               {/if}
             {/snippet}
           </DataTable>
