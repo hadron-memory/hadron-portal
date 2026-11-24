@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import baseline from './live-region-sites.baseline.json';
-import { conditionalStatusRegions, nextBaseline, ratchetDiff, scanStatusSites } from './live-region-sites.scan';
+import { countConditionalStatusRegions, nextBaseline, ratchetDiff, scanStatusSites } from './live-region-sites.scan';
 
 /**
  * portal#2344, portal#2391, hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted
@@ -31,6 +31,11 @@ import { conditionalStatusRegions, nextBaseline, ratchetDiff, scanStatusSites } 
  * after merging main (it only lowers, and lists additions it did not accept and removals it applied), then run
  * the suite again. `UPDATE_LIVE_REGION_BASELINE=accept-additions` takes additions, and each needs a reason in
  * `reviewedNotDefects` or a conversion tracked elsewhere.
+ *
+ * Every baseline site is on exactly one of two lists below. `reviewedNotDefects` holds sites someone has judged and
+ * left alone, each with its reason. `unreviewedSites` holds sites nobody has reviewed yet, neither converted nor
+ * judged: listing a site there records it as open inventory with a tracking issue, never as acceptable, and it comes
+ * off when the site is converted or moves to `reviewedNotDefects`. It is empty when nothing is outstanding.
  */
 const SRC = join(process.cwd(), 'src');
 
@@ -53,33 +58,23 @@ const reviewedNotDefects: Record<string, string> = {
   'src/lib/components/AgentChat.svelte#testid:partial-turn-notice': 'counted only because both notices are children of the active-chat branch of `{#if !activeChatId && !loadingChat}`; the region element mounts with the chat view and its own {#if} is INSIDE it, so a notice that arrives while the chat is open comes in an existing region. Residual: switching to a chat that already has a notice inserts the region with it, as opening that chat does',
   'src/lib/components/NodeList.svelte#testid:node-columns-status': 'counted only because node-columns-status is a child of the rows branch (`{#if nodes.length === 0}` ... `{:else}`); its own {#if} is INSIDE it, so loading and failed text that arrives while rows are shown comes in an existing region. Residual: rows returning after an empty result insert the region with its loading text; moving it out would reserve its min-h in the empty state',
   'src/routes/app/apps/[appId]/tasks/+page.svelte#testid:open-by-handle': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it',
-  'src/routes/app/apps/[appId]/tasks/+page.svelte#div:3f0d1e2f': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it'
+  'src/routes/app/apps/[appId]/tasks/+page.svelte#div:3f0d1e2f': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it',
+  'src/lib/components/ErrorPage.svelte#span:924f805e': "the copy-status span mounts with the request-id row, which the error page renders from first paint (`requestId` is a load-time prop); `notice` changes inside the existing region after the Copy click",
+  'src/lib/components/InstallCustomisation.svelte#p:9e6346f9': "the region mounts EMPTY with the editor panel (its comment cites #1369) and a save result arrives inside it; the panel opening announces nothing because `feedback` starts empty",
+  'src/lib/components/MemoryBrowser.svelte#testid:property-filter-status': "the region mounts with the open Properties panel, outside the keyed editor; the status changes inside it while the panel is open, and nothing needs announcing at the moment the panel opens",
+  'src/lib/components/flow/ConversationInfoPanel.svelte#div:f5ed1424': "the region mounts with the ordering controls once the conversation has a start order, and its own {#if moved} is INSIDE it, so \"Moved to n of total\" arrives in an existing region",
+  'src/lib/components/memory-config/BulkApply.svelte#p:93003cab': "the count note mounts with the picker row whenever the panel is not locked and changes inside it as the selection changes; `locked` (an apply in flight) removes it and nothing is meant to be announced then. Residual: when the panel unlocks the region mounts with the current count note already in it, which is state, not a change",
+  'src/lib/components/memory-config/TemplatesManager.svelte#div:5211f6ab': "the region mounts EMPTY with the apply panel (no preview, so no warnings) and the warnings arrive inside it after Preview; its content is the {#each} inside TaskWarnings, not the region",
+  'src/lib/components/tickers/TickerEnabledControl.svelte#testid:ticker-enabled-result': "the branch is `{#if impersonating}...{:else}`, fixed for the whole session; the result span mounts empty with the control and its own {#if ok} is INSIDE it",
+  'src/routes/app/agents/[id]/AgentMemberRolesEditor.svelte#p:776e5737': "the branch is `{#if canManage}`, which comes from the page load; an invalidation that flips it mounts the whole editor, as opening it does, and `announcement` changes inside the region while the editor is there",
+  'src/routes/app/apps/[appId]/+page.svelte#testid:cast-refresh-status': "the region mounts EMPTY with the AI Team tab panel (portal#1715) and its own {#if castRefreshFailed} is INSIDE it, so the failure arrives in an existing region",
+  'src/routes/app/apps/[appId]/+page.svelte#testid:key-copy-status': "the region mounts with the API keys tab panel before any copy (portal#2330) and its own {#if} is INSIDE it, so the copy result arrives in an existing region",
+  'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte#span:7ed159ba': "the status span mounts with the Show more row, which exists while more children remain; the \"Showing the first n\" count and the failure text change inside it, so an update arrives in an existing region"
 };
 
-/**
- * Sites the wrapper-nested scan added (portal#2391) that nobody has reviewed yet: neither converted nor judged a
- * non-defect, so they are NOT in `reviewedNotDefects`. Triage and conversion are tracked in hadron-portal#2581; a
- * site comes off this list when it is converted (its baseline entry goes too) or moves to `reviewedNotDefects`
- * with a reason. A baseline site must be on one of the two lists.
- */
-const unreviewedSites: string[] = [
-  'src/lib/components/ErrorPage.svelte#span:924f805e',
-  'src/lib/components/InstallCustomisation.svelte#p:9e6346f9',
-  'src/lib/components/MemoryBrowser.svelte#testid:property-filter-status',
-  'src/lib/components/flow/ConversationInfoPanel.svelte#div:f5ed1424',
-  'src/lib/components/memory-config/BulkApply.svelte#p:93003cab',
-  'src/lib/components/memory-config/TemplatesManager.svelte#div:5211f6ab',
-  'src/lib/components/tickers/TickerEnabledControl.svelte#testid:ticker-enabled-result',
-  'src/routes/app/agents/[id]/+page.svelte#p:20d9c2e3',
-  'src/routes/app/agents/[id]/AgentMemberRolesEditor.svelte#p:776e5737',
-  'src/routes/app/apps/[appId]/+page.svelte#p:a50b08d0',
-  'src/routes/app/apps/[appId]/+page.svelte#testid:cast-refresh-status',
-  'src/routes/app/apps/[appId]/+page.svelte#p:1de6106a',
-  'src/routes/app/apps/[appId]/+page.svelte#p:e97eaf13',
-  'src/routes/app/apps/[appId]/+page.svelte#testid:key-copy-status',
-  'src/routes/app/apps/[appId]/grants/+page.svelte#p:da6f65da',
-  'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte#span:7ed159ba'
-];
+
+/** Sites nobody has reviewed yet: see the header. Empty when nothing is outstanding. */
+const unreviewedSites: string[] = [];
 
 const BASELINE_PATH = join(process.cwd(), 'src/lib/live-region-sites.baseline.json');
 
@@ -118,40 +113,40 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
   }
 
   it('recognises the wrong shape and the right one', () => {
-    expect(conditionalStatusRegions('{#if saved}<p role="status" class="x">{saved}</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}\n  <div role="status">\n  <b>x</b></div>\n{:else}\n  y\n{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}x{:else}<p role="status">y</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('<LiveRegion>{#if saved}<p class="x">{saved}</p>{/if}</LiveRegion>')).toBe(0);
-    expect(conditionalStatusRegions('<p role="status">{message}</p>')).toBe(0);
-    expect(conditionalStatusRegions("{#if saved}<p role='status'>{saved}</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p title=\'role="status"\'>x</p>{/if}')).toBe(0);
-    expect(conditionalStatusRegions('<!-- {#if a}<p role="status">x</p>{/if} -->')).toBe(0);
+    expect(countConditionalStatusRegions('{#if saved}<p role="status" class="x">{saved}</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}\n  <div role="status">\n  <b>x</b></div>\n{:else}\n  y\n{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}x{:else}<p role="status">y</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('<LiveRegion>{#if saved}<p class="x">{saved}</p>{/if}</LiveRegion>')).toBe(0);
+    expect(countConditionalStatusRegions('<p role="status">{message}</p>')).toBe(0);
+    expect(countConditionalStatusRegions("{#if saved}<p role='status'>{saved}</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p title=\'role="status"\'>x</p>{/if}')).toBe(0);
+    expect(countConditionalStatusRegions('<!-- {#if a}<p role="status">x</p>{/if} -->')).toBe(0);
     // portal#2379: one among several, through a {#key}, and the dynamic-role hybrids.
-    expect(conditionalStatusRegions('{#if a}<h3>t</h3><p role="status">{a}</p><button>b</button>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}{#key a.role}<div role={a.role}>{a.text}</div>{/key}{/if}')).toBe(1);
-    expect(conditionalStatusRegions("{#if m}<p role={m.type === 'error' ? 'alert' : 'status'}>{m.text}</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if ok}<p role={ok ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if a}<div role={full ? 'dialog' : undefined}>x</div>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions('{#if a}<h3>t</h3><p role="status">{a}</p><button>b</button>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}{#key a.role}<div role={a.role}>{a.text}</div>{/key}{/if}')).toBe(1);
+    expect(countConditionalStatusRegions("{#if m}<p role={m.type === 'error' ? 'alert' : 'status'}>{m.text}</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if ok}<p role={ok ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<div role={full ? 'dialog' : undefined}>x</div>{/if}")).toBe(0);
     // The branches decide, not the words: an opaque branch may be 'status'; a name containing the word may not.
-    expect(conditionalStatusRegions("{#if a}<p role={failed ? 'alert' : successRole}>x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if a}<p role={statusReady ? 'dialog' : undefined}>x</p>{/if}")).toBe(0);
-    expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'dialog' : 'alert'}>x</p>{/if}")).toBe(0);
-    expect(conditionalStatusRegions("{#if a}<p role={a && 'alert'}>x</p>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role={failed ? 'alert' : successRole}>x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<p role={statusReady ? 'dialog' : undefined}>x</p>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'dialog' : 'alert'}>x</p>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role={a && 'alert'}>x</p>{/if}")).toBe(0);
     // A quoted expression is the same expression: judged by its branches, in either spelling.
-    expect(conditionalStatusRegions("{#if a}<div role=\"{full ? 'dialog' : undefined}\">x</div>{/if}")).toBe(0);
-    expect(conditionalStatusRegions("{#if a}<p role=\"{failed ? 'alert' : 'status'}\">x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p role="{notice.role}">x</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p role="x{kind}">x</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<div role=\"{full ? 'dialog' : undefined}\">x</div>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role=\"{failed ? 'alert' : 'status'}\">x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p role="{notice.role}">x</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p role="x{kind}">x</p>{/if}')).toBe(1);
     // Templates: static ones are judged by their text, interpolated ones are unknown.
-    expect(conditionalStatusRegions('{#if a}<p role={`status`}>x</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p role={`dialog`}>x</p>{/if}')).toBe(0);
-    expect(conditionalStatusRegions("{#if a}<p role={a ? `alert` : `status`}>x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if a}<p role={a ? `alert` : `dialog`}>x</p>{/if}")).toBe(0);
-    expect(conditionalStatusRegions('{#if a}<p role={`${kind}`}>x</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p role="alert">x</p>{/if}')).toBe(0);
-    expect(conditionalStatusRegions('<LiveOutcome failed={f}>{#if m}<p>{m}</p>{/if}</LiveOutcome>')).toBe(0);
-    expect(conditionalStatusRegions('<p role="status">{#if a}x{/if}</p>')).toBe(0);
+    expect(countConditionalStatusRegions('{#if a}<p role={`status`}>x</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p role={`dialog`}>x</p>{/if}')).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role={a ? `alert` : `status`}>x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<p role={a ? `alert` : `dialog`}>x</p>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions('{#if a}<p role={`${kind}`}>x</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p role="alert">x</p>{/if}')).toBe(0);
+    expect(countConditionalStatusRegions('<LiveOutcome failed={f}>{#if m}<p>{m}</p>{/if}</LiveOutcome>')).toBe(0);
+    expect(countConditionalStatusRegions('<p role="status">{#if a}x{/if}</p>')).toBe(0);
   });
 
   it('no site is added: a status region mounted by an {#if} branch', () => {
