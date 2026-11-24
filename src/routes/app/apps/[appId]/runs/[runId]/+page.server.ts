@@ -2,7 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { classifyGqlError, extractGqlError } from '$lib/server/gqlError';
 import {
   APP_RUN_QUERY,
   APP_RUN_ENVELOPE_QUERY,
@@ -91,6 +91,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   return { app, run, envelope, envelopeSupported, trail, cancelForm };
 };
 
+const CANCEL_REFUSAL_STATUS: Record<string, 400 | 403 | 404> = { BAD_USER_INPUT: 400, NOT_FOUND: 404, FORBIDDEN: 403 };
+
 export const actions: Actions = {
   // The kill switch. Server-side the transition is guarded
   // (where status='RUNNING'/'PENDING'), so racing a finishing run is safe —
@@ -100,10 +102,15 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     try {
+      // The mutation's `ref` takes an id or a URN; the route param keeps its old name, `runId`.
       await gqlClient(locals.token).request(CANCEL_APP_RUN_MUTATION, { ref: params.runId });
       return message(form, { type: 'success' as const, text: 'Run cancellation requested.' });
     } catch (e: unknown) {
-      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to cancel run', [], { transport: 'fallback' }) }, { status: 500 });
+      // A typed refusal is the server answering on purpose, not a fault. BAD_USER_INPUT is reachable
+      // from any URL segment: `ref` takes the route's `runId` (an id or a URN) unvalidated.
+      const failure = classifyGqlError(e);
+      const status = failure.kind === 'graphql' && failure.code ? (CANCEL_REFUSAL_STATUS[failure.code] ?? 500) : 500;
+      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to cancel run', [], { transport: 'fallback' }) }, { status });
     }
   },
 };
