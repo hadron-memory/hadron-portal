@@ -31,7 +31,7 @@ const CONTENT: Record<string, string> = { r1: 'a\nb\n', r2: 'a\nB\n', r3: 'a\nB\
 function serve(opts: { history?: unknown; live?: unknown; failHistory?: boolean } = {}) {
   mockRequest.mockImplementation(async (doc: string, vars: Record<string, string>) => {
     if (doc === NODE_REVISION_QUERY) {
-      return { nodeRevision: { id: vars.revisionId, loc: 'x', name: 'x', tags: [], createdAt: '', content: CONTENT[vars.revisionId] } };
+      return { nodeRevision: { id: vars.nodeRevRef, loc: 'x', name: 'x', tags: [], createdAt: '', content: CONTENT[vars.nodeRevRef] } };
     }
     if (doc === NODE_REVISIONS_QUERY) {
       if (opts.failHistory) throw new Error('boom');

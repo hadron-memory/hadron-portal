@@ -40,7 +40,7 @@ describe('/app/memories/[id]/nodes/[nodeId]/revisions (#529)', () => {
     const res = await POST(ev({ action: 'restore', revisionId: 'r9' }));
     expect(res.status).toBe(200);
     expect(mockRequest.mock.calls[0][0]).toBe(RESTORE_NODE_REVISION_MUTATION);
-    expect(mockRequest.mock.calls[0][1]).toEqual({ revisionId: 'r9', truncate: true });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ nodeRevRef: 'r9', truncate: true });
   });
 
   it('delete forwards deleteNodeRevision', async () => {
@@ -48,7 +48,7 @@ describe('/app/memories/[id]/nodes/[nodeId]/revisions (#529)', () => {
     const res = await POST(ev({ action: 'delete', revisionId: 'r9' }));
     expect(res.status).toBe(200);
     expect(mockRequest.mock.calls[0][0]).toBe(DELETE_NODE_REVISION_MUTATION);
-    expect(mockRequest.mock.calls[0][1]).toEqual({ revisionId: 'r9' });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ nodeRevRef: 'r9' });
   });
 
   it('clear forwards clearNodeHistory with the node id as nodeRef', async () => {
@@ -136,13 +136,13 @@ describe('restore refused for an include tag', () => {
       const res = await POST(ev({ action: 'label', revisionId: 'r9', revLabel: '  before the rewrite ' }));
       expect(res.status).toBe(200);
       expect(mockRequest.mock.calls[0][0]).toBe(UPDATE_NODE_REVISION_MUTATION);
-      expect(mockRequest.mock.calls[0][1]).toEqual({ revisionId: 'r9', revLabel: 'before the rewrite' });
+      expect(mockRequest.mock.calls[0][1]).toEqual({ nodeRevRef: 'r9', revLabel: 'before the rewrite' });
     });
 
     it('clears the label (null, not an empty string) when the text is blank', async () => {
       mockRequest.mockResolvedValue({ updateNodeRevision: { id: 'r9' } });
       await POST(ev({ action: 'label', revisionId: 'r9', revLabel: '   ' }));
-      expect(mockRequest.mock.calls[0][1]).toEqual({ revisionId: 'r9', revLabel: null });
+      expect(mockRequest.mock.calls[0][1]).toEqual({ nodeRevRef: 'r9', revLabel: null });
     });
 
     it('400s without a revisionId or without a string label', async () => {
