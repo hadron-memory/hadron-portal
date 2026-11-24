@@ -43,7 +43,7 @@ function roleOf(node: Node): string | null | undefined {
   return only && !expression ? null : canBeStatus(expression) ? null : 'other';
 }
 
-/** One counted region: its 1-based line (for messages only) and its identity (what the ratchet tracks). */
+/** One counted region: its 1-based line (for failure messages only) and its identity (what the ratchet tracks). */
 export type StatusSite = { line: number; identity: string };
 
 /**
@@ -51,24 +51,24 @@ export type StatusSite = { line: number; identity: string };
  * `role={expression}` (an alert/status hybrid, whose status half is inserted already populated), that is a
  * child of the branch, alone or among others, directly, through a `{#key}`, or nested in plain elements
  * (portal#2391: `{#if a}<div><p role="status">` inserts the populated region just the same). An element that is
- * always rendered with the `{#if}` INSIDE it is not a child of the branch, so it is never counted, and the
- * scan does not look inside a component, which may render its own persistent region.
+ * branch's own children are not searched through a component (`{#if a}<LiveRegion><p role="status">` is not a
+ * wrapper-nested site), though a branch inside a component's slot is a branch like any other and is walked.
  */
 export function conditionalStatusRegions(src: string): number {
-  return conditionalStatusSites(src).length;
-}
-
-/** The 1-based line of each region counted by `conditionalStatusRegions`. */
-export function conditionalStatusSites(src: string): number[] {
-  return scanStatusSites(src).map((s) => s.line);
+  return scanStatusSites(src).length;
 }
 
 /**
  * A stable identity per counted region, in source order, so the ratchet can tell a swap within one file from no
  * change. It is `testid:<value>` when the element has a literal `data-testid`, else `<tag>:<hash>`, the hash being
  * the first 8 hex digits of a SHA-1 over the whitespace-normalised opening tag and the enclosing branch condition
- * (`if <test>` or `else <test>`). It holds no line number, so it survives edits elsewhere in the file. Identical
- * tag and condition twice get a `~2`, `~3` ordinal so the two stay distinct.
+ * (`if <test>` or `else <test>`). It holds no line number, so it survives edits elsewhere in the file.
+ *
+ * Two limits, both disclosed. Identical tag and condition twice get a `~2`, `~3` ordinal, so twins present in one scan stay
+ * distinct, but the ordinal follows source order: replacing one of two identical sites with another identical one is
+ * invisible, as is a swap between two sites that share tag and condition. And any edit to the opening tag (a `class`
+ * tweak) changes the hash, which shows as one removal plus one addition: regenerate, and accept the addition only
+ * after checking it is the same site.
  */
 export function conditionalStatusIdentities(src: string): string[] {
   return scanStatusSites(src).map((s) => s.identity);
@@ -81,13 +81,13 @@ export function ratchetDiff(baseline: readonly string[], now: readonly string[])
   return { added: now.filter((i) => !was.has(i)), removed: baseline.filter((i) => !is.has(i)) };
 }
 
-function scanStatusSites(src: string): StatusSite[] {
+export function scanStatusSites(src: string): StatusSite[] {
   const ast = parse(src, { modern: true }) as unknown as { fragment: Fragment };
   const sites: StatusSite[] = [];
   const seen = new Map<string, number>();
   const squash = (t: string) => t.replace(/\s+/g, ' ').trim();
-  const direct = (nodes: Node[]): Node[] =>
-    nodes.flatMap((n) => (n.type === 'KeyBlock' ? direct((n.fragment?.nodes ?? [])) : [n]));
+  const throughKeyBlocks = (nodes: Node[]): Node[] =>
+    nodes.flatMap((n) => (n.type === 'KeyBlock' ? throughKeyBlocks((n.fragment?.nodes ?? [])) : [n]));
   const identify = (n: Node, condition: string): string => {
     const testid = (n.attributes ?? []).find((a) => a.type === 'Attribute' && a.name === 'data-testid');
     const literal = testid && Array.isArray(testid.value) && testid.value.length === 1 && testid.value[0].type === 'Text' ? testid.value[0].data?.trim() : undefined;
@@ -103,7 +103,7 @@ function scanStatusSites(src: string): StatusSite[] {
   };
   // Descend through plain elements only: a nested block is walked on its own, a component is opaque.
   const collect = (nodes: Node[], condition: string) => {
-    for (const n of direct(nodes)) {
+    for (const n of throughKeyBlocks(nodes)) {
       if (n.type !== 'RegularElement' && n.type !== 'SvelteElement') continue;
       const role = roleOf(n);
       if (role === 'status' || role === null) sites.push({ line: src.slice(0, n.start ?? 0).split('\n').length, identity: identify(n, condition) });
@@ -123,4 +123,22 @@ function scanStatusSites(src: string): StatusSite[] {
   };
   walk(ast.fragment);
   return sites;
+}
+
+/**
+ * The inventory a regeneration writes: per file, the scan's identities. Without `accept` it only LOWERS the
+ * baseline: an identity that is not already in it is left out (and so stays an addition for the ratchet to
+ * refuse); with `accept` additions are taken.
+ */
+export function nextBaseline(
+  base: Record<string, string[]>,
+  now: ReadonlyMap<string, string[]>,
+  accept: boolean
+): Record<string, string[]> {
+  const next: Record<string, string[]> = {};
+  for (const f of [...new Set([...now.keys(), ...Object.keys(base)])].sort()) {
+    const keep = (now.get(f) ?? []).filter((i) => accept || (base[f] ?? []).includes(i));
+    if (keep.length) next[f] = keep;
+  }
+  return next;
 }

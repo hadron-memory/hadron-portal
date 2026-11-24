@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import baseline from './live-region-sites.baseline.json';
-import { conditionalStatusIdentities, conditionalStatusRegions, ratchetDiff } from './live-region-sites.scan';
+import { conditionalStatusRegions, nextBaseline, ratchetDiff, scanStatusSites } from './live-region-sites.scan';
 
 /**
  * portal#2344, portal#2391, hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted
@@ -56,14 +56,43 @@ const reviewedNotDefects: Record<string, string> = {
   'src/routes/app/apps/[appId]/tasks/+page.svelte#div:3f0d1e2f': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it'
 };
 
+/**
+ * Sites the wrapper-nested scan added (portal#2391) that nobody has reviewed yet: neither converted nor judged a
+ * non-defect, so they are NOT in `reviewedNotDefects`. Triage and conversion are tracked in hadron-portal#2581; a
+ * site comes off this list when it is converted (its baseline entry goes too) or moves to `reviewedNotDefects`
+ * with a reason. A baseline site must be on one of the two lists.
+ */
+const unreviewedSites: string[] = [
+  'src/lib/components/ErrorPage.svelte#span:924f805e',
+  'src/lib/components/InstallCustomisation.svelte#p:9e6346f9',
+  'src/lib/components/MemoryBrowser.svelte#testid:property-filter-status',
+  'src/lib/components/flow/ConversationInfoPanel.svelte#div:f5ed1424',
+  'src/lib/components/memory-config/BulkApply.svelte#p:93003cab',
+  'src/lib/components/memory-config/TemplatesManager.svelte#div:5211f6ab',
+  'src/lib/components/tickers/TickerEnabledControl.svelte#testid:ticker-enabled-result',
+  'src/routes/app/agents/[id]/+page.svelte#p:20d9c2e3',
+  'src/routes/app/agents/[id]/AgentMemberRolesEditor.svelte#p:776e5737',
+  'src/routes/app/apps/[appId]/+page.svelte#p:a50b08d0',
+  'src/routes/app/apps/[appId]/+page.svelte#testid:cast-refresh-status',
+  'src/routes/app/apps/[appId]/+page.svelte#p:1de6106a',
+  'src/routes/app/apps/[appId]/+page.svelte#p:e97eaf13',
+  'src/routes/app/apps/[appId]/+page.svelte#testid:key-copy-status',
+  'src/routes/app/apps/[appId]/grants/+page.svelte#p:da6f65da',
+  'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte#span:7ed159ba'
+];
+
 const BASELINE_PATH = join(process.cwd(), 'src/lib/live-region-sites.baseline.json');
 
 describe('portal#2344: status regions are persistent, not mounted by an {#if} branch', () => {
   const now = new Map<string, string[]>();
+  const lineOf = new Map<string, number>();
   for (const file of svelteFiles(SRC)) {
-    const ids = conditionalStatusIdentities(readFileSync(file, 'utf8'));
-    if (ids.length) now.set(relative(process.cwd(), file), ids);
+    const rel = relative(process.cwd(), file);
+    const sites = scanStatusSites(readFileSync(file, 'utf8'));
+    if (sites.length) now.set(rel, sites.map((x) => x.identity));
+    for (const x of sites) lineOf.set(`${rel}#${x.identity}`, x.line);
   }
+  const where = (site: string) => `${site.split('#')[0]}:${lineOf.get(site) ?? '?'}#${site.split('#').slice(1).join('#')}`;
   const base = baseline as Record<string, string[]>;
   const diff = () => {
     const added: string[] = [];
@@ -82,14 +111,10 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
   if (process.env.UPDATE_LIVE_REGION_BASELINE) {
     const accept = process.env.UPDATE_LIVE_REGION_BASELINE === 'accept-additions';
     const { added, removed } = diff();
-    const next: Record<string, string[]> = {};
-    for (const f of [...new Set([...now.keys(), ...Object.keys(base)])].sort()) {
-      const keep = (now.get(f) ?? []).filter((i) => accept || (base[f] ?? []).includes(i));
-      if (keep.length) next[f] = keep;
-    }
+    const next = nextBaseline(base, now, accept);
     writeFileSync(BASELINE_PATH, `${JSON.stringify(next, null, 2)}\n`);
-    if (removed.length) console.warn(`live-region baseline: removed ${removed.length} site(s):\n  ${removed.join('\n  ')}`);
-    if (added.length) console.warn(`live-region baseline: ${accept ? 'ACCEPTED' : 'NOT accepted'} ${added.length} addition(s):\n  ${added.join('\n  ')}`);
+    if (removed.length) console.warn(`live-region baseline: removed ${removed.length} site(s):\n  ${removed.map(where).join('\n  ')}`);
+    if (added.length) console.warn(`live-region baseline: ${accept ? 'ACCEPTED' : 'NOT accepted'} ${added.length} addition(s):\n  ${added.map(where).join('\n  ')}`);
   }
 
   it('recognises the wrong shape and the right one', () => {
@@ -130,11 +155,11 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
   });
 
   it('no site is added: a status region mounted by an {#if} branch', () => {
-    expect(diff().added, 'wrap the {#if} in <LiveRegion> instead of putting role="status" on the conditional element').toEqual([]);
+    expect(diff().added.map(where), 'wrap the {#if} in <LiveRegion> instead of putting role="status" on the conditional element').toEqual([]);
   });
 
   it('the baseline comes down when a site is converted or removed', () => {
-    expect(diff().removed, 'run UPDATE_LIVE_REGION_BASELINE=1 to lower live-region-sites.baseline.json').toEqual([]);
+    expect(diff().removed.map(where), 'run UPDATE_LIVE_REGION_BASELINE=1 to lower live-region-sites.baseline.json').toEqual([]);
   });
 
   it('every reviewed non-defect is a counted site with a reason', () => {
@@ -143,5 +168,14 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
       expect(counted.has(site), site).toBe(true);
       expect(why.length).toBeGreaterThan(20);
     }
+  });
+
+  it('every baseline site is reviewed or on the unreviewed list, and neither list holds a stale site', () => {
+    const inBaseline = new Set(Object.entries(base).flatMap(([f, l]) => l.map((i) => `${f}#${i}`)));
+    const reviewed = new Set(Object.keys(reviewedNotDefects));
+    const unreviewed = new Set(unreviewedSites);
+    expect([...inBaseline].filter((s) => !reviewed.has(s) && !unreviewed.has(s)), 'record the site in reviewedNotDefects (with a reason) or unreviewedSites (tracked in #2581)').toEqual([]);
+    expect([...unreviewed].filter((s) => !inBaseline.has(s)), 'a converted site comes off unreviewedSites').toEqual([]);
+    expect([...unreviewed].filter((s) => reviewed.has(s)), 'a site is reviewed or unreviewed, not both').toEqual([]);
   });
 });

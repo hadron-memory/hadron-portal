@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conditionalStatusIdentities, ratchetDiff } from './live-region-sites.scan';
+import { conditionalStatusIdentities, nextBaseline, ratchetDiff } from './live-region-sites.scan';
 
 /**
  * portal#2391: the live-region ratchet tracks each site by an identity, not a per-file count, so a
@@ -44,6 +44,12 @@ describe('portal#2391: site identity', () => {
     expect(new Set([then, other, orElse]).size).toBe(3);
   });
 
+  it('known limit: a swap between two sites that share tag and condition is invisible', () => {
+    const a = one('{#if a}<p role="status">{one}</p>{/if}');
+    const b = one('{#if a}<p role="status">{other}</p>{/if}');
+    expect(ratchetDiff(a, b)).toEqual({ added: [], removed: [] });
+  });
+
   it('ratchetDiff reports additions and removals separately', () => {
     expect(ratchetDiff(['a', 'b'], ['b', 'c'])).toEqual({ added: ['c'], removed: ['a'] });
     expect(ratchetDiff(['a'], ['a'])).toEqual({ added: [], removed: [] });
@@ -66,7 +72,22 @@ describe('portal#2391: a status nested in a plain wrapper inside a branch', () =
     expect(one('{#if a}<div role="status"><p role="status">x</p></div>{/if}')).toHaveLength(1);
   });
 
-  it('does not descend through a component, which may render its own persistent region', () => {
+  it('does not search through a component from a branch, but still walks a branch inside its slot', () => {
     expect(one('{#if a}<LiveRegion><p role="status">x</p></LiveRegion>{/if}')).toHaveLength(0);
+    // The recommended shape with the role left on the inner element: the inner {#if} is a branch of its own.
+    expect(one('<LiveRegion>{#if a}<p role="status">x</p>{/if}</LiveRegion>')).toHaveLength(1);
+  });
+});
+
+describe('portal#2391: regenerating the baseline', () => {
+  const now = new Map([['a.svelte', ['x', 'y']], ['b.svelte', ['z']]]);
+  const base = { 'a.svelte': ['x', 'gone'], 'c.svelte': ['old'] };
+
+  it('lowers and drops what is gone, but leaves an addition out unless accepted', () => {
+    expect(nextBaseline(base, now, false)).toEqual({ 'a.svelte': ['x'] });
+  });
+
+  it('takes the additions when accepted', () => {
+    expect(nextBaseline(base, now, true)).toEqual({ 'a.svelte': ['x', 'y'], 'b.svelte': ['z'] });
   });
 });
