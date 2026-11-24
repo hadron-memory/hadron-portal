@@ -4586,7 +4586,7 @@
                     bind:value={$grantKeyScopeForm.hostId}
                     held={heldHostId}
                     invalid={!!$grantKeyScopeErrors.hostId}
-                    onchange={clearGrantHostError}
+                    onpick={clearGrantHostError}
                     describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
                     onretry={loadGrantHosts}
                   />

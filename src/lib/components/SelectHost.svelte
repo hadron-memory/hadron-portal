@@ -23,7 +23,7 @@
     name = 'hostId',
     describedby,
     invalid = false,
-    onchange,
+    onpick,
     onretry,
   }: {
     state: HostsState;
@@ -34,8 +34,12 @@
     describedby?: string;
     /** The server's refusal was about the host (#2356): marks the group invalid. Other refusals must not. */
     invalid?: boolean;
-    /** The reader picked a host: the value changed by a pick, never by a reset. */
-    onchange?: () => void;
+    /**
+     * The reader picked a host: called from the radio's change event with the picked id, never by a reset of `value`.
+     * Use the argument. The bound `value` is NOT guaranteed to be updated yet when this runs (Svelte 5 does not order
+     * a `bind:group` write before a change handler), so a caller must not read `value` here.
+     */
+    onpick?: (hostId: string) => void;
     onretry: () => void;
   } = $props();
 
@@ -73,7 +77,7 @@
     <legend class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{legend}</legend>
     {#each state.hosts as host (host.hostId)}
       <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-200 p-3 text-sm has-checked:border-indigo-500 dark:border-zinc-700">
-        <input type="radio" {name} value={host.hostId} bind:group={value} {onchange} class="mt-1" />
+        <input type="radio" {name} value={host.hostId} bind:group={value} onchange={() => onpick?.(host.hostId)} class="mt-1" />
         <span class="min-w-0 flex-1">
           <span class="block font-medium text-zinc-900 dark:text-white">{host.label}</span>
           <code class="mt-0.5 block break-all font-mono text-xs text-zinc-600 dark:text-zinc-400">{host.hostId}</code>
