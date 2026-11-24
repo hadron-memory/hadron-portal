@@ -304,3 +304,41 @@ describe('portal#2436 polish', () => {
     expect(request).not.toHaveBeenCalled();
   });
 });
+
+describe('portal#2578: the impersonation cookie guards on the list route', () => {
+  const impersonated = { token: 'tok', user: { id: 'u2' }, impersonation: { by: 'admin' } };
+  const inCookie = JSON.stringify([{ create: { appId: 'app-1', name: 'k' }, requestId: 'r1' }]);
+
+  // Kills: deleting the guard at the top of `create`. Without it an admin's stray create would reach the server as the impersonated user.
+  it('create is refused (403) before any call, and the cookie is untouched', async () => {
+    const { actions } = await import('./+page.server');
+    const c = jar(inCookie);
+    const r = (await actions.create(ev(c, { locals: impersonated, request: form({ name: 'k', value: 'v' }) }))) as { status: number };
+    expect(r.status).toBe(403);
+    expect(request).not.toHaveBeenCalled();
+    expect(c.store.get(TRACKED_COOKIE)).toBe(inCookie);
+  });
+  // Kills: deleting the guard at the top of `withdraw`, which would also forget the request in the admin's cookie.
+  it('withdraw is refused (403) before any call, and the cookie is untouched', async () => {
+    const { actions } = await import('./+page.server');
+    const c = jar(inCookie);
+    const r = (await actions.withdraw(ev(c, { locals: impersonated, request: form({ requestId: 'r1' }) }))) as { status: number };
+    expect(r.status).toBe(403);
+    expect(request).not.toHaveBeenCalled();
+    expect(c.store.get(TRACKED_COOKIE)).toBe(inCookie);
+  });
+  // Kills: the load dropping `!!locals.impersonation` (readOnly): a failed read would then write a failure count into the admin's cookie.
+  it('impersonation plus a failed read: the notice counts it and the cookie is not rewritten', async () => {
+    const { load } = await import('./+page.server');
+    request.mockImplementation(async (q: string) => {
+      if (q === AGENT_TASKS_APP_QUERY) return { app };
+      if (q === APP_SECRETS_QUERY) return { secrets: { total: 0, items: [] } };
+      if (q === SECRET_CHANGE_REQUEST_QUERY) throw new Error('down');
+    });
+    const c = jar(inCookie);
+    const d = (await load(ev(c, { locals: impersonated }))) as { pending: unknown[]; pendingUnchecked: number };
+    expect(d.pending).toEqual([]);
+    expect(d.pendingUnchecked).toBe(1);
+    expect(c.store.get(TRACKED_COOKIE)).toBe(inCookie);
+  });
+});

@@ -31,12 +31,14 @@
     updatedMs: parseApiDate(s.updatedAt)?.getTime() ?? 0,
   })));
 
-  /** A staged create has no secret yet and carries the name asked for; any other request names its secret. */
   // The name a refused create gave back so it can be corrected; a staged or successful create leaves the field empty (portal#2436).
+  // Narrowed by `in`, not cast: ActionData is a union, and a cast would hide a renamed field.
   const retypedName = $derived.by(() => {
-    const f = form as { name?: string; staged?: boolean; ok?: boolean; message?: string } | null | undefined;
-    return f?.name && !f.staged && !f.ok ? f.name : '';
+    if (!form || !('name' in form) || !form.name) return '';
+    const name = form.name;
+    return ('staged' in form && form.staged) || ('ok' in form && form.ok) ? '' : name;
   });
+  /** A staged create has no secret yet and carries the name asked for; any other request names its secret. */
   const pendingName = (p: { secretId: string | null; createName: string | null }) =>
     p.createName ?? (p.secretId ? (list.find((s) => s.id === p.secretId)?.name ?? null) : null);
 
@@ -80,7 +82,7 @@
     <p class="rounded-lg border border-zinc-300 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{t('secrets.impersonating', 'Impersonation sessions are read-only.')}</p>
   {/if}
 
-  <PendingUnread count={data.pendingUnread} />
+  <PendingUnread count={data.pendingUnchecked} />
   {#each data.pending as p (p.requestId)}
     <PendingChange {...p} secretName={pendingName(p)} impersonating={!!data.impersonating} />
   {/each}
