@@ -81,7 +81,7 @@ import {
 import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
 import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
-import { resolveTabIntent } from './tab-intent';
+import { resolveSectionIntent, resolveTabIntent } from './tab-intent';
 import { liveStopsNameAWorker, pickPayload, readGroupsFor, type ReadGroup } from './first-screen';
 import { loadTemplatesPanel, TEMPLATES_TAB_ID } from './templates-panel';
 import {
@@ -591,7 +591,7 @@ export async function _loadAppPage(
   const { initialTab, requestedChat } = resolveTabIntent(url.searchParams);
   // portal#2240: which reads this load makes. The page load: the frame and the
   // tab the URL opens on (Chats by default). The tab endpoint: that one tab.
-  const reads = readGroupsFor(mode.frame ? initialTab : (mode.tab ?? null), mode);
+  const reads = readGroupsFor(mode.frame ? initialTab : (mode.tab ?? null), mode, mode.frame ? resolveSectionIntent(url.searchParams) : null);
   const wants = (group: ReadGroup) => reads.has(group);
   // `?view=full` opens the team chat maximised. Parsed here with the other
   // URL state so the page reads it once at init, like `initialTab`; toggling

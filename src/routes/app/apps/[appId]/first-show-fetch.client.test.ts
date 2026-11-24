@@ -56,7 +56,8 @@ function stubFetch() {
 async function chatsFirst(appId = 'a1') {
   const data = { ...await pageData(), bootPointerAppKey: appId } as Record<string, unknown>;
   data.app = { ...(data.app as object), id: appId };
-  for (const tab of ['keys', 'worklog', 'ai-configs'] as const) for (const g of TAB_READS[tab]) for (const k of READ_GROUP_KEYS[g]) delete data[k];
+  // canManage stays: Settings (where Keys and AI Service Configs now live) reads it too, and is not what these tests read late.
+  for (const tab of ['keys', 'worklog', 'ai-configs'] as const) for (const g of TAB_READS[tab]) if (g !== 'canManage') for (const k of READ_GROUP_KEYS[g]) delete data[k];
   return data;
 }
 
@@ -71,12 +72,22 @@ async function mountPage() {
   return { m, target: m.target, props };
 }
 
+// App Keys and AI Service Configs are sections of Settings: showing one is opening Settings, then the section (a section
+// the page already holds open stays open, so only a folded one is pressed).
+const SECTIONS = ['keys', 'ai-configs'];
 async function show(target: HTMLElement, tab: string) {
-  target.querySelector<HTMLElement>(`#tab-${tab}`)!.click();
+  if (SECTIONS.includes(tab)) {
+    target.querySelector<HTMLElement>('#tab-settings')!.click();
+    await tick(3);
+    const toggle = target.querySelector<HTMLElement>(`#section-${tab}-toggle`)!;
+    if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+  } else {
+    target.querySelector<HTMLElement>(`#tab-${tab}`)!.click();
+  }
   await tick(3);
 }
 const readsOf = (tab: string) => tabReads.filter((r) => r.tab === tab);
-const panel = (t: HTMLElement, tab: string) => t.querySelector<HTMLElement>(`#panel-${tab}`);
+const panel = (t: HTMLElement, tab: string) => t.querySelector<HTMLElement>(SECTIONS.includes(tab) ? `#section-${tab}-body` : `#panel-${tab}`);
 // The visible line is plain text in the panel; the announcement is the persistent region beside it (portal#2344).
 const loading = (t: HTMLElement, tab: string) => panel(t, tab)?.textContent?.includes('Loading') ?? false;
 const announcer = (t: HTMLElement) => t.querySelector<HTMLElement>('[data-testid="tab-loading-region"]');
@@ -257,15 +268,18 @@ describe('portal#2240: a tab the first screen did not read', () => {
   });
 });
 
-describe('portal#2344: the AI Configs tab has one announcer', () => {
+describe('portal#2344: the AI Service Configs section has one announcer', () => {
   it('first activation puts Loading… in exactly one populated status region, then empties it', async () => {
     const { target } = await mountPage();
     await show(target, 'ai-configs');
     const populated = () => [...target.querySelectorAll<HTMLElement>('[role="status"]')].filter((r) => r.textContent?.includes('Loading'));
     expect(readsOf('ai-configs')).toHaveLength(1);
     expect(populated(), 'one owner for the pending AI Configs read').toHaveLength(1);
-    expect(populated()[0].getAttribute('data-testid')).toBe('ai-configs-loading-region');
-    expect(announcer(target)?.textContent?.trim() ?? '').toBe('');
+    // The page's one announcer covers every tab or section being read; no second region carries the same line.
+    expect(populated()[0].getAttribute('data-testid')).toBe('tab-loading-region');
+    readsOf('ai-configs')[0].resolve(json({ appConfigs: [], configsPage: { total: 0 }, canManageApp: true }));
+    await wait(0); await tick(3);
+    expect(populated(), 'the announcer empties once the read lands').toHaveLength(0);
   });
 });
 

@@ -53,6 +53,51 @@ export const RETIRED_TAB_ALIASES: Record<string, { tab: string; chat: string }> 
   'team-chat': { tab: 'chats', chat: TEAM_CHAT_LOC },
 };
 
+/**
+ * The sections of the Settings tab, for `?section=` (a section opens collapsed unless a link names it).
+ *
+ * App Keys and AI Service Configs were tabs of their own (#1007/#1008) and are sections of Settings again:
+ * the App's setup is one place, and a section nobody opens costs no read. Their old `?tab=` ids still resolve,
+ * to Settings with that section open, for the same reason the retired chat ids do.
+ */
+export const SETTINGS_SECTION_IDS = [
+  'app',
+  'sweep-mode',
+  'chatbot-ai-config',
+  'wake-roles',
+  'accessible-memories',
+  'keys',
+  'ai-configs',
+  'node-role-templates',
+  'danger-zone',
+] as const;
+export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
+
+/**
+ * The Settings sections that read their own data, and the tab id that data is read under (the tab endpoint's
+ * `?tab=`). A section nobody opens costs no read.
+ */
+export const SECTION_DATA_TAB: Partial<Record<SettingsSectionId, AppTabId>> = {
+  keys: 'keys',
+  'ai-configs': 'ai-configs',
+};
+
+/** Tabs that became Settings sections: the tab id, and the section it now is. */
+const TAB_TO_SECTION: Record<string, SettingsSectionId> = {
+  keys: 'keys',
+  'ai-configs': 'ai-configs',
+};
+
+/** The tab that shows a tab id: Settings for a retired id that became one of its sections, else the id itself. */
+/** The Settings section a retired tab id became, or null. */
+export function sectionForTab(id: string | null): SettingsSectionId | null {
+  return id === null ? null : (lookupOwn(TAB_TO_SECTION, id) ?? null);
+}
+
+export function visibleTabFor<T extends string | null>(id: T): T | 'settings' {
+  return id !== null && lookupOwn(TAB_TO_SECTION, id) ? 'settings' : id;
+}
+
 export interface TabIntent {
   /** The tab to open, or null to let the page use its default. */
   initialTab: string | null;
@@ -79,6 +124,7 @@ export function resolveTabIntent(searchParams: URLSearchParams): TabIntent {
   const alias = lookupOwn(RETIRED_TAB_ALIASES, rawTab);
   const namedTab = alias
     ? alias.tab
+    : lookupOwn(TAB_TO_SECTION, rawTab) ? 'settings'
     : (APP_TAB_IDS as readonly string[]).includes(rawTab ?? '') ? rawTab : null;
   // An explicit ?chat= wins over the one a retired tab id implies, so a link
   // carrying both is not silently overridden by the alias.
@@ -87,6 +133,16 @@ export function resolveTabIntent(searchParams: URLSearchParams): TabIntent {
   // Profile is the default only for a link that names neither.
   const initialTab = namedTab ?? (requestedChat !== null ? 'chats' : null);
   return { initialTab, requestedChat };
+}
+
+/**
+ * The Settings section a URL asks to have open: `?section=`, or the one a retired tab id became.
+ * Null for neither, and for an unknown value (every section then opens folded).
+ */
+export function resolveSectionIntent(searchParams: URLSearchParams): SettingsSectionId | null {
+  const named = searchParams.get('section');
+  if ((SETTINGS_SECTION_IDS as readonly string[]).includes(named ?? '')) return named as SettingsSectionId;
+  return lookupOwn(TAB_TO_SECTION, searchParams.get('tab')) ?? null;
 }
 
 /**

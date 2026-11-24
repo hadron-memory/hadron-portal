@@ -16,7 +16,7 @@
  *
  * Pure, so it is pinned without the ~25-operation load around it.
  */
-import { APP_TAB_IDS, type AppTabId } from './tab-intent';
+import { APP_TAB_IDS, SECTION_DATA_TAB, type AppTabId, type SettingsSectionId } from './tab-intent';
 
 /** A named read of the App page, and the payload keys it produces. */
 export const READ_GROUP_KEYS = {
@@ -86,9 +86,13 @@ export const DEFAULT_TAB: AppTabId = 'profile';
  * The roster is the page load's only: after a switch, #2238's first-show fetch
  * owns it, and a second copy here would ask twice.
  */
-export function readGroupsFor(tab: string | null, mode: { frame: boolean }): Set<ReadGroup> {
+export function readGroupsFor(tab: string | null, mode: { frame: boolean }, section: SettingsSectionId | null = null): Set<ReadGroup> {
   const id = (APP_TAB_IDS as readonly string[]).includes(tab ?? '') ? (tab as AppTabId) : DEFAULT_TAB;
   const groups = new Set<ReadGroup>(TAB_READS[id]);
+  // A link that names a Settings section opens it, so its data is part of the first screen. Only Settings has
+  // sections: a `?section=` on another tab asks for nothing.
+  const sectionTab = id === 'settings' && section ? SECTION_DATA_TAB[section] : undefined;
+  if (sectionTab) for (const group of TAB_READS[sectionTab]) groups.add(group);
   if (!mode.frame) groups.delete('roster');
   return groups;
 }

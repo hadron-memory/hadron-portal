@@ -30,7 +30,7 @@ async function mountAi(over: Record<string, unknown>, appOver: Record<string, un
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(3);
-  return m.target.querySelector<HTMLElement>('#panel-ai-configs')!;
+  return m.target.querySelector<HTMLElement>('#section-ai-configs-body')!;
 }
 const hasAdd = (p: HTMLElement) => [...p.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add configuration');
 
@@ -97,7 +97,8 @@ describe('Chats tab, no LLM config', () => {
     const cta = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.includes('Configure AI Service Configs'))!;
     cta.click();
     await tick(2);
-    expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-ai-configs');
+    expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-settings');
+    expect(m.target.querySelector('#section-ai-configs-toggle')!.getAttribute('aria-expanded')).toBe('true');
   });
   it('on an organization\'s App the text still names the organization', async () => {
     const m = await mountChats({ organizationId: 'o1' });

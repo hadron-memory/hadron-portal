@@ -40,6 +40,11 @@ const h = vi.hoisted(() => {
     AppViewerManages: () => ({ app: { id: 'a1', viewerManages: true } }),
     TeamStopSignals: () => ({ teamStopSignals: { signals: [], pageInfo: { hasNextPage: false, endCursor: null } } }),
     AppTeamRoster: () => ({ teamRoster: { workers: [] } }),
+    // Settings' reads: a `?tab=keys` page load now opens Settings with the App Keys section, so the comparison below makes them too.
+    ChatAiConfigChoices: () => ({ chatAiConfigChoices: [] }),
+    ResolveAiServiceConfigs: () => ({ resolveAiServiceConfigs: [] }),
+    AppChatbotAiConfig: () => ({ app: { chatbotAiConfigId: null } }),
+    AppSaturationAlarmWakeRoles: () => ({ saturationAlarmWakeRoles: { appId: 'a1', roles: [] } }),
   };
   return {
     ops,

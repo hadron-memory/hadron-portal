@@ -73,6 +73,8 @@ beforeEach(() => {
       case 'AppBootPointers': case 'AppInstallMarks': return { app: { id: APP_ID, appAgents: [] } };
       case 'TeamStopSignals': return { teamStopSignals: { signals: [], pageInfo: { hasNextPage: false, endCursor: null } } };
       case 'AppChatbotAiConfig': return { app: { id: APP_ID, chatbotAiConfigId: null } };
+      // `?tab=ai-configs` opens Settings with that section open, so Settings' own reads are made too.
+      case 'AppSaturationAlarmWakeRoles': return { saturationAlarmWakeRoles: { appId: APP_ID, roles: [] } };
       case 'AppMemoryScope': return { appMemoryScope: { items: [], total: 0 } };
       case 'MyAgents': return { agents: { items: [], total: 0 } };
       case 'PublicAgents': return { publicAgents: { items: [], total: 0 } };

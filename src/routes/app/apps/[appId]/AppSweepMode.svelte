@@ -12,7 +12,7 @@
   import { t } from '$lib/i18n/t';
 
   type Mode = 'OFF' | 'OBSERVE' | 'APPLY';
-  let { mode, canManage, ownerId }: { mode: Mode | null; canManage: boolean; ownerId: string } = $props();
+  let { mode, canManage, ownerId, embedded = false }: { mode: Mode | null; canManage: boolean; ownerId: string; /** Inside a titled section: the section's heading is the title, so none is drawn here. */ embedded?: boolean } = $props();
 
   let draft = $state<Mode | null>(null);
   // A write the server committed whose reload is unconfirmed lives in a store keyed by this App,
@@ -94,8 +94,8 @@
 </script>
 
 {#if mode}
-  <section class="max-w-lg" aria-labelledby="sweepModeHeading">
-    <h2 id="sweepModeHeading" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('app.sweep-mode.heading', 'Sweep mode')}</h2>
+  <section class="max-w-lg" aria-labelledby={embedded ? undefined : 'sweepModeHeading'}>
+    {#if !embedded}<h2 id="sweepModeHeading" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('app.sweep-mode.heading', 'Sweep mode')}</h2>{/if}
     <form bind:this={formEl} method="POST" action="?/setSweepMode" use:enhance={submit} novalidate
       class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       {#if canManage}
