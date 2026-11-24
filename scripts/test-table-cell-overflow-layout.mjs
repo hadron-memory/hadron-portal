@@ -1187,11 +1187,13 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
  const CHIP_VALUE_MIN_PX = 150;
  const CHIP_READABLE_ROWS = ['app-tasks:roster', 'app-tasks:composition-workers', 'app-tasks:composition-lanes', 'task-review-slots'];
  const chipReadable = scope => async (page, leg) => {
-  const chips = await page.locator(`${scope}tbody td span[title^="hrn:"].line-clamp-1`).evaluateAll(els => els.map(el => ({ urn: el.title, px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 })));
+  const chips = await page.locator(`${scope}tbody td span[title^="hrn:"].line-clamp-1`).evaluateAll(els => els.map(el => ({ urn: el.title, titled: /^hrn:worker:example\.test:fixture:[a-z0-9]+$/.test(el.title), px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 })));
   if (!chips.length) failures.push(`${leg}: no compact URN chip found to measure`);
+  const untitled = chips.filter(c => !c.titled);
+  if (untitled.length) failures.push(`${leg}: compact URN chip title is not the fixture row's full worker URN ${JSON.stringify(untitled)}`);
   const narrow = chips.filter(c => c.px < CHIP_VALUE_MIN_PX && !c.whole);
   if (narrow.length) failures.push(`${leg}: compact URN chip value narrower than ${CHIP_VALUE_MIN_PX}px ${JSON.stringify(narrow)}`);
-  else console.log(`${leg}: ${chips.length} compact URN chip(s), narrowest value ${Math.min(...chips.map(c => c.px))}px`);
+  else if (chips.length) console.log(`${leg}: ${chips.length} compact URN chip(s), narrowest value ${Math.min(...chips.map(c => c.px))}px`);
  };
 
  // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and

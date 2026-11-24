@@ -178,4 +178,4 @@ export function sourceKind(source: string): 'url' | 'urn' | 'text' {
  * 150px of value there: one line of "e2e-alpha:team:bartholomew". Pinned at 390px and 1280px by
  * scripts/test-table-cell-overflow-layout.mjs (CHIP_VALUE_MIN_PX).
  */
-export const WORKER_CHIP_COLUMN_PX = 320;
+export const URN_CHIP_COLUMN_PX = 320;

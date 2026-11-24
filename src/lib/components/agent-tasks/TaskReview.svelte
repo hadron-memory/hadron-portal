@@ -18,7 +18,7 @@
   import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
   import NotParticipant from '$lib/components/agent-tasks/NotParticipant.svelte';
   import PartyLabel from '$lib/components/agent-tasks/PartyLabel.svelte';
-  import { WORKER_CHIP_COLUMN_PX } from '$lib/agent-tasks/status';
+  import { URN_CHIP_COLUMN_PX } from '$lib/agent-tasks/status';
   import { taskHref } from '$lib/agent-tasks/handle';
   import { neutralizeFormatChars, neutralizeTargetChars, referenceLink, type TaskReference } from '$lib/agent-tasks/references';
   import { atOlderHead, seatStateLabel, shortHead, slotsNotCounting, verdictLabel, type ReviewSlot, type TaskReviewOutcome } from '$lib/agent-tasks/review';
@@ -79,7 +79,7 @@
     { id: 'slot', accessorFn: (r) => r.slot, header: t('app.tasks.review.col.slot', 'Slot'), enableHiding: false, size: 90 },
     { id: 'verdict', accessorFn: (r) => verdictLabel(r.verdict), header: t('app.tasks.review.col.verdict', 'Verdict'), size: 150 },
     { id: 'counts', accessorFn: (r) => r.counts, header: t('app.tasks.review.col.counts', 'Counts'), size: 110 },
-    { id: 'seat', accessorFn: (r) => r.seat?.handle ?? '', header: t('app.tasks.review.col.seat', 'Seat'), size: WORKER_CHIP_COLUMN_PX },
+    { id: 'seat', accessorFn: (r) => r.seat?.handle ?? '', header: t('app.tasks.review.col.seat', 'Seat'), size: URN_CHIP_COLUMN_PX },
     { id: 'state', accessorFn: (r) => seatStateLabel(r.state), header: t('app.tasks.review.col.state', 'State'), size: 100 },
     { id: 'head', accessorFn: (r) => r.head ?? '', header: t('app.tasks.review.col.head', 'Head'), size: 130 },
   ];
