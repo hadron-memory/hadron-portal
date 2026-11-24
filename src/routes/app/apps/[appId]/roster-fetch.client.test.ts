@@ -425,10 +425,11 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
 
   // portal#2581: both roster notices arrive in a region that was already mounted, empty, while the read
   // was pending (a status inserted already populated is not reliably announced).
+  // The /roster route answers 200 {kind:'failed'} for a failed read and 401 for a lapsed session.
   it.each([
-    ['failed', 200, { kind: 'failed' }, 'could not be loaded'],
-    ['signed out', 401, { kind: 'failed' }, 'Your session has ended'],
-  ] as const)('portal#2581: the %s notice is announced by a region mounted before the read answered', async (_name, status, body, text) => {
+    [200, { kind: 'failed' }, 'could not be loaded'],
+    [401, { kind: 'failed' }, 'Your session has ended'],
+  ] as const)('portal#2581: the notice for a %i answer is announced by a region mounted before the read answered', async (status, body, text) => {
     let release: (r: Response) => void = () => {};
     stubRosterResponses(() => new Promise<Response>((resolve) => { release = resolve; }));
     const target = await mountPage({ teamRoster: null });
@@ -442,6 +443,31 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const region = [...panel.querySelectorAll<HTMLElement>('[role="status"]')].find((e) => e.textContent?.includes(text));
     expect(region, 'the notice is in a status region').toBeDefined();
     expect(idle, 'and that region existed, empty, before the answer').toContain(region);
+    // The row that holds the region is collapsed while idle with `sr-only`, never `display:none`: a region in a
+    // hidden subtree is not in the accessibility tree, so it would not exist for a reader before the text came.
+    const row = region!.parentElement!;
+    expect(row.className).toContain(':sr-only');
+    expect(row.className).not.toMatch(/(^|\s)has-\[[^\]]*\]:hidden/);
+    // The retry control and the sign-in link stay outside the region.
+    expect(region!.querySelector('button, a')).toBeNull();
+  });
+
+  it('portal#2581: a second identical failure is a new element in the same region, so it is announced again', async () => {
+    stubRosterResponses(() => json(200, { kind: 'failed' }));
+    const target = await mountPage({ teamRoster: null });
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await settled(3);
+    const panel = target.querySelector('#panel-staff')!;
+    const regionOf = () => [...panel.querySelectorAll<HTMLElement>('[role="status"]')].find((e) => e.textContent?.includes('could not be loaded'))!;
+    const region = regionOf();
+    const first = region.querySelector('p');
+    expect(first).not.toBeNull();
+    retryButton(panel)!.click();
+    await settled(3);
+    expect(regionOf()).toBe(region);
+    const second = region.querySelector('p');
+    expect(second).not.toBeNull();
+    expect(second, 'the text was removed and re-inserted, not left unchanged').not.toBe(first);
   });
 
   it('portal#2282: the retry control sits outside the status text, shows loading, and a double click asks once', async () => {

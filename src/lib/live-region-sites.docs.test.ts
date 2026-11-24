@@ -13,14 +13,20 @@ const read = (f: string) => readFileSync(join(process.cwd(), 'src/lib', f), 'utf
 
 describe('portal#2581 leftovers', () => {
   it('N1: the ratchet header names unreviewedSites and what listing a site there means', () => {
-    const header = read('live-region-sites.test.ts').split('const SRC')[0];
+    const file = read('live-region-sites.test.ts');
+    expect(file.indexOf('const SRC'), 'anchor moved').toBeGreaterThan(0);
+    const header = file.slice(0, file.indexOf('const SRC'));
     expect(header).toContain('unreviewedSites');
     expect(header).toMatch(/unreviewedSites[^]*(not (yet )?(converted|reviewed)|nobody has reviewed)/i);
   });
 
   it('N2: the churn-recovery note names reviewedNotDefects and unreviewedSites', () => {
     const doc = read('live-region-sites.scan.ts');
-    const note = doc.slice(doc.indexOf('Two limits, both disclosed'), doc.indexOf('export function conditionalStatusIdentities'));
+    const from = doc.indexOf('Two limits, both disclosed');
+    const to = doc.indexOf('export function conditionalStatusIdentities');
+    expect(from, 'anchor moved').toBeGreaterThan(-1);
+    expect(to, 'anchor moved').toBeGreaterThan(from);
+    const note = doc.slice(from, to);
     expect(note).toContain('reviewedNotDefects');
     expect(note).toContain('unreviewedSites');
   });

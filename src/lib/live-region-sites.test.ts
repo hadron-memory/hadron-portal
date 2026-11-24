@@ -66,30 +66,14 @@ const reviewedNotDefects: Record<string, string> = {
   'src/lib/components/memory-config/BulkApply.svelte#p:93003cab': "the count note mounts with the picker row whenever the panel is not locked and changes inside it as the selection changes; `locked` (an apply in flight) removes it and nothing is meant to be announced then",
   'src/lib/components/memory-config/TemplatesManager.svelte#div:5211f6ab': "the region mounts EMPTY with the apply panel (no preview, so no warnings) and the warnings arrive inside it after Preview; its content is the {#each} inside TaskWarnings, not the region",
   'src/lib/components/tickers/TickerEnabledControl.svelte#testid:ticker-enabled-result': "the branch is `{#if impersonating}...{:else}`, fixed for the whole session; the result span mounts empty with the control and its own {#if ok} is INSIDE it",
-  'src/routes/app/agents/[id]/+page.svelte#p:20d9c2e3': "static explanatory copy for the compiled-only boot view, present with the view from load, not a result that changes; a reader meets it in reading order, so a live region would add nothing",
   'src/routes/app/agents/[id]/AgentMemberRolesEditor.svelte#p:776e5737': "the branch is `{#if canManage}`, fixed for the page load; the announcement span mounts with the editor and `announcement` changes inside it",
-  'src/routes/app/apps/[appId]/+page.svelte#p:a50b08d0': "static explanatory copy for the withheld-agent state, which is decided by the load and does not change while the tab is open; reading order delivers it, so no live region is needed",
   'src/routes/app/apps/[appId]/+page.svelte#testid:cast-refresh-status': "the region mounts EMPTY with the AI Team tab panel (portal#1715) and its own {#if castRefreshFailed} is INSIDE it, so the failure arrives in an existing region",
   'src/routes/app/apps/[appId]/+page.svelte#testid:key-copy-status': "the region mounts with the API keys tab panel before any copy (portal#2330) and its own {#if} is INSIDE it, so the copy result arrives in an existing region",
   'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte#span:7ed159ba': "the status span mounts with the Show more row, which exists while more children remain; the \"Showing the first n\" count and the failure text change inside it, so an update arrives in an existing region"
 };
 
-/**
- * Sites portal#2581 converted to a persistent `LiveRegion`: they must no longer be counted, so a
- * `role="status"` mounted by an {#if} cannot come back on them unnoticed.
- */
-const convertedSites: string[] = [
-  'src/routes/app/apps/[appId]/+page.svelte#p:1de6106a',
-  'src/routes/app/apps/[appId]/+page.svelte#p:e97eaf13',
-  'src/routes/app/apps/[appId]/grants/+page.svelte#p:da6f65da'
-];
 
-/**
- * Sites the wrapper-nested scan added (portal#2391) that nobody has reviewed yet: neither converted nor judged a
- * non-defect, so they are NOT in `reviewedNotDefects`. Triage and conversion are tracked in hadron-portal#2581; a
- * site comes off this list when it is converted (its baseline entry goes too) or moves to `reviewedNotDefects`
- * with a reason. A baseline site must be on one of the two lists.
- */
+/** Sites nobody has reviewed yet: see the header. Empty when nothing is outstanding. */
 const unreviewedSites: string[] = [];
 
 const BASELINE_PATH = join(process.cwd(), 'src/lib/live-region-sites.baseline.json');
@@ -179,11 +163,6 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
       expect(counted.has(site), site).toBe(true);
       expect(why.length).toBeGreaterThan(20);
     }
-  });
-
-  it('the sites portal#2581 converted are no longer counted', () => {
-    const counted = new Set([...now].flatMap(([f, ids]) => ids.map((i) => `${f}#${i}`)));
-    expect(convertedSites.filter((x) => counted.has(x)), 'still a role="status" mounted by an {#if}').toEqual([]);
   });
 
   it('every baseline site is reviewed or on the unreviewed list, and neither list holds a stale site', () => {

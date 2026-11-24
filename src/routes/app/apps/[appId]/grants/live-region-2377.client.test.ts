@@ -97,3 +97,24 @@ it("'Grant created.' is announced by a region that was mounted before the create
   expect(region, "the confirmation is announced").not.toBeNull();
   expect(idle, "by a region that existed, empty, before it").toContain(region);
 });
+
+it("a second create in a row is announced again: the confirmation is a new element in the same region (portal#2581)", async () => {
+  mounted = mountComponent(Harness, { data: grantsFixture(), form: null } as never);
+  const form = mounted.target.querySelector<HTMLFormElement>('form[action*="/create"]')!;
+  const setForm = (f: unknown) => { (mounted!.instance.setForm as (f: never) => void)(f as never); flushSync(); };
+  const idle = idleStatusRegions(mounted.target);
+  const run = async (data: unknown) => {
+    const finish = await beginEnhanced(form, { update: async () => setForm(data) });
+    await finish({ ...created, data } as never);
+    await tick(3);
+  };
+  await run(created.data);
+  const region = regionSaying("Grant created.");
+  expect(idle).toContain(region);
+  const first = region!.querySelector("p");
+
+  await run({ ...created.data, grant: { ...fixtureGrant, id: "grant-second" } });
+  expect(regionSaying("Grant created.")).toBe(region);
+  const second = region!.querySelector("p");
+  expect(second, "same text, so the node must be re-inserted for it to be announced").not.toBe(first);
+});
