@@ -5,7 +5,7 @@ import { secretWrite } from '$lib/server/secret-writes';
 import { addTracked, parseTracked, removeTracked, serializeTracked, TRACKED_COOKIE, type Tracked } from '$lib/secrets/tracked';
 import { t } from '$lib/i18n/t';
 import { ceremonyOrigin } from '$lib/ceremony-origin';
-import { isTerminalState } from '$lib/secrets/staged';
+import { isTerminalState, rebuildCeremonyUrl } from '$lib/secrets/staged';
 
 /** portal#2380 — the viewer's own change requests, re-read on every visit (no polling loop). */
 export interface PendingRow {
@@ -14,7 +14,11 @@ export interface PendingRow {
   secretId: string | null;
   /** The name a staged create asked for; null for every other request. */
   createName: string | null;
-  ceremonyUrl: string;
+  /**
+   * The signing link, rebuilt from the configured origin (portal#2417: the cookie carries no URL).
+   * Null when the origin is unconfigured: the row shows, with no link, never a guess.
+   */
+  ceremonyUrl: string | null;
   state: string;
   operation: string;
   expiresAt: string;
@@ -22,7 +26,7 @@ export interface PendingRow {
 
 const OPTS = { path: '/app/apps', httpOnly: true, sameSite: 'lax' as const, maxAge: 7200 };
 
-export const readTracked = (cookies: Cookies): Tracked[] => parseTracked(cookies.get(TRACKED_COOKIE), ceremonyOrigin());
+export const readTracked = (cookies: Cookies): Tracked[] => parseTracked(cookies.get(TRACKED_COOKIE));
 export const writeTracked = (cookies: Cookies, list: Tracked[]) => {
   if (list.length === 0) cookies.delete(TRACKED_COOKIE, { path: OPTS.path });
   else cookies.set(TRACKED_COOKIE, serializeTracked(list), OPTS);
@@ -48,6 +52,8 @@ export async function loadPending(
   // portal#2436 item 6: reads that failed. Kept in the cookie and counted, so the page can say so.
   let unread = 0;
   let kept = all;
+  // portal#2417: the link comes from the configured origin, never from cookie content.
+  const origin = ceremonyOrigin();
   // One round trip per tracked request, made together; rows keep the cookie's order.
   const reads = await Promise.all(mine.map((tr) => loadChangeRequest(client, tr.requestId)));
   for (const [i, tr] of mine.entries()) {
@@ -56,7 +62,7 @@ export async function loadPending(
     if (r === null) { if (!readOnly) kept = removeTracked(kept, tr.requestId); continue; }
     // The server stages a protected create as a STORE; the tracked create says which it was.
     const operation = r.operation.toUpperCase() === 'STORE' && tr.create ? 'CREATE' : r.operation;
-    rows.push({ requestId: r.id, secretId: tr.secretId ?? null, createName: tr.create?.name ?? null, ceremonyUrl: tr.ceremonyUrl, state: r.state, operation, expiresAt: r.expiresAt });
+    rows.push({ requestId: r.id, secretId: tr.secretId ?? null, createName: tr.create?.name ?? null, ceremonyUrl: rebuildCeremonyUrl(r.id, origin), state: r.state, operation, expiresAt: r.expiresAt });
     if (!readOnly && isTerminalState(r.state)) kept = removeTracked(kept, tr.requestId);
   }
   if (!readOnly && kept.length !== all.length) writeTracked(cookies, kept);

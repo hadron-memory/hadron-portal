@@ -31,6 +31,18 @@ export function safeCeremonyUrl(v: unknown, origin: string | null): string | nul
   return pinCeremonyUrl(v, origin, '/secret-changes/');
 }
 
+/**
+ * portal#2417 — the signing link for a tracked request, rebuilt from the configured origin.
+ * The cookie stores no URL, so this is the only source of a revisit link, and it is exactly the
+ * server's own mint (origin + '/secret-changes/' + id, no token, query or fragment — the server's
+ * src/lib/secrets/changeRequests.ts). The id is encoded so it stays one path segment, and the
+ * result is pinned so a traversal-shaped id cannot leave the prefix. A null origin is no link.
+ */
+export function rebuildCeremonyUrl(requestId: string, origin: string | null): string | null {
+  if (!origin) return null;
+  return pinCeremonyUrl(`${origin}/secret-changes/${encodeURIComponent(requestId)}`, origin, '/secret-changes/');
+}
+
 export function readStagedChange(e: unknown, origin: string | null): StagedRefusal | null {
   if (extractGqlErrorCode(e) !== NEEDS_PASSKEY) return null;
   const ext = extractGqlErrorExtensions(e);

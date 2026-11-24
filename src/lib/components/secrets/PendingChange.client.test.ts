@@ -145,3 +145,20 @@ describe('PendingChange focus after Withdraw', () => {
     expect(active).toBe(notice);
   });
 });
+
+// portal#2417: the signing link renders only when the portal can offer the page.
+describe('the signing link (portal#2417)', () => {
+  it('renders the anchor when the portal rebuilt a link', () => {
+    const m = mountComponent(PendingChange as never, props);
+    const a = m.target.querySelector('a');
+    expect(a?.getAttribute('href')).toBe(LINK);
+    m.unmount();
+  });
+  it('renders no anchor and the unlinked hint when it could not', () => {
+    const m = mountComponent(PendingChange as never, { ...props, ceremonyUrl: null });
+    expect(m.target.querySelector('a')).toBe(null);
+    expect(m.target.textContent).not.toContain('Open the signing page');
+    expect(m.target.textContent).toContain('cannot offer its signing page');
+    m.unmount();
+  });
+});
