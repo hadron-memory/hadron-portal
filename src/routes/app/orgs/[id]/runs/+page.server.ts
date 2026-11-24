@@ -33,7 +33,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
   // portal#1499: Duration is the first column the server orders (the ruled end state is every column, in steps). The window is
   // the 200 runs in that order, so the longest run in the org leads even when it is older than the latest 200; the other
-  // columns still sort inside the window. Anything but `sort=duration` keeps the default most-recent window.
+  // columns still sort inside the window. Unfinished runs (no duration) come last in BOTH directions: hadron-server orders
+  // `durationMs` with `nulls: 'last'` (src/api/graphql/schema/resolvers.appRun.ts, pinned by resolvers.appRunDurationSort855.test.ts),
+  // so they never crowd the longest runs out of the window. Anything but `sort=duration` keeps the default most-recent window.
   const { sort, dir } = parseOrgRunsSort(url.searchParams);
 
   const [runsResult, apps] = await Promise.all([
