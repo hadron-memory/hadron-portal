@@ -1843,8 +1843,8 @@ export const NODE_EDGE_REMOVALS_QUERY = /* GraphQL */ `
 // #529: a single revision's full snapshot (incl. content) for the read-only
 // "Display" view. Access-gated server-side; null when unreadable/missing.
 export const NODE_REVISION_QUERY = /* GraphQL */ `
-  query NodeRevision($revisionId: ID!) {
-    nodeRevision(revisionId: $revisionId) {
+  query NodeRevision($nodeRevRef: String!) {
+    nodeRevision(nodeRevRef: $nodeRevRef) {
       id
       revNo
       nodeId
@@ -1956,8 +1956,8 @@ export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
 
 export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
   ${PROVENANCE_FIELDS}
-  query NodeRevisionProvenance($revisionId: ID!) {
-    nodeRevision(revisionId: $revisionId) {
+  query NodeRevisionProvenance($nodeRevRef: String!) {
+    nodeRevision(nodeRevRef: $nodeRevRef) {
       id
       revNo
       authorship { ...NodeAuthorshipFields }
@@ -1970,20 +1970,20 @@ export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
 // restores the node to the revision AND deletes newer snapshots (atomic); delete
 // removes one snapshot; clear removes all for a node (returns the count).
 export const RESTORE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation RestoreNodeRevision($revisionId: ID!, $truncate: Boolean) {
-    restoreNodeRevision(revisionId: $revisionId, truncate: $truncate) { id }
+  mutation RestoreNodeRevision($nodeRevRef: String!, $truncate: Boolean) {
+    restoreNodeRevision(nodeRevRef: $nodeRevRef, truncate: $truncate) { id }
   }
 `;
 
 export const DELETE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation DeleteNodeRevision($revisionId: ID!) { deleteNodeRevision(revisionId: $revisionId) }
+  mutation DeleteNodeRevision($nodeRevRef: String!) { deleteNodeRevision(nodeRevRef: $nodeRevRef) }
 `;
 
 // #534: set or clear a revision's user-facing label (NodeRevision.revLabel,
 // 500-char cap on the server). Passing null clears it; omitting preserves.
 export const UPDATE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation UpdateNodeRevision($revisionId: ID!, $revLabel: String) {
-    updateNodeRevision(revisionId: $revisionId, revLabel: $revLabel) { id revLabel }
+  mutation UpdateNodeRevision($nodeRevRef: String!, $revLabel: String) {
+    updateNodeRevision(nodeRevRef: $nodeRevRef, revLabel: $revLabel) { id revLabel }
   }
 `;
 
