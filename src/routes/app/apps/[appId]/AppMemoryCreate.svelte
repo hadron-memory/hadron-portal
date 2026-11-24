@@ -27,7 +27,7 @@
 </script>
 <section class="max-w-xl" data-testid="app-memory-create" aria-labelledby="app-memory-create-title">
   <div class="flex items-center justify-between gap-3">
-    <h3 id="app-memory-create-title" class="text-lg font-semibold text-zinc-900 dark:text-white">{t('app.memory.add', 'Add a new memory')}</h3>
+    <h3 id="app-memory-create-title" class="text-lg font-semibold text-zinc-900 dark:text-white">{t('app.memory.add-new', 'Add a new memory')}</h3>
     {#if onclose}<button type="button" onclick={onclose} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.memory.close', 'Close')}</button>{/if}
   </div>
   <!-- The refusal below says the same words once a submit came back AGENT_NOT_INSTALLED, so the note steps aside for it. -->

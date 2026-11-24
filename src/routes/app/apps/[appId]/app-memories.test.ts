@@ -58,7 +58,7 @@ describe('attachMemory action', () => {
     await run({ memoryId: '', agentId: 'ag1' }, request);
     expect(request).not.toHaveBeenCalled();
   });
-  it.each([['FORBIDDEN', 403], ['AGENT_NOT_INSTALLED', 409], ['MEMORY_ALREADY_APP_SCOPED', 409], ['UNSUPPORTED_MEMORY_CLASS', 400], ['ORGANIZATION_MISMATCH', 400], ['SOMETHING_ELSE', 500]])('answers a %s refusal with fixed copy and status %i, never server text', async (code, status) => {
+  it.each([['FORBIDDEN', 403], ['UNAUTHENTICATED', 401], ['AGENT_NOT_INSTALLED', 409], ['APP_UNINSTALLED', 409], ['MEMORY_ALREADY_APP_SCOPED', 409], ['UNSUPPORTED_MEMORY_CLASS', 400], ['ORGANIZATION_MISMATCH', 400], ['SOMETHING_ELSE', 500]])('answers a %s refusal with fixed copy and status %i, never server text', async (code, status) => {
     const request = vi.fn().mockRejectedValue({ response: { errors: [{ message: 'SECRET server text', extensions: { code } }] } });
     const res = await run({ memoryId: 'm1', agentId: 'ag1' }, request) as { status?: number; form?: { message?: { type: string; text: string } } };
     const text = JSON.stringify(res);
@@ -76,7 +76,7 @@ describe('readAttachableMemories', () => {
       { id: 'abroad', urn: 'hrn:mem:o:abroad', name: 'Abroad', visibility: 'ORGANIZATION', appId: null, organizationId: 'org-2' },
     ] } });
     expect(await readAttachableMemories({ request } as never, 'org-1')).toEqual([{ id: 'free', urn: 'hrn:mem:e:free', name: 'Free', visibility: 'ORGANIZATION' }]);
-    expect(request.mock.calls[0][1]).toMatchObject({ orgId: 'org-1' });
+    expect(request.mock.calls[0][1]).toMatchObject({ orgId: 'org-1', ownedByMe: true });
     expect(request.mock.calls[0][0]).toContain('memoryClasses: [personal, private]');
   });
   it('asks for the caller\'s own org-less memories when the App has no organization', async () => {

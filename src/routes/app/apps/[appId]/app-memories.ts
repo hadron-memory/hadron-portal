@@ -119,14 +119,14 @@ export const ATTACHABLE_MEMORIES_QUERY = /* GraphQL */ `
 export const APP_ORG_QUERY = /* GraphQL */ `query AppOrg($ref: ID!) { app(ref: $ref) { organizationId } }`;
 export interface AttachableMemory { id: string; urn: string; name: string; visibility: string | null }
 /**
- * Null means the read failed, never "none to add". An org App reads its org's memories; a user-owned App the caller's org-less ones.
+ * Null means the read failed, never "none to add". An org App reads the caller's own memories of its org (ownedByMe is sent in both cases, so the list never offers a memory only shared with the caller); a user-owned App the caller's org-less ones.
  * The org list also carries the caller's personal memories from elsewhere, and an attach across organizations is refused
  * (ORGANIZATION_MISMATCH), so only memories of the App's own organization are offered. The server stays the authority.
  */
 export async function readAttachableMemories(client: ReturnType<typeof gqlClient>, orgId: string | null): Promise<AttachableMemory[] | null> {
   try {
     const rows = await withTimeout(
-      fetchAllItems<AttachableMemory & { appId: string | null; organizationId: string | null }>(client, ATTACHABLE_MEMORIES_QUERY, 'memories', orgId ? { orgId } : { ownedByMe: true }),
+      fetchAllItems<AttachableMemory & { appId: string | null; organizationId: string | null }>(client, ATTACHABLE_MEMORIES_QUERY, 'memories', orgId ? { orgId, ownedByMe: true } : { ownedByMe: true }),
       OPTIONAL_LIST_TIMEOUT_MS, null);
     return rows === null ? null : rows.filter(m => !m.appId && (m.organizationId ?? null) === orgId).map(({ id, urn, name, visibility }) => ({ id, urn, name, visibility }));
   } catch { return null; }

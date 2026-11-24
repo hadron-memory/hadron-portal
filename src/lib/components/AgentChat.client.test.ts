@@ -711,7 +711,11 @@ describe('AgentChat: the New chat button', () => {
         plus.click(); await tick();
         expect(plus.getAttribute('aria-expanded')).toBe('true');
         const items = [...document.querySelectorAll('[role=menuitem]')];
-        expect(items.map((i) => i.querySelector('span')?.textContent)).toEqual(['Save to the shared app memory', 'Save to my private memory']);
+        expect(items.map((i) => i.querySelector('span')?.textContent)).toEqual(['Save to my private memory', 'Save to the shared app memory']);
+        // The private choice comes first and takes focus, so Enter or Space on the + never starts a shared chat
+        // (spec 017 D3: the removed picker defaulted to private).
+        await tick(2);
+        expect(document.activeElement).toBe(items[0]);
         // nothing is created by opening the menu
         expect(bodies).toHaveLength(0);
         items.find((i) => i.querySelector('span')?.textContent === label)!.dispatchEvent(new MouseEvent('click', { bubbles: true }));

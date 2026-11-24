@@ -955,7 +955,7 @@
       {:else if listError}
         <p class="p-3 text-xs text-red-500">{listError}</p>
       {:else if chats.length === 0}
-        <p class="p-3 text-xs text-zinc-500">No chats yet. Start a new one with the + button below.</p>
+        <p class="p-3 text-xs text-zinc-500">{t('agent-chat.no-chats', 'No chats yet. Start a new one with the + button below.')}</p>
       {:else}
         <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
           {#each chats as chat (chat.loc)}
@@ -1079,7 +1079,7 @@
           onkeydown={menuKeys}
           class="absolute bottom-full left-2 z-20 mb-1 w-60 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
         >
-          {#each [{ scope: 'shared', label: chatScopeStrings.newChatShared(), help: chatScopeStrings.pickerHelpShared() }, { scope: 'private', label: chatScopeStrings.newChatPrivate(), help: chatScopeStrings.pickerHelpPrivate() }] as const as choice (choice.scope)}
+          {#each [{ scope: 'private', label: chatScopeStrings.newChatPrivate(), help: chatScopeStrings.pickerHelpPrivate() }, { scope: 'shared', label: chatScopeStrings.newChatShared(), help: chatScopeStrings.pickerHelpShared() }] as const as choice (choice.scope)}
             <button
               type="button"
               role="menuitem"
@@ -1113,7 +1113,7 @@
   <main class="min-h-0 min-w-0 flex-1 flex-col {phonePane === 'chat' ? 'flex' : 'hidden @2xl:flex'}">
     {#if !activeChatId && !loadingChat}
       <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-sm text-zinc-500">
-        <p>Select a chat from the list, or press <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+</span> under it to start a new one.</p>
+        <p>{t('agent-chat.select-chat', 'Select a chat from the list, or press the + under it to start a new one.')}</p>
         <!-- portal#1611: a refused or failed start has no chat pane to show its
              error in; without this the user saw nothing at all. -->
         {#if turnError}

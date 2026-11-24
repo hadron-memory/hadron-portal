@@ -46,7 +46,7 @@
   });
 
   // Adding an EXISTING memory: pick one of the user's own, then submit the attach.
-  const { form, message, enhance, submit } = superForm(untrack(() => {
+  const { form, message, enhance, submit, submitting } = superForm(untrack(() => {
     const submitted = submittedForm<AttachFields>(result, 'attachAppMemory') as SuperValidated<AttachFields, AttachMemoryMessage> | null;
     return (failedSubmission<AttachFields>(result, 'attachAppMemory') as SuperValidated<AttachFields, AttachMemoryMessage> | null) ?? { ...attachForm, message: submitted?.message };
   }), { validators: zod4Client(attachAppMemorySchema), invalidateAll: 'force', resetForm: true });
@@ -75,7 +75,8 @@
     }
   }
   async function attach(memory: { id: string }) {
-    if (!agentId) return;
+    // One attach at a time: a second pick while the first is in flight would be refused as already attached.
+    if (!agentId || $submitting) return;
     $form.memoryId = memory.id;
     $form.agentId = agentId;
     // The hidden inputs take their values from the store on the next flush; submitting before it would post the
