@@ -46,6 +46,8 @@ describe('loadPending counts the reads that failed (portal#2436)', () => {
     expect(r.unchecked).toBe(1);
     expect(j.held().map((x) => x.requestId)).toEqual(['r1']);
   });
+  // Kills: changing the limit itself. The other tests import the constant, so a changed value would move with them.
+  it('the limit is five failed loads in a row', () => { expect(READ_FAILURE_LIMIT).toBe(5); });
   // Kills: dropping the limit check (a failing read re-read forever) or counting from the wrong side of it.
   it(`a read that keeps failing is counted each load and dropped after ${READ_FAILURE_LIMIT} in a row`, async () => {
     let held: object[] = [{ requestId: 'r1', secretId: 's1' }];
