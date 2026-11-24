@@ -3908,6 +3908,7 @@
                   <!-- BARE name: this is App context. -->
                   <a
                     href="/app/workers/{worker.id}"
+                    title={worker.name}
                     class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white {worker.retiredAt ? 'line-through' : ''}"
                   >
                     {worker.name}
@@ -3964,7 +3965,7 @@
               {:else if task}
                 <div class="min-w-0 text-xs">
                   <span class="flex min-w-0 items-center gap-1.5">
-                    <a href={taskHref(`/app/apps/${app.id}`, task)} class="min-w-0 truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
+                    <a href={taskHref(`/app/apps/${app.id}`, task)} title={task.title} class="min-w-0 truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
                     <TaskHandle handle={task.handle} />
                   </span>
                   <span class="text-zinc-500">{TASK_STATUS[task.status]?.() ?? task.status}</span>
@@ -4069,7 +4070,7 @@
                 />
               {/if}
             {:else}
-              <div class="truncate">{cell.getValue() ?? '—'}</div>
+              <div class="truncate" title={String(cell.getValue() ?? '—')}>{cell.getValue() ?? '—'}</div>
             {/if}
           {/snippet}
         </DataTable>
@@ -4184,7 +4185,7 @@
                 compact
               />
             {:else}
-              <div class="truncate">{cell.getValue() ?? '—'}</div>
+              <div class="truncate" title={String(cell.getValue() ?? '—')}>{cell.getValue() ?? '—'}</div>
             {/if}
           {/snippet}
         </DataTable>
@@ -4494,7 +4495,7 @@
                 />
               {:else}
                 {@const f = appKeyFmt[cell.column.id]}
-                <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+                <div class="truncate" title={String(f ? f(cell.getValue()) : (cell.getValue() ?? '—'))}>{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
               {/if}
             {/snippet}
           </DataTable>

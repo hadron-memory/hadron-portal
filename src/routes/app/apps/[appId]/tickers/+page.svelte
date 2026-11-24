@@ -193,7 +193,7 @@
         {#snippet cell(cell, row)}
           {#if cell.column.id === 'name'}
             <div class="flex min-w-0 flex-col">
-              <a href="{basePath}/tickers/{row.ticker.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.ticker.name}</a>
+              <a href="{basePath}/tickers/{row.ticker.id}" title={row.ticker.name} class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.ticker.name}</a>
               {#if row.ticker.urn}<Urn value={row.ticker.urn} size={9} compact linked label={t('app.tickers.urn-label', 'ticker')} />{/if}
             </div>
           {:else if cell.column.id === 'state'}

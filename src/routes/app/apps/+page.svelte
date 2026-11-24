@@ -89,11 +89,11 @@
         {:else if cell.column.id === 'urn'}
           <Urn value={row.urn} type="app" size={8} />
         {:else if cell.column.id === 'agent'}
-          <div class="truncate">{row.agent || '—'}</div>
+          <div class="truncate" title={row.agent || '—'}>{row.agent || '—'}</div>
         {:else if cell.column.id === 'description'}
-          <div class="truncate">{row.description || '—'}</div>
+          <div class="truncate" title={row.description || '—'}>{row.description || '—'}</div>
         {:else}
-          <div class="truncate">{cell.getValue()}</div>
+          <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue()}</div>
         {/if}
       {/snippet}
     </DataTable>
