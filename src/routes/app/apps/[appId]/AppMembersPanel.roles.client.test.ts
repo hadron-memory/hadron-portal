@@ -11,6 +11,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { clipsOverflow } from '$lib/test/clipsOverflow';
 import AppMembersPanel from './AppMembersPanel.svelte';
 import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
@@ -85,6 +86,85 @@ describe('App members panel: roles come from App.availableMemberRoles (portal#14
       agent: { id: 'ag1', urn: 'hrn:agent:acme.com:one', name: 'One', installationPolicy: { memberRoles: ['legacy'], maxMembers: '3' } },
     });
     expect(target.textContent).toContain('/ 3)');
+  });
+});
+
+// portal#1417: the Agent behind the roles is named twice, and each time the name is an address
+// someone copies into a CLI or a message, so each shows its URN under the name
+// (hrn:node:hadronmemory.com:hadron-portal:review:render-urn).
+describe('App members panel: the linked Agent shows its URN (portal#1417)', () => {
+  const AGENT_URN = 'hrn:agent:acme.com:one';
+  const chips = (scope: Element | null | undefined) => [...(scope?.querySelectorAll(`[title="${AGENT_URN}"]`) ?? [])];
+  // portal#2532: nothing between a copy button and the panel may clip. The Urn truncates itself and
+  // keeps its copy buttons outside any clipping element, so a clipping wrapper cuts the buttons' focus
+  // ring at its edge (portal#2413). The 390px layout is pinned in real Chromium by
+  // scripts/test-members-panel-urn-layout.mjs; this pins the structure in the unit lane.
+  const copyButtons = (scope: Element | null) => [...(scope?.querySelectorAll('button[aria-label="Copy URN"], button[aria-label="Copy URL"]') ?? [])];
+  const clippingAncestors = (button: Element, root: Element) => {
+    const found: string[] = [];
+    for (let el = button.parentElement; el && el !== root.parentElement; el = el.parentElement) {
+      if (clipsOverflow(el.getAttribute('class'))) found.push(`${el.tagName.toLowerCase()}.${el.getAttribute('class')}`);
+    }
+    return found;
+  };
+  const paragraphWith = (target: HTMLElement, text: string) => [...target.querySelectorAll('p')].find((p) => p.textContent?.includes(text)) ?? null;
+
+  it('the "defined by the linked Agent" line shows the Agent’s URN after its name', async () => {
+    const target = await mountPanel({ availableMemberRoles: ['owner'] });
+    const line = paragraphWith(target, 'Roles below are defined by the linked Agent');
+    expect(line).not.toBeNull();
+    expect(chips(line)).toHaveLength(1);
+    expect(copyButtons(line)).toHaveLength(2);
+    for (const button of copyButtons(line)) expect(clippingAncestors(button, target)).toEqual([]);
+    const link = line!.querySelector('a[href="/app/agents/ag1"]')!;
+    expect(link.textContent).toBe('One');
+    // Below the name: the chip follows the link in document order.
+    expect(link.compareDocumentPosition(chips(line)[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('the empty-roles line shows the Agent’s URN after its name', async () => {
+    const target = await mountPanel({ availableMemberRoles: [] });
+    const line = paragraphWith(target, 'This App offers no member roles yet.');
+    expect(line).not.toBeNull();
+    expect(chips(line)).toHaveLength(1);
+    expect(copyButtons(line)).toHaveLength(2);
+    for (const button of copyButtons(line)) expect(clippingAncestors(button, target)).toEqual([]);
+    const link = line!.querySelector('a[href="/app/agents/ag1"]')!;
+    expect(link.textContent).toBe('One');
+    expect(link.compareDocumentPosition(chips(line)[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('known-empty control: a non-empty union has no empty-roles line, so only the header chip is there', async () => {
+    const target = await mountPanel({ availableMemberRoles: ['owner'] });
+    expect(paragraphWith(target, 'This App offers no member roles yet.')).toBeNull();
+    expect(chips(target)).toHaveLength(1);
+  });
+});
+
+// portal#1417: a member can hold a role the Agent no longer offers (removing a role keeps it on
+// the people who have it). These pin what the panel shows TODAY, not what it should show: if UX
+// finds either wrong, that is a separate issue.
+describe('App members panel: a member holding a role the Agent no longer offers (portal#1417)', () => {
+  const legacyMember = { ...member, userId: 'u2', user: { ...member.user, id: 'u2', handle: 'grace', name: 'Grace' }, role: 'legacy' };
+
+  it('no roles offered at all: the held role is shown as plain text, not hidden', async () => {
+    const target = await mountPanel({ availableMemberRoles: [] }, [legacyMember]);
+    expect(target.querySelector('select[data-user-id="u2"]')).toBeNull();
+    expect([...target.querySelectorAll('span')].some((s) => s.textContent?.trim() === 'legacy')).toBe(true);
+  });
+
+  it('other roles offered: the held role is not an option, so the select shows the first offered role', async () => {
+    const target = await mountPanel({ availableMemberRoles: ['owner', 'reviewer'] }, [legacyMember]);
+    const select = target.querySelector<HTMLSelectElement>('select[data-user-id="u2"]')!;
+    expect(optionValues(select)).toEqual(['owner', 'reviewer']);
+    // Today's behaviour, worth a UX look: no option matches 'legacy', so the browser falls back to the first one.
+    expect(select.value).toBe('owner');
+    expect(target.textContent).not.toContain('legacy');
+  });
+
+  it('known-empty control: a member holding an offered role shows exactly that role selected', async () => {
+    const target = await mountPanel({ availableMemberRoles: ['owner', 'reviewer'] }, [{ ...legacyMember, role: 'reviewer' }]);
+    expect(target.querySelector<HTMLSelectElement>('select[data-user-id="u2"]')!.value).toBe('reviewer');
   });
 });
 

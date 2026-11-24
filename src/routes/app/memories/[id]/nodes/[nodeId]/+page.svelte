@@ -3,6 +3,7 @@
   import TabRow from '$lib/components/TabRow.svelte';
   import RefreshNodeLoc from './RefreshNodeLoc.svelte';
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
+  import { COMPILED_BOOT_PROMPT_TYPE, COMPILED_PROMPT_HINT_ID } from '$lib/compiled-boot-prompt';
   import { Expand } from 'lucide-svelte';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
   import CappedNotice from '$lib/components/CappedNotice.svelte';
@@ -43,7 +44,7 @@
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
   import RevisionEditedBy from '$lib/components/RevisionEditedBy.svelte';
   import { revisionEditorView } from '$lib/revision-editor';
-  import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
+  import HistoryValidationCell from '$lib/components/HistoryValidationCell.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
@@ -85,6 +86,7 @@
     extractionRowsError,
     outputFromNodeData,
     rowsFromNodeData,
+    rowsFromDraftJson,
     rowsToSpec,
     type ExtractionRow,
   } from '$lib/flow/extraction';
@@ -168,7 +170,7 @@
   let copied = $state(false);
   // portal#1899: a compiled boot prompt is written only by a compile (hrn:node:hadronmemory.com:specs:cor:agt:040:11, :12);
   // a save is always refused, so its text and abstract are shown read-only with a pointer to the source.
-  const isCompiledPrompt = $derived(node.nodeType === 'compiled-boot-prompt');
+  const isCompiledPrompt = $derived(node.nodeType === COMPILED_BOOT_PROMPT_TYPE);
   const readOnly = $derived(data.canWriteMemory === false);
   // portal#1901: a compiled node has no write door at all on this page (content, abstract, name/meta, data,
   // properties, storage, flow, edges, move, restore, node delete). Approve, verify, signatures, duplicate and the
@@ -250,8 +252,8 @@
             );
       case 'compiled-prompt':
         return t('node.text.save.compiled-prompt', 'A compiled boot prompt is never edited directly. Edit the boot source and compile again. Nothing was saved.');
-      case 'boot-prompt-governed':
-        return t('node.text.save.boot-prompt-governed', 'A worker session cannot edit a boot prompt; its manager does that. Nothing was saved.');
+      case 'boot-prompt-worker-session-refused':
+        return t('node.text.save.boot-prompt-worker-session-refused', 'A worker session cannot edit a boot prompt; its manager does that. Nothing was saved.');
       case 'no-baseline':
         return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
       case 'not-found':
@@ -702,9 +704,35 @@
 
   // Re-seed from the node whenever its data changes (navigation and post-
   // save invalidateAll) — same pattern as the Content/Abstract/Data editors.
+  // portal#2467: on the FIRST run only, a full-page updateFlow refusal seeds the editor with the
+  // reader's refused draft, so the alert and what they typed appear together. Any later run (a real
+  // node change, a post-save reload) re-seeds from node.data as before.
+  // Ordering matters: this effect is declared before the hidden-input sync effect below, node.data is
+  // read before any early return so the effect keeps tracking it, and `refusedFlowDraft` is a plain
+  // (non-reactive) variable that is cleared inside the effect on purpose, so it can seed only once.
+  // A draft the page cannot read (rows missing or not a JSON array) seeds nothing: the editor shows
+  // the saved flow, rows and write-to and mode together, because an empty editor over a saved flow,
+  // with Save enabled, would wipe it in one click.
+  const initialFlowDraft = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow')?.data ?? null);
+  // Read once: whether the draft is readable decides both the seeding and the re-sync below, so the two
+  // can never disagree.
+  const initialDraftRows = initialFlowDraft ? rowsFromDraftJson(initialFlowDraft.extractionRows) : null;
+  let refusedFlowDraft = initialDraftRows ? initialFlowDraft : null;
+  // Only a draft the editor really seeded from needs the hidden-input re-sync; an unreadable one seeds
+  // nothing, and rewriting the form then would drop the server's refusal text from beside the editor.
+  const seededFromRefusal = refusedFlowDraft !== null;
   $effect(() => {
-    flowRows = rowsFromNodeData(node.data);
-    const output = outputFromNodeData(node.data);
+    const stored = node.data;
+    const draft = refusedFlowDraft;
+    refusedFlowDraft = null;
+    if (draft && initialDraftRows) {
+      flowRows = initialDraftRows;
+      outputWriteTo = typeof draft.outputWriteTo === 'string' ? draft.outputWriteTo : '';
+      outputMode = draft.outputMode === 'append' ? 'append' : 'replace';
+      return;
+    }
+    flowRows = rowsFromNodeData(stored);
+    const output = outputFromNodeData(stored);
     outputWriteTo = output?.writeTo ?? '';
     outputMode = output?.mode ?? 'replace';
   });
@@ -768,10 +796,26 @@
     clearOnSubmit: 'none',
   });
 
+  // portal#2446: the first run must not rewrite flowFormData, which a
+  // full-page updateFlow refusal hydrated with the reader's refused draft.
+  // The dependencies are read BEFORE the early return so the effect still
+  // tracks them and later edits sync as before.
+  //
+  // The visible editor above is seeded from the same refused draft on the first run (portal#2467),
+  // and that seeded run syncs the hidden inputs once, so what Save submits is what the reader sees.
+  let flowSyncMounted = false;
   $effect(() => {
     const rowsJson = flowRowsJson;
     const writeToTrim = outputWriteTo.trim();
     const mode = outputMode;
+    if (!flowSyncMounted) {
+      flowSyncMounted = true;
+      // A seeded draft is re-synced once, so the hidden inputs hold the rows the reader is shown
+      // (normalized), not the raw refused text. Unseeded, the first run still writes nothing.
+      if (!seededFromRefusal) return;
+      const current = get(flowFormData);
+      if (current.extractionRows === rowsJson && current.outputWriteTo === writeToTrim && current.outputMode === mode) return;
+    }
     flowFormData.update((current) => ({
       ...current,
       extractionRows: rowsJson,
@@ -2000,10 +2044,21 @@
   // past that the footer returns, so no field is ever hidden without a pager to
   // reach it.
   const TYPED_PROPERTY_PAGE = 100;
+  // One function says what a value "says": the cell's clipped text, the cell's
+  // title, and the value column's search accessor all render it. The accessor
+  // deliberately DIFFERS from the cell text for absent rows — it returns '' so
+  // an absent value never matches a text search — and for a too-deeply-nested
+  // object it now carries the localized "(too deeply nested to show)" text, so
+  // searching "nested" finds those rows (blind review, #2507, said out loud).
+  function typedPropertyValueText(r: TypedPropertyRow): string {
+    if (!r.present) return r.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—');
+    if (typeof r.value === 'object') return displayJson(r.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)');
+    return String(r.value);
+  }
   const typedPropertyColumns: PortalColumnDef<TypedPropertyRow>[] = [
     { accessorKey: 'name', id: 'field', header: t('node.properties.col-field', 'Field'), enableHiding: false, size: 200 },
     { accessorKey: 'type', header: t('node.properties.col-type', 'Type'), size: 140 },
-    { accessorFn: (r) => (r.present ? (typeof r.value === 'object' ? displayJson(r.value, { compact: true }) ?? '' : String(r.value)) : ''), id: 'value', header: t('node.properties.col-value', 'Value'), size: 320 },
+    { accessorFn: (r) => (r.present ? typedPropertyValueText(r) : ''), id: 'value', header: t('node.properties.col-value', 'Value'), size: 320 },
   ];
   const typedPropertyTable = createSvelteTable<TypedPropertyRow>({
     get data() {
@@ -2297,8 +2352,12 @@
     { accessorFn: (r) => editorLabel(r), id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
     // #914: the snapshot's own recorded authorship and validation, never today's.
     { accessorFn: (r) => historyAuthorshipText(r), id: 'authorship', header: t('node.history.col.authorship', 'Authorship'), enableSorting: false, size: 240 },
-    { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 140 },
-    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
+    { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 260 },
+    // 64px: 28px (h-7 w-7) ⋯ trigger + 32px cell horizontal padding (px-4 × 2)
+    // = 60, + 4px buffer so the trigger's focus ring never leaves the cell —
+    // the audit's remedy (e) floor for a control column, rounded to the 8px
+    // step the table's sizing already uses. Was 56 (#2490).
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 64, minSize: 64 },
   ];
   const revisionTable = createSvelteTable<HistoryRow>({
     get data() {
@@ -2418,10 +2477,9 @@
     historyMenuFor = r;
   }
 
-  // `current` lets a caller whose result can be outlived (the label popup)
-  // fence its own busy/error reporting: a stale request still returns false/true
-  // but touches no page state.
-  async function postRevisionAction(payload: Record<string, unknown>, current: () => boolean = () => true): Promise<boolean> {
+  // The label popup does not come through here: its save can outlive the popup
+  // and carries its own fence (confirmLabel).
+  async function postRevisionAction(payload: Record<string, unknown>): Promise<boolean> {
     historyBusy = true;
     historyError = null;
     try {
@@ -2432,16 +2490,16 @@
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (current()) historyError = d.error ?? 'Revision action failed';
+        historyError = d.error ?? 'Revision action failed';
         return false;
       }
       await invalidateAll(); // refresh the node + the streamed revision list
       return true;
     } catch (e) {
-      if (current()) historyError = e instanceof Error ? e.message : 'Revision action failed';
+      historyError = e instanceof Error ? e.message : 'Revision action failed';
       return false;
     } finally {
-      if (current()) historyBusy = false;
+      historyBusy = false;
     }
   }
 
@@ -2685,15 +2743,38 @@
       printError = null;
       skillExportOpen = false;
       testFlowOpen = false;
-      $testFlowFormData.appId = '';
-      $testFlowFormData.agentRef = '';
-      $testFlowFormData.orgId = data.org?.id ?? '';
-      $testFlowFormData.payload = '';
       moveOpen = false;
       moveFullUrn = false;
-      $moveFormData.target = '';
       closeDeleteConfirm();
-      $deleteFormData.hard = false;
+      // portal#2446: the inverse half of #2057. A full-page (no-JS) refusal
+      // hydrates each sibling superForm's DATA store from the refused action
+      // form (its message store survives, so the alert shows), and this reset
+      // runs on the FIRST mount too, erasing the draft the alert is about.
+      // Same rule as the clearMetaRefusal() guard above: reset these only on
+      // a real node change.
+      // Inside this block `nodeChanged` is false on the first run (lastNodeId
+      // starts undefined) and true on every later run, because the block is
+      // entered only when the node id differs from the previous run's. A
+      // same-node re-run (invalidateAll, a revision bump) does not enter it at
+      // all, so it leaves every form store and every open dialog alone: a kept
+      // draft across a same-node re-run is intended. The test pins the draft and
+      // the open Run dialog (testFlowOpen); the move and delete dialogs follow
+      // from the same entry condition and are not separately pinned. $deleteFormData.hard needs no first-mount
+      // reset: its checkbox only renders inside the delete dialog, and both
+      // ways in (the 'delete' menu case and the Settings danger-zone button)
+      // set hard = false before opening it. The same goes for the move
+      // target ('move' menu case) and the testFlow org default (below).
+      if (nodeChanged) {
+        $testFlowFormData.appId = '';
+        $testFlowFormData.agentRef = '';
+        $testFlowFormData.orgId = data.org?.id ?? '';
+        $testFlowFormData.payload = '';
+        $moveFormData.target = '';
+        $deleteFormData.hard = false;
+      } else if (!$testFlowFormData.orgId) {
+        // First mount: keep a hydrated draft, but the org default still applies.
+        $testFlowFormData.orgId = data.org?.id ?? '';
+      }
       // portal#696: the attach-file dialog is transient too — SvelteKit reuses
       // this component across nodes, so leaving it open would carry it (and its
       // parentLoc, now stale) onto the next node.
@@ -3495,6 +3576,7 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
+            aria-describedby={isCompiledPrompt ? COMPILED_PROMPT_HINT_ID : undefined}
             readonly={writeLocked}
             bind:value={contentDraft.text}
           ></textarea>
@@ -3550,7 +3632,7 @@
     <!-- ═══ ABSTRACT TAB ═══ -->
     {#if activeTab === 'abstract'}
       {#if isCompiledPrompt}
-        <p class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
+        <p id={COMPILED_PROMPT_HINT_ID} class="mb-2 text-sm text-zinc-500 dark:text-zinc-400" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.hint', 'This compiled boot prompt is read-only. Edit the boot source and compile again.')}</p>
       {/if}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
@@ -3583,7 +3665,7 @@
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
-            aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
+            aria-describedby={[isCompiledPrompt ? COMPILED_PROMPT_HINT_ID : null, abstractHint ? 'node-abstract-search-hint' : null].filter(Boolean).join(' ') || undefined}
             readonly={writeLocked}
             bind:value={abstractDraft.text}
           ></textarea>
@@ -3845,19 +3927,30 @@
             >
               {#snippet cell(cell, row)}
                 {#if cell.column.id === 'field'}
-                  <span class="font-mono text-xs text-zinc-700 dark:text-zinc-300">{row.name}{#if row.required}<span class="text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}</span>
+                  <!-- Flex, not one truncating span: the required '*' must stay a shrink-0
+                       SIBLING of the clipped name, or a long field name ellipsizes the
+                       marker and its "Required" title away with it (blind review, #2507). -->
+                  <span class="flex min-w-0 items-baseline gap-1 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+                    <span class="min-w-0 truncate" title={row.name}>{row.name}</span>
+                    {#if row.required}<span class="shrink-0 text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}
+                  </span>
                 {:else if cell.column.id === 'type'}
                   <span class="text-xs text-zinc-500 dark:text-zinc-400">
                     {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}
                   </span>
                 {:else}
-                  <span class="font-mono text-xs text-zinc-900 dark:text-white">
+                  <!-- The branch choice stays here (absent renders italic amber),
+                       but the TEXT inside every branch comes from the one helper,
+                       so the cell, the title, and the filter can't drift apart.
+                       Resolved ONCE per cell: the helper can run displayJson on a
+                       large object, and a render called it two to three times
+                       (blind review, #2507). -->
+                  {@const text = typedPropertyValueText(row)}
+                  <span class="block truncate font-mono text-xs text-zinc-900 dark:text-white" title={text}>
                     {#if !row.present}
-                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
-                    {:else if typeof row.value === 'object'}
-                      {displayJson(row.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)')}
+                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{text}</span>
                     {:else}
-                      {String(row.value)}
+                      {text}
                     {/if}
                   </span>
                 {/if}
@@ -4399,7 +4492,7 @@
               {/if}
             {:else if cell.column.id === 'validation'}
               {@const v = historyValidation(r)}
-              {#if v}<NodeValidationBadge view={v} compact />{/if}
+              {#if v}<HistoryValidationCell view={v} />{/if}
             {:else if cell.column.id === 'actions'}
               <button type="button" data-revision-id={r.id} onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
                 aria-label={t('node.history.row-actions', 'Revision actions')}
@@ -4448,9 +4541,9 @@
                 <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{formatPortalDateTime(r.createdAt)}</span>
               {:else if cell.column.id === 'edge'}
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-zinc-700 dark:text-zinc-300">{r.edgeName ?? '—'}</span>
+                  <span class="block truncate text-zinc-700 dark:text-zinc-300" title={r.edgeName ?? undefined}>{r.edgeName ?? '—'}</span>
                   {#if r.edgeLoc}
-                    <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.edgeLoc}</code>
+                    <code class="block truncate text-xs text-zinc-500 dark:text-zinc-400" title={r.edgeLoc}>{r.edgeLoc}</code>
                   {:else}
                     <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld-edge', 'Not shown')}</span>
                   {/if}
@@ -4458,20 +4551,22 @@
               {:else if cell.column.id === 'target'}
                 <div class="flex flex-col gap-0.5">
                   {#if r.targetLoc}
-                    <code class="text-xs text-zinc-600 dark:text-zinc-400">{r.targetLoc}</code>
+                    <code class="block truncate text-xs text-zinc-600 dark:text-zinc-400" title={r.targetLoc}>{r.targetLoc}</code>
                   {:else}
                     <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld', "Not shown: it was in a memory you can't read.")}</span>
                   {/if}
                   <!-- The stable id is the one handle that outlives the delete. -->
-                  <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.targetId}</code>
+                  <code class="block truncate text-xs text-zinc-500 dark:text-zinc-400" title={r.targetId}>{r.targetId}</code>
                 </div>
               {:else if cell.column.id === 'reason'}
                 <span class="text-zinc-600 dark:text-zinc-400" title={r.reason}>{removalReasonText(r)}</span>
               {:else if cell.column.id === 'removedBy'}
                 {#if r.removedBy}
                   <!-- removedBy is a bare actor id (no resolution field in the
-                       SDL) — shown verbatim rather than guessed at. -->
-                  <code class="text-xs text-zinc-500 dark:text-zinc-400" title={t('node.history.removals.removed-by-title', 'The actor id a soft delete would record (a user, app or client)')}>{r.removedBy}</code>
+                       SDL) — shown verbatim rather than guessed at. The title
+                       carries both the full id and the help text, since the
+                       clipped code can no longer be read in place. -->
+                  <code class="block truncate text-xs text-zinc-500 dark:text-zinc-400" title={[r.removedBy, t('node.history.removals.removed-by-title', 'The actor id a soft delete would record (a user, app or client)')].join(' — ')}>{r.removedBy}</code>
                 {:else}
                   <span class="text-zinc-400">—</span>
                 {/if}

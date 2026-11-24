@@ -3,10 +3,12 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import PendingChange from '$lib/components/secrets/PendingChange.svelte';
+  import PendingUnread from '$lib/components/secrets/PendingUnread.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
+  import { updatedFilterText } from '$lib/secrets/format';
   import { t } from '$lib/i18n/t';
   import type { AppSecret } from '$lib/server/secrets';
   import type { ActionData, PageData } from './$types';
@@ -29,12 +31,14 @@
     updatedMs: parseApiDate(s.updatedAt)?.getTime() ?? 0,
   })));
 
-  /** A staged create has no secret yet: its tracking id is create:<app>:<name>. */
-  const pendingName = (id: string | null) => {
-    if (!id) return null;
-    if (id.startsWith('create:')) return id.split(':').slice(2).join(':') || null;
-    return list.find((s) => s.id === id)?.name ?? null;
-  };
+  /** A staged create has no secret yet and carries the name asked for; any other request names its secret. */
+  // The name a refused create gave back so it can be corrected; a staged or successful create leaves the field empty (portal#2436).
+  const retypedName = $derived.by(() => {
+    const f = form as { name?: string; staged?: boolean; ok?: boolean; message?: string } | null | undefined;
+    return f?.name && !f.staged && !f.ok ? f.name : '';
+  });
+  const pendingName = (p: { secretId: string | null; createName: string | null }) =>
+    p.createName ?? (p.secretId ? (list.find((s) => s.id === p.secretId)?.name ?? null) : null);
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
@@ -51,7 +55,7 @@
     columnResizeMode: 'onChange',
     state: { get globalFilter() { return globalFilter; } },
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
-    globalFilterFn: makeGlobalFilterFn<Row>({ updated: (v) => (typeof v === 'number' && v > 0 ? fmtRunTime(String(v)) : '') }),
+    globalFilterFn: makeGlobalFilterFn<Row>({ updated: updatedFilterText }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 }, sorting: [{ id: 'name', desc: false }] },
   });
 </script>
@@ -76,8 +80,9 @@
     <p class="rounded-lg border border-zinc-300 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{t('secrets.impersonating', 'Impersonation sessions are read-only.')}</p>
   {/if}
 
+  <PendingUnread count={data.pendingUnread} />
   {#each data.pending as p (p.requestId)}
-    <PendingChange {...p} secretName={pendingName(p.secretId)} impersonating={!!data.impersonating} />
+    <PendingChange {...p} secretName={pendingName(p)} impersonating={!!data.impersonating} />
   {/each}
   <div aria-live="polite">
     {#if form && 'message' in form && form.message && form.action === 'withdraw'}
@@ -102,13 +107,13 @@
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
-          <a href="{basePath}/secrets/{row.secret.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.secret.name}</a>
+          <a href="{basePath}/secrets/{row.secret.id}" class="block max-w-full truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300" title={row.secret.name}>{row.secret.name}</a>
         {:else if cell.column.id === 'protected'}
           <span class="rounded-full px-2 py-0.5 text-xs font-medium {row.secret.protected ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'}">{row.protectedText}</span>
         {:else if cell.column.id === 'version'}
           <span>{row.secret.currentVersion ?? '—'}</span>
         {:else if cell.column.id === 'updated'}
-          <time datetime={row.secret.updatedAt} class="whitespace-nowrap">{fmtRunTime(row.secret.updatedAt)}</time>
+          <time datetime={row.secret.updatedAt}>{fmtRunTime(row.secret.updatedAt)}</time>
         {/if}
       {/snippet}
     </DataTable>
@@ -122,7 +127,7 @@
     <form method="POST" action="?/create" use:enhance class="space-y-3">
       <div>
         <label for="secret-name" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.name', 'Name')}</label>
-        <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={form && 'name' in form && form.name && !('staged' in form && form.staged) ? form.name : ''} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+        <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={retypedName} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
         <p id="secret-name-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.name.help', 'Starts with a lowercase letter or digit, then lowercase letters, digits and hyphens, up to 64 characters.')}</p>
       </div>
       <div>

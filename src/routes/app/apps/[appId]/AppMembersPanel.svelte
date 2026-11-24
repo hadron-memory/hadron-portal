@@ -1,5 +1,6 @@
 <script lang="ts">
   import LiveRegion from '$lib/components/LiveRegion.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -187,6 +188,7 @@
       <p class="mt-1 text-sm text-zinc-500">
         Roles below are defined by the linked Agent
         <a href="/app/agents/{app.agent.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{app.agent.name}</a>.
+        <span class="mt-1 block min-w-0 max-w-full"><Urn value={app.agent.urn} type="agent" size={8} /></span>
       </p>
     {:else if agentsWithheld}
       <!-- announced by the region above -->
@@ -285,10 +287,11 @@
           <input type="hidden" name="_kind" value="addAppMember" />
           <input type="hidden" name="userId" bind:value={$addForm.userId} />
           {#if memberRoles.length === 0}
-            <p class="basis-full text-sm text-amber-700 dark:text-amber-400">
+            <p class="basis-full min-w-0 max-w-full text-sm text-amber-700 dark:text-amber-400">
               {t('app-members.add.no-roles', 'This App offers no member roles yet.')}
               {t('app-members.add.no-roles-next', 'An owner or admin of the Agent can add roles on')}
               <a href="/app/agents/{app.agent.id}" class="underline">{app.agent.name}</a>.
+              <span class="mt-1 block min-w-0 max-w-full"><Urn value={app.agent.urn} type="agent" size={8} /></span>
             </p>
           {/if}
           {#if addActionError}

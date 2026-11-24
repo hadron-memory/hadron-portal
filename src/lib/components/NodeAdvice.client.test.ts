@@ -13,6 +13,7 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.restoreAllMocks();
 });
+const adviceBox = (m: Mounted<Record<string, unknown>>) => m.target.querySelector('[data-testid="node-save-advice"]');
 function mountAdvice(initial: string[]) {
   const m = mountComponent(Harness as never, { initial } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -84,7 +85,7 @@ describe('NodeAdvice proximity (#1371, Uma P3-2)', () => {
 describe('NodeAdvice re-delivery (#1447, Uma/Greta from #1441)', () => {
   it('scrolls again for a second advice-bearing save, once per delivery', () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
-    const { set } = mountAdvice([]);
+    const { m, set } = mountAdvice([]);
 
     set([INCLUDE_PIN_UNKEPT_TEXT]);
     expect(scroll).toHaveBeenCalledTimes(1);
@@ -95,5 +96,68 @@ describe('NodeAdvice re-delivery (#1447, Uma/Greta from #1441)', () => {
     set([INCLUDE_PIN_UNKEPT_TEXT]);
     expect(scroll).toHaveBeenCalledTimes(1);
     expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
+    // #2453: the re-delivery scrolls the advice box itself, not anything else.
+    expect(scroll.mock.contexts.at(-1)).toBe(adviceBox(m));
+  });
+
+  it('the delivery boundary hands over the very same array, and an unchanged delivery does not scroll (#2453)', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { set } = mountAdvice([]);
+    const delivered = [INCLUDE_PIN_UNKEPT_TEXT];
+
+    set(delivered);
+    expect(scroll).toHaveBeenCalledTimes(1);
+
+    scroll.mockClear();
+    // Same reference: no new prop value reaches the component, so its effect never runs. This pins the delivery boundary
+    // (the harness hands over the identity it is given, as a load does); it cannot be broken by editing the component.
+    set(delivered);
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it('scrolls again for advice delivered after it was cleared, to the new box (#2453)', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { m, set } = mountAdvice([]);
+    const box = () => adviceBox(m);
+
+    set([INCLUDE_PIN_UNKEPT_TEXT]);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    set([]);
+    expect(box()).toBeNull();
+    expect(scroll).toHaveBeenCalledTimes(1);
+
+    // Advice arriving after a clear is a new delivery, not a first load.
+    set(['another advice line']);
+    expect(scroll).toHaveBeenCalledTimes(2);
+    expect(scroll.mock.contexts.at(-1)).toBe(box());
+    expect(box()).not.toBeNull();
+  });
+
+  it('scrolls for advice delivered after a first-load advice was cleared (#2453)', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { m, set } = mountAdvice([INCLUDE_PIN_UNKEPT_TEXT]);
+    expect(scroll).not.toHaveBeenCalled();
+
+    set([]);
+    expect(scroll).not.toHaveBeenCalled();
+
+    set(['later advice line']);
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts.at(-1)).toBe(adviceBox(m));
+  });
+
+  it('an empty delivery never scrolls, whether advice was showing or not (#2453)', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { set } = mountAdvice([]);
+
+    set([]);
+    expect(scroll).not.toHaveBeenCalled();
+
+    set([INCLUDE_PIN_UNKEPT_TEXT]);
+    expect(scroll).toHaveBeenCalledTimes(1); // advice was showing
+    scroll.mockClear();
+    set([]);
+    set([]);
+    expect(scroll).not.toHaveBeenCalled();
   });
 });

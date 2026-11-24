@@ -467,13 +467,13 @@
        detail page), so personal rows render just the Edit link. -->
   {#snippet memoryCell(cell: PortalCell<MemoryRow, unknown>, m: MemoryRow)}
     {#if cell.column.id === 'name'}
-      <div class="truncate">
+      <div class="truncate" title={m.name}>
         <a href="/app/memories/{m.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
       </div>
     {:else if cell.column.id === 'urn'}
       <Urn value={m.urn} type="memory" size={10} />
     {:else if cell.column.id === 'type'}
-      <span data-testid="row-type-badge" class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
+      <span data-testid="row-type-badge" class="inline-block max-w-full rounded px-1.5 py-0.5 text-xs [overflow-wrap:anywhere] {badgeClass(m)}">{m.badge}</span>
     {:else if cell.column.id === 'vectorIndex'}
       {#if m.vectorIndexEnabled}
         <div class="flex flex-col gap-0.5">
@@ -504,13 +504,13 @@
 
   {#snippet subscriptionCell(cell: PortalCell<SubscriptionRow, unknown>, s: SubscriptionRow)}
     {#if cell.column.id === 'name'}
-      <div class="truncate">
+      <div class="truncate" title={s.memory.name}>
         <a href="/app/memories/{s.memory.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{s.memory.name}</a>
       </div>
     {:else if cell.column.id === 'urn'}
       <Urn value={s.memory.urn} type="memory" size={10} />
     {:else if cell.column.id === 'role'}
-      <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
+      <span class="inline-block max-w-full rounded px-1.5 py-0.5 text-xs [overflow-wrap:anywhere] bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
     {:else if cell.column.id === 'actions'}
       <NodeActionsMenu
         actions={[{ id: 'unsubscribe', label: t('org-memories.action.unsubscribe', 'Unsubscribe'), danger: true }]}

@@ -23,6 +23,7 @@
   import type { PortalCell, PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
   import { untrack, type Snippet } from 'svelte';
+  import { scrollHint } from '$lib/scroll-hint';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
   import TableFrame from './TableFrame.svelte';
@@ -43,6 +44,7 @@
     initialColumnsOnly = false,
     sortButtons = false,
     bounded = false,
+    contentHeight = false,
     fitOnPhone = false,
     phoneHiddenColumns = [],
     containCells = false,
@@ -70,6 +72,9 @@
     /** A list inside a dialog, picker or detail section: the scroll area keeps one fixed
      *  height (BOUNDED_MAX_HEIGHT) instead of filling the window. Full-page lists leave it off. */
     bounded?: boolean;
+    /** The scroll area grows to its rows and never cuts one: for a short, paged list inside a
+     *  page that scrolls (a page size of 10 rows is the longest it gets). Wins over `bounded`. */
+    contentHeight?: boolean;
     /** Fit a SINGLE-column table and its header to the scroller on phones; desktop saved widths stay live. */
     fitOnPhone?: boolean;
     /** Column ids hidden below `sm` by CSS only (no JS visibility, so no hydration flash and
@@ -110,7 +115,7 @@
   // then runs past the window bottom and the page scrolls to it, as before.
   const FILL_FLOOR_RATIO = 0.4;
   function measureFill() {
-    if (bounded || !scrollerEl) return;
+    if (bounded || contentHeight || !scrollerEl) return;
     const next = fillHeight({
       viewportHeight: window.innerHeight,
       top: scrollerEl.getBoundingClientRect().top + window.scrollY,
@@ -142,7 +147,7 @@
   // parents re-run the registration. The footer comes and goes (`showFooter`) and `bounded` can
   // flip: the effect re-registers for whichever is there now.
   $effect(() => {
-    if (bounded) return;
+    if (bounded || contentHeight) return;
     const scroller = scrollerEl;
     const footer = footerEl;
     return untrack(() => {
@@ -167,7 +172,7 @@
       return () => { resizes?.disconnect(); mutations?.disconnect(); window.removeEventListener('resize', measureFill); };
     });
   });
-  const scrollerMaxHeight = $derived(bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');
+  const scrollerMaxHeight = $derived(contentHeight ? 'none' : bounded ? BOUNDED_MAX_HEIGHT : fillPx !== null ? `${fillPx}px` : 'max(200px, calc(100vh - 23rem))');
 
   /** Phone width (px) a sticky end column is clamped to below the `sm`
    * breakpoint — the one source for both the header width and the table-width
@@ -245,7 +250,8 @@
 <!-- Bounded, internally-scrolling container so the page itself doesn't
      scroll and the pagination footer below stays visible. The `<thead>`
      is sticky so column headers remain while the body scrolls. -->
-<div bind:this={scrollerEl} data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {scrollerMaxHeight};">
+<div class="relative" style={phoneEndColumnWidth !== undefined ? `--scroll-cue-pin: ${phoneEndColumnWidth}px;` : undefined}>
+<div bind:this={scrollerEl} use:scrollHint data-testid="data-table-scroller" class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {scrollerMaxHeight};">
   <table aria-labelledby={labelledBy} class="table-fixed w-[var(--table-desktop-w)] max-sm:w-[var(--phone-table-w)] text-sm" style="--table-desktop-w: {desktopTableWidth}; --phone-table-w: {phoneTableWidth};{phoneEndColumnWidth !== undefined ? ` --phone-end-w: ${phoneEndColumnWidth}px;` : ''}">
     <thead>
       {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
@@ -310,7 +316,11 @@
           {...rowAttrs ? rowAttrs(row.original) : {}}
         >
           {#each row.getVisibleCells() as c (c.id)}
-            <td data-cell-contained={containCells ? '' : undefined} class="{containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {phoneHidden.includes(c.column.id) ? 'max-sm:hidden ' : ''}{singleColumnFit ? 'max-sm:border-r-0 ' : ''}{c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:z-[1] max-sm:bg-inherit max-sm:focus-within:z-30 max-sm:has-[[data-menu-open]]:z-30' : ''}">
+            <!-- portal#2548: `relative` anchors an absolutely positioned label inside its own cell (an sr-only label would otherwise be
+                 placed against the page and widen it). It clips nothing new: a cell clips only what its own box contains, and the one cell menu,
+                 NodeActionsMenu, is its own `relative` root with a `fixed` variant, so its containing block was already inside the cell. Pinned in
+                 DataTable.td-anchor.test.ts. -->
+            <td data-cell-contained={containCells ? '' : undefined} class="relative {containCells ? 'overflow-hidden [overflow-wrap:anywhere]' : ''} border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400 {phoneHidden.includes(c.column.id) ? 'max-sm:hidden ' : ''}{singleColumnFit ? 'max-sm:border-r-0 ' : ''}{c.column.id === stickyEndColumn ? 'max-sm:sticky max-sm:left-0 max-sm:right-0 max-sm:z-[1] max-sm:bg-inherit max-sm:focus-within:z-30 max-sm:has-[[data-menu-open]]:z-30' : ''}">
               {@render cell(c, row.original)}
             </td>
           {/each}
@@ -318,6 +328,12 @@
       {/each}
     </tbody>
   </table>
+</div>
+<!-- #2461: the edge cues that say the table scrolls sideways (see .table-scroll-cue in app.css).
+     #2503: on the phone a pinned end column is opaque and sits on the scroller's right edge, so the end cue stops at the
+     pin (--scroll-cue-pin) instead of painting under it; from `sm` up the pin is not sticky and the cue keeps the edge. -->
+<div aria-hidden="true" data-testid="data-table-scroll-cue-start" class="table-scroll-cue table-scroll-cue-start pointer-events-none absolute inset-y-px left-px w-6 rounded-l-lg transition-opacity"></div>
+<div aria-hidden="true" data-testid="data-table-scroll-cue-end" class="table-scroll-cue table-scroll-cue-end pointer-events-none absolute inset-y-px right-px w-6 rounded-r-lg transition-opacity {phoneEndColumnWidth !== undefined ? 'max-sm:right-[calc(1px+var(--scroll-cue-pin))] max-sm:rounded-none' : ''}"></div>
 </div>
 </TableFrame>
 

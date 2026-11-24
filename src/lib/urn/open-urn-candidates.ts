@@ -43,12 +43,12 @@ const OPENABLE_TYPE_WORDS = new Set([
  * page resolves it. That is the library behaving as designed and this module
  * asking the wrong parser.
  *
- * Only `worker` is listed. The other v2-only words — `apprun`, `noderev`,
+ * `worker` and (#1914) `agenttask` are listed. The other v2-only words — `apprun`, `noderev`,
  * `appkey`, `aiconf`, `tool`, `server`, `userapikey`, `agentschedule`,
  * `agentwebhook` — have no portal page yet, so guessing them would still
  * dead-end. Add one here when `/app/u` learns to redirect it.
  */
-const OPENABLE_V2_ONLY_TYPES = new Set(['worker']);
+const OPENABLE_V2_ONLY_TYPES = new Set(['worker', 'agenttask']);
 
 /** `marker:` prefixes whose presence in a final segment flags a role-marker
  *  memory URN (e.g. per-user `org::agent::app-user:<id>`), not a node loc. */

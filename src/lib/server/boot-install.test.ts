@@ -90,20 +90,27 @@ describe('compile and approval outcomes', () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
   it.each([
-    ['FORBIDDEN', 'This change was refused.'],
-    ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs an active grant to customise this Agent.'],
-    // #2410 BLIND P2: NODE_WRITE_CONFLICT on a start is the server's "changed
-    // while the write waited", which names no edit, so the lead must not either.
-    ['NODE_WRITE_CONFLICT', 'The start could not be completed. Reload before trying again.'],
-  ])('portal#1755: an empty-source start refused with %s claims no kept draft and hints at no source', async (code, lead) => {
+    ['FORBIDDEN', 'This change was refused.', 403],
+    ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs an active grant to customise this Agent.', 403],
+    // On a start this code means the write changed while it waited, which names
+    // no edit, so the lead must not either. It is a conflict, not a refusal.
+    ['NODE_WRITE_CONFLICT', 'The start could not be completed. Reload the page before trying again.', 409],
+  ])('portal#1755: an empty-source start refused with %s claims no kept draft and hints at no source', async (code, lead, status) => {
     // No draft exists to keep, and the server's answer teaches nothing about a
     // source, so the start refusal states the refusal and nothing more.
     const request = vi.fn().mockResolvedValueOnce(worker).mockRejectedValueOnce(error(code));
     const result = await writeInstallPrompt({ request } as never, owner, { intent: 'start' }, false);
     expect(result.ok).toBe(false);
-    expect('status' in result && result.status).toBe(403);
-    expect(result.text).toBe(lead);
+    expect('status' in result && result.status).toBe(status);
+    expect(result.text).toContain(lead);
     expect(result.text).not.toMatch(/draft|edit|saved|source/i);
+  });
+  it('an unknown code on a start is an unconfirmed outcome (502), never a 403 refusal', async () => {
+    const request = vi.fn().mockResolvedValueOnce(worker).mockRejectedValueOnce(error('SOMETHING_NEW'));
+    const result = await writeInstallPrompt({ request } as never, owner, { intent: 'start' }, false);
+    expect(result).toMatchObject({ ok: false, status: 502 });
+    expect(result.text).toContain('Could not confirm the source was started');
+    expect(result.text).not.toMatch(/draft/i);
   });
   const install = { installMemory: { id: 'install', urn: 'hrn:mem:example.com:install' } };
   const node = { node: { id: 'c', urn: 'hrn:node:example.com:install:boot:compiled', revision: 3, content: 'compiled', approvalStatus: { state: 'NOT_APPROVED', approval: null }, lintWarnings: null } };

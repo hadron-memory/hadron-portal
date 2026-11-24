@@ -177,6 +177,6 @@ describe('memory assets loader', () => {
     await (load as (e: unknown) => Promise<unknown>)(event);
     const [, vars] = mockRequest.mock.calls.find(([doc]) => doc === MEMORY_ASSETS_QUERY)!;
     expect((vars as { mine?: boolean }).mine).toBeUndefined();
-    expect((vars as { memoryId: string }).memoryId).toBe('mem-1');
+    expect((vars as { memoryRef: string }).memoryRef).toBe('mem-1');
   });
 });

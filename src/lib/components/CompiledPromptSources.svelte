@@ -3,6 +3,7 @@
   import Urn from './Urn.svelte';
   import BootProvenance from './BootProvenance.svelte';
   import type { CompiledPromptOwner } from '$lib/compiled-prompt-owner';
+  import { COMPILED_PROMPT_HINT_ID } from '$lib/compiled-boot-prompt';
 
   // portal#1901: what a compiled boot prompt page says in place of an editor: it is generated, here are its
   // sources, edit those and recompile. Reuses the paged provenance table, which reads each source's name and URN
@@ -12,7 +13,7 @@
 </script>
 
 <section aria-label={t('node.compiled-prompt.region', 'Compiled boot prompt sources')} class="mb-4 space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800" data-testid="compiled-prompt-sources">
-  <p class="text-sm text-zinc-600 dark:text-zinc-300" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.sources-hint', 'This compiled boot prompt is generated from the sources listed below, so it is read-only. To change it, edit those sources on their own node pages like any other node, then recompile and approve the new revision. It does not change what is served until it is approved.')}</p>
+  <p id={COMPILED_PROMPT_HINT_ID} class="text-sm text-zinc-600 dark:text-zinc-300" data-testid="compiled-prompt-hint">{t('node.compiled-prompt.sources-hint', 'This compiled boot prompt is generated from the sources listed below, so it is read-only. To change it, edit those sources on their own node pages like any other node, then recompile and approve the new revision. It does not change what is served until it is approved.')}</p>
   <p class="text-sm text-zinc-600 dark:text-zinc-300" data-testid="compiled-prompt-recompile">
     {#if owner?.kind === 'agent'}
       {t('node.compiled-prompt.recompile-agent-before', 'Recompile it from the boot prompt section on the page of')} <a href={owner.href} class={linkClass}>{owner.name ?? t('node.compiled-prompt.agent-fallback', 'its Agent')}</a>{#if owner.urn} <Urn value={owner.urn} type="agent" />{/if}{t('node.compiled-prompt.recompile-after', ', then approve the new revision.')}

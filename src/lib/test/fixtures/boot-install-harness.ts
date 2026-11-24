@@ -18,7 +18,7 @@ export function mountBootInstall(target: HTMLElement, variant: 'app' | 'worker' 
         { name: 'Previous operating guide', urn: 'hrn:node:example.com:policies:guide', omitted: false, depth: 1, revNo: 1, selection, pruned: true },
       ] } });
     }
-    if (init?.method === 'POST') return Response.json({ key, ok: false, text: 'Couldn’t confirm whether the prompt was built. Reload to check before trying again.' });
+    if (init?.method === 'POST') return Response.json({ key, ok: false, text: 'Couldn’t confirm whether the prompt was built. Reload the page to check before trying again.' });
     return Response.json({ key, canStart: variant === 'source', source: null, pointerMatches: false, compiled: variant === 'source' ? null : { id: 'compiled', urn: 'hrn:node:example.com:install:boot:compiled', revision: 4, content: 'You are the engineering helper.\n\nFollow the approved safety guidance.', pending: true, lint: null } });
   };
   const instance = mount(BootInstallCompile, { target, props: { owner, canManage: true, title: owner.level === 'app' ? 'Boot prompt for Engineering helper in this App' : 'Worker boot prompt' } });

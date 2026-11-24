@@ -117,6 +117,10 @@ jobs:
       - name: Check memory Usage toolbar phone layout
         run: pnpm test:usage-toolbar-layout
 
+      # portal#2564: a 64-character worker name wraps in the detail H1 instead of widening the page.
+      - name: Check worker detail title row layout
+        run: pnpm test:worker-title-row-layout
+
       # portal#1826: the Org Integrations Add/select/Configure row at 390px.
       - name: Check Org Integrations add-row phone layout
         run: pnpm test:org-integrations-row-layout
@@ -168,6 +172,11 @@ jobs:
       - name: Check DataTable fill layout
         run: pnpm test:data-table-fill-layout
 
+      # portal#2503: the DataTable scroll cue at phone width behind a pinned end column, and its
+      # dark-mode shade, in real Chromium with the compiled CSS.
+      - name: Check DataTable scroll cue layout
+        run: pnpm test:data-table-scroll-cue-layout
+
       # portal#1711: the TaskHistory link values — touch targets, wrapping and
       # overflow at 390px and 1280px, in real Chromium with compiled CSS.
       - name: Check TaskHistory link layout
@@ -178,6 +187,26 @@ jobs:
       - name: Check Findings dispositions layout
         run: pnpm test:task-findings-dispositions-layout
 
+      # portal#2440: the question card (#2234) in real Chromium — the states, the
+      # impersonation/stranger gates, the typed refusal regions, and the keyboard
+      # and screen-reader pass the manual pass left undone.
+      - name: Check Question card layout and live regions
+        run: pnpm test:question-card-layout
+        env:
+          HADRON_LAYOUT_SHOTS: test-results/question-card
+
+      # The eight committed shots in shots/ are the PR's review evidence; CI also
+      # regenerates them every run and uploads them, so drift from the committed
+      # baselines is visible without a pixel-compare gate (which would flake
+      # across Chromium versions).
+      - name: Upload Question card screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: question-card-layout
+          path: test-results/question-card
+          if-no-files-found: ignore
+
       # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
       - name: Check Nodes tab lazy reads
         run: pnpm test:nodes-tab-lazy
@@ -187,6 +216,18 @@ jobs:
 
       - name: Check opt-in table cell paint and interactive minima
         run: pnpm test:table-cell-overflow-layout
+        env:
+          CELL_SHOTS: test-results/table-cell-overflow
+
+      # The legs that passed, plus a FAILED-<leg>.png of the leg that threw (a leg that only queues findings has none).
+      - name: Upload table cell containment screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: table-cell-overflow-layout
+          path: test-results/table-cell-overflow
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Check compact terminal containment
         run: pnpm test:terminal-status-layout
@@ -206,6 +247,14 @@ jobs:
 
       - name: Check App Keys tab layout (Generate Key centering, table width)
         run: pnpm test:app-keys-layout
+
+      # portal#2532: the Agent URN chips in the App members panel at 390px with a very long URN
+      # (real Chromium, compiled CSS, the real panel): copy buttons whole, no clipping ancestor.
+      - name: Check members panel Agent URN layout
+        run: pnpm test:members-panel-urn-layout
+
+      - name: Check memory share Shared-by cell containment (portal#2509)
+        run: pnpm test:memory-shares-granted-by-layout
 
       - name: Check disabled AI config row menu pointer access
         run: pnpm test:ai-config-row-menu

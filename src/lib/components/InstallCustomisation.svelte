@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { t } from '$lib/i18n/t';
   import Urn from './Urn.svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
@@ -10,6 +10,7 @@
   import { postSourceSave } from '$lib/json-draft.svelte';
   import {
     customisationKey,
+    reloadDiscardLabel,
     type CustomisationRead,
     type InstallNode,
   } from '$lib/install-customisation';
@@ -43,6 +44,20 @@
   let pendingSave = 0;
   let alive = true;
   let heading = $state<HTMLHeadingElement>();
+  let listZone = $state<HTMLDivElement>();
+  // portal#2549: the list zone unmounts controls under the reader's focus (every load, and the
+  // one-row search box). Focus then falls to body, so it is handed to the panel heading instead.
+  let focusPending = false;
+  function focusLeftBehind() {
+    const active = document.activeElement;
+    return !active || active === document.body || !active.isConnected;
+  }
+  async function restoreFocus() {
+    if (!focusPending) return;
+    focusPending = false;
+    await tick();
+    if (alive && focusLeftBehind() && heading?.isConnected) heading.focus();
+  }
   const secondaryButton =
     'inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 dark:disabled:border-zinc-800 dark:disabled:bg-zinc-900 dark:disabled:text-zinc-600';
   const unsaved = $derived(
@@ -114,6 +129,14 @@
       : t('customisation.past-end', 'This page is past the last one. There are {total} customisations.', vars);
   });
   const rows = $derived(read.list.state === 'ok' ? read.list.value.nodes : []);
+  // portal#1369: one row in total is the whole list, so a search box over it and a pager whose
+  // both buttons are disabled have nothing to act on. The table and the count line stay.
+  const oneRow = $derived(
+    read.list.state === 'ok' &&
+      read.list.value.total === 1 &&
+      read.list.value.nodes.length === 1 &&
+      read.list.value.offset === 0,
+  );
   const columns: PortalColumnDef<
     Pick<InstallNode, 'id' | 'urn' | 'loc' | 'name'>
   >[] = [
@@ -139,6 +162,7 @@
   async function load(nextOffset = offset, nextLoc = loc, discard = false) {
     pendingSave++;
     busy = false;
+    focusPending ||= listZone?.contains(document.activeElement) ?? false;
     const serial = ++sequence;
     const key = customisationKey(appRef, agent.id, nextLoc);
     const url = `/app/apps/${encodeURIComponent(appRef)}/customisation?agent=${encodeURIComponent(agent.id)}&offset=${nextOffset}${nextLoc ? `&loc=${encodeURIComponent(nextLoc)}` : ''}`;
@@ -162,6 +186,7 @@
       )
         return;
       read = result;
+      void restoreFocus();
       if (
         result.replacement.state === 'ok' &&
         typeof result.replacement.value.content === 'string'
@@ -185,8 +210,20 @@
           replacement: { state: 'failed' },
           original: { state: 'failed' },
         };
+      if (alive && serial === sequence) void restoreFocus();
     }
   }
+  const showSearch = $derived(!oneRow || customisationFilter !== '');
+  $effect.pre(() => {
+    if (!showSearch) return;
+    return () => {
+      // Runs before the DOM update that removes the box, while it still holds focus.
+      if (listZone?.contains(document.activeElement)) focusPending = true;
+    };
+  });
+  $effect(() => {
+    if (!showSearch && focusPending) void restoreFocus();
+  });
   export function reveal() {
     if (!alive || !heading?.isConnected) return;
     heading.focus();
@@ -283,6 +320,7 @@
   <p class="text-sm text-zinc-500">{t('customisation.compile-only','Replacements apply when compiling for this App. Ordinary node reads are unchanged.')}</p>
   {#if canManage===false}<p class="text-sm text-zinc-500">{t('customisation.read-only','You can view these customisations. Only someone who manages this App can change them.')}</p>{/if}
   <LiveRegion>{#if read.list.state==='loading'}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
+  <div bind:this={listZone}>
   {#if read.list.state==='loading'}<!-- announced by the LiveRegion above -->
   {:else if read.list.state==='failed'}<p role="alert">{t('customisation.load-failed','Couldn’t load customisations.')}</p><button type="button" class={secondaryButton} disabled={busy} onclick={()=>openPage(offset,loc)}>{t('customisation.retry','Retry')}</button>
   {:else if read.list.state==='not-shown'}<p>{t('customisation.not-shown','Not shown')}</p>
@@ -298,7 +336,7 @@
     {/if}
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
-    <DataTable {table} showFooter={false} bind:globalFilter={customisationFilter} searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
+    <DataTable {table} showFooter={false} {showSearch} bind:globalFilter={customisationFilter} searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
       {#snippet cell(cell)}
         <div class="min-w-0 whitespace-normal break-words font-medium">{cell.row.original.name}</div>
         <div class="mt-1 whitespace-normal break-all font-mono text-xs text-zinc-500">{cell.row.original.loc}</div>
@@ -308,8 +346,9 @@
     </DataTable>
     <!-- portal#1509: a search that matches nothing says so. The region is already mounted before the filter runs (portal#2379). -->
     <LiveRegion>{#if table.getRowModel().rows.length === 0 && customisationFilter.trim() !== ''}<p data-testid="customisation-no-match" class="mt-2 break-words text-sm text-zinc-500">{t('customisation.no-match', 'No customisations on this page match your search.')}</p>{/if}</LiveRegion>
-    <div class="mt-2 flex flex-wrap gap-3"><button type="button" class={secondaryButton} disabled={busy||offset===0} title={offset===0?t('customisation.first-page','Already on the first page'):undefined} onclick={()=>openPage(Math.max(0,offset-PAGE),null)}>{t('customisation.previous','Previous')}</button><button type="button" class={secondaryButton} disabled={busy||offset+PAGE>=read.list.value.total} title={offset+PAGE>=read.list.value.total?t('customisation.last-page','No more customisations'):undefined} onclick={()=>openPage(offset+PAGE,null)}>{t('customisation.next','Next')}</button><span>{countText}</span></div>
+    <div class="mt-2 flex flex-wrap gap-3">{#if !oneRow}<button type="button" class={secondaryButton} disabled={busy||offset===0} title={offset===0?t('customisation.first-page','Already on the first page'):undefined} onclick={()=>openPage(Math.max(0,offset-PAGE),null)}>{t('customisation.previous','Previous')}</button><button type="button" class={secondaryButton} disabled={busy||offset+PAGE>=read.list.value.total} title={offset+PAGE>=read.list.value.total?t('customisation.last-page','No more customisations'):undefined} onclick={()=>openPage(offset+PAGE,null)}>{t('customisation.next','Next')}</button>{/if}<span>{countText}</span></div>
   {/if}
+  </div>
   <!-- portal#2379: the empty-list note arrives after a page change, so it goes in a region that is already mounted. -->
   <LiveRegion>{#if pastEnd}<p data-testid="customisation-past-end" class="mt-2 text-sm text-zinc-500">{pastEndText}</p>{:else if read.list.state==='ok'&&read.list.value.nodes.length===0}<p data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Nothing is listed here. The node list is temporarily limited, so this may not be the full set.')}</p>{/if}</LiveRegion>
   {#if canManage!==false}<button type="button" class={`mt-3 ${secondaryButton}`} disabled={busy} onclick={start}>{t('customisation.start','Start customising')}</button>{/if}
@@ -335,7 +374,7 @@
         {:else if read.replacement.state==='loading'}<!-- announced by the LiveRegion above -->
         {:else if read.replacement.state==='failed'}<p role="alert">{t('customisation.node-failed','Couldn’t load this replacement.')}</p>
         {:else}<p>{t('customisation.not-shown','Not shown')}</p>{/if}
-        {#if canManage!==false}<button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{t('customisation.reload-discard','Reload and discard draft')}</button>{/if}
+        {#if canManage!==false}<button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{reloadDiscardLabel()}</button>{/if}
         <!-- Both regions are mounted empty before any save, so a result lands in a region already observed (#1369). -->
         <p role="status" data-feedback class="text-sm [&:not(:empty)]:mt-2">{failed?'':feedback}</p>
         <p role="alert" data-feedback class="text-sm [&:not(:empty)]:mt-2">{failed?feedback:''}</p>

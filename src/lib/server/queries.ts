@@ -1843,8 +1843,8 @@ export const NODE_EDGE_REMOVALS_QUERY = /* GraphQL */ `
 // #529: a single revision's full snapshot (incl. content) for the read-only
 // "Display" view. Access-gated server-side; null when unreadable/missing.
 export const NODE_REVISION_QUERY = /* GraphQL */ `
-  query NodeRevision($revisionId: ID!) {
-    nodeRevision(revisionId: $revisionId) {
+  query NodeRevision($nodeRevRef: String!) {
+    nodeRevision(nodeRevRef: $nodeRevRef) {
       id
       revNo
       nodeId
@@ -1886,6 +1886,8 @@ const PROVENANCE_FIELDS = /* GraphQL */ `
   fragment NodeContentValidationFields on NodeContentValidationStatus {
     state
     latestReport {
+      # authorCheck: hadron-server#1332 (closed), already in schema/schema.graphql; null on a report recorded before it.
+      authorCheck
       nodeRevision
       validationTaskRef
       validationTaskRevision
@@ -1954,8 +1956,8 @@ export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
 
 export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
   ${PROVENANCE_FIELDS}
-  query NodeRevisionProvenance($revisionId: ID!) {
-    nodeRevision(revisionId: $revisionId) {
+  query NodeRevisionProvenance($nodeRevRef: String!) {
+    nodeRevision(nodeRevRef: $nodeRevRef) {
       id
       revNo
       authorship { ...NodeAuthorshipFields }
@@ -1968,20 +1970,20 @@ export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
 // restores the node to the revision AND deletes newer snapshots (atomic); delete
 // removes one snapshot; clear removes all for a node (returns the count).
 export const RESTORE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation RestoreNodeRevision($revisionId: ID!, $truncate: Boolean) {
-    restoreNodeRevision(revisionId: $revisionId, truncate: $truncate) { id }
+  mutation RestoreNodeRevision($nodeRevRef: String!, $truncate: Boolean) {
+    restoreNodeRevision(nodeRevRef: $nodeRevRef, truncate: $truncate) { id }
   }
 `;
 
 export const DELETE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation DeleteNodeRevision($revisionId: ID!) { deleteNodeRevision(revisionId: $revisionId) }
+  mutation DeleteNodeRevision($nodeRevRef: String!) { deleteNodeRevision(nodeRevRef: $nodeRevRef) }
 `;
 
 // #534: set or clear a revision's user-facing label (NodeRevision.revLabel,
 // 500-char cap on the server). Passing null clears it; omitting preserves.
 export const UPDATE_NODE_REVISION_MUTATION = /* GraphQL */ `
-  mutation UpdateNodeRevision($revisionId: ID!, $revLabel: String) {
-    updateNodeRevision(revisionId: $revisionId, revLabel: $revLabel) { id revLabel }
+  mutation UpdateNodeRevision($nodeRevRef: String!, $revLabel: String) {
+    updateNodeRevision(nodeRevRef: $nodeRevRef, revLabel: $revLabel) { id revLabel }
   }
 `;
 
@@ -2303,6 +2305,17 @@ export const REVOKE_APP_KEY_MUTATION = /* GraphQL */ `
 export const GRANT_APP_KEY_SCOPE_MUTATION = /* GraphQL */ `
   mutation GrantAppKeyScope($id: ID!, $scope: String!, $hostId: String) {
     grantAppKeyScope(id: $id, scope: $scope, hostId: $hostId) {
+      id
+    }
+  }
+`;
+
+// portal#2319 — revokeAppKeyScope(id, scope): takes one scope off a live key.
+// Nothing is read back: a success invalidates the page and the Scopes column
+// re-reads.
+export const REVOKE_APP_KEY_SCOPE_MUTATION = /* GraphQL */ `
+  mutation RevokeAppKeyScope($id: ID!, $scope: String!) {
+    revokeAppKeyScope(id: $id, scope: $scope) {
       id
     }
   }
@@ -3036,8 +3049,8 @@ export const SESSIONS_QUERY = /* GraphQL */ `
 `;
 
 export const USAGE_EVENTS_QUERY = /* GraphQL */ `
-  query UsageEvents($type: String, $memoryId: ID, $limit: Int, $offset: Int) {
-    usageEvents(type: $type, memoryId: $memoryId, limit: $limit, offset: $offset) {
+  query UsageEvents($type: String, $memoryRef: ID, $limit: Int, $offset: Int) {
+    usageEvents(type: $type, memoryRef: $memoryRef, limit: $limit, offset: $offset) {
       id
       type
       nodeLoc
@@ -4165,7 +4178,7 @@ export const MEMORY_USAGE_SUMMARY_QUERY = /* GraphQL */ `
 // @deprecated in favour of `usageEvents(loc:)`.
 //
 // If a per-loc usage feed is ever needed here, use `usageEvents(loc: <loc>)`
-// and NOT `usageEvents(nodeId: <loc>)` — the latter's shape classification
+// and NOT `usageEvents(nodeRef: <loc>)` — the latter's shape classification
 // misroutes hierarchical locs, which is every spec citation (>=3 colon
 // segments). Recorded rather than left to be rediscovered from the issue.
 
@@ -4704,10 +4717,12 @@ export const APP_RUN_HOPS_QUERY = /* GraphQL */ `
 
 // The kill switch (guarded server-side: only a still-RUNNING/PENDING row
 // transitions; a raced terminal state survives in the audit log).
+// `id:` -> `ref:` per hadron-server#4141 S5 (#4789, hard rename, no alias —
+// hrn:node:hadronmemory.com:specs:cor:api:140:01); portal#2498.
 export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  mutation CancelAppRun($id: ID!) {
-    cancelAppRun(id: $id) {
+  mutation CancelAppRun($ref: ID!) {
+    cancelAppRun(ref: $ref) {
       ...AppRunFields
     }
   }
@@ -5631,6 +5646,10 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
     agentTask(id: $id) {
       ...AgentTaskRowFields
       appId
+      # #1914 (hadron-server#3878): the served address, hrn:agenttask:<root>:<app-slug>:<handle>.
+      # Detail only: the server computes it per task from the App's urn, so the list
+      # and tree fragments do not ask for it. Rendered as served; the portal composes none for display.
+      urn
       description
       requirements { role familyIn familyNotIn excludeWorkerIds minTier }
       createdBy { ...AgentTaskPartyFields }
@@ -5809,7 +5828,6 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
         pausedUntil
         currentTask { id title status }
         heldBy { id handle urn name }
-        heldAt
         # portal#1492: state, reason and age only — never the host label or prompt.
         terminal { status reason checkedAt }
       }
@@ -6233,6 +6251,19 @@ export const ACKNOWLEDGE_ALARM_MUTATION = /* GraphQL */ `
   }
 `;
 
+// portal#2311 — the App's host registrations for the Grant-scope dialog's host
+// picker. Read when the dialog opens, in its own request; the fields are the
+// picker's row (id, label, liveness) and nothing else.
+export const APP_HOST_REGISTRATIONS_QUERY = /* GraphQL */ `
+  query AppHostRegistrations($appRef: String!) {
+    hostRegistrations(appRef: $appRef) {
+      hostId
+      label
+      live
+    }
+  }
+`;
+
 // portal#2234 (Questions P1, epic hadron-server#1641): the question card.
 // Needs a server serving 2bc8d228 (hadron-server#4532 merge, with #4427 and
 // #4428) or later; the portal deploys only after production serves it.
@@ -6281,4 +6312,54 @@ export const WITHDRAW_QUESTION_MUTATION = /* GraphQL */ `
   mutation WithdrawQuestion($ref: ID!, $reason: String!, $expectedRevision: Int!) {
     withdrawQuestion(ref: $ref, reason: $reason, expectedRevision: $expectedRevision) { ...QuestionCardFields }
   }
+`;
+
+/**
+ * portal#2464 (hadron-server#4777, hrn:node:hadronmemory.com:specs:cor:agt:060:16): the roles the App's
+ * saturation alarms wake. Its own query, never APP_QUERY, so a refusal or a failed read costs this setting
+ * alone. Readers are whoever may read the App's roster; anyone else gets APP_NOT_FOUND.
+ */
+export const APP_SATURATION_ALARM_WAKE_ROLES_QUERY = /* GraphQL */ `
+  query AppSaturationAlarmWakeRoles($appRef: ID!) {
+    saturationAlarmWakeRoles(appRef: $appRef) { appId roles }
+  }
+`;
+
+/** portal#2464: set the WHOLE list (the empty list clears it). Whoever manages the App. */
+export const SET_SATURATION_ALARM_WAKE_ROLES_MUTATION = /* GraphQL */ `
+  mutation SetSaturationAlarmWakeRoles($appRef: ID!, $roles: [String!]!) {
+    setSaturationAlarmWakeRoles(appRef: $appRef, roles: $roles) { appId roles }
+  }
+`;
+
+// portal#1856: the team-metrics read, isolated from the shared App loader.
+export const TEAM_METRICS_QUERY = /* GraphQL */ `
+  query TeamMetrics($appRef: ID!, $since: DateTime, $until: DateTime) {
+    teamMetrics(appRef: $appRef, since: $since, until: $until) {
+      appId asOf
+      window { since until }
+      startedOwned {
+        all { ...TeamMetricsCountFields }
+        ownersTruncated
+        byOwner {
+          owner { id kind name urn }
+          tasks { ...TeamMetricsCountFields }
+          projectsTruncated
+          byProject { project { handle noProject taskId title } tasks { ...TeamMetricsCountFields } }
+        }
+      }
+      projects {
+        truncated
+        items { project { handle noProject taskId title } children { status tasks { ...TeamMetricsCountFields } } }
+      }
+      workers {
+        active { ...TeamMetricsCountFields }
+        idle { ...TeamMetricsCountFields }
+        overdue { ...TeamMetricsCountFields }
+        inop { ...TeamMetricsCountFields }
+      }
+      flow { completed { ...TeamMetricsCountFields } started { ...TeamMetricsCountFields } }
+    }
+  }
+  fragment TeamMetricsCountFields on TeamMetricsCount { total ids truncated }
 `;

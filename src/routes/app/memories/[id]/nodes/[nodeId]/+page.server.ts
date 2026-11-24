@@ -48,6 +48,7 @@ import { APP_DISPLAY_PAGE_SIZE, appListNavigation, appListOffset } from '../../.
 const REMOVALS_LIMIT = 100;
 import type { Actions, PageServerLoad } from './$types';
 import { loadSkillCheck } from '$lib/server/skill-check';
+import { ceremonyOrigin, pinCeremonyUrl } from '$lib/ceremony-origin';
 import { nodeStorageSeed, noWriteDoor, runnableBlockedBy, updateStorage } from './storage-action';
 import { sendChatMessageFormId, sendChatMessageSchema } from '$lib/forms/chat-message-schema';
 import {
@@ -783,7 +784,7 @@ async function saveNodeText(
     // the page words each fixed code itself (localized).
     const code = extractGqlErrorCode(e);
     if (code === 'BOOT_PROMPT_COMPILED_WRITE') return fail(400, { [failed]: { code: 'compiled-prompt', detail: null } });
-    if (code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'boot-prompt-governed', detail: null } });
+    if (code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') return fail(400, { [failed]: { code: 'boot-prompt-worker-session-refused', detail: null } });
     if (code === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
     // The unclassified path keeps a bounded log: operation, stage and error code only, never the wire text, variables or content.
     console.error('[node-detail] save failed:', { op: `update-${field}`, stage: 'write', code: boundedLogCode(code) });
@@ -1592,8 +1593,14 @@ export const actions: Actions = {
       // URL, and any GraphQL-level failure threw into the catch below, so
       // there is no lying-server branch here to pin with an illegal fixture
       // (hrn:node:hadronmemory.com:hadron-portal:review:a-response-fixture-must-be-legal-under-the-schema).
-      // The SDL says copy it verbatim, never compose it.
-      redirect(303, r.requestNodeSignature.ceremonyUrl);
+      // The SDL says copy it verbatim, never compose it; the pin follows the link
+      // unchanged or not at all. portal#2469: only on the server's public origin, like
+      // the other two ceremony redirects (portal#2417). An off-origin link or no
+      // configured origin is refused as a failed request, never a redirect. The server
+      // has already created the request by now; it stays pending until it expires.
+      const ceremonyUrl = pinCeremonyUrl(r.requestNodeSignature.ceremonyUrl, ceremonyOrigin());
+      if (ceremonyUrl) redirect(303, ceremonyUrl);
+      failure = t('node.signatures.request.failed', 'Could not start a signing request.');
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       // A typed refusal gets portal copy; anything else — an internal error,

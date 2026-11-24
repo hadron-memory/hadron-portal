@@ -1,5 +1,6 @@
 import { extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/gql-error';
 import { t } from '$lib/i18n/t';
+import { pinCeremonyUrl } from '$lib/ceremony-origin';
 
 /**
  * portal#2380 — a protected App secret's change is STAGED, not applied
@@ -14,32 +15,55 @@ export const NEEDS_PASSKEY = 'SECRET_PROTECTED_NEEDS_PASSKEY';
 
 export type StagedRefusal =
   | { kind: 'staged'; requestId: string; ceremonyUrl: string }
+  /**
+   * portal#2470: a request IS open (the server gave its id) but the portal cannot offer its
+   * signing page: the link failed the origin pin, or never came. Carries neither the id nor the
+   * link, so nothing downstream can render or log the bad one.
+   */
+  | { kind: 'staged-unlinked' }
   | { kind: 'plain-protected' };
 
-/** The server's page lives under /secret-changes/; anything else is never made a link. */
-export function safeCeremonyUrl(v: unknown): string | null {
-  if (typeof v !== 'string' || v.length > 2048) return null;
-  try {
-    const u = new URL(v);
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
-    return u.pathname.startsWith('/secret-changes/') ? v : null;
-  } catch {
-    return null;
-  }
+/**
+ * The server's page: on the server's public origin (portal#2417) and under /secret-changes/.
+ * `origin` is required so a caller cannot forget it; null (unconfigured) never makes a link.
+ */
+export function safeCeremonyUrl(v: unknown, origin: string | null): string | null {
+  return pinCeremonyUrl(v, origin, '/secret-changes/');
 }
 
-export function readStagedChange(e: unknown): StagedRefusal | null {
+/**
+ * portal#2417 — the signing link for a tracked request, rebuilt from the configured origin.
+ * The cookie stores no URL, so this is the only source of a revisit link, and it is exactly the
+ * server's own mint (origin + '/secret-changes/' + id, no token, query or fragment — the server's
+ * src/lib/secrets/changeRequests.ts). The id is encoded so it stays one path segment, and the
+ * result is pinned so a traversal-shaped id cannot leave the prefix. A null origin is no link.
+ */
+export function rebuildCeremonyUrl(requestId: string, origin: string | null): string | null {
+  if (!origin) return null;
+  return pinCeremonyUrl(`${origin}/secret-changes/${encodeURIComponent(requestId)}`, origin, '/secret-changes/');
+}
+
+export function readStagedChange(e: unknown, origin: string | null): StagedRefusal | null {
   if (extractGqlErrorCode(e) !== NEEDS_PASSKEY) return null;
   const ext = extractGqlErrorExtensions(e);
   const id = ext?.requestId;
-  const url = safeCeremonyUrl(ext?.ceremonyUrl);
-  if (typeof id === 'string' && id.length > 0 && id.length <= 128 && url) {
-    return { kind: 'staged', requestId: id, ceremonyUrl: url };
+  const url = safeCeremonyUrl(ext?.ceremonyUrl, origin);
+  // The request id is what says a request is open, never the code and never the link (hrn:node:hadronmemory.com:specs:cor:sec:070:02).
+  if (typeof id === 'string' && id.length > 0 && id.length <= 128) {
+    return url ? { kind: 'staged', requestId: id, ceremonyUrl: url } : { kind: 'staged-unlinked' };
   }
   return { kind: 'plain-protected' };
 }
 
 export const isOpenState = (s: string) => s.toLowerCase() === 'open';
+
+/**
+ * The states a request ends in (hrn:node:hadronmemory.com:specs:cor:sec:070:02): completed, declined,
+ * expired, withdrawn; `stale` is how a request that lost a race to a change ends. Any other state is
+ * unknown, never assumed ended: the notice keeps showing it rather than dropping a request unseen.
+ */
+const TERMINAL_STATES = new Set(['completed', 'declined', 'expired', 'withdrawn', 'stale']);
+export const isTerminalState = (s: string) => TERMINAL_STATES.has(s.toLowerCase());
 
 export function requestStateText(state: string): string {
   switch (state.toLowerCase()) {
@@ -47,6 +71,7 @@ export function requestStateText(state: string): string {
     case 'completed': return t('secrets.request.state.completed', 'Signed and applied');
     case 'expired': return t('secrets.request.state.expired', 'Expired before it was signed');
     case 'withdrawn': return t('secrets.request.state.withdrawn', 'Withdrawn');
+    case 'declined': return t('secrets.request.state.declined', 'Declined');
     case 'stale': return t('secrets.request.state.stale', 'The secret changed first, so this request can no longer be applied');
     default: return state;
   }

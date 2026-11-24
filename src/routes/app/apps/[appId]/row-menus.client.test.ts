@@ -13,7 +13,7 @@ import { everyTabRead } from './app-page.fixture';
 import {
   addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema,
-  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, updateAppAgentToolsSchema,
+  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, revokeAppKeyScopeSchema, updateAppAgentToolsSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -31,10 +31,10 @@ const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
 
 async function pageData(initialTab: 'agents' | 'keys', agents: unknown[] = [AGENT]) {
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm,
+    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, revokeKeyScopeForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm] = await Promise.all([
     appSettingsSchema, addAgentSchema, createAppKeySchema, removeAppAgentSchema,
-    updateAppAgentToolsSchema, revokeAppKeySchema, grantAppKeyScopeSchema, deleteAppSchema,
+    updateAppAgentToolsSchema, revokeAppKeySchema, grantAppKeyScopeSchema, revokeAppKeyScopeSchema, deleteAppSchema,
     castWorkerSchema, retireWorkerSchema, releaseWorkerSchema, postTeamChatMessageSchema,
   ].map((schema) => superValidate(zod4(schema), { errors: false })));
   return {
@@ -54,7 +54,7 @@ async function pageData(initialTab: 'agents' | 'keys', agents: unknown[] = [AGEN
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
-    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm,
+    updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, revokeKeyScopeForm, deleteAppForm, castWorkerForm,
     retireWorkerForm, releaseWorkerForm, postTeamChatMessageForm,
   };
 }
@@ -214,15 +214,42 @@ describe('A derived agent on the Agents tab (#1684)', () => {
 });
 
 describe('App Keys tab row ⋯ menu (#1020)', () => {
-  it('offers Copy ID, Grant scope then Revoke, with no inline Revoke button', async () => {
-    const target = await mountTab('keys');
+  it('offers Copy ID, Grant scope, Revoke scope then Revoke, with no inline Revoke button', async () => {
+    const target = await mountTab('keys', { keyScopes: { kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } } });
     expect(target.textContent).not.toContain('Revoke');
     const items = openMenu(target, 'Actions for key abc123');
-    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([
-      ['BUTTON', 'Copy ID'],
-      ['BUTTON', 'Grant scope…'],
-      ['BUTTON', 'Revoke'],
+    expect(items.map((i) => [i.tagName, i.textContent?.trim(), i.getAttribute('aria-disabled')])).toEqual([
+      ['BUTTON', 'Copy ID', null],
+      ['BUTTON', 'Grant scope…', null],
+      ['BUTTON', 'Revoke scope…', null],
+      ['BUTTON', 'Revoke', null],
     ]);
+  });
+
+  // portal#2319: with nothing to revoke the item stays in the menu, disabled,
+  // and says why in visible text wired to it (not a tooltip alone).
+  it('Revoke scope is disabled with visible helper text when the key holds no scope', async () => {
+    const target = await mountTab('keys', { keyScopes: { kind: 'ok', byKey: { k1: [] } } });
+    const item = openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.includes('Revoke scope'))!;
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+    expect(item.textContent).toContain('This key holds no scope to revoke.');
+    const hint = document.getElementById(item.getAttribute('aria-describedby')!)!;
+    expect(hint.textContent).toBe('This key holds no scope to revoke.');
+  });
+
+  it('Revoke scope does not claim a failure while the scopes are still loading', async () => {
+    const target = await mountTab('keys', { keyScopes: null });
+    const item = openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.includes('Revoke scope'))!;
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+    expect(item.textContent).toContain('isn’t available yet');
+    expect(item.textContent).not.toContain('Couldn’t load');
+  });
+
+  it('Revoke scope is disabled, saying so, when the scopes could not be read', async () => {
+    const target = await mountTab('keys', { keyScopes: { kind: 'failed' } });
+    const item = openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.includes('Revoke scope'))!;
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+    expect(item.textContent).toContain('Couldn’t load what this key may do.');
   });
 
   it('a viewer who cannot manage keys is offered Copy ID only — no Grant scope, no Revoke', async () => {

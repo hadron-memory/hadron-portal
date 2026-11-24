@@ -56,5 +56,5 @@ it('the last region cancels the space-y unit it would otherwise leave when empty
   mounted.push(m);
   await tick(3);
   const last = [...m.target.querySelectorAll<HTMLElement>('[role="status"]')].at(-1)!;
-  expect(last.className).toContain('last:empty:-mt-3');
+  expect(last.className).toContain('last:idle:-mt-3');
 });

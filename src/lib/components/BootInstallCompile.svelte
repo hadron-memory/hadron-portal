@@ -62,14 +62,14 @@
       if (epoch === stamp && key === expected) { success = false; notice = unknownText(intent); }
     } finally { if (epoch === stamp && key === expected) busy = false; }
   }
-  function unknownText(intent: string) { return intent === 'approve' ? t('boot.install.approval-unknown', 'Couldn’t confirm the approval. Reload to check before trying again.') : intent === 'start' ? t('boot.install.source-unknown', 'Could not confirm the source was started. Reload to check before trying again.') : t('boot.install.compile-unknown', 'Couldn’t confirm whether the prompt was built. Reload to check before trying again.'); }
+  function unknownText(intent: string) { return intent === 'approve' ? t('boot.install.approval-unknown', 'Couldn’t confirm the approval. Reload the page to check before trying again.') : intent === 'start' ? t('boot.install.source-unknown', 'Could not confirm the source was started. Reload the page to check before trying again.') : t('boot.install.compile-unknown', 'Couldn’t confirm whether the prompt was built. Reload the page to check before trying again.'); }
   const errorStyle = 'rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300';
   const successStyle = 'rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950/40 dark:text-green-300';
   const button = 'rounded border border-zinc-400 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600';
 </script>
 <section data-install-compile={key} class="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" aria-label={title}>
   <h3 bind:this={heading} tabindex="-1" class="font-semibold">{title}</h3>
-  <p role="alert" class={failed || view?.compiledReadFailed ? errorStyle : ''}>{failed || view?.compiledReadFailed ? t("boot.install.fb477751c1", "Couldn’t read this prompt. Reload before trying again.") : ''}</p>
+  <p role="alert" class={failed || view?.compiledReadFailed ? errorStyle : ''}>{failed || view?.compiledReadFailed ? t("boot.install.fb477751c1", "Couldn’t read this prompt. Reload the page before trying again.") : ''}</p>
   {#if view}
     {#if view.source}
       <div><a class="underline" href={`/app/memories/${encodeURIComponent(view.source.memoryId)}/nodes/${encodeURIComponent(view.source.id)}`}>{view.source.name}</a><div class="mt-1"><Urn value={view.source.urn} type="node" /></div></div>

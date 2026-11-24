@@ -305,7 +305,7 @@
         <LiveRegion>
           {#if ok}<p class="text-xs text-emerald-700 dark:text-emerald-300" data-testid="ticker-add-result">{subscribedText()}</p>{/if}
         </LiveRegion>
-        <LiveRegion class="last:empty:-mt-2">
+        <LiveRegion class="last:idle:-mt-2">
           {#if announcementFailed}<p class="text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-add-announcement">{announcementFailedText()}</p>{/if}
         </LiveRegion>
         {#if refreshFailed}<TickerRefreshFailedLine testid="ticker-add-refresh-failed" />{/if}
@@ -313,7 +313,7 @@
       </form>
     {/if}
     <!-- after the chain, not before it: the failed branch above is empty and this region speaks it -->
-    <LiveRegion class="last:empty:-mt-2">
+    <LiveRegion class="last:idle:-mt-2">
       {#if roster.kind === 'failed'}
         <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-roster-failed">
           {rosterFailedText()}

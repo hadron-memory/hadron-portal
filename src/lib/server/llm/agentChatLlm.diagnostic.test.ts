@@ -20,7 +20,7 @@ const TYPE = 'SENTINEL-TYPE-1979';
 const RID = 'SENTINEL-REQID-1979';
 const ALL_SENTINELS = [KEY, PROMPT, MODEL, BODY, TYPE, RID, 'SENTINEL', 'customer says hello', 'customer', 'says', 'hello'];
 
-const LINE = new RegExp(String.raw`^\[agent-chat\] llm turn failed class=(config|provider-status|request-failed|unexpected-tool-output) stage=(config|request|tool-output) branch=(plain|respond) turn=(welcome|turn) provider=(` + [...LOGGABLE_PROVIDERS, 'unknown'].join('|') + String.raw`) status=(\d{3}|none) type=(invalid_request_error|authentication_error|permission_error|not_found_error|rate_limit_error|api_error|overloaded_error|none) tools=(\d+)$`);
+const LINE = new RegExp(String.raw`^\[agent-chat\] llm turn failed class=(config|provider-status|request-failed|unexpected-tool-output|auto-no-respond) stage=(config|request|tool-output) branch=(plain|respond) choice=(auto|forced|none) turn=(welcome|turn) provider=(` + [...LOGGABLE_PROVIDERS, 'unknown'].join('|') + String.raw`) status=(\d{3}|none) type=(invalid_request_error|authentication_error|permission_error|not_found_error|rate_limit_error|api_error|overloaded_error|none) tools=(\d+)$`);
 
 const RESPOND = { name: 'respond', description: PROMPT, parameters: { type: 'object', properties: { message: { type: 'string', description: BODY } }, required: ['message'] } };
 
@@ -46,13 +46,21 @@ const providerError = (status: number, type: string = TYPE) =>
     status, headers: { 'content-type': 'application/json', 'request-id': RID },
   });
 
+/** Advance the faked timer until the turn settles, so the test does not depend on how long the SDK's retry backoff is. Bounded, so a turn that never settles fails here. */
+async function settle<T>(turn: Promise<T>): Promise<T> {
+  let done = false;
+  void turn.then(() => { done = true; }, () => { done = true; });
+  for (let i = 0; i < 600 && !done; i++) await vi.advanceTimersByTimeAsync(1_000);
+  if (!done) throw new Error('the turn never settled');
+  return turn;
+}
+
 async function fail(args: Partial<Parameters<typeof callAgentChatLlm>[0]> = {}): Promise<unknown> {
   const turn = callAgentChatLlm({
     provider: 'anthropic', apiKey: KEY, model: MODEL, systemMessage: PROMPT,
     tools: [RESPOND], messages: [{ role: 'user', content: PROMPT }], ...args,
   }).then(() => { throw new Error('expected the turn to fail'); }, (e: unknown) => e);
-  await vi.advanceTimersByTimeAsync(60_000);
-  return turn;
+  return settle(turn);
 }
 const lines = () => captured.map((a) => a.map(String).join(' '));
 function expectNoSentinel(where: unknown) {
@@ -82,7 +90,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     expectPublicUnchanged(e);
     const m = LINE.exec(lines()[0]);
     expect(m, lines()[0]).not.toBeNull();
-    expect(m!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'turn', 'anthropic', String(status), 'invalid_request_error', '1']);
+    expect(m!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'forced', 'turn', 'anthropic', String(status), 'invalid_request_error', '1']);
     expectNoSentinel(lines()[0]);
   });
 
@@ -90,13 +98,13 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     stubFetch(providerError(401, 'authentication_error'));
     const e = await fail({ tools: null, messages: [] });
     expectPublicUnchanged(e);
-    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'plain', 'welcome', 'anthropic', '401', 'authentication_error', '0']);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'plain', 'none', 'welcome', 'anthropic', '401', 'authentication_error', '0']);
   });
 
   it('an arbitrary provider error type is omitted, never echoed', async () => {
     stubFetch(providerError(400, TYPE));
     expectPublicUnchanged(await fail());
-    expect(LINE.exec(lines()[0])![7]).toBe('none');
+    expect(LINE.exec(lines()[0])![8]).toBe('none');
     expectNoSentinel(lines()[0]);
   });
 
@@ -104,7 +112,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     stubFetch(() => { throw new TypeError(`fetch failed ${KEY} ${BODY} ${RID}`, { cause: new Error(PROMPT) }); });
     const e = await fail();
     expectPublicUnchanged(e);
-    expect(LINE.exec(lines()[0])!.slice(1, 8)).toEqual(['request-failed', 'request', 'respond', 'turn', 'anthropic', 'none', 'none']);
+    expect(LINE.exec(lines()[0])!.slice(1, 9)).toEqual(['request-failed', 'request', 'respond', 'forced', 'turn', 'anthropic', 'none', 'none']);
     expectNoSentinel(captured);
   });
 
@@ -115,7 +123,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     }));
     const e = await fail();
     expectPublicUnchanged(e);
-    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['unexpected-tool-output', 'tool-output', 'respond', 'turn', 'anthropic', 'none', 'none', '1']);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['unexpected-tool-output', 'tool-output', 'respond', 'forced', 'turn', 'anthropic', 'none', 'none', '1']);
     expectNoSentinel(captured);
   });
 
@@ -129,8 +137,8 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
       expect((e as Error).message).toBe(CHAT_ERROR.llmFailed);
       expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
     }
-    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['config', 'config', 'respond', 'turn', 'unknown', 'none', 'none', '1']);
-    expect(LINE.exec(lines()[1])!.slice(1)).toEqual(['config', 'config', 'respond', 'turn', 'bedrock', 'none', 'none', '1']);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['config', 'config', 'respond', 'forced', 'turn', 'unknown', 'none', 'none', '1']);
+    expect(LINE.exec(lines()[1])!.slice(1)).toEqual(['config', 'config', 'respond', 'forced', 'turn', 'bedrock', 'none', 'none', '1']);
     expectNoSentinel(captured);
   });
 
@@ -138,7 +146,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     stubFetch(providerError(401, 'invalid_request_error'));
     const e = await fail({ provider, model: 'm' });
     expectPublicUnchanged(e);
-    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'turn', provider, '401', 'none', '1']);
+    expect(LINE.exec(lines()[0])!.slice(1)).toEqual(['provider-status', 'request', 'respond', 'forced', 'turn', provider, '401', 'none', '1']);
     expectNoSentinel(captured);
   });
 
@@ -152,7 +160,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
     expect(captured).toEqual([]);
   });
 
-  it('a successful turn and a refused provider call log nothing', async () => {
+  it('a successful respond-branch turn logs nothing', async () => {
     stubFetch(() => Response.json({
       id: 'msg_1', type: 'message', role: 'assistant', model: 'm', stop_reason: 'tool_use',
       content: [{ type: 'tool_use', id: 't1', name: 'respond', input: { message: 'hi' } }], usage: { input_tokens: 1, output_tokens: 1 },
@@ -170,7 +178,7 @@ describe('#1979 one closed diagnostic line per failed turn', () => {
 });
 
 describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
-  const ctx = { stage: 'request', branch: 'respond', turn: 'turn', provider: 'anthropic', tools: 1 } as const;
+  const ctx = { stage: 'request', branch: 'respond', turn: 'turn', provider: 'anthropic', tools: 1, choice: 'forced' } as const;
   const hostile: Array<[string, unknown]> = [
     ['string', `${KEY} ${BODY}`],
     ['null', null],
@@ -188,7 +196,7 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     expect(line).toContain('type=none');
     expectNoSentinel(line);
   });
-  it.each(['stage', 'branch', 'turn', 'provider'] as const)('a garbage %s never reaches the line', (field) => {
+  it.each(['stage', 'branch', 'turn', 'provider', 'choice'] as const)('a garbage %s never reaches the line', (field) => {
     for (const bad of [KEY, `${PROMPT}\n[agent-chat] forged`, 'config extra', '', null, undefined, 7, { toString: () => KEY }]) {
       const line = describeLlmFailure(new Error('x'), { ...ctx, [field]: bad } as never);
       expect(line, String(field)).toMatch(LINE);
@@ -202,8 +210,7 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     const hostileTools = new Proxy([], { get() { throw new Error(KEY); } }) as never;
     const turn = callAgentChatLlm({ provider: 'anthropic', apiKey: KEY, model: MODEL, systemMessage: PROMPT, tools: hostileTools, messages: [{ role: 'user', content: PROMPT }] })
       .then(() => { throw new Error('expected failure'); }, (e: unknown) => e);
-    await vi.advanceTimersByTimeAsync(60_000);
-    const e = await turn;
+    const e = await settle(turn);
     expect((e as Error).message).toBe(CHAT_ERROR.llmFailed);
     expect(publicChatError(e)).toEqual({ code: 'llmFailed', message: CHAT_ERROR.llmFailed, status: 500 });
   });
@@ -230,5 +237,31 @@ describe('#1979 describeLlmFailure never walks an arbitrary error', () => {
     expect(line).toContain('provider=unknown');
     expect(line).toContain('tools=0');
     expectNoSentinel(line);
+  });
+});
+
+// portal#1998 F9: the unwrap in providerCallError rests on two things the installed SDK must keep:
+// RetryError.isInstance and its lastError. Pinned against the real exports, so an SDK upgrade that
+// renames either fails here instead of silently logging `status=none` for every retried failure.
+describe('#1998 the SDK contract providerCallError relies on', () => {
+  it('RetryError.isInstance recognises a RetryError and exposes the last attempt', async () => {
+    const { RetryError, APICallError } = await import('ai');
+    const last = new APICallError({ message: 'm', url: 'u', requestBodyValues: {}, statusCode: 503 });
+    const wrapped = new RetryError({ message: 'm', reason: 'maxRetriesExceeded', errors: [new Error('first'), last] });
+    expect(typeof RetryError.isInstance).toBe('function');
+    expect(RetryError.isInstance(wrapped)).toBe(true);
+    expect(RetryError.isInstance(new Error('plain'))).toBe(false);
+    expect(wrapped.lastError).toBe(last);
+    expect(APICallError.isInstance(wrapped.lastError)).toBe(true);
+  });
+  it('a retried failure is logged with its LAST attempt’s status: first a 429, last a 503', async () => {
+    // The SDK retries; the first attempt is a 429 and every later one a 503, so reading the first
+    // attempt (errors[0]) instead of the last would log 429 and fail here.
+    let attempt = 0;
+    const f = stubFetch(() => providerError(attempt++ === 0 ? 429 : 503)());
+    await fail();
+    expect(f.mock.calls.length, 'the SDK retried, so there was more than one attempt').toBeGreaterThan(1);
+    expect(lines().join('\n')).toMatch(/status=503/);
+    expect(lines().join('\n')).not.toMatch(/status=429/);
   });
 });

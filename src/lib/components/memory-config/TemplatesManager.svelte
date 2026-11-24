@@ -87,6 +87,11 @@
     try {
       await configCall({ kind: 'templates', op: 'delete', ownerType, ownerRef, ref: template.id, revision: template.revision });
       templates = templates.filter(t => t.id !== template.id);
+      // portal#1749 (C3): the Apply pane and the bulk panel point at a template, so a
+      // delete of THAT template retires them and everything derived from the pick. Only
+      // here, after the server confirmed the delete: a failed delete leaves them alone.
+      if (chosen?.id === template.id) { chosen = null; memory = null; preview = null; previewStale = false; }
+      if (bulk?.id === template.id) bulk = null;
       notice = t('config.deleted', 'Deleted.');
       try { await reload(); }
       catch { failure = { error: t('config.deleted-reload-failed', 'Deleted, but the templates could not be reloaded. Reload before another change.') }; }
@@ -119,11 +124,11 @@
       {#if cell.column.id === 'actions'}
         {#if writable}<div class="flex flex-wrap gap-2"><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.edit', 'Edit')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => remove(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.delete', 'Delete')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { chosen = row; memory = null; preview = null; editing = undefined; previewStale = false; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-memory', 'Apply to a memory…')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { bulk = row; chosen = null; preview = null; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-several', 'Apply to several memories…')}</button></div>{/if}
       {:else if cell.column.id === 'required'}{row.required ? t('config.yes', 'Yes') : t('config.no', 'No')}
-      {:else}{String(cell.getValue() ?? '')}{/if}
+      {:else}<!-- portal#2492: a 64-character name or a long description token has no break opportunity, so wrap anywhere inside the cell. --><span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{String(cell.getValue() ?? '')}</span>{/if}
     {/snippet}
   </DataTable>
   {#if editing !== undefined && writable}
-    <div aria-label={t('config.template-editor', 'Template editor')} class="min-w-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <div role="group" aria-label={t('config.template-editor', 'Template editor')} class="min-w-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <fieldset disabled={pending} class="min-w-0 space-y-4">
         <h2 class="text-xl font-semibold">{editing ? t('config.edit-template', 'Edit template') : t('config.create-template', 'Create template')}</h2>
         <form id={formId} onsubmit={save} class="space-y-4"><label class="block">{t('config.name', 'Name')}<input bind:this={nameInput} required maxlength="64" bind:value={name} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950" /></label>
@@ -133,7 +138,7 @@
         <button type="button" onclick={() => ruleIndex = rules.length} class="min-h-11 rounded border px-3">{t('config.add-rule', 'Add rule')}</button>
         <DataTable table={ruleTable} listKey="template-draft-rules" bind:globalFilter={draftRuleFilter} searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
           {#snippet cell(cell, row)}
-            {#if cell.column.id === 'role'}{row.role}
+            {#if cell.column.id === 'role'}<span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{row.role}</span>
             {:else if cell.column.id === 'settings'}<p>{row.enabled ? t('config.enabled', 'Enabled') : t('config.disabled', 'Disabled')}</p><p>{t('config.writers-label', 'Writers: {value}', { value: row.writers })}{#if row.writers === 'OWNER'} — {t('config.owner-note', 'not supported yet; refuses every write when enabled')}{/if}</p><p>{t('config.strict-label', 'Strict sub-roles: {value}', { value: row.strictSubRoles ? t('config.yes', 'Yes') : t('config.no', 'No') })}</p><p>{t('config.validate-label', 'Validate by: {value}', { value: row.validateBy ?? t('config.none', 'None') })}</p>
             {:else if cell.column.id === 'references'}<div class="space-y-3 whitespace-normal">{#each fields as field}<div><p class="font-medium">{labels[field]}</p><RuleReference state={row[`${field}State`]} urn={row[field]} /></div>{/each}</div>
             {:else}<div class="flex flex-wrap gap-2"><button type="button" onclick={() => ruleIndex = rules.indexOf(row)} class="min-h-11 rounded border px-3">{t('config.edit', 'Edit')}</button><button type="button" onclick={() => { rules = rules.filter(r => r !== row); rulesChanged = true; }} class="min-h-11 rounded border px-3">{t('config.remove', 'Remove')}</button></div>{/if}

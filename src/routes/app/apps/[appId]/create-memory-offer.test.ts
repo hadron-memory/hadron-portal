@@ -4,6 +4,7 @@
  * reads the viewer's manage right on the App; the server stays the gate.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse, Kind, type FragmentDefinitionNode, type SelectionSetNode } from 'graphql';
 import { APP_QUERY, APP_DETAIL_ORG_QUERY, APP_MEMBERS_QUERY, SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -122,4 +123,38 @@ it('org-App loader keeps creation-panel description rows distinct from the full 
     vi.mocked(fetchAllItems).mockReset();
     vi.mocked(fetchAllItems).mockResolvedValue([]);
   }
+});
+
+// portal#1391: the create offer is only as good as the member selection it reads. canCreateMemory comes from
+// APP_DETAIL_ORG_QUERY's members (role + user id); a query that stops selecting them fails the offer closed silently.
+describe('canCreateMemory follows APP_DETAIL_ORG_QUERY member selection (portal#1391)', () => {
+  it('the query document selects each member role and user id', () => {
+    const doc = parse(APP_DETAIL_ORG_QUERY);
+    const fragments = new Map(doc.definitions.filter((d): d is FragmentDefinitionNode => d.kind === Kind.FRAGMENT_DEFINITION).map((d) => [d.name.value, d]));
+    const paths: string[] = [];
+    const walk = (set: SelectionSetNode, path: string, seen: Set<string>) => {
+      for (const sel of set.selections) {
+        if (sel.kind === Kind.FIELD) { const here = `${path}${sel.name.value}`; paths.push(here); if (sel.selectionSet) walk(sel.selectionSet, `${here}.`, seen); }
+        else if (sel.kind === Kind.INLINE_FRAGMENT) walk(sel.selectionSet, path, seen);
+        else if (!seen.has(sel.name.value)) { const f = fragments.get(sel.name.value); if (f) walk(f.selectionSet, path, new Set(seen).add(sel.name.value)); }
+      }
+    };
+    for (const d of doc.definitions) if (d.kind === Kind.OPERATION_DEFINITION) walk(d.selectionSet, '', new Set());
+    expect(paths).toEqual(expect.arrayContaining(['organization.members.role', 'organization.members.user.id']));
+  });
+  it.each([['ADMIN', true], ['OWNER', true], ['CONTRIBUTOR', false], ['READER', false]])('the viewer as org %s: canCreateMemory is %s', async (role, expected) => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === APP_QUERY) return { app: { ...APP, organizationId: 'org-1' } };
+      if (query === APP_DETAIL_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.com', members: [{ id: 'mem-1', role, user: { id: 'user-1' } }, { id: 'mem-2', role: 'OWNER', user: { id: 'someone-else' } }] } };
+      if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
+      if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
+      return { appNodesPage: { items: [], total: 0, hasMore: false } };
+    });
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' }, locals: { token: 'tok', user: { id: 'user-1' } }, parent: async () => ({}), depends: () => {},
+      url: new URL('http://localhost/app/apps/app-1?tab=memory'),
+    } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
+    expect(result.canCreateMemory).toBe(expected);
+  });
 });

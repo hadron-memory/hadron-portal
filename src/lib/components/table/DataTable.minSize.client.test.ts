@@ -4,9 +4,9 @@ import { mountComponent } from '$lib/test/mountComponent';
 import Harness from '$lib/test/DataTableMinSizeHarness.svelte';
 let cleanup: (() => void) | undefined;
 afterEach(() => cleanup?.());
-it('declared column minimum controls restored sizing, keyboard resize and ARIA; legacy keyboard floor stays40', () => {
+it('declared column minimum controls restored sizing, keyboard resize and ARIA; legacy keyboard floor stays 40', () => {
  const m = mountComponent(Harness, {}); cleanup = m.unmount; flushSync();
- (m.target.querySelector('button') as HTMLButtonElement).click(); flushSync();
+ const restore = m.target.querySelector<HTMLButtonElement>('[data-testid="restore-undersized-view"]'); expect(restore, 'the harness restore button').not.toBeNull(); restore!.click(); flushSync();
  const [action, legacy] = [...m.target.querySelectorAll('[role="separator"]')];
  expect(action.getAttribute('aria-valuenow')).toBe('120');
  expect(action.getAttribute('aria-valuemin')).toBe('120');

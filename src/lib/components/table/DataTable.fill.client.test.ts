@@ -57,8 +57,14 @@ function fakeObserver() {
     disconnect() { this.targets.clear(); }
   });
   return {
+    get instanceCount() { return instances.length; },
     get observed() { return instances.flatMap((i) => [...i.targets]); },
     live() { return instances.flatMap((i) => [...i.targets]); },
+    /** What the FILL machinery watches (#2503: attributed by observer, not by element). The scroll cue
+     *  (#2461) owns the one ResizeObserver that watches the scroller, in every mode; fill's observer is any
+     *  other instance. So an element fill watches is found whatever it is, even the scroller's own table,
+     *  and the cue's observations can never be mistaken for fill's. */
+    fillWatched(scroller: Element) { return instances.filter((i) => !i.targets.has(scroller)).flatMap((i) => [...i.targets]); },
     resized(el: Element) { for (const i of instances) if (i.targets.has(el)) i.cb(); },
   };
 }
@@ -113,14 +119,32 @@ describe('DataTable fills the window (portal#2193)', () => {
     const add = vi.spyOn(window, 'addEventListener');
     try {
       const scroller = mountTable({ rows: 60, headerHeight: 120, bounded: true });
-      expect(fake.observed).toEqual([]);
-      expect(add.mock.calls.filter(([type]) => type === 'resize')).toEqual([]);
+      expect(fake.fillWatched(scroller)).toEqual([]);
+      // fillWatched() ignores the scroller's own observer, so also pin that bounded mode made no OTHER one: the cue's is the only instance.
+      expect(fake.instanceCount).toBe(1);
+      // The scroll cue (#2461) keeps its own single resize listener in every mode; fill adds none. The height does
+      // not move on a resize below, so the one listener is not fill's. Cue behaviour is pinned in DataTable.scrollCue.client.test.ts.
+      expect(add.mock.calls.filter(([type]) => type === 'resize')).toHaveLength(1);
       expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
       window.dispatchEvent(new Event('resize'));
       flushSync();
       expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
     } finally {
       add.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('contentHeight lets the scroll area grow to its rows, so no row is cut, and registers no observer (#2535)', () => {
+    const fake = fakeObserver();
+    try {
+      const scroller = mountTable({ rows: 60, headerHeight: 120, contentHeight: true });
+      expect(fake.fillWatched(scroller)).toEqual([]);
+      expect(scroller.style.maxHeight).toBe('none');
+      window.dispatchEvent(new Event('resize'));
+      flushSync();
+      expect(scroller.style.maxHeight).toBe('none');
+    } finally {
       vi.unstubAllGlobals();
     }
   });
@@ -136,7 +160,7 @@ describe('DataTable fills the window (portal#2193)', () => {
       expect(fake.live()).toContain(document.body);
       props.bounded = true;
       flushSync();
-      expect(fake.live()).toEqual([]);
+      expect(fake.fillWatched(scroller)).toEqual([]);
       expect(scroller.style.maxHeight).toBe('max(200px, 40vh)');
       // A resize while bounded changes nothing.
       (window as unknown as { innerHeight: number }).innerHeight = 1000;

@@ -1,7 +1,60 @@
 {
-  "src/lib/components/AgentChat.svelte": 2,
-  "src/lib/components/NodeList.svelte": 1,
-  "src/lib/components/SelectMemory.svelte": 1,
-  "src/lib/components/tickers/ApplyAgentTickers.svelte": 2,
-  "src/routes/app/apps/[appId]/tasks/+page.svelte": 2
+  "src/lib/components/AgentChat.svelte": [
+    "testid:chat-progress-notice",
+    "testid:partial-turn-notice"
+  ],
+  "src/lib/components/ErrorPage.svelte": [
+    "span:924f805e"
+  ],
+  "src/lib/components/InstallCustomisation.svelte": [
+    "p:9e6346f9"
+  ],
+  "src/lib/components/MemoryBrowser.svelte": [
+    "testid:property-filter-status"
+  ],
+  "src/lib/components/NodeList.svelte": [
+    "testid:node-columns-status"
+  ],
+  "src/lib/components/SelectMemory.svelte": [
+    "p:d503ccea"
+  ],
+  "src/lib/components/flow/ConversationInfoPanel.svelte": [
+    "div:f5ed1424"
+  ],
+  "src/lib/components/memory-config/BulkApply.svelte": [
+    "p:93003cab"
+  ],
+  "src/lib/components/memory-config/TemplatesManager.svelte": [
+    "div:5211f6ab"
+  ],
+  "src/lib/components/tickers/ApplyAgentTickers.svelte": [
+    "testid:apply-receipt",
+    "testid:apply-refresh-failed"
+  ],
+  "src/lib/components/tickers/TickerEnabledControl.svelte": [
+    "testid:ticker-enabled-result"
+  ],
+  "src/routes/app/agents/[id]/+page.svelte": [
+    "p:20d9c2e3"
+  ],
+  "src/routes/app/agents/[id]/AgentMemberRolesEditor.svelte": [
+    "p:776e5737"
+  ],
+  "src/routes/app/apps/[appId]/+page.svelte": [
+    "p:a50b08d0",
+    "testid:cast-refresh-status",
+    "p:1de6106a",
+    "p:e97eaf13",
+    "testid:key-copy-status"
+  ],
+  "src/routes/app/apps/[appId]/grants/+page.svelte": [
+    "p:da6f65da"
+  ],
+  "src/routes/app/apps/[appId]/tasks/+page.svelte": [
+    "testid:open-by-handle",
+    "div:3f0d1e2f"
+  ],
+  "src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte": [
+    "span:7ed159ba"
+  ]
 }

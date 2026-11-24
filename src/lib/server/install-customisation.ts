@@ -6,6 +6,7 @@ import { t } from '$lib/i18n/t';
 import {
   customisationRefusalLead,
   isQualifiedRef,
+  reloadDiscardLabel,
   type CustomisationRead,
   type InstallNode,
   type Read,
@@ -132,11 +133,12 @@ export async function writeCustomisation(
       customisationFailed: {
         code: 'unavailable',
         detail: t(
-          'customisation.unavailable',
+          'customisation.draft.unavailable',
           // #1507: name the control and its effect — a generic 'reload' reads as
           // the browser button, and this control replaces the draft the previous
           // sentence says is kept.
-          'This customisation is no longer available. It may have changed since you opened it. Your draft is kept. To see the current state, use Reload and discard draft; that replaces your draft.',
+          'This customisation is no longer available. It may have changed since you opened it. Your draft is kept. To see the current state, use {control}; that replaces your draft.',
+          { control: reloadDiscardLabel() },
         ),
       },
     });
@@ -177,13 +179,14 @@ export async function writeCustomisation(
       'customisation.failed-save',
       'The customisation could not be saved. Your draft is kept.',
     );
+    const lead = customisationRefusalLead(code, { draft: true });
+    const known = lead !== null;
     const detail = [
-      customisationRefusalLead(code, { draft: true }),
-      extractGqlError(e, fixed, code && customisationRefusalLead(code, { draft: true }) !== null ? [code] : [], { transport: 'fallback' }),
+      lead,
+      extractGqlError(e, fixed, known && code ? [code] : [], { transport: 'fallback' }),
     ]
       .filter(Boolean)
       .join(' ');
-    const known = customisationRefusalLead(code, { draft: true }) !== null;
     return fail(
       code === 'FORBIDDEN'
         ? 403

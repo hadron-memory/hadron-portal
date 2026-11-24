@@ -151,6 +151,9 @@ describe('GET /api/assets/list', () => {
     await GET(get('memoryId=mem-1'));
     const [doc, vars] = mockRequest.mock.calls[0];
     expect(doc).toBe(MEMORY_ASSETS_QUERY);
+    // #2588: the GraphQL variable is `memoryRef` (the route's own `memoryId` query param is unchanged).
+    expect((vars as { memoryRef?: string }).memoryRef).toBe('mem-1');
+    expect(vars).not.toHaveProperty('memoryId');
     // Sending `mine: false` would be equivalent, but leaving it unset keeps the
     // server default authoritative.
     expect((vars as { mine?: boolean }).mine).toBeUndefined();

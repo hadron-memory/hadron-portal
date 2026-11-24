@@ -7,7 +7,7 @@
   { id: 'legacy', accessorKey: 'name', header: 'Legacy', size: 160 },
  ] });
 </script>
-<button onclick={() => applyView(table, normalizeView({ columnSizing: { name: 10, legacy: 160 } }))}>Restore undersized view</button>
+<button data-testid="restore-undersized-view" onclick={() => applyView(table, normalizeView({ columnSizing: { name: 10, legacy: 160 } }))}>Restore undersized view</button>
 <DataTable {table} listKey="test:minimum" showSearch={false} searchPlaceholder="" searchAriaLabel="">
  {#snippet cell()}Row{/snippet}
 </DataTable>

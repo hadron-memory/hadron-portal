@@ -26,6 +26,7 @@ import {
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   GRANT_APP_KEY_SCOPE_MUTATION,
+  REVOKE_APP_KEY_SCOPE_MUTATION,
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
@@ -87,7 +88,7 @@ beforeEach(() => {
 async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
-    | 'revokeKey' | 'grantKeyScope' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
+    | 'revokeKey' | 'grantKeyScope' | 'revokeKeyScope' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
     | 'postTeamChatMessage' | 'postChannelMessage',
   fields: Record<string, string | string[]>,
   // #825 — the signed-in user, for actions whose COPY depends on whether the
@@ -1064,6 +1065,79 @@ describe('revokeKey action', () => {
 // role guess. host:operate names its ONE host (hrn:node:hadronmemory.com:specs:cor:agt:070:04); a second host
 // is refused APP_KEY_SCOPE_HOST_CONFLICT and the SERVER's sentence is what the
 // reader sees.
+// portal#2319 — taking one scope off a live App key. Same posture as the
+// grant: the server is the gate, the action always sends the mutation, and the
+// reader sees the server's own refusal, never a portal-side guess.
+describe('revokeKeyScope action', () => {
+  it('revokes the one scope, sending the key id and the scope alone', async () => {
+    mockRequest.mockResolvedValueOnce({ revokeAppKeyScope: { id: 'key-1' } });
+    const result = await runAction('revokeKeyScope', { keyId: ' key-1 ', scope: 'host:operate' });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'revokeKeyScope', keyId: 'key-1', scope: 'host:operate' },
+        message: { type: 'success', text: 'Scope revoked.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      REVOKE_APP_KEY_SCOPE_MUTATION,
+      { id: 'key-1', scope: 'host:operate' },
+    ]);
+  });
+
+  it('refuses a scope outside the closed list before any request', async () => {
+    const result = (await runAction('revokeKeyScope', { keyId: 'key-1', scope: 'admin:everything' })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses a missing key before any request', async () => {
+    const result = (await runAction('revokeKeyScope', { keyId: '  ', scope: 'host:operate' })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('revokeKeyScope', { _kind: 'grantKeyScope', keyId: 'key-1', scope: 'host:operate' })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('a FORBIDDEN refusal is a 403 naming who may manage keys, as a form message', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('revokeKeyScope', { keyId: 'key-1', scope: 'host:operate' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+    expect(result.data.form.message.text).not.toContain('key-1');
+  });
+
+  it('a key that is gone is the server’s own sentence as a 404', async () => {
+    const serverText = 'No such key.';
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: serverText, extensions: { code: 'APP_KEY_NOT_FOUND' } }] },
+    });
+    const result = (await runAction('revokeKeyScope', { keyId: 'key-1', scope: 'host:operate' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(404);
+    expect(result.data.form.message).toEqual({ type: 'error', text: serverText });
+  });
+
+  it('an unknown failure stays a 500 with the server’s message', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
+    });
+    const result = (await runAction('revokeKeyScope', { keyId: 'key-1', scope: 'host:operate' })) as { status: number };
+    expect(result.status).toBe(500);
+  });
+});
+
 describe('grantKeyScope action', () => {
   it('grants attention:deliver with no host variable at all', async () => {
     mockRequest.mockResolvedValueOnce({ grantAppKeyScope: { id: 'key-1' } });
@@ -1180,6 +1254,49 @@ describe('grantKeyScope action', () => {
     expect(result.status).toBe(500);
     expect(result.data.form.errors.hostId).toEqual([serverText]);
     expect(result.data.form.message).toBeUndefined();
+  });
+
+  // #2420 F2: only a refusal ABOUT THE HOST lands on hostId. The pairing of
+  // BAD_USER_INPUT with host:operate is the portal's inference, so anything it
+  // cannot classify stays a plain form message and says nothing about what the
+  // reader typed in the host field.
+  describe('refusal routing: hostId only for a host-specific refusal (#2420)', () => {
+    type Refused = { status: number; data: { form: { message?: { type: string; text: string }; errors: Record<string, string[]> } } };
+    const refuse = (code: string, message: string) =>
+      mockRequest.mockRejectedValueOnce({ response: { errors: [{ message, extensions: { code } }] } });
+
+    it('a FORBIDDEN refusal under host:operate stays a form message, not a hostId error', async () => {
+      refuse('FORBIDDEN', 'Forbidden');
+      const r = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' })) as Refused;
+      expect(r.status).toBe(403);
+      expect(r.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+      expect(r.data.form.errors.hostId).toBeUndefined();
+    });
+
+    it('a not-found refusal under host:operate stays a form message', async () => {
+      refuse('APP_KEY_NOT_FOUND', 'App key not found.');
+      const r = (await runAction('grantKeyScope', { keyId: 'gone', scope: 'host:operate', hostId: 'h-1' })) as Refused;
+      expect(r.status).toBe(404);
+      expect(r.data.form.message).toEqual({ type: 'error', text: 'App key not found.' });
+      expect(r.data.form.errors.hostId).toBeUndefined();
+    });
+
+    it('an unclassified code under host:operate stays a form message', async () => {
+      refuse('SOMETHING_NEW', 'Something the portal does not know.');
+      const r = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'host:operate', hostId: 'h-1' })) as Refused;
+      expect(r.data.form.message).toMatchObject({ type: 'error' });
+      expect(r.data.form.errors.hostId).toBeUndefined();
+    });
+
+    it.each(['BAD_USER_INPUT', 'APP_KEY_SCOPE_HOST_CONFLICT'])(
+      'a %s refusal under attention:deliver (no host argument) stays a form message',
+      async (code) => {
+        refuse(code, 'Not about a host.');
+        const r = (await runAction('grantKeyScope', { keyId: 'key-1', scope: 'attention:deliver' })) as Refused;
+        expect(r.data.form.message).toMatchObject({ type: 'error', text: 'Not about a host.' });
+        expect(r.data.form.errors.hostId).toBeUndefined();
+      },
+    );
   });
 
   // Acceptance 5: the audience refusals. A participant who does not manage the
@@ -2571,6 +2688,24 @@ describe('postChannelMessage (#1033)', () => {
     const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'pair-channel', body: 'kept draft' });
     expect(result).toMatchObject({ status: 500, data: { form: { data: { body: 'kept draft' }, message: { type: 'error' } } } });
     expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
+  // #1407: the concealed case is the other refusal shape. The Channel is readable
+  // but its host memory is not (`memory: null`), so the action must take the
+  // catch: the draft comes back kept and no message is written.
+  it('keeps the failed draft and makes no mutation when the Channel host is concealed (memory: null)', async () => {
+    mockRequest.mockImplementation(async q => q === APP_CHAT_TARGET_QUERY
+      ? { app: { id: 'app-1' } }
+      : q === CHANNEL_CHAT_TARGET_QUERY ? { channel: { id: 'concealed', memory: null } } : { createChannelMessage: { seq: 99 } });
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'concealed', body: 'kept draft' });
+    expect(result).toMatchObject({ status: 500, data: { form: { id: 'channel:concealed', data: { body: 'kept draft' }, message: { type: 'error', text: expect.stringContaining('Your message has been kept') } } } });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRequest.mock.calls.map(c => c[0])).not.toContain(CREATE_CHANNEL_MESSAGE_MUTATION);
+  });
+  it('asks for a chat when channelRef is empty, keeps the draft and issues no request', async () => {
+    mockRequest.mockReset();
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: '', body: 'kept draft' });
+    expect(result).toMatchObject({ status: 400, data: { form: { id: 'channel:', data: { body: 'kept draft' }, message: { type: 'error', text: 'Choose a chat before posting.' } } } });
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });
 

@@ -15,6 +15,7 @@
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
   import TaskReferences from '$lib/components/agent-tasks/TaskReferences.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import TaskClones from '$lib/components/agent-tasks/TaskClones.svelte';
   import TaskLineage from '$lib/components/agent-tasks/TaskLineage.svelte';
@@ -136,6 +137,8 @@
     <div class="min-w-0">
       <h1 class="text-xl font-bold break-words text-zinc-900 dark:text-white">{task.title}</h1>
       <div class="mt-1 flex flex-wrap items-center gap-2"><TaskHandle handle={task.handle} /><TaskStateChips {task} /></div>
+      <!-- #1914: the served address, directly below the handle; absent when the server could not form one. -->
+      {#if task.urn}<div class="mt-1"><Urn value={task.urn} type="agenttask" linked label={t('app.tasks.urn-label', 'task')} /></div>{/if}
       {#if fixedTask}
         <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300" data-testid="project-zero-note">
           {t('app.tasks.project-zero', 'This is the fixed “No project” task. It can’t be started, assigned, or cancelled.')}

@@ -13,7 +13,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
-  import { partyName, partySearchText } from '$lib/agent-tasks/status';
+  import { partyName, partySearchText, URN_CHIP_COLUMN_PX } from '$lib/agent-tasks/status';
   import {
     rosterAttentionRank,
     rosterSessionLabel,
@@ -121,7 +121,7 @@
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<RosterRow>[] = [
-    { id: 'worker', accessorFn: (r) => r.worker, header: t('app.tasks.roster.col.worker', 'Worker'), enableHiding: false, size: 240 },
+    { id: 'worker', accessorFn: (r) => r.worker, header: t('app.tasks.roster.col.worker', 'Worker'), enableHiding: false, size: URN_CHIP_COLUMN_PX },
     { id: 'role', accessorFn: (r) => r.role, header: t('app.tasks.roster.col.role', 'Role'), size: 150 },
     {
       id: 'state',
@@ -229,16 +229,16 @@
           {/if}
         </div>
       {:else if cell.column.id === 'lastActive'}
-        <span class="whitespace-nowrap">{e.lastActiveAt ? fmtRunTime(e.lastActiveAt) : '—'}</span>
+        <span>{e.lastActiveAt ? fmtRunTime(e.lastActiveAt) : '—'}</span>
       {:else if cell.column.id === 'lastAssigned'}
-        <span class="whitespace-nowrap">{e.lastAssignedAt ? fmtRunTime(e.lastAssignedAt) : '—'}</span>
+        <span>{e.lastAssignedAt ? fmtRunTime(e.lastAssignedAt) : '—'}</span>
       {:else if cell.column.id === 'reportsTo'}
         <span class="inline-flex flex-wrap items-center gap-1">
           <PartyLabel party={e.reportsTo} showUrn={false} />
           {#if e.reportsToRetired}<span class="text-xs text-zinc-500">{t('app.tasks.roster.retired', '(retired)')}</span>{/if}
         </span>
       {:else}
-        <span class="block max-w-full truncate">{cell.getValue() || '—'}</span>
+        <span class="block max-w-full truncate" title={String(cell.getValue() || '')}>{cell.getValue() || '—'}</span>
       {/if}
     {/snippet}
   </DataTable>

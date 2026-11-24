@@ -67,7 +67,6 @@ const rosterOk: TeamRosterRead = {
       pausedUntil: null,
       currentTask: { id: 't1', title: 'Fix the login handoff', status: 'RUNNING', handle: 'AT0.9' },
       heldBy: null,
-      heldAt: null,
     },
   },
 };
@@ -192,7 +191,6 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
         pausedUntil: null,
         currentTask: { id: 't2', title: 'Ship the roster refresh', status: 'RUNNING', handle: 'AT0.9' },
         heldBy: { id: 'u9', handle: 'bo', urn: 'hrn:user:acme.com:bo', name: 'Bo' },
-        heldAt: '2026-11-18T14:00:00.000Z',
       },
     },
   };

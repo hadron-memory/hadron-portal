@@ -1,6 +1,6 @@
 /** Mounted App-page coverage for team chat roster reactivity (#979). */
 import { emptyRegions, regionHolding } from '$lib/test/liveRegionPin';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -14,12 +14,13 @@ import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
+import { AI_CONFIG_TIMEOUT_MS } from '$lib/components/ai-config-readback';
 import Page from './+page.svelte';
 import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recovery';
 import { message, pageData, runsPanel } from './app-page.fixture';
 import {
   createAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
-  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema, releaseWorkerSchema,
+  retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, revokeAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema, releaseWorkerSchema,
 } from './schema';
 import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
 
@@ -401,6 +402,67 @@ describe('Worker agents tab (#1009)', () => {
     search.dispatchEvent(new Event('input', { bubbles: true }));
     await tick(2);
     expect(names(target)).toEqual([]);
+  });
+
+  // portal#1330 — the hold (Worker.heldByUserId) and the holder (roster heldBy) are two reads. A holder whose
+  // id is not the hold's is another read's person: it must neither render nor match a search.
+  it.each(['self', 'other'])('ignores a %s-hold roster holder whose id is not the hold\'s (#1330)', async (kind) => {
+    const target = await mountStaff([worker({ heldByUserId: kind === 'self' ? 'u1' : 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u-other-read', name: 'Wrong Person', handle: 'wrong-person', urn: 'hrn:user:acme.com:wrong-person',
+      } }) },
+    });
+    const text = columnTexts(target, 'Name held by')[0];
+    expect(text).not.toContain('Wrong Person');
+    expect(text).toContain(kind === 'self' ? 'Your name — held by you' : 'Held by another member');
+    expect(target.querySelector('[title="hrn:user:acme.com:wrong-person"]')).toBeNull();
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    for (const q of ['Wrong Person', 'wrong-person', 'hrn:user:acme.com:wrong-person']) {
+      search.value = q;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(2);
+      expect(names(target)).toEqual([]);
+    }
+  });
+
+  it('keeps the self + masked fallback: "held by you", no URN (#1330)', async () => {
+    const target = await mountStaff([worker({ heldByUserId: 'u1' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: null }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('Your name — held by you');
+    expect(target.querySelector('tbody tr [title^="hrn:user:"]')).toBeNull();
+  });
+
+  // portal#1330 BLIND P3: the search text must never carry the cell's fallback copy. A matching holder with no
+  // name or handle (only a URN) renders a fallback line, which is not holder identity and not searchable.
+  it.each(['self', 'other'])('does not search the %s fallback copy of a nameless holder (#1330)', async (kind) => {
+    const id = kind === 'self' ? 'u1' : 'u9';
+    const target = await mountStaff([worker({ heldByUserId: id })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: { id, name: null, handle: null, urn: 'hrn:user:acme.com:sample-holder' } }) },
+    });
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    for (const q of ['held by you', 'Your name', 'held by another']) {
+      search.value = q;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(2);
+      expect(names(target)).toEqual([]);
+    }
+    search.value = 'sample-holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual(['Ada']);
+  });
+
+  it('falls back to the handle, in the cell and in search, when the holder name is empty (#1330)', async () => {
+    const target = await mountStaff([worker({ heldByUserId: 'u9' })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: { id: 'u9', name: '', handle: 'sample-handle', urn: null } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toContain('sample-handle');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'sample-handle';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual(['Ada']);
   });
 
   it.each([null, undefined])('does not search an undisclosed holder projection (#1168)', async (heldByUserId) => {
@@ -1449,6 +1511,22 @@ describe('App key scope grant dialog (portal#1487)', () => {
       else Reflect.deleteProperty(HTMLDialogElement.prototype, k);
     }
   });
+  // portal#2311: the dialog reads the App's hosts when it opens. One stub per
+  // test; `hostsAnswer` is what GET /app/apps/a1/hosts says.
+  let hostsAnswer: { status: number; body: unknown };
+  const hostsRequests: string[] = [];
+  beforeEach(() => {
+    hostsRequests.length = 0;
+    hostsAnswer = {
+      status: 200,
+      body: { kind: 'ok', hosts: [{ hostId: 'h-1', label: 'Alpha', live: true }, { hostId: 'h-2', label: 'Beta', live: false }] },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      hostsRequests.push(String(url));
+      return new Response(JSON.stringify(hostsAnswer.body), { status: hostsAnswer.status });
+    }));
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
   async function mountKeys(keyScopes: unknown = { kind: 'ok', byKey: { k1: [] } }) {
     setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
     const data = await pageData();
@@ -1471,10 +1549,13 @@ describe('App key scope grant dialog (portal#1487)', () => {
     await tick(2);
     const dialog = document.querySelector('dialog[open]');
     if (!dialog) throw new Error('the grant dialog did not open');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
     return dialog;
   }
   const scopeSelect = (dialog: Element) => dialog.querySelector<HTMLSelectElement>('select[name="scope"]')!;
   const hostInput = (dialog: Element) => dialog.querySelector<HTMLInputElement>('input[name="hostId"]');
+  const hostGroup = (dialog: Element) => dialog.querySelector<HTMLFieldSetElement>('fieldset');
   const chooseScope = async (dialog: Element, value: string) => {
     const select = scopeSelect(dialog);
     select.value = value;
@@ -1483,14 +1564,10 @@ describe('App key scope grant dialog (portal#1487)', () => {
     await tick();
   };
   const grantForm = (dialog: Element) => dialog.querySelector('form')!;
-  // A user types into the host field: set the value AND fire the input event,
-  // so the bound store carries it. Setting .value alone leaves the store at
-  // its reset '' — the local empty-host refusal then cancels the submit and
-  // the server's answer below never arrives.
-  const typeHost = (dialog: Element, value: string) => {
-    const host = hostInput(dialog)!;
-    host.value = value;
-    host.dispatchEvent(new Event('input', { bubbles: true }));
+  // A user picks a host: click its radio, so the bound store carries it.
+  const pickHost = (dialog: Element, id: string) => {
+    const radio = dialog.querySelector<HTMLInputElement>(`input[type="radio"][name="hostId"][value="${id}"]`)!;
+    radio.click();
     flushSync();
   };
 
@@ -1503,7 +1580,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(dialog.textContent).toContain('router');
     expect(dialog.textContent).toContain('hk_ab…yz');
     expect(scopeSelect(dialog).value).toBe('attention:deliver');
-    expect(hostInput(dialog)).toBeNull();
+    expect(hostGroup(dialog)).toBeNull();
     expect(grantForm(dialog).getAttribute('action')).toBe('?/grantKeyScope');
     expect(new FormData(grantForm(dialog)).get('keyId')).toBe('k1');
   });
@@ -1511,50 +1588,47 @@ describe('App key scope grant dialog (portal#1487)', () => {
   it('host:operate asks for the host with helper text under the field, and only then', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
+    expect(hostsRequests).toEqual(['/app/apps/a1/hosts']);
     await chooseScope(dialog, 'host:operate');
-    const host = hostInput(dialog)!;
-    expect(host).toBeTruthy();
+    // #2311: the host is picked from the App's registrations, never typed.
+    expect(dialog.querySelector('input[type="text"][name="hostId"]')).toBeNull();
+    const radios = [...dialog.querySelectorAll<HTMLInputElement>('input[type="radio"][name="hostId"]')];
+    expect(radios.map((r) => r.value)).toEqual(['h-1', 'h-2']);
     // Plain label (no parenthesised instruction), helper text UNDER the field.
-    const label = dialog.querySelector('label[for="grant-host"]')!;
-    expect(label.textContent?.trim()).toBe('Host');
+    expect(dialog.querySelector('legend')?.textContent?.trim()).toBe('Host');
     const help = document.getElementById('grant-host-help')!;
     expect(help.textContent).toContain('A host key reaches one host.');
     // attention:deliver hides it again — no host argument travels for a
     // scope the server grants without one.
     await chooseScope(dialog, 'attention:deliver');
-    expect(hostInput(dialog)).toBeNull();
+    expect(hostGroup(dialog)).toBeNull();
   });
 
-  it('the host input names its help by id and goes invalid with the error (#1487 review: aria wiring)', async () => {
+  it('the host group names its help by id, and the alert too once a refusal shows (#1487 review: aria wiring)', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    const host = hostInput(dialog)!;
+    const group = hostGroup(dialog)!;
     // Standing state: described-by names the help (looked up by its id, not
-    // by DOM position), the input is not invalid, and no alert is showing.
-    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help');
+    // by DOM position), and no alert is showing.
+    expect(group.getAttribute('aria-describedby')).toBe('grant-host-help');
     expect(document.getElementById('grant-host-help')?.textContent).toContain('A host key reaches one host.');
-    expect(host.getAttribute('aria-invalid')).not.toBe('true');
     expect(document.getElementById('grant-scope-error')).toBeNull();
-    // An empty-host submit is refused client-side: the field error marks the
-    // input invalid, described-by KEEPS the help and ADDS the alert id, and
-    // every named id resolves to a live element in the document.
-    host.value = '';
+    // Nothing picked: the submit is refused client-side, described-by KEEPS
+    // the help and ADDS the alert id, and every named id resolves.
     await submitEnhanced(grantForm(dialog), true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     flushSync(); await tick(2);
-    expect(host.getAttribute('aria-invalid')).toBe('true');
-    const describedBy = host.getAttribute('aria-describedby')!.split(/\s+/);
+    const describedBy = group.getAttribute('aria-describedby')!.split(/\s+/);
     expect(describedBy).toContain('grant-host-help');
     expect(describedBy).toContain('grant-scope-error');
     for (const id of describedBy) expect(document.getElementById(id), `id ${id} does not resolve`).toBeTruthy();
   });
 
-  it('refuses an empty host in the dialog and sends nothing', async () => {
+  it('refuses an unpicked host in the dialog and sends nothing', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    hostInput(dialog)!.value = '';
     const { cancelled } = await submitEnhanced(grantForm(dialog), true);
     expect(cancelled).toBe(true);
     // The local refusal runs through superforms' own failure handling on a
@@ -1568,12 +1642,89 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(submit.textContent).toContain('Grant');
   });
 
+  // portal#2311 — the gate pin. A viewer whose registrations read is refused
+  // sees no host list and no free-text field, cannot pick host:operate, and
+  // can still grant another scope. On main the free-text field shows (red).
+  it('a refused hosts read: no list, no free text, host:operate disabled with the reason, another scope still grants', async () => {
+    hostsAnswer = { status: 200, body: { kind: 'refused' } };
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    const option = scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!;
+    expect(option.disabled).toBe(true);
+    expect(dialog.querySelector('[data-testid="grant-host-blocked"]')?.textContent).toContain("can't see this App's hosts");
+    // The select is described by that reason, so a screen-reader user hears why.
+    expect(scopeSelect(dialog).getAttribute('aria-describedby')).toBe('grant-scope-help');
+    // Even a forced selection shows no list and no free text.
+    await chooseScope(dialog, 'host:operate');
+    expect(dialog.querySelector('input[name="hostId"]')).toBeNull();
+    expect(scopeSelect(dialog).value).toBe('attention:deliver');
+    // attention:deliver still grants: the submit is not refused locally.
+    const { cancelled } = await submitEnhanced(grantForm(dialog), true);
+    expect(cancelled).toBe(false);
+  });
+
+  it('a failed hosts read shows Retry; retrying re-reads and restores the list', async () => {
+    hostsAnswer = { status: 500, body: {} };
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    expect(scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(true);
+    hostsAnswer = { status: 200, body: { kind: 'ok', hosts: [{ hostId: 'h-1', label: 'Alpha', live: true }] } };
+    expect(hostsRequests).toHaveLength(1);
+    dialog.querySelector<HTMLButtonElement>('[data-testid="grant-host-retry"]')!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(hostsRequests).toHaveLength(2);
+    expect(scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(false);
+    await chooseScope(dialog, 'host:operate');
+    expect(dialog.querySelector('input[type="radio"][value="h-1"]')).toBeTruthy();
+  });
+
+  it('a late answer from an earlier open never overwrites the current one', async () => {
+    let releaseFirst!: () => void;
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await new Promise<void>((resolve) => { releaseFirst = resolve; });
+        return new Response(JSON.stringify({ kind: 'refused' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ kind: 'ok', hosts: [{ hostId: 'h-1', label: 'Alpha', live: true }] }), { status: 200 });
+    }));
+    const panel = await mountKeys();
+    const first = await openGrant(panel);
+    (first.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const second = await openGrant(panel);
+    expect(scopeSelect(second).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(false);
+    // The first open's refusal lands now, after the second open's list.
+    releaseFirst();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(); await tick(2);
+    expect(scopeSelect(second).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(false);
+  });
+
+  it('host:operate is not selectable while the hosts are still loading', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    expect(scopeSelect(dialog).querySelector<HTMLOptionElement>('option[value="host:operate"]')!.disabled).toBe(true);
+  });
+
+  it('every open re-reads the hosts: nothing is kept between opens', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    await openGrant(panel);
+    expect(hostsRequests).toEqual(['/app/apps/a1/hosts', '/app/apps/a1/hosts']);
+  });
+
   it('a HOST_CONFLICT refusal keeps the dialog open with the server’s own sentence', async () => {
     const serverText = 'This key already operates as host h-1. A host key reaches one host: revoke host:operate first, or use another key.';
     const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    typeHost(dialog, 'h-2');
+    pickHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
     f.errors = { hostId: [serverText] };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
@@ -1582,11 +1733,10 @@ describe('App key scope grant dialog (portal#1487)', () => {
     // grant (host h-1) is untouched on the tab.
     expect(document.querySelector('dialog[open]')).toBeTruthy();
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
-    // The server routes a host-specific refusal to errors.hostId (#2356), so
-    // the host input is marked invalid and names help AND alert.
-    const host = hostInput(dialog)!;
-    expect(host.getAttribute('aria-invalid')).toBe('true');
-    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+    // The server routes a host-specific refusal to errors.hostId (#2356); the
+    // host group names help AND alert.
+    expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
     expect(panel.querySelector('[data-testid="key-scopes"]')?.textContent).toContain('host:operate · h-1');
   });
 
@@ -1595,17 +1745,99 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    typeHost(dialog, 'h-2');
+    pickHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
     f.message = { type: 'error', text: serverText };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
     flushSync(); await tick(2);
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(serverText);
-    const host = hostInput(dialog)!;
-    // A screen-reader user is not told the host they typed is wrong.
-    expect(host.getAttribute('aria-invalid')).not.toBe('true');
+    // A screen-reader user is not told the host they picked is wrong.
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).not.toBe('true');
     // The alert is still named, so the refusal is still reachable from the field.
-    expect(host.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+    expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+  });
+
+  // #2468 (decided, was pinned the other way by #2420's BLIND): a host refusal is an error on the host
+  // field, and picking another host clears it on the picker's change, so a screen-reader user is not
+  // told the field is invalid after fixing it. It clears on the change, never on submit, so a refusal
+  // that is still current is never hidden: a wrong re-pick is refused again by the next submit's reply.
+  it('picking another host clears the host refusal, and a wrong re-pick is refused and shown again', async () => {
+    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const refuse = async (hostId: string, text: string) => {
+      const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId }, zod4(grantAppKeyScopeSchema));
+      f.errors = { hostId: [text] };
+      await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+      flushSync(); await tick(2);
+    };
+    await refuse('h-2', 'This key already operates as host h-1.');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeTruthy();
+    // The picker's change clears the field error and its alert, and the group stops naming the alert.
+    pickHost(dialog, 'h-1');
+    await tick(2);
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).not.toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
+    expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help');
+    // A wrong re-pick is still refused on submit, and shown.
+    await refuse('h-1', 'This host is not registered.');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('This host is not registered.');
+    // A reopen still starts clean.
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const reopened = await openGrant(panel);
+    await chooseScope(reopened, 'host:operate');
+    expect(hostGroup(reopened)!.getAttribute('aria-invalid')).not.toBe('true');
+  });
+
+  // #2420 (BLIND, unverified until now): the host refusal names the host that was refused, so it must not
+  // outlive the host field. Switching to a scope that takes no host removes the field, and the alert
+  // beside it would go on blaming a host the form no longer asks for.
+  it('switching to a scope with no host clears the host refusal', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.errors = { hostId: ['This key already operates as host h-1.'] };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeTruthy();
+    await chooseScope(dialog, 'attention:deliver');
+    await tick(2);
+    expect(hostGroup(dialog)).toBeNull();
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
+  });
+
+  it('switching scope drops only the host refusal and leaves another field error in place', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.errors = { hostId: ['This key already operates as host h-1.'], keyId: ['This key was removed.'] };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 400, data: { form: f } });
+    flushSync(); await tick(2);
+    await chooseScope(dialog, 'attention:deliver');
+    await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('This key was removed.');
+  });
+
+  it('picking another host leaves a refusal that is not about the host in place', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'error', text: 'Only the App’s managers can do this.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
+    flushSync(); await tick(2);
+    pickHost(dialog, 'h-1');
+    await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('Only the App’s managers can do this.');
   });
 
   it('a success closes the dialog and announces the granted scope', async () => {
@@ -1633,9 +1865,9 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
-    // The success path invalidates the page and the table re-renders its
-    // rows — the captured ⋯ trigger can be detached by the time the dialog
-    // unmounts. Stand in for that by removing the row outright.
+    // A keyed row normally survives the success path's invalidation, so a
+    // detached trigger is the DEFENSIVE case (a refresh that dropped the key).
+    // Stand in for it by removing the row outright.
     const tabPanel = document.getElementById('panel-keys')!;
     const trigFocus = vi.spyOn(trigBefore, 'focus');
     const panelFocus = vi.spyOn(tabPanel, 'focus');
@@ -1659,7 +1891,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
-    typeHost(dialog, 'h-2');
+    pickHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
     f.message = { type: 'error', text: 'This key already operates as host h-1.' };
     await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
@@ -1672,7 +1904,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     const reopened = await openGrant(panel);
     expect(reopened.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
     expect(scopeSelect(reopened).value).toBe('attention:deliver');
-    expect(hostInput(reopened)).toBeNull();
+    expect(hostGroup(reopened)).toBeNull();
   });
 
   // ── review on #1487: the dialog must not lock, and must not leak across Apps ──
@@ -1743,6 +1975,24 @@ describe('App key scope grant dialog (portal#1487)', () => {
       expect(scopeSelect(dialog).value).toBe('attention:deliver');
     });
 
+    // #2420 F3: the fence-skip is per teardown. A fence-driven close leaves the flag set;
+    // the next open clears it, so an ordinary close on B whose trigger is gone still
+    // lands focus on the Keys panel. A flag that outlived the open would skip that fallback.
+    it('a fence-driven close does not silence the Keys-panel fallback of the next dialog', async () => {
+      const { m, props } = await mountAppKeys();
+      await openGrant(m.target);
+      await moveTo(props, 'a2', KEY_B);
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      const dialog = await openGrant(m.target);
+      const tabPanel = document.getElementById('panel-keys')!;
+      const panelFocus = vi.spyOn(tabPanel, 'focus');
+      document.querySelector('button[aria-label^="Actions for key"]')!.closest('tr')!.remove();
+      (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+      flushSync(); await tick(2);
+      expect(document.querySelector('dialog[open]')).toBeNull();
+      expect(panelFocus).toHaveBeenCalledWith({ preventScroll: true });
+    });
+
     it('A’s late grant answer says nothing on B and refreshes nothing there', async () => {
       const { m, props } = await mountAppKeys();
       const dialog = await openGrant(m.target);
@@ -1756,6 +2006,223 @@ describe('App key scope grant dialog (portal#1487)', () => {
       expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
       expect(document.querySelector('dialog[open]')).toBeNull();
     });
+  });
+});
+
+// portal#2319 — taking one scope off a live key, from a dialog the row's ⋯
+// menu opens right after Grant scope. The picker lists only held scopes; the
+// server is the gate and every refusal is its own sentence in one alert region.
+describe('App key scope revoke dialog (portal#2319)', () => {
+  const key = {
+    id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  const HELD = { kind: 'ok', byKey: { k1: [
+    { scope: 'attention:deliver', hostId: null, grantedAt: 'x' },
+    { scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' },
+  ] } };
+  let oldShow: PropertyDescriptor | undefined, oldClose: PropertyDescriptor | undefined;
+  beforeAll(() => {
+    oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+  });
+  afterAll(() => {
+    for (const [k, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+      if (old) Object.defineProperty(HTMLDialogElement.prototype, k, old);
+      else Reflect.deleteProperty(HTMLDialogElement.prototype, k);
+    }
+  });
+  async function mountKeys(keyScopes: unknown = HELD) {
+    setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
+    const data = await pageData();
+    const props = reactiveProps({ data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes }, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return { target: m.target, props };
+  }
+  const trigger = (panel: Element) => panel.querySelector('button[aria-label^="Actions for key"]') as HTMLButtonElement;
+  async function openRevoke(panel: Element) {
+    trigger(panel).click();
+    await tick(2);
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.includes('Revoke scope')) as HTMLButtonElement | undefined;
+    if (!item) throw new Error('no Revoke scope menu item');
+    item.click();
+    await tick(2);
+    const dialog = document.querySelector('dialog[open]');
+    if (!dialog) throw new Error('the revoke dialog did not open');
+    return dialog;
+  }
+  const picker = (dialog: Element) => dialog.querySelector<HTMLSelectElement>('select[name="scope"]')!;
+  const revokeForm = (dialog: Element) => dialog.querySelector('form')!;
+  const result = async (scope: 'attention:deliver' | 'host:operate', text?: string) => {
+    const f = await superValidate({ _kind: 'revokeKeyScope', keyId: 'k1', scope }, zod4(revokeAppKeyScopeSchema));
+    if (text !== undefined) f.message = { type: text.startsWith('Scope') ? 'success' : 'error', text };
+    return f;
+  };
+
+  it('opens from the row menu with the key once and a picker of the held scopes only', async () => {
+    const { target } = await mountKeys({ kind: 'ok', byKey: { k1: [
+      { scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' },
+    ] } });
+    const dialog = await openRevoke(target);
+    expect(dialog.getAttribute('aria-labelledby')).toBe('revoke-scope-title');
+    expect(dialog.textContent).toContain('Revoke a scope');
+    expect(dialog.textContent.match(/hk_ab…yz/g)).toHaveLength(1);
+    // Only what the key holds: attention:deliver is NOT offered.
+    expect([...picker(dialog).options].map((o) => o.value)).toEqual(['host:operate']);
+    expect(dialog.querySelector('input[type="text"]')).toBeNull();
+    expect(revokeForm(dialog).getAttribute('action')).toBe('?/revokeKeyScope');
+    const fd = new FormData(revokeForm(dialog));
+    expect(fd.get('keyId')).toBe('k1');
+    expect(fd.get('scope')).toBe('host:operate');
+  });
+
+  it('plain verbs, and the consequence is helper text the picker points at', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    expect([...dialog.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Cancel', 'Revoke']);
+    const help = document.getElementById('revoke-scope-help')!;
+    expect(help.textContent).toContain('stops being able to do this from the next request');
+    expect(picker(dialog).getAttribute('aria-describedby')).toBe('revoke-scope-help');
+    expect(dialog.querySelector('label[for="revoke-scope"]')!.textContent?.trim()).toBe('Scope');
+    // Two held scopes, both offered, once each.
+    expect([...picker(dialog).options].map((o) => o.value)).toEqual(['attention:deliver', 'host:operate']);
+  });
+
+  it('refuses nothing locally: a refusal is the server’s sentence in the one alert region the picker names', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    const text = 'Only people who manage this App can mint, revoke and scope its keys.';
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'failure', status: 403, data: { form: await result('attention:deliver', text) } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    const alerts = dialog.querySelectorAll('[role="alert"]');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toBe(text);
+    expect(picker(dialog).getAttribute('aria-describedby')).toBe('revoke-scope-help revoke-scope-error');
+    expect(document.getElementById('revoke-scope-error')).toBe(alerts[0]);
+    // Not a toast, and not a shared line above the tabs.
+    expect(target.querySelectorAll('[data-testid="revoke-scope-error"]')).toHaveLength(1);
+  });
+
+  it('stays open and locked while the server has not answered', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    const delayed = await submitEnhancedDeferred(revokeForm(dialog));
+    flushSync(); await tick(2);
+    const buttons = [...dialog.querySelectorAll('button')];
+    expect(buttons.find((b) => b.type === 'submit')!.textContent).toContain('Revoking');
+    expect(buttons.find((b) => b.type === 'submit')!.disabled).toBe(true);
+    expect(buttons.find((b) => b.type === 'button')!.disabled).toBe(true);
+    // Escape is refused mid-flight.
+    const esc = new Event('cancel', { cancelable: true });
+    dialog.dispatchEvent(esc);
+    expect(esc.defaultPrevented).toBe(true);
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    await delayed.finish({ type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+  });
+
+  it('a success closes the dialog and announces the revoke', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(target.textContent).toContain('Scope revoked.');
+  });
+
+  it('Escape closes it and focus returns to the row’s ⋯ trigger', async () => {
+    const { target } = await mountKeys();
+    const trig = trigger(target);
+    const focus = vi.spyOn(trig, 'focus');
+    const dialog = await openRevoke(target);
+    dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(focus).toHaveBeenCalled();
+  });
+
+  it('a transport failure frees the dialog and says the revoke is unconfirmed', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithRawResult(revokeForm(dialog), { type: 'error', status: 500, error: new Error('boom') });
+    flushSync(); await tick(2);
+    expect(document.querySelector('dialog[open]')).toBeTruthy();
+    expect(dialog.querySelector('[data-testid="revoke-scope-error"]')?.textContent).toContain('could not be confirmed');
+    expect([...dialog.querySelectorAll('button')].every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('a refusal from an earlier open never reads as the next one’s answer', async () => {
+    const { target } = await mountKeys();
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'failure', status: 500, data: { form: await result('attention:deliver', 'Failed.') } });
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[data-testid="revoke-scope-error"]')).toBeTruthy();
+    (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
+    flushSync(); await tick(2);
+    const reopened = await openRevoke(target);
+    expect(reopened.querySelector('[data-testid="revoke-scope-error"]')).toBeNull();
+  });
+
+  // BLIND P2-1: the held list can change under an open dialog (a refresh).
+  it('a refresh that drops the chosen scope moves the picker and the sent value to one still held', async () => {
+    const { target, props } = await mountKeys();
+    const dialog = await openRevoke(target);
+    expect(picker(dialog).value).toBe('attention:deliver');
+    props.data = { ...props.data, keyScopes: { kind: 'ok', byKey: { k1: [{ scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } } };
+    flushSync(); await tick(3);
+    expect([...picker(dialog).options].map((o) => o.value)).toEqual(['host:operate']);
+    expect(picker(dialog).value).toBe('host:operate');
+    expect(new FormData(revokeForm(dialog)).get('scope')).toBe('host:operate');
+  });
+
+  it('a refresh that leaves nothing held disables Revoke rather than sending a scope the key lost', async () => {
+    const { target, props } = await mountKeys();
+    const dialog = await openRevoke(target);
+    props.data = { ...props.data, keyScopes: { kind: 'ok', byKey: { k1: [] } } };
+    flushSync(); await tick(3);
+    expect(picker(dialog).options.length).toBe(0);
+    expect([...dialog.querySelectorAll('button')].find((b) => b.type === 'submit')!.disabled).toBe(true);
+  });
+
+  // BLIND P2-2: one line above the tabs answers the LATEST scope action.
+  it('a revoke success is not shadowed by an earlier grant success', async () => {
+    const { target } = await mountKeys();
+    trigger(target).click();
+    await tick(2);
+    ([...document.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.includes('Grant scope')) as HTMLButtonElement).click();
+    await tick(2);
+    const grant = document.querySelector('dialog[open]')!;
+    const g = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'attention:deliver', hostId: '' }, zod4(grantAppKeyScopeSchema));
+    g.message = { type: 'success', text: 'Scope granted.' };
+    await submitEnhancedWithResult(grant.querySelector('form')!, { type: 'success', status: 200, data: { form: g } });
+    flushSync(); await tick(2);
+    expect(target.textContent).toContain('Scope granted.');
+    const dialog = await openRevoke(target);
+    await submitEnhancedWithResult(revokeForm(dialog), { type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(2);
+    expect(target.textContent).toContain('Scope revoked.');
+    expect(target.textContent).not.toContain('Scope granted.');
+  });
+
+  it('is fenced to one App: a late answer from the departed App says nothing here', async () => {
+    const { target, props } = await mountKeys();
+    const dialog = await openRevoke(target);
+    const delayed = await submitEnhancedDeferred(revokeForm(dialog));
+    const data = await pageData();
+    setStubPage('https://example.test/app/apps/a2?tab=keys', { appId: 'a2' });
+    props.data = { ...data, initialTab: 'keys', app: { ...data.app, id: 'a2' }, appKeys: { kind: 'ok', keys: [] }, keyScopes: { kind: 'ok', byKey: {} } };
+    await tick(3);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    await delayed.finish({ type: 'success', status: 200, data: { form: await result('attention:deliver', 'Scope revoked.') } });
+    flushSync(); await tick(4);
+    expect(target.textContent).not.toContain('Scope revoked.');
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
   });
 });
 
@@ -1846,7 +2313,7 @@ describe('withheld App rosters (portal#1148)', () => {
   });
 
   it('Human Team: withheld members say so — not "No members yet.", not a failed fetch, no count, no add form', async () => {
-    const panel = await mountTab('members', { agent: { id: 'ag1', name: 'Coordinator', installationPolicy: { maxMembers: 'unlimited', memberRoles: ['member'] } }, agents: [agent] }, { members: [], membersError: false, membersWithheld: true });
+    const panel = await mountTab('members', { agent: { id: 'ag1', urn: 'hrn:agent:acme.com:coordinator', name: 'Coordinator', installationPolicy: { maxMembers: 'unlimited', memberRoles: ['member'] } }, agents: [agent] }, { members: [], membersError: false, membersWithheld: true });
     expect(panel.textContent).toContain('The members of this App aren’t visible to you.');
     expect(panel.textContent).not.toContain('No members yet.');
     expect(panel.textContent).not.toContain('could not be loaded');
@@ -2025,7 +2492,10 @@ describe('App AI configuration readback lifecycle', () => {
     await tick(30);
     expect(relatedSignal?.aborted).toBe(false);
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    // The related read's timer is armed a few ticks after mount (form fill,
+    // one await hop), so its window ends slightly past mount + the constant;
+    // advance beyond it rather than exactly to it.
+    await vi.advanceTimersByTimeAsync(AI_CONFIG_TIMEOUT_MS + 1_000);
     expect(relatedSignal?.aborted).toBe(true);
   });
 
@@ -2858,21 +3328,60 @@ describe('Cast role follows the selected Agent (#1319)', () => {
 });
 
 describe('creating a new App memory (#487)', () => {
-  async function memoryPage(role: string, installed = true) {
+  // Every case resets the stub page itself (portal#1391): no case leans on the one a sibling left behind.
+  async function memoryPage(role: string, installed = true, members: { role: string; user: { id: string } }[] | null = [{ role, user: { id: 'u1' } }]) {
+    setStubPage('http://localhost/app/apps/a1?tab=memory', { appId: 'a1' });
     const data = await pageData();
-    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members:[{role,user:{id:'u1'}}] }, app: {...data.app, organizationId:'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
+    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: members === null ? null : { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members }, app: {...data.app, organizationId: members === null ? null : 'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
   }
+  const mountPage = async (data: unknown) => { const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();return m; };
   it.each(['OWNER','ADMIN'])('offers creation for an org %s with an installed Agent', async role => {
-    setStubPage('http://localhost/app/apps/a1?tab=memory', {appId:'a1'});
-    const m=mountComponent(Page as never,{data:await memoryPage(role),form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    const m=await mountPage(await memoryPage(role));
     expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
     expect(m.target.textContent).toContain('Project notes');
     expect(m.target.querySelector('[title="hrn:mem:acme.com:notes"]')).not.toBeNull();
     expect(m.target.querySelector('select[name=memoryClass],input[name=memoryRef]')).toBeNull();
   });
   it.each(['CONTRIBUTOR','READER'])('hides creation from org %s even if App.role says OWNER',async role=>{
-    const data=await memoryPage(role);const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    const m=await mountPage(await memoryPage(role));
     expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+  // portal#1391: say what is needed before an attempt, from the install fact the page has (app.agents), not a first-Agent summary.
+  it('says an Agent must be installed before the form is tried, when none is', async () => {
+    const m=await mountPage(await memoryPage('OWNER', false));
+    const note=m.target.querySelector('[data-testid="app-memory-needs-agent"]');
+    expect(note?.textContent).toContain('Install an Agent in this App');
+    expect(m.target.querySelector('form[action="?/createMemory"] button[type="submit"]')?.getAttribute('aria-describedby')).toBe(note?.id);
+    expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
+  });
+  it('does not say it when an Agent is installed', async () => {
+    const m=await mountPage(await memoryPage('OWNER', true));
+    expect(m.target.querySelector('[data-testid="app-memory-needs-agent"]')).toBeNull();
+    expect(m.target.querySelector('form[action="?/createMemory"] button[type="submit"]')?.hasAttribute('aria-describedby')).toBe(false);
+  });
+  // One neutral sentence: no role, no membership, no authorization rule the server did not state.
+  it.each([['a contributor','CONTRIBUTOR',[{role:'CONTRIBUTOR',user:{id:'u1'}}]],['a reader','READER',[{role:'READER',user:{id:'u1'}}]],['an unknown membership','READER',[]],['an App with no organization','READER',null]] as const)('gives %s one neutral sentence and no form', async (_n, role, members) => {
+    const m=await mountPage(await memoryPage(role, true, members as never));
+    const note=m.target.querySelector('[data-testid="app-memory-create-unavailable"]');
+    expect(note?.textContent?.trim()).toBe('Adding a memory isn’t available to you here.');
+    expect(note?.textContent).not.toMatch(/owner|admin|contributor|reader|member|organization/i);
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+  // portal#2529: the sentence is for a known refusal only. While the answer is not known (undefined) neither the form nor the sentence shows.
+  it.each([undefined,null])('shows neither the form nor the sentence while canCreateMemory is %s', async unknown => {
+    const m=await mountPage({...await memoryPage('ADMIN'), canCreateMemory: unknown});
+    expect(m.target.querySelector('[data-testid="app-memory-create-unavailable"]')).toBeNull();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+  it('does not show the sentence to someone who can create', async () => {
+    const m=await mountPage(await memoryPage('ADMIN'));
+    expect(m.target.querySelector('[data-testid="app-memory-create-unavailable"]')).toBeNull();
+  });
+  it('titles the node browser under the memories table', async () => {
+    const m=await mountPage(await memoryPage('ADMIN'));
+    const h=[...m.target.querySelectorAll('h3')].find(x=>x.textContent?.trim()==='Memory nodes');
+    expect(h).toBeTruthy();
+    expect(m.target.querySelector('#app-memory-nodes-title')).toBe(h);
   });
 });
 
@@ -3828,6 +4337,11 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
       return name;
     }
 
+    // portal#2427: each row mounts the page 25 times (one per turn count), so the default 5 s budget
+    // only holds on an idle host (2-3 s idle, 5-8 s at load ~90). The budget is sized to the loop, not
+    // the assertions: none were loosened and the three rows still run every turn.
+    const SWEEP_TIMEOUT_MS = 60_000;
+
     it.each([
       ['success', success, 'Worker cast.'],
       ['refusal', refused, NAME_TAKEN],
@@ -3865,7 +4379,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
         mounted.pop();
       }
       expect([...regimes].sort()).toEqual(['not-yet-shown', 'shown-on-A']);
-    });
+    }, SWEEP_TIMEOUT_MS);
 
     it('a failed request says the cast is unconfirmed, claims neither outcome and frees the form', async () => {
       const { m, form } = await openCast();

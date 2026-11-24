@@ -36,6 +36,7 @@ import {
   APP_ORG_AGENT_GRANTS_QUERY,
   APP_QUERY,
   SET_APP_SWEEP_MODE_MUTATION,
+  SET_SATURATION_ALARM_WAKE_ROLES_MUTATION,
   APP_MEMBERS_QUERY,
   SELF_CAN_MANAGE_QUERY,
   SET_APP_AGENT_BOOT_PROMPT_MUTATION,
@@ -47,6 +48,7 @@ import {
   CREATE_APP_KEY_MUTATION,
   REVOKE_APP_KEY_MUTATION,
   GRANT_APP_KEY_SCOPE_MUTATION,
+  REVOKE_APP_KEY_SCOPE_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
   APP_NODES_PAGE_QUERY,
@@ -102,6 +104,7 @@ import type {
 } from '$lib/types';
 import { loadAppKeyScopes } from '$lib/server/tickers';
 import { loadAppKeys, loadViewerManages } from '$lib/server/app-keys';
+import { loadSaturationAlarmWakeRoles } from '$lib/server/saturation-wake-roles';
 import type { Actions, PageServerLoad } from './$types';
 import {
   createAppMemorySchema,
@@ -111,6 +114,7 @@ import {
   createAppKeySchema,
   deleteAppSchema,
   grantAppKeyScopeSchema,
+  revokeAppKeyScopeSchema,
   removeAppAgentSchema,
   postTeamChatMessageSchema,
   retireWorkerSchema,
@@ -136,6 +140,7 @@ type CastWorkerForm = Infer<typeof castWorkerSchema, 'zod4'>;
 type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
 type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
 type GrantAppKeyScopeForm = Infer<typeof grantAppKeyScopeSchema, 'zod4'>;
+type RevokeAppKeyScopeForm = Infer<typeof revokeAppKeyScopeSchema, 'zod4'>;
 type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
 type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
@@ -187,6 +192,7 @@ const castWorkerFormAdapter = zod4(castWorkerSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
 const deleteAppFormAdapter = zod4(deleteAppSchema);
 const grantAppKeyScopeFormAdapter = zod4(grantAppKeyScopeSchema);
+const revokeAppKeyScopeFormAdapter = zod4(revokeAppKeyScopeSchema);
 
 const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
@@ -806,6 +812,9 @@ export async function _loadAppPage(
       .request<{ app: { chatbotAiConfigId: string | null } | null }>(APP_CHATBOT_AI_CONFIG_QUERY, { ref: params.appId })
       .then((r) => ({ ok: true as const, configId: r.app?.chatbotAiConfigId ?? null }))
       .catch(() => ({ ok: false as const }));
+  // portal#2464 (hadron-server#4777): the roles this App's saturation alarms wake. Its own read, coerced to
+  // ok / hidden / failed so it can never null the page.
+  const wakeRolesP = wants('wakeRoles') ? loadSaturationAlarmWakeRoles(client, params.appId) : Promise.resolve(null);
   // portal#2240: the stop banner is the frame's; started first so the staff
   // read below can tell whether the banner needs worker names.
   const liveStopsP = mode.frame ? loadLiveStops(client, app.id) : Promise.resolve(null);
@@ -957,7 +966,7 @@ export async function _loadAppPage(
     // (never throws): a stop read that fails must not take the App page with it.
     liveStopsP,
   ]);
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
+  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, grantKeyScopeForm, revokeKeyScopeForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
       {
         name: appData.app.name,
@@ -1005,6 +1014,13 @@ export async function _loadAppPage(
     superValidate<GrantAppKeyScopeForm>(
       { keyId: '', scope: 'attention:deliver', hostId: '' },
       grantAppKeyScopeFormAdapter,
+      { errors: false },
+    ),
+    // portal#2319 — seeded like the grant form; the dialog replaces the key
+    // and scope when it opens.
+    superValidate<RevokeAppKeyScopeForm>(
+      { keyId: '', scope: 'attention:deliver' },
+      revokeAppKeyScopeFormAdapter,
       { errors: false },
     ),
     superValidate<DeleteAppForm>(
@@ -1150,6 +1166,7 @@ export async function _loadAppPage(
     chatConfigs,
     aiChoices: await aiChoiceRowsP.then((rows) => (rows ? chatAiChoiceOptions(rows, chatConfigs) : null)),
     chatbotAiConfig: await chatbotAiConfigP,
+    saturationWakeRoles: await wakeRolesP,
     appConfigs: configsData?.items ?? [],
     configsPage: appListNavigation(url, 'configOffset', 'ai-configs', configOffset, configsData?.items.length ?? 0, configsData?.total ?? 0),
     configsError: configsData === null,
@@ -1237,6 +1254,7 @@ export async function _loadAppPage(
     updateAgentToolsForm,
     revokeKeyForm,
     grantKeyScopeForm,
+    revokeKeyScopeForm,
     deleteAppForm,
     castWorkerForm,
     retireWorkerForm,
@@ -1316,6 +1334,29 @@ export const actions: Actions = {
       const code = extractGqlErrorCode(e);
       const text = extractGqlError(e, t('app.sweep-mode.error.failed', 'Not saved. Try again.'), ['APP_NOT_FOUND', 'BAD_USER_INPUT']);
       return fail(code === 'FORBIDDEN' ? 403 : code === 'APP_NOT_FOUND' ? 404 : code === 'BAD_USER_INPUT' ? 400 : 500, { sweepModeError: text });
+    }
+  },
+
+  // portal#2464 (hadron-server#4777, hrn:node:hadronmemory.com:specs:cor:agt:060:16): set the WHOLE list of roles
+  // this App's saturation alarms wake. A person acts as themselves (no instruction). The server owns the rules
+  // (trim, lower-case, de-duplicate, the cap), so the portal sends the names as typed and shows the server's
+  // BAD_USER_INPUT sentence. APP_NOT_FOUND is the same answer for a non-participant and a deleted App, so its
+  // copy never says the App is gone.
+  setSaturationAlarmWakeRoles: async ({ request, params, locals }) => {
+    const roles = (await request.formData()).getAll('roles').map(String);
+    try {
+      const r = await gqlClient(locals.token).request<{ setSaturationAlarmWakeRoles: { roles: string[] } }>(
+        SET_SATURATION_ALARM_WAKE_ROLES_MUTATION, { appRef: params.appId, roles });
+      return { wakeRolesSaved: r.setSaturationAlarmWakeRoles.roles };
+    } catch (e: unknown) {
+      const known = ['BAD_USER_INPUT', 'APP_NOT_FOUND', 'APP_MANAGER_REQUIRED', 'SESSION_NOT_BOUND', 'APP_UNINSTALLED'];
+      if (!isDefiniteRefusal(e, known)) return fail(502, { wakeRolesError: t('app.wake-roles.unconfirmed', 'Couldn’t confirm the save. Your list is kept: save again if it isn’t what is stored.'), uncertain: true });
+      const code = extractGqlErrorCode(e);
+      if (code === 'BAD_USER_INPUT') return fail(400, { wakeRolesError: extractGqlError(e, t('app.wake-roles.error.failed', 'Not saved. Try again.'), ['BAD_USER_INPUT']) });
+      if (code === 'APP_NOT_FOUND') return fail(404, { wakeRolesError: t('app.wake-roles.error.not-found', 'Not saved. You may not have access to change this App’s settings.') });
+      if (code === 'APP_MANAGER_REQUIRED' || code === 'FORBIDDEN') return fail(403, { wakeRolesError: t('app.wake-roles.error.manager', 'Only whoever manages this App can change this.') });
+      if (code === 'APP_UNINSTALLED') return fail(409, { wakeRolesError: t('app.wake-roles.error.uninstalled', 'This App is uninstalled, so its settings can’t be changed.') });
+      return fail(409, { wakeRolesError: t('app.wake-roles.error.session', 'Not saved. Sign in again and retry.') });
     }
   },
 
@@ -1782,10 +1823,42 @@ export const actions: Actions = {
       // lands on the host field so the input can be marked invalid; every
       // other refusal (permission, key gone, network) stays a form message
       // and says nothing about what the reader typed.
+      //
+      // BAD_USER_INPUT is the PORTAL'S OWN inference, not a contract: under
+      // host:operate the only argument that can be malformed is the host id, so
+      // the pairing is read as "about the host". The corpus does not promise the
+      // server raises it for no other argument, so anything this cannot classify
+      // (another code, or any code under another scope) stays a form message and
+      // is never guessed into hostId. The host-specific codes are listed here,
+      // apart from appKeyRefusal, which only words the refusal.
       const code = extractGqlErrorCode(e);
       if (form.data.scope === 'host:operate' && (code === 'APP_KEY_SCOPE_HOST_CONFLICT' || code === 'BAD_USER_INPUT')) {
         return setError(form, 'hostId', text, { status });
       }
+      return message(form, { type: 'error', text }, { status });
+    }
+  },
+
+  // portal#2319 — take ONE scope off a live key. Same posture as the grant:
+  // the server is the gate (hrn:node:hadronmemory.com:specs:cor:aut:010:03),
+  // and a crafted POST from someone it refuses meets its own refusal through
+  // appKeyRefusal. No inline shortcut: a HOST_CONFLICT-style refusal is shown
+  // as the server's sentence and nothing is revoked on the reader's behalf.
+  revokeKeyScope: async ({ request, locals }) => {
+    const form = await superValidate<RevokeAppKeyScopeForm>(
+      await request.formData(),
+      revokeAppKeyScopeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(REVOKE_APP_KEY_SCOPE_MUTATION, {
+        id: form.data.keyId,
+        scope: form.data.scope,
+      });
+      return message(form, { type: 'success', text: t('app.key.scope.revoked', 'Scope revoked.') });
+    } catch (e: unknown) {
+      const { status, text } = appKeyRefusal(e, 'Failed to revoke the scope');
       return message(form, { type: 'error', text }, { status });
     }
   },

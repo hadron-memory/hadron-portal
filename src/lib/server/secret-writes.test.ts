@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import { parseSecretValue, secretWrite, validSecretName } from './secret-writes';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { env } from '$env/dynamic/public';
+import { internalErrorText } from '$lib/gql-error';
+import { PLAIN_PROTECTED_TEXT, STAGED_UNLINKED_TEXT, parseSecretValue, secretWrite, validSecretName } from './secret-writes';
 
 const err = (extensions: Record<string, unknown>, message = 'nope') =>
   Object.assign(new Error('x'), { response: { errors: [{ message, extensions }] }, request: { query: '', variables: {} } });
 const client = (f: () => unknown) => ({ request: async () => f() }) as never;
 
 describe('secretWrite (portal#2380)', () => {
+  beforeEach(() => { env.PUBLIC_SERVER_URL = 'https://h.example'; });
   it('a staged edit is staged: not ok, not a generic error, with the link', async () => {
     const url = 'https://h.example/secret-changes/r1';
     const r = await secretWrite(client(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl: url }); }), 'q', {});
@@ -18,6 +21,69 @@ describe('secretWrite (portal#2380)', () => {
   it('another refusal keeps its own sentence; success passes data', async () => {
     expect(await secretWrite(client(() => { throw err({ code: 'FORBIDDEN' }, 'Not yours.'); }), 'q', {})).toEqual({ kind: 'refused', message: 'Not yours.' });
     expect(await secretWrite(client(() => ({ a: 1 })), 'q', {})).toEqual({ kind: 'ok', data: { a: 1 } });
+  });
+});
+
+describe('open-change cap refusals have their own copy (portal#2460)', () => {
+  const refuse = async (code: string, message = 'server wording') => {
+    const r = await secretWrite(client(() => { throw err({ code }, message); }), 'q', {});
+    if (r.kind !== 'refused') throw new Error(`expected a refusal, got ${r.kind}`);
+    return r.message;
+  };
+  it('the per-requester cap says the person has too many open changes and what to do, with no number', async () => {
+    const m = await refuse('SECRET_CHANGE_REQUESTER_LIMIT');
+    expect(m).not.toBe(internalErrorText());
+    expect(m).toMatch(/too many open changes/i);
+    expect(m).toMatch(/withdraw/i);
+    expect(m).toMatch(/expire/i);
+    expect(m).not.toMatch(/\d/);
+  });
+  it('the per-secret cap has its own copy that does not blame the person, with no number', async () => {
+    const m = await refuse('SECRET_CHANGE_REQUEST_LIMIT');
+    expect(m).not.toBe(internalErrorText());
+    expect(m).toMatch(/too many open change requests/i);
+    expect(m).toMatch(/wait/i);
+    expect(m).not.toMatch(/you have too many/i);
+    expect(m).not.toMatch(/\d/);
+    expect(m).not.toBe(await refuse('SECRET_CHANGE_REQUESTER_LIMIT'));
+  });
+  it.each(['SECRET_CHANGE_REQUESTER_LIMIT', 'SECRET_CHANGE_REQUEST_LIMIT'])('%s shows the portal copy, not the server message', async (code) => {
+    expect(await refuse(code, 'leaks: 2 of 5 for user u1')).not.toMatch(/leaks|u1/);
+  });
+  it('an unknown code keeps the generic text and never the server message', async () => {
+    expect(await refuse('SECRET_CHANGE_SOMETHING_ELSE', 'leaks: server text')).toBe(internalErrorText());
+  });
+});
+
+describe('a staged link is pinned to the server public origin (portal#2417)', () => {
+  const stage = (url: string) => secretWrite(client(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', requestId: 'r1', ceremonyUrl: url }); }), 'q', {});
+  beforeEach(() => { env.PUBLIC_SERVER_URL = 'https://h.example'; });
+  it('a link on another host says the change was staged, with no link and not the refused-caller copy (portal#2470)', async () => {
+    const bad = 'https://evil.example/secret-changes/r1';
+    const r = await stage(bad);
+    expect(r).toEqual({ kind: 'refused', message: STAGED_UNLINKED_TEXT() });
+    expect(JSON.stringify(r)).not.toContain('evil.example');
+    expect(STAGED_UNLINKED_TEXT()).not.toBe(PLAIN_PROTECTED_TEXT());
+  });
+  it('with no configured origin the staged change is still named, with no link (portal#2470)', async () => {
+    Reflect.deleteProperty(env, 'PUBLIC_SERVER_URL');
+    expect(await stage('https://h.example/secret-changes/r1')).toEqual({ kind: 'refused', message: STAGED_UNLINKED_TEXT() });
+  });
+  it('the copy says staged and where to go, and never offers a link or claims nothing is open (portal#2470)', () => {
+    const copy = STAGED_UNLINKED_TEXT();
+    expect(copy).toMatch(/staged/i);
+    expect(copy).toMatch(/CLI/);
+    expect(copy).not.toMatch(/https?:|only a person acting/i);
+  });
+  it('a refused caller (code, no request id) keeps the plain copy even with a bad link attached (portal#2470)', async () => {
+    const r = await secretWrite(client(() => { throw err({ code: 'SECRET_PROTECTED_NEEDS_PASSKEY', ceremonyUrl: 'https://evil.example/secret-changes/r1' }); }), 'q', {});
+    expect(r).toEqual({ kind: 'plain-protected' });
+  });
+  it('the dropped link is never logged', async () => {
+    const spies = (['log', 'info', 'warn', 'error'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    await stage('https://evil.example/secret-changes/r1');
+    for (const s of spies) expect(JSON.stringify(s.mock.calls)).not.toContain('evil.example');
+    spies.forEach((s) => s.mockRestore());
   });
 });
 

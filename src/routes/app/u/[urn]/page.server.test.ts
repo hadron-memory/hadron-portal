@@ -10,9 +10,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { isLocalPath } from '$lib/safeRedirect';
-import { PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { AGENT_TASK_REF_QUERY, PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
 
-type UrnKind = 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action';
+type UrnKind = 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action' | 'agenttask';
 
 const mockRequest = vi.fn();
 
@@ -163,6 +163,66 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     });
     const r = await expectRedirect('hrn:worker:alice:solo-app:iris');
     expect(r.location).toBe('/app/workers/w-2');
+  });
+
+  // #1914 / hadron-server#3878. resolveUrn answers kind 'agenttask' with the task
+  // id and no App id, so the route reads the App from the task (the caller's own
+  // readable-task gate) and lands on the App-scoped, handle-keyed page.
+  describe('agenttask (#1914)', () => {
+    const URN = 'hrn:agenttask:hadronmemory.com:hadron-dev-team:at0.10249';
+
+    it('lands on the task page under its App, by handle', async () => {
+      mockRequest
+        .mockResolvedValueOnce({ resolveUrn: { kind: 'agenttask', id: 't-1', memoryId: null, organizationId: 'org-1' } })
+        .mockResolvedValueOnce({ agentTask: { id: 't-1', appId: 'app-9', handle: 'AT0.10249' } });
+      const r = await expectRedirect(URN);
+      expect(r.status).toBe(307);
+      expect(r.location).toBe('/app/apps/app-9/tasks/AT0.10249');
+      expect(mockRequest).toHaveBeenNthCalledWith(1, RESOLVE_URN_QUERY, { urn: URN });
+      expect(mockRequest).toHaveBeenNthCalledWith(2, AGENT_TASK_REF_QUERY, { id: 't-1' });
+    });
+
+    it('carries the query string through', async () => {
+      mockRequest
+        .mockResolvedValueOnce({ resolveUrn: { kind: 'agenttask', id: 't-1', memoryId: null, organizationId: 'org-1' } })
+        .mockResolvedValueOnce({ agentTask: { id: 't-1', appId: 'app-9', handle: 'AT0.10249' } });
+      const r = await expectRedirect(URN, '?tab=history');
+      expect(r.location).toBe('/app/apps/app-9/tasks/AT0.10249?tab=history');
+    });
+
+    it('falls back to the id when the task carries no handle', async () => {
+      mockRequest
+        .mockResolvedValueOnce({ resolveUrn: { kind: 'agenttask', id: 't-1', memoryId: null, organizationId: null } })
+        .mockResolvedValueOnce({ agentTask: { id: 't-1', appId: 'app-9', handle: null } });
+      expect((await expectRedirect(URN)).location).toBe('/app/apps/app-9/tasks/t-1');
+    });
+
+    it('maps a FORBIDDEN task read to the same 404 and lets any other failure through', async () => {
+      const refusal = (code: string) =>
+        new ClientError(
+          { errors: [{ message: 'x', extensions: { code } }], status: 200 } as unknown as ClientError['response'],
+          { query: 'query', variables: {} },
+        );
+      const resolved = { resolveUrn: { kind: 'agenttask', id: 't-1', memoryId: null, organizationId: null } };
+      mockRequest.mockResolvedValueOnce(resolved).mockRejectedValueOnce(refusal('FORBIDDEN'));
+      expect((await expectError(URN)).status).toBe(404);
+      mockRequest.mockReset();
+      mockRequest.mockResolvedValueOnce(resolved).mockRejectedValueOnce(refusal('INTERNAL_SERVER_ERROR'));
+      const load = await importLoad();
+      await expect(load(ev(URN))).rejects.toBeInstanceOf(ClientError);
+    });
+
+    it('answers the same 404 as a nonexistent URN when the task read is null', async () => {
+      mockRequest
+        .mockResolvedValueOnce({ resolveUrn: { kind: 'agenttask', id: 't-1', memoryId: null, organizationId: null } })
+        .mockResolvedValueOnce({ agentTask: null });
+      const hidden = await expectError(URN);
+      mockRequest.mockReset();
+      mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+      const missing = await expectError(URN);
+      expect(hidden.status).toBe(404);
+      expect(hidden.body?.message).toBe(missing.body?.message);
+    });
   });
 
   // #1360 / hadron-server#2610. resolveUrn answers kind 'action' for

@@ -18,6 +18,7 @@
   import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
   import NotParticipant from '$lib/components/agent-tasks/NotParticipant.svelte';
   import PartyLabel from '$lib/components/agent-tasks/PartyLabel.svelte';
+  import { URN_CHIP_COLUMN_PX } from '$lib/agent-tasks/status';
   import { taskHref } from '$lib/agent-tasks/handle';
   import { neutralizeFormatChars, neutralizeTargetChars, referenceLink, type TaskReference } from '$lib/agent-tasks/references';
   import { atOlderHead, seatStateLabel, shortHead, slotsNotCounting, verdictLabel, type ReviewSlot, type TaskReviewOutcome } from '$lib/agent-tasks/review';
@@ -78,7 +79,7 @@
     { id: 'slot', accessorFn: (r) => r.slot, header: t('app.tasks.review.col.slot', 'Slot'), enableHiding: false, size: 90 },
     { id: 'verdict', accessorFn: (r) => verdictLabel(r.verdict), header: t('app.tasks.review.col.verdict', 'Verdict'), size: 150 },
     { id: 'counts', accessorFn: (r) => r.counts, header: t('app.tasks.review.col.counts', 'Counts'), size: 110 },
-    { id: 'seat', accessorFn: (r) => r.seat?.handle ?? '', header: t('app.tasks.review.col.seat', 'Seat'), size: 218 },
+    { id: 'seat', accessorFn: (r) => r.seat?.handle ?? '', header: t('app.tasks.review.col.seat', 'Seat'), size: URN_CHIP_COLUMN_PX },
     { id: 'state', accessorFn: (r) => seatStateLabel(r.state), header: t('app.tasks.review.col.state', 'State'), size: 100 },
     { id: 'head', accessorFn: (r) => r.head ?? '', header: t('app.tasks.review.col.head', 'Head'), size: 130 },
   ];
@@ -153,7 +154,7 @@
             <span class="font-medium text-zinc-900 dark:text-white">{row.slot}</span>
           {:else if cell.column.id === 'seat'}
             {#if row.seat}
-              <a href={taskHref(basePath, row.seat)} class="text-indigo-600 hover:underline dark:text-indigo-300">{row.seat.handle ?? t('app.tasks.review.seat-task', 'Seat task')}</a>
+              <a href={taskHref(basePath, row.seat)} class="text-indigo-600 [overflow-wrap:anywhere] hover:underline dark:text-indigo-300">{row.seat.handle ?? t('app.tasks.review.seat-task', 'Seat task')}</a>
               {#if row.seat.assignee}<div class="min-w-0"><PartyLabel party={row.seat.assignee} /></div>{/if}
             {:else}
               <span class="text-zinc-500 dark:text-zinc-400">—</span>

@@ -27,7 +27,7 @@ export type RevisionChanges =
 export const load: PageServerLoad = async ({ params, locals }) => {
   const { nodeRevision } = await gqlClient(locals.token).request<{ nodeRevision: NodeRevision | null }>(
     NODE_REVISION_QUERY,
-    { revisionId: params.revisionId },
+    { nodeRevRef: params.revisionId },
   );
   if (!nodeRevision) throw error(404, 'Revision not found');
   // #914: the snapshot's own authorship + validation, streamed and isolated
@@ -36,7 +36,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevision: NodeProvenance | null }>(
         NODE_REVISION_PROVENANCE_QUERY,
-        { revisionId: params.revisionId },
+        { nodeRevRef: params.revisionId },
       );
       return r?.nodeRevision ? { ok: true, value: r.nodeRevision } : { ok: false };
     } catch (e) {
@@ -68,7 +68,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
         return { ok: true, against: 'current', ...diffRevisionContent(nodeRevision.content, live.node.content) };
       }
       const newer = await client.request<{ nodeRevision: NodeRevision | null }>(NODE_REVISION_QUERY, {
-        revisionId: next.id,
+        nodeRevRef: next.id,
       });
       if (!newer?.nodeRevision) return { ok: false };
       return {

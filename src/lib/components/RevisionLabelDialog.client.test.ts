@@ -54,8 +54,50 @@ describe('RevisionLabelDialog (#534)', () => {
     expect(m.target.textContent).toContain('Revision action failed');
   });
 
-  it('caps the input at the server’s 500 characters', () => {
+  // D3 (portal#2457): the cap is the server's, so the field carries no number.
+  it('carries no length cap of its own', () => {
     const m = mountDialog({ label: null, busy: false, error: null, onsave: () => {}, oncancel: () => {} });
-    expect(input(m).maxLength).toBe(500);
+    expect(input(m).hasAttribute('maxlength')).toBe(false);
+  });
+
+  // D1: one busy-dismissal behaviour: nothing dismisses a save in flight.
+  const backdrop = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLButtonElement>('button[tabindex="-1"]')!;
+  const escape = (m: Mounted<Record<string, unknown>>) =>
+    m.target.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+
+  it('while busy, the backdrop, Cancel and Escape all leave the dialog open', () => {
+    const oncancel = vi.fn();
+    const m = mountDialog({ label: 'x', busy: true, error: null, onsave: () => {}, oncancel });
+    backdrop(m).click();
+    m.target.querySelector<HTMLButtonElement>('[data-testid="revision-label-cancel"]')!.click();
+    escape(m);
+    expect(m.target.querySelector<HTMLButtonElement>('[data-testid="revision-label-cancel"]')!.disabled).toBe(true);
+    expect(oncancel).not.toHaveBeenCalled();
+  });
+
+  it('when idle, the backdrop, Cancel and Escape each dismiss', () => {
+    const oncancel = vi.fn();
+    const m = mountDialog({ label: 'x', busy: false, error: null, onsave: () => {}, oncancel });
+    backdrop(m).click();
+    expect(oncancel).toHaveBeenCalledTimes(1);
+    click(m, 'revision-label-cancel');
+    expect(oncancel).toHaveBeenCalledTimes(2);
+    escape(m);
+    expect(oncancel).toHaveBeenCalledTimes(3);
+  });
+
+  // D2: a refusal is announced, and the field points at it.
+  it('announces a refusal as an alert the field is described by', () => {
+    const m = mountDialog({ label: 'x', busy: false, error: 'revLabel exceeds the 500-character cap.', onsave: () => {}, oncancel: () => {} });
+    const alert = m.target.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toBe('revLabel exceeds the 500-character cap.');
+    expect(input(m).getAttribute('aria-describedby')).toBe('revision-label-help revision-label-error');
+    expect(m.target.querySelector('#revision-label-error')).toBe(alert);
+  });
+
+  it('has no alert and points only at its help text when there is no refusal', () => {
+    const m = mountDialog({ label: 'x', busy: false, error: null, onsave: () => {}, oncancel: () => {} });
+    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+    expect(input(m).getAttribute('aria-describedby')).toBe('revision-label-help');
   });
 });

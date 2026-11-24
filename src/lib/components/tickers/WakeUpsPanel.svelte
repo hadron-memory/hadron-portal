@@ -215,7 +215,11 @@
                 {/if}
               </span>
             {:else if cell.column.id === 'since'}
-              <time datetime={row.sub.createdAt} class="whitespace-nowrap">{fmtRunTime(row.sub.createdAt)}</time>
+              <!-- portal#2489 (remedy b of the #1962 audit): the timestamp painted past the 170px
+                   Since column; it now ellipsizes as a block with the full value in the title —
+                   the same shape as the quiet cell above. -->
+              {@const since = fmtRunTime(row.sub.createdAt)}
+              <time datetime={row.sub.createdAt} data-testid="wake-since" class="block max-w-full truncate" title={since}>{since}</time>
             {/if}
           {/snippet}
         </DataTable>

@@ -25,7 +25,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     const { memoryAssets } = await gqlClient(locals.token).request<{
       memoryAssets: unknown;
     }>(MEMORY_ASSETS_QUERY, {
-      memoryId,
+      memoryRef: memoryId,
       mimeType,
       skip: skip ? Number(skip) : undefined,
       count: count ? Number(count) : undefined,

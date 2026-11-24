@@ -77,7 +77,8 @@
   const columns: PortalColumnDef<OrgMember>[] = [
     { accessorFn: memberName, id: 'name', header: t('org-members.column.name', 'Member'), enableHiding: false, size: 280 }, // identity column (name + URN)
     { accessorFn: (m) => m.user.email ?? '', id: 'email', header: t('org-members.column.email', 'Email'), size: 240 },
-    { accessorKey: 'role', header: t('org-members.column.role', 'Role'), size: 150 },
+    // The role <select> is `w-full min-w-0`, so it shrinks with the column instead of the column holding a measured minimum (#2514).
+    { accessorKey: 'role', header: t('org-members.column.role', 'Role'), size: 176 },
     { id: 'actions', header: t('org-members.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
 
@@ -382,12 +383,15 @@
           {/if}
         {:else if cell.column.id === 'role'}
           {#if isOwner && m.user.id !== data.currentUserId}
-            <form method="POST" action="?/update" use:updateEnhance>
+            <!-- #2517: `relative` makes the form the containing block of the sr-only label (position:absolute). Without it the label's
+                 containing block is the DataTable's outer wrapper, OUTSIDE its overflow scroller, so the scroller cannot clip it and
+                 it widens the page to its column's x offset. -->
+            <form method="POST" action="?/update" use:updateEnhance class="relative">
               <input type="hidden" name="_kind" value="updateOrgMember" />
               <input type="hidden" name="userId" value={m.user.id} />
               <label class="sr-only" for="role-{m.id}">Role for {memberName(m)}</label>
               <select id="role-{m.id}" name="role" value={m.role} data-user-id={m.user.id} onchange={submitOnChange} disabled={$updateSubmitting}
-                class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+                class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 {#each ROLES as role}
                   <option value={role}>{role}</option>
                 {/each}

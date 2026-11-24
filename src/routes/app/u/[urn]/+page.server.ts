@@ -1,7 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
-import { PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { AGENT_TASK_REF_QUERY, PUBLIC_ORGANIZATION_ROUTE_QUERY, RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { taskHref } from '$lib/agent-tasks/handle';
 import { loadTicker } from '$lib/server/tickers';
 import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
@@ -32,7 +33,7 @@ import type { PageServerLoad } from './$types';
  * re-apply the original to a redirect target that carries none.
  */
 type UrnResolution = {
-  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action';
+  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action' | 'agenttask';
   id: string;
   memoryId: string | null;
   organizationId: string | null;
@@ -55,6 +56,10 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
   // to the register entry's node. Without a page for it a copied action link
   // landed on this route's "No canonical portal page" 404.
   'action',
+  // #1914 / hadron-server#3878: `hrn:agenttask:<root>:<app-slug>:<handle>`. The
+  // resolution carries the task id and no App id, so `taskPath` reads the App
+  // from the task itself.
+  'agenttask',
 ]);
 
 /**
@@ -150,7 +155,11 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
     throw error(404, notFoundMessage(urn));
   }
 
-  const target = canonicalPath(resolveUrn);
+  // #1914: a task's page lives under its App, which the resolution does not
+  // carry. Read it through the caller's own readable-task gate: a task the
+  // caller cannot read answers null there exactly as it did in the resolver, so
+  // both read as the one existence-hiding 404.
+  const target = resolveUrn.kind === 'agenttask' ? await taskPath(resolveUrn.id, locals.token, urn) : canonicalPath(resolveUrn);
   if (!target) {
     if (!KNOWN_KINDS.has(resolveUrn.kind)) {
       // A kind the server resolved but the portal has no canonical page for.
@@ -337,6 +346,24 @@ function notFoundMessage(urn: string): string {
     `Possible causes: a typo in the identifier, a resource that was deleted or renamed, ` +
     `one that is not visible to you, or a URN spelling this deployment does not resolve.`
   );
+}
+
+/** #1914: the App-scoped page of a resolved task, or the existence-hiding 404 when the caller cannot read it. */
+async function taskPath(id: string, token: string | null | undefined, urn: string): Promise<string> {
+  let agentTask: { id: string; appId: string; handle: string | null } | null;
+  try {
+    ({ agentTask } = await gqlClient(token).request<{
+      agentTask: { id: string; appId: string; handle: string | null } | null;
+    }>(AGENT_TASK_REF_QUERY, { id }));
+  } catch (err) {
+    // Only the refusals that mean "you cannot read it" are the 404; anything else stays a 500.
+    const code =
+      err instanceof ClientError ? (err.response?.errors?.[0]?.extensions as { code?: string } | undefined)?.code : undefined;
+    if (code === 'NOT_FOUND' || code === 'FORBIDDEN' || code === 'PERMISSION_DENIED') throw error(404, notFoundMessage(urn));
+    throw err;
+  }
+  if (!agentTask) throw error(404, notFoundMessage(urn));
+  return taskHref(`/app/apps/${agentTask.appId}`, agentTask);
 }
 
 /** Map a resolved URN to its canonical PK-based portal path. */

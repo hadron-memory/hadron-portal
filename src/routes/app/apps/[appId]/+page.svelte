@@ -6,6 +6,8 @@
   import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import ChatbotAiConfigSetting from './ChatbotAiConfigSetting.svelte';
+  import SaturationAlarmWakeRoles from './SaturationAlarmWakeRoles.svelte';
+  import { wakeRolesCanManage } from './wake-roles-can-manage';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   // portal#2205: the delete dialog is shared with the worker's own page, so it
@@ -13,6 +15,7 @@
   import WorkerDeleteDialog from '$lib/components/WorkerDeleteDialog.svelte';
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
+  import SelectHost, { type HostsState } from '$lib/components/SelectHost.svelte';
   import { publicServerBaseUrl } from '$lib/public-server-base-url';
   // portal#2249: one source for the App type's labels — Profile row, Settings
   // read-only row and the Settings options render these so they cannot drift.
@@ -61,11 +64,34 @@
     next.searchParams.set('tab', 'chats');
     next.searchParams.set('chat', key);
     if (key !== AGENT_CHAT_KEY) next.searchParams.delete('agentChat');
+    // #1407: the whole panel goes inert for the switch, and a browser drops focus
+    // from a control that turns inert, so a keyboard or screen-reader user who
+    // chose a chat in the selector would land on the page body. Put focus back on
+    // the selector once the switch ends, but only when they did not move it
+    // themselves. "Focus is on the body now" cannot say that: Kit blurs to the body
+    // after every navigation, so a reader who tabbed to another control mid-switch
+    // looks the same. A focusin on anything but the selector during the switch is
+    // the record that they moved it.
+    const selectorHadFocus = document.activeElement?.id === 'app-chat-select';
+    let readerMovedFocus = false;
+    const noteFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && el.id !== 'app-chat-select' && el !== document.body) readerMovedFocus = true;
+    };
+    document.addEventListener('focusin', noteFocus);
     chatSwitchBusy = true;
     chatSwitchFailed = false;
     try { await goto(next, { noScroll: true }); }
     catch { chatSwitchFailed = true; }
-    finally { chatSwitchBusy = false; }
+    finally {
+      chatSwitchBusy = false;
+      document.removeEventListener('focusin', noteFocus);
+      if (selectorHadFocus && !readerMovedFocus) {
+        await tick();
+        const active = document.activeElement;
+        if (!active || active === document.body) document.getElementById('app-chat-select')?.focus({ preventScroll: true });
+      }
+    }
   }
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
@@ -155,7 +181,7 @@
   import { DEFAULT_TAB, READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
-  import { workerHold } from '$lib/worker-hold';
+  import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, chatFullViewFromParams, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
@@ -175,6 +201,7 @@
     createAppKeySchema,
     deleteAppSchema,
     grantAppKeyScopeSchema,
+    revokeAppKeyScopeSchema,
     releaseWorkerSchema,
     removeAppAgentSchema,
     retireWorkerSchema,
@@ -193,6 +220,7 @@
   type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
   type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
   type GrantAppKeyScopeForm = Infer<typeof grantAppKeyScopeSchema, 'zod4'>;
+  type RevokeAppKeyScopeForm = Infer<typeof revokeAppKeyScopeSchema, 'zod4'>;
   type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
   type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
   type ReleaseWorkerForm = Infer<typeof releaseWorkerSchema, 'zod4'>;
@@ -204,6 +232,7 @@
   type CreateAppKeySuperform = SuperValidated<CreateAppKeyForm, App.Superforms.Message, CreateAppKeyForm>;
   type DeleteAppSuperform = SuperValidated<DeleteAppForm, App.Superforms.Message, DeleteAppForm>;
   type GrantAppKeyScopeSuperform = SuperValidated<GrantAppKeyScopeForm, App.Superforms.Message, GrantAppKeyScopeForm>;
+  type RevokeAppKeyScopeSuperform = SuperValidated<RevokeAppKeyScopeForm, App.Superforms.Message, RevokeAppKeyScopeForm>;
   type RemoveAppAgentSuperform = SuperValidated<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>;
   type RetireWorkerSuperform = SuperValidated<RetireWorkerForm, App.Superforms.Message, RetireWorkerForm>;
   type ReleaseWorkerSuperform = SuperValidated<ReleaseWorkerForm, ReleaseWorkerMessage, ReleaseWorkerForm>;
@@ -454,8 +483,9 @@
     // readable only by whoever manages the App, so the column exists only when
     // the server answered the scopes read; for anyone else it isn't there at
     // all, never an empty chip. Read-only: giving and taking back scopes is S7b.
+    // Size 200: the chips wrap (break-all) inside the cell, and the old 90 made every scope a tall one-word column (portal#2488).
     ...(untrack(() => tabData.keyScopes?.kind === 'ok')
-      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 90 } satisfies PortalColumnDef<AppKey>]
+      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 200 } satisfies PortalColumnDef<AppKey>]
       : []),
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
@@ -765,8 +795,8 @@
           // stale projection whose row does not disclose a holder.
           const hold = workerHold(worker, data.user?.id);
           if (hold.kind !== 'self' && hold.kind !== 'other') return '';
-          const holder = rosterEntry(worker.id)?.heldBy;
-          return holder ? `${holder.name ?? holder.handle ?? ''} ${holder.urn ?? ''}` : '';
+          const holder = holderForHold(hold, rosterEntry(worker.id)?.heldBy);
+          return holder ? `${holderLabel(holder) ?? ''} ${holder.urn ?? ''}` : '';
         },
         terminal: (row: Worker) => (row as (typeof staffRows)[number]).terminalAgeSearch,
       },
@@ -1039,7 +1069,7 @@
   // tab to Chats. Seeding from the result makes the server render, the effects
   // and the `enter` re-sync agree.
   function tabForActionResult(result: unknown, current: TabId | null): TabId | null {
-    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey') || submittedForm<GrantAppKeyScopeForm>(result, 'grantKeyScope')) {
+    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey') || submittedForm<GrantAppKeyScopeForm>(result, 'grantKeyScope') || submittedForm<RevokeAppKeyScopeForm>(result, 'revokeKeyScope')) {
       // The Client tab lists the same keys and shares the revoke action, so a
       // revoke made THERE stays there.
       return current === 'client' ? 'client' : 'keys';
@@ -1880,15 +1910,59 @@
   // #2356: set by the cross-App fence below. A fence-driven teardown is part
   // of a navigation, whose own focus/scroll reset owns where focus goes, so
   // the Keys-panel fallback stays out of its way. Cleared on the next open.
+  // The skip ASSUMES the navigation's own focus/scroll reset runs after this
+  // teardown and so decides where focus lands. If a data swap on the same route
+  // ever reset nothing, a fence-driven close would leave focus on <body>.
   let grantScopeFenceFired = false;
+  // portal#2311: the App's hosts, read when the dialog opens (never with the
+  // Keys tab's first screen) and again on every open: one App's answer for one
+  // reader, so nothing is kept between opens or carried across Apps. A late
+  // answer for a closed dialog, an earlier open or another App is dropped.
+  let grantHosts = $state.raw<{ appId: string; state: HostsState } | null>(null);
+  let grantHostsSeq = 0;
+  const hostsState = $derived<HostsState>(grantHosts && grantHosts.appId === app.id ? grantHosts.state : { kind: 'loading' });
+  const hostsBlocked = $derived(hostsState.kind === 'refused' || hostsState.kind === 'failed');
+  const hostsBlockedReason = $derived(
+    hostsState.kind === 'refused'
+      ? t('app.keys.grant.host-refused', "You can't see this App's hosts, so host:operate can't be granted here.")
+      : t('app.keys.grant.host-failed', 'The hosts could not be loaded, so host:operate is unavailable.'),
+  );
+  const heldHostId = $derived(
+    grantScopeKey ? (keyScopesOf(grantScopeKey.id).find((s) => s.scope === 'host:operate')?.hostId ?? null) : null,
+  );
+  async function loadGrantHosts() {
+    const appId = app.id;
+    const seq = ++grantHostsSeq;
+    grantHosts = { appId, state: { kind: 'loading' } };
+    let next: HostsState = { kind: 'failed' };
+    try {
+      const res = await fetch(`/app/apps/${encodeURIComponent(appId)}/hosts`, { cache: 'no-store' });
+      const body = res.ok ? await res.json() : null;
+      if (body?.kind === 'ok' && Array.isArray(body.hosts)) next = { kind: 'ok', hosts: body.hosts };
+      else if (body?.kind === 'refused') next = { kind: 'refused' };
+    } catch {
+      // stays failed
+    }
+    if (seq !== grantHostsSeq || !grantScopeKey || app.id !== appId) return;
+    grantHosts = { appId, state: next };
+  }
+  // A blocked read takes host:operate away; every other scope stays grantable.
+  $effect(() => {
+    if (hostsBlocked && $grantKeyScopeForm.scope === 'host:operate') {
+      untrack(() => grantKeyScopeForm.update((f) => ({ ...f, scope: 'attention:deliver' as const, hostId: '' }), { taint: false }));
+    }
+  });
   function openGrantScope(key: AppKey, trigger?: HTMLButtonElement) {
     if ($grantKeyScopeSubmitting) return;
     grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: key.id, scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
     grantKeyScopeErrors.set({});
     grantKeyScopeMessage.set(undefined);
+    // One line above the tabs answers the latest action, never a stale one.
+    revokeKeyScopeMessage.set(undefined);
     grantScopeTriggerEl = trigger ?? null;
     grantScopeFenceFired = false;
     grantScopeKey = key;
+    void loadGrantHosts();
   }
   function closeGrantScope() {
     if ($grantKeyScopeSubmitting) return;
@@ -1936,11 +2010,137 @@
     // races the navigation's own focus/scroll reset.
     grantScopeTriggerEl = null;
     grantScopeFenceFired = true;
+    grantHostsSeq += 1;
+    grantHosts = null;
     untrack(() => {
       grantScopeKey = null;
       grantKeyScopeForm.update(() => ({ _kind: 'grantKeyScope', keyId: '', scope: 'attention:deliver' as const, hostId: '' }), { taint: false });
       grantKeyScopeErrors.set({});
       grantKeyScopeMessage.set(undefined);
+    });
+  });
+
+  // ── Revoke a scope (portal#2319) ─────────────────────────────────────
+  // The mirror of the grant above: one live key loses one scope it holds, from
+  // a dialog the row's ⋯ menu opens right after Grant scope. The picker lists
+  // only the scopes the key holds, never free text. The server is the gate;
+  // the dialog STAYS until it answers, and a refusal (the audience refusal, a
+  // key that is gone) shows beside the form that ran, never as a toast.
+  const initialRevokeKeyScopeForm = untrack(() => submittedForm<RevokeAppKeyScopeForm>(form, 'revokeKeyScope') as RevokeAppKeyScopeSuperform | null ?? data.revokeKeyScopeForm);
+  const {
+    form: revokeKeyScopeForm,
+    errors: revokeKeyScopeErrors,
+    message: revokeKeyScopeMessage,
+    submitting: revokeKeyScopeSubmitting,
+    enhance: revokeKeyScopeEnhance,
+  } = superForm<RevokeAppKeyScopeForm, App.Superforms.Message, RevokeAppKeyScopeForm>(initialRevokeKeyScopeForm, {
+    validators: zod4Client(revokeAppKeyScopeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    // Stamped with the App it began on, as the grant is, so an answer from a
+    // departed App never lands on this one.
+    onSubmit: () => {
+      revokeScopeAttemptGeneration = revokeScopeGeneration;
+    },
+    onResult: ({ result, cancel }) => {
+      if (revokeScopeAttemptGeneration !== revokeScopeGeneration) {
+        cancel();
+        return;
+      }
+      if (result.type === 'success') revokeScopeKey = null;
+    },
+    onError: () => {
+      if (revokeScopeAttemptGeneration !== revokeScopeGeneration) return;
+      revokeKeyScopeMessage.set({
+        type: 'error',
+        text: t('app.keys.revoke-scope.unconfirmed', 'The revoke could not be confirmed. Reload the page to check before trying again.'),
+      });
+    },
+  });
+
+  // The distinct scopes a key holds, in the order the Scopes column shows
+  // them. A host:operate grant is one scope however it is labelled, and the
+  // server's revoke takes the scope alone.
+  const heldScopesOf = (id: string): ('attention:deliver' | 'host:operate')[] => {
+    const out: ('attention:deliver' | 'host:operate')[] = [];
+    for (const s of keyScopesOf(id)) {
+      if ((s.scope === 'attention:deliver' || s.scope === 'host:operate') && !out.includes(s.scope)) out.push(s.scope);
+    }
+    return out;
+  };
+  const revokeScopeMenuItem = (key: AppKey) => {
+    const kind = tabData.keyScopes?.kind;
+    const hint =
+      kind === 'failed'
+        ? t('app.keys.revoke-scope.menu-unknown', 'Couldn’t load what this key may do.')
+        : kind !== 'ok'
+          ? t('app.keys.revoke-scope.menu-pending', 'What this key may do isn’t available yet.')
+          : heldScopesOf(key.id).length === 0
+            ? t('app.keys.revoke-scope.menu-none', 'This key holds no scope to revoke.')
+            : null;
+    return hint ? { disabled: true, title: hint, hint } : {};
+  };
+
+  let revokeScopeKey = $state<AppKey | null>(null);
+  // The scopes the open dialog's key holds NOW. A refresh while the dialog is
+  // open can change them, so the picker, the submitted value and the Revoke
+  // button all read this one list: a value no longer held is never sent.
+  const revokeHeld = $derived(revokeScopeKey ? heldScopesOf(revokeScopeKey.id) : []);
+  $effect(() => {
+    if (!revokeScopeKey || revokeHeld.length === 0) return;
+    if (!revokeHeld.includes($revokeKeyScopeForm.scope)) {
+      untrack(() => revokeKeyScopeForm.update(($f) => ({ ...$f, scope: revokeHeld[0] }), { taint: false }));
+    }
+  });
+  let revokeScopeTriggerEl: HTMLButtonElement | null = null;
+  let revokeScopeFenceFired = false;
+  function openRevokeScope(key: AppKey, trigger?: HTMLButtonElement) {
+    if ($revokeKeyScopeSubmitting) return;
+    const held = heldScopesOf(key.id);
+    if (held.length === 0) return;
+    revokeKeyScopeForm.update(() => ({ _kind: 'revokeKeyScope', keyId: key.id, scope: held[0] }), { taint: false });
+    revokeKeyScopeErrors.set({});
+    revokeKeyScopeMessage.set(undefined);
+    // One line above the tabs answers the latest action, never a stale one.
+    grantKeyScopeMessage.set(undefined);
+    revokeScopeTriggerEl = trigger ?? null;
+    revokeScopeFenceFired = false;
+    revokeScopeKey = key;
+  }
+  function closeRevokeScope() {
+    if ($revokeKeyScopeSubmitting) return;
+    revokeScopeKey = null;
+  }
+  // Same focus contract as the grant dialog: focus lands on the picker, and
+  // closing returns it to the ⋯ trigger, else the Keys tab panel (never
+  // <body>), unless a cross-App fence tore it down.
+  function revokeScopeDialogAction(el: HTMLDialogElement) {
+    el.showModal();
+    el.querySelector<HTMLSelectElement>('select[name="scope"]')?.focus();
+    return {
+      destroy() {
+        if (el.open) el.close();
+        if (revokeScopeTriggerEl && revokeScopeTriggerEl.isConnected) revokeScopeTriggerEl.focus();
+        else if (!revokeScopeFenceFired) document.getElementById('panel-keys')?.focus({ preventScroll: true });
+      },
+    };
+  }
+  let revokeScopeContextApp = untrack(() => data.app.id);
+  let revokeScopeGeneration = 0;
+  let revokeScopeAttemptGeneration = -1;
+  $effect(() => {
+    if (app.id === revokeScopeContextApp) return;
+    revokeScopeContextApp = app.id;
+    revokeScopeGeneration += 1;
+    revokeScopeTriggerEl = null;
+    revokeScopeFenceFired = true;
+    untrack(() => {
+      revokeScopeKey = null;
+      revokeKeyScopeForm.update(() => ({ _kind: 'revokeKeyScope', keyId: '', scope: 'attention:deliver' as const }), { taint: false });
+      revokeKeyScopeErrors.set({});
+      revokeKeyScopeMessage.set(undefined);
     });
   });
 
@@ -2198,7 +2398,21 @@
       ? $grantKeyScopeMessage.text
       : $grantKeyScopeErrors.hostId?.[0] ?? $grantKeyScopeErrors.scope?.[0] ?? $grantKeyScopeErrors.keyId?.[0] ?? $grantKeyScopeErrors._kind?.[0] ?? null,
   );
+  // portal#2468: the host error names the host that was refused, so picking another host clears it (on the
+  // picker's change, never on submit: a wrong re-pick is refused again by the next reply). Only the host field's
+  // error goes; a refusal that is not about the host stays. portal#2420: the scope select clears it too,
+  // because a scope with no host removes the field the refusal was about.
+  function clearGrantHostError() {
+    if (!$grantKeyScopeErrors.hostId) return;
+    grantKeyScopeErrors.update((e) => ({ ...e, hostId: undefined }));
+  }
   const grantKeyScopeActionSuccess = $derived($grantKeyScopeMessage?.type === 'success' ? $grantKeyScopeMessage.text : null);
+  const revokeKeyScopeActionError = $derived(
+    $revokeKeyScopeMessage?.type === 'error'
+      ? $revokeKeyScopeMessage.text
+      : $revokeKeyScopeErrors.scope?.[0] ?? $revokeKeyScopeErrors.keyId?.[0] ?? $revokeKeyScopeErrors._kind?.[0] ?? null,
+  );
+  const revokeKeyScopeActionSuccess = $derived($revokeKeyScopeMessage?.type === 'success' ? $revokeKeyScopeMessage.text : null);
   const deleteAppActionError = $derived($deleteAppMessage?.type === 'error' ? $deleteAppMessage.text : $deleteAppErrors._kind?.[0] ?? null);
   const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
   // #760: the name is required since hadron-server#1050 removed the register.
@@ -2714,9 +2928,9 @@
   {/if}
   <!-- #1777: keep the region mounted; only its content changes. -->
   <div role="status" data-testid="app-success-status" class="mb-0">
-    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess || grantKeyScopeActionSuccess}
+    {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess || grantKeyScopeActionSuccess || revokeKeyScopeActionSuccess}
       <div class="mb-4 rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess ?? grantKeyScopeActionSuccess}
+        {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess ?? grantKeyScopeActionSuccess ?? revokeKeyScopeActionSuccess}
       </div>
     {/if}
   </div>
@@ -2775,6 +2989,7 @@
     { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
     { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
+    { id: 'metrics', label: t('app.tabs.metrics', 'Team metrics'), href: `/app/apps/${app.id}/metrics` },
     { id: 'secrets', label: t('app.tabs.secrets', 'Secrets'), href: `/app/apps/${app.id}/secrets` },
     { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
@@ -2900,9 +3115,9 @@
     </LiveRegion>
     <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
-      <!-- portal#2376: the region is a flex item of this gap row, so while empty it is
-           out of flow (empty:absolute) and adds no gap; populated, it is the item the span was. -->
-      <LiveRegion class="empty:absolute">
+      <!-- portal#2376, portal#2454: the region is a flex item of this gap row, so while empty it is
+           out of flow (idle:absolute, never empty:absolute: a whitespace text node breaks :empty, portal#2394) and adds no gap; populated, it is the item the span was. -->
+      <LiveRegion class="idle:absolute">
       {#if tabData.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
              selector says so rather than quietly showing a shorter list. -->
@@ -3782,10 +3997,10 @@
                    (`hold.kind`) with no holder falls back to the unnamed line,
                    never a guess. `name` is null both withheld and unset, so the
                    handle stands in. -->
-              {@const holder = rosterEntry(worker.id)?.heldBy ?? null}
+              {@const holder = holderForHold(hold, rosterEntry(worker.id)?.heldBy)}
               {#if hold.kind === 'self'}
                 <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                  {holder?.name ?? holder?.handle ?? t('app.staff.held.you', 'Your name — held by you')}
+                  {holderLabel(holder) ?? t('app.staff.held.you', 'Your name — held by you')}
                   {#if hold.since}
                     <span class="font-normal text-zinc-500">· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span>
                   {/if}
@@ -3796,7 +4011,7 @@
               {:else if hold.kind === 'other'}
                 <span class="text-xs text-zinc-500">
                   {#if holder}
-                    {holder.name ?? holder.handle ?? t('app.staff.held.other', 'Held by another member')}
+                    {holderLabel(holder) ?? t('app.staff.held.other', 'Held by another member')}
                   {:else}
                     {t('app.staff.held.other', 'Held by another member')}
                   {/if}
@@ -3817,7 +4032,7 @@
                    claim is what a reader of the roster needs to see. -->
               {@const rt = reportsToOf(worker, staffById)}
               {#if rt.kind === 'known'}
-                <span class="truncate text-xs">
+                <span class="block max-w-full truncate text-xs" title={rt.name ?? undefined}>
                   <a href="/app/workers/{rt.id}" class="text-indigo-600 hover:underline dark:text-indigo-400"
                     >{rt.name ?? t('app.staff.reports-to.unnamed', 'Another worker')}</a
                   >{#if rt.retired}{' '}<span class="text-zinc-500">{t('app.staff.reports-to.retired', '(retired)')}</span>{/if}
@@ -3914,7 +4129,7 @@
           {#snippet cell(cell, agent)}
             {#if cell.column.id === 'name'}
               <div class="min-w-0">
-                <a href="/app/agents/{agent.id}" class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white">{agent.name}</a>
+                <a href="/app/agents/{agent.id}" class="block max-w-full truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white" title={agent.name}>{agent.name}</a>
                 {#if agent.urn}
                   <Urn value={agent.urn} type="agent" size={8} />
                 {/if}
@@ -4132,6 +4347,7 @@
     {#if memoryScope === null}
       <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
     {/if}
+    <h3 id="app-memory-nodes-title" class="mb-2 mt-6 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.memory-node.title', 'Memory nodes')}</h3>
     <MemoryBrowser
       nodes={tabData.appNodes ?? []}
       multiMemory={true}
@@ -4142,8 +4358,12 @@
     />
     {#if data.createMemoryForm && tabData.canCreateMemory === true}
       {#key app.id}
-        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} /></div>
+        <div class="mt-6"><AppMemoryCreate initial={data.createMemoryForm} result={form} hasAgent={installedAgents.length > 0} /></div>
       {/key}
+    {:else if data.createMemoryForm && tabData.canCreateMemory === false}
+      <!-- portal#1391: display only. It states no role or membership and no authorization rule the server did not
+           state; the server's createAppMemory gate stays the authority. -->
+      <p data-testid="app-memory-create-unavailable" class="mt-6 text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.create-unavailable', 'Adding a memory isn’t available to you here.')}</p>
     {/if}
     </div>
   {/if}
@@ -4247,7 +4467,7 @@
                 {:else}
                   <span class="flex flex-wrap gap-1" data-testid="key-scopes">
                     {#each scopes as sc (scopeLabel(sc))}
-                      <span class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{scopeLabel(sc)}</span>
+                      <span class="max-w-full break-all rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{scopeLabel(sc)}</span>
                     {/each}
                   </span>
                 {/if}
@@ -4263,10 +4483,11 @@
                     { id: 'copy-id', label: t('app.keys.copy-id', 'Copy ID') },
                     ...(keyControls !== 'withheld' ? [
                       { id: 'grantScope', label: t('app.keys.grant.menu', 'Grant scope…') },
+                      { id: 'revokeScope', label: t('app.keys.revoke-scope.menu', 'Revoke scope…'), ...revokeScopeMenuItem(key) },
                       { id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true },
                     ] : []),
                   ]}
-                  onselect={(id, trigger) => (id === 'copy-id' ? copyKeyId(key.id) : id === 'grantScope' ? openGrantScope(key, trigger) : id === 'revoke' ? revokeAppKey(key) : undefined)}
+                  onselect={(id, trigger) => (id === 'copy-id' ? copyKeyId(key.id) : id === 'grantScope' ? openGrantScope(key, trigger) : id === 'revokeScope' ? openRevokeScope(key, trigger) : id === 'revoke' ? revokeAppKey(key) : undefined)}
                   label={t('app.keys.actions.label', 'Actions for key {key}', { key: key.keyPreview })}
                   fixed
                   compact
@@ -4317,32 +4538,40 @@
               </p>
               <div>
                 <label for="grant-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.scope', 'Scope')}</label>
-                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} class={inputClass}>
+                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} onchange={clearGrantHostError} aria-describedby={hostsBlocked ? 'grant-scope-help' : undefined} class={inputClass}>
                   <option value="attention:deliver">attention:deliver</option>
-                  <option value="host:operate">host:operate</option>
+                  <option value="host:operate" disabled={hostsBlocked || hostsState.kind === 'loading'}>host:operate</option>
                 </select>
+                {#if hostsBlocked}
+                  <p id="grant-scope-help" data-testid="grant-host-blocked" class="mt-1 text-xs text-zinc-500">
+                    {hostsBlockedReason}
+                    {#if hostsState.kind === 'failed'}
+                      <button type="button" data-testid="grant-host-retry" onclick={loadGrantHosts} class="ml-1 underline">{t('app.keys.grant.host-retry', 'Retry')}</button>
+                    {/if}
+                  </p>
+                {/if}
               </div>
               {#if $grantKeyScopeForm.scope === 'host:operate'}
                 <div>
-                  <label for="grant-host" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.host', 'Host')}</label>
                   <!-- The refusal text renders ONCE, in the alert region below
                        (grantKeyScopeActionError folds the field errors into
-                       it), and the input points AT it — naming the standing
+                       it), and the picker points AT it — naming the standing
                        help AND the live alert together when one shows, so the
                        reader never loses "what a valid host is" to the error.
                        The alert renders on exactly grantKeyScopeActionError,
                        the same expression describedby keys on, so the id
-                       always resolves. aria-invalid keys on the HOST field
-                       error alone (#2356): the server routes a host-specific
-                       refusal (a second host, a malformed host id) there, while
-                       a permission, key-gone or network refusal stays a form
-                       message and must not tell a screen-reader user that the
-                       host they typed is wrong. -->
-                  <input id="grant-host" type="text" name="hostId" bind:value={$grantKeyScopeForm.hostId}
-                    aria-invalid={!!$grantKeyScopeErrors.hostId}
-                    aria-describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
-                    class={inputClass} autocomplete="off" />
-                  <p id="grant-host-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The id of the one host this key may operate. A host key reaches one host.')}</p>
+                       always resolves. #2311: the host is picked from the
+                       App's registrations, never typed. -->
+                  <SelectHost
+                    state={hostsState}
+                    bind:value={$grantKeyScopeForm.hostId}
+                    held={heldHostId}
+                    invalid={!!$grantKeyScopeErrors.hostId}
+                    onchange={clearGrantHostError}
+                    describedby={grantKeyScopeActionError ? 'grant-host-help grant-scope-error' : 'grant-host-help'}
+                    onretry={loadGrantHosts}
+                  />
+                  <p id="grant-host-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.grant.host-help', 'The one host this key may operate. A host key reaches one host.')}</p>
                 </div>
               {/if}
               {#if grantKeyScopeActionError}
@@ -4352,6 +4581,53 @@
                 <button type="button" onclick={closeGrantScope} disabled={$grantKeyScopeSubmitting} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.keys.grant.cancel', 'Cancel')}</button>
                 <button type="submit" disabled={$grantKeyScopeSubmitting} class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
                   {$grantKeyScopeSubmitting ? t('app.keys.grant.submitting', 'Granting…') : t('app.keys.grant.submit', 'Grant')}
+                </button>
+              </div>
+            </form>
+          </dialog>
+        {/if}
+
+        <!-- portal#2319 — Revoke scope. Same native-dialog contract as Grant
+             scope. Escape and Cancel are refused while the revoke is in
+             flight, and the dialog stays open until the server answers. The
+             refusal sits in one alert region the picker points at. -->
+        {#if revokeScopeKey}
+          <dialog
+            use:revokeScopeDialogAction
+            aria-labelledby="revoke-scope-title"
+            data-testid="revoke-scope-dialog"
+            oncancel={(event) => {
+              if ($revokeKeyScopeSubmitting) event.preventDefault();
+              else closeRevokeScope();
+            }}
+            class="m-auto w-[calc(100%-2rem)] max-w-md max-h-[85dvh] overflow-auto rounded-xl border border-zinc-200 bg-white p-5 text-zinc-900 shadow-xl backdrop:bg-black/60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+          >
+            <form method="POST" action="?/revokeKeyScope" use:revokeKeyScopeEnhance class="mt-1 space-y-4">
+              <input type="hidden" name="_kind" value={$revokeKeyScopeForm._kind} />
+              <input type="hidden" name="keyId" value={$revokeKeyScopeForm.keyId} />
+              <h3 id="revoke-scope-title" class="text-lg font-semibold">{t('app.keys.revoke-scope.heading', 'Revoke a scope')}</h3>
+              <p class="break-words text-sm text-zinc-500">
+                {revokeScopeKey.label || t('app.keys.grant.unlabeled-key', 'Key')}
+                <span class="mt-1 block break-all font-mono text-xs text-zinc-400">{revokeScopeKey.keyPreview}</span>
+              </p>
+              <div>
+                <label for="revoke-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.revoke-scope.scope', 'Scope')}</label>
+                <select id="revoke-scope" name="scope" bind:value={$revokeKeyScopeForm.scope}
+                  aria-describedby={revokeKeyScopeActionError ? 'revoke-scope-help revoke-scope-error' : 'revoke-scope-help'}
+                  class={inputClass}>
+                  {#each revokeHeld as held (held)}
+                    <option value={held}>{held}</option>
+                  {/each}
+                </select>
+                <p id="revoke-scope-help" class="mt-1 text-xs text-zinc-500">{t('app.keys.revoke-scope.help', 'Anything using this key stops being able to do this from the next request.')}</p>
+              </div>
+              {#if revokeKeyScopeActionError}
+                <p role="alert" id="revoke-scope-error" data-testid="revoke-scope-error" class="break-words text-sm text-red-700 dark:text-red-300">{revokeKeyScopeActionError}</p>
+              {/if}
+              <div class="flex flex-wrap justify-end gap-3">
+                <button type="button" onclick={closeRevokeScope} disabled={$revokeKeyScopeSubmitting} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">{t('app.keys.revoke-scope.cancel', 'Cancel')}</button>
+                <button type="submit" disabled={$revokeKeyScopeSubmitting || !revokeHeld.includes($revokeKeyScopeForm.scope)} class="rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
+                  {$revokeKeyScopeSubmitting ? t('app.keys.revoke-scope.submitting', 'Revoking…') : t('app.keys.revoke-scope.submit', 'Revoke')}
                 </button>
               </div>
             </form>
@@ -4595,6 +4871,14 @@
           />
         {/key}
       {/if}
+
+      <!-- portal#2464: the roles this App's saturation alarms wake. Keyed on the App, so a draft never follows the person to another App. -->
+      {#key app.id}
+        <SaturationAlarmWakeRoles
+          read={tabData.saturationWakeRoles ?? null}
+          canManage={wakeRolesCanManage(data.viewerManages, impersonating)}
+        />
+      {/key}
 
       <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
       <section class="max-w-4xl">

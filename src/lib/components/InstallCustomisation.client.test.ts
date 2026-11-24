@@ -259,6 +259,11 @@ describe('install customisation panel', () => {
     expect(root.querySelector('h4')?.textContent).toBe('Original');
     const reload = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Reload and discard draft');
     expect(Boolean(reload)).toBe(shown);
+    // portal#2444: the refusal sentences that say "use Reload and discard draft"
+    // are only produced by the save form, so the form and the button share one
+    // gate: whoever can be told to use the button has the form that gets the
+    // sentence, and a viewer without the form never receives it.
+    expect(Boolean(root.querySelector('form[action$="saveCustomisation"]')), 'the save form shares the button gate').toBe(shown);
   });
   // portal#1509 item 5: a search that matches nothing says so, in a region that
   // is already mounted before the filter runs (portal#2379).
@@ -664,6 +669,51 @@ describe('install customisation polish (#1369)', () => {
     expect(root.textContent).not.toContain('1 customisations');
   });
 
+  // portal#1369: a one-row result keeps the shared table and the count line, but not the
+  // controls that have nothing to act on (a search box over one row, a pager with both
+  // buttons disabled).
+  it('lightens a one-row result: no search and no pager, but still the table, the count and the row action', async () => {
+    serve(listOf(1));
+    const root = await panel();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(root.querySelector('input[aria-label="Search the customisations on this page"]')).toBeNull();
+    expect(button(root, 'Previous')).toBeUndefined();
+    expect(button(root, 'Next')).toBeUndefined();
+    expect(root.textContent).toContain('Loaded 1–1 of 1 customisation');
+    expect(root.querySelector('button[aria-label="Open Note (note)"]')).not.toBeNull();
+  });
+
+  // Blind P2-1: hiding the box must never strand an active filter with no way to clear it.
+  it('keeps the search box while a filter is active, then hides it once the filter is cleared', async () => {
+    serve(listOf(25, [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }]));
+    const root = await panel();
+    const input = () => root.querySelector<HTMLInputElement>('input[aria-label="Search the customisations on this page"]');
+    input()!.value = 'zzz'; input()!.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    serve(listOf(1)); // the list shrinks to one row while the filter is still set
+    button(root, 'Next').click();
+    await new Promise((r) => setTimeout(r, 0)); await tick(4);
+    expect(root.textContent).toContain('Loaded 1–1 of 1 customisation');
+    expect(input()).not.toBeNull();
+    input()!.value = ''; input()!.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    expect(input()).toBeNull();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+  });
+
+  it('control: one loaded row out of a larger server total keeps search and paging', async () => {
+    serve(listOf(25));
+    const root = await panel();
+    expect(root.querySelector('input[aria-label="Search the customisations on this page"]')).not.toBeNull();
+    expect(button(root, 'Next')).toBeDefined();
+    expect(root.textContent).toContain('Loaded 1–1 of 25 customisations');
+  });
+
+  it('control: several rows keep search and paging', async () => {
+    serve(listOf(2, [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }]));
+    const root = await panel();
+    expect(root.querySelector('input[aria-label="Search the customisations on this page"]')).not.toBeNull();
+    expect(button(root, 'Next')).toBeDefined();
+  });
+
   it('names the loaded range out of the server total, so disabled paging is explained in text', async () => {
     serve(listOf(25));
     const root = await panel();
@@ -861,5 +911,84 @@ describe('empty-list note live region', () => {
     const region = regionHolding(root, 'may not be the full set');
     expect(before).toContain(region);
     expect(region.getAttribute('role')).toBe('status');
+  });
+});
+
+describe('focus survives the list controls unmounting (#2549)', () => {
+  const listOf = (total: number, nodes = [node]) => ({
+    list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes, total, offset: 0 } },
+    replacement: { state: 'not-shown' },
+    original: { state: 'not-shown' },
+  });
+  const serve = (body: unknown) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body))));
+  const two = [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }];
+  const settle = async () => { await new Promise((r) => setTimeout(r, 0)); await tick(4); };
+  const search = (root: HTMLElement) =>
+    root.querySelector<HTMLInputElement>('input[aria-label="Search the customisations on this page"]');
+
+  it('pager: Next that lands on a one-row page leaves focus on the heading, not body', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    const next = button(root, 'Next');
+    next.focus();
+    expect(document.activeElement).toBe(next);
+    serve(listOf(1));
+    next.click();
+    await settle();
+    expect(button(root, 'Next')).toBeUndefined();
+    expect(document.activeElement).toBe(root.querySelector('h3'));
+  });
+
+  it('search: backspacing a stranded filter to empty on a one-row list leaves focus on the heading', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    search(root)!.value = 'zzz';
+    search(root)!.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    serve(listOf(1));
+    button(root, 'Next').click();
+    await settle();
+    const box = search(root)!;
+    box.focus();
+    box.value = '';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(search(root)).toBeNull();
+    expect(document.activeElement).toBe(root.querySelector('h3'));
+  });
+
+  it('a load that fails also leaves focus on the heading, not body', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    const next = button(root, 'Next');
+    next.focus();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })));
+    next.click();
+    await settle();
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t load customisations');
+    expect(document.activeElement).toBe(root.querySelector('h3'));
+  });
+
+  it('control: focus the reader did not have in the list is not stolen by a load', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    const start = button(root, 'Start customising');
+    start.focus();
+    serve(listOf(1));
+    button(root, 'Next').click();
+    await settle();
+    expect(document.activeElement).toBe(start);
+  });
+
+  it('control: a search box that stays mounted keeps its focus', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    const box = search(root)!;
+    box.focus();
+    box.value = 'o';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(document.activeElement).toBe(search(root));
   });
 });

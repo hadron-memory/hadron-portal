@@ -1,0 +1,460 @@
+/**
+ * portal#2446 — the inverse half of #2057. A full-page (no-JS) refusal hydrates
+ * each sibling superForm from the refused action's answer: the message store
+ * (the alert) AND the data store (the reader's draft). The node page's
+ * reset-on-node-change effect also runs on FIRST mount, and its unguarded
+ * resets wiped the draft while the alert survived.
+ *
+ * Mounts the REAL page with the REAL loader's data and the REAL action's
+ * refused answer as the `form` prop at initial mount (hydration, no enhancer),
+ * following meta-fullpage-refusal.client.test.ts. Move and delete are not
+ * pinned here: their drafts are only reachable through the actions menu, whose
+ * own handler re-seeds them (`$moveFormData.target = fullUrn`, `hard = false`),
+ * so the wipe is not observable in the DOM; the guards are applied regardless.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
+import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { fakeFindNodesChildren } from '$lib/test/fakeFindNodesChildren';
+import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
+import { resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { COMMENT_THREADS_QUERY, NODE_COMMENT_SUMMARY_QUERY } from '$lib/server/comments';
+import {
+  DELETE_NODE_MUTATION,
+  MEMORIES_QUERY,
+  ORG_APPS_RUNNABLE_QUERY,
+  RUN_TASK_APP_MUTATION,
+  NODE_APPROVAL_QUERY,
+  NODE_BY_ID_QUERY,
+  NODE_CHILDREN_QUERY,
+  NODE_DATA_READ_QUERY,
+  NODE_EDGE_REMOVALS_QUERY,
+  NODE_PROPERTIES_READ_QUERY,
+  NODE_PROVENANCE_QUERY,
+  NODE_QUERY,
+  NODE_REVISIONS_PAGE_QUERY,
+  NODE_REVISIONS_PROVENANCE_PAGE_QUERY,
+} from '$lib/server/queries';
+import Page from './+page.svelte';
+import { actions, load } from './+page.server';
+
+const mockRequest = vi.fn();
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
+vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
+
+const NODE = {
+  id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'Foo', revision: 4,
+  nodeType: 'info', alias: null, description: null, content: 'body', abstract: 'sum',
+  tokens: null, tags: [], seq: null, data: {}, properties: {},
+  objectType: null, ownerRepo: null, role: null,
+  isRunnable: true, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
+  outgoingEdges: [], incomingEdges: [],
+  memory: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a' },
+};
+// The external edit that stales the baseline: another editor renamed the node
+// while our draft was open, so nodeMetaBaseline(stored) no longer matches the
+// token the editor opened against.
+const RENAMED = { ...NODE, name: 'Renamed elsewhere', revision: 5 };
+const PARENT = {
+  canWriteMemory: true,
+  graph: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a', name: 'Mem A', class: 'org', isEncrypted: false, schema: null },
+  graphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'Foo', nodeType: 'info', tags: [] }],
+  isConsumerMode: false,
+  activeOrgId: 'org-1',
+  org: { id: 'org-1' },
+  user: { id: 'u1' },
+};
+const HREF = 'http://localhost/app/memories/mem-A/nodes/leaf-pk';
+
+let stored = NODE;
+function serve() {
+  const serveChildren = fakeFindNodesChildren([], 'mem-A');
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    switch (doc) {
+      case NODE_BY_ID_QUERY:
+      case NODE_QUERY:
+      case NODE_DATA_READ_QUERY:
+      case NODE_PROPERTIES_READ_QUERY:
+        return { node: stored };
+      case NODE_REVISIONS_PAGE_QUERY:
+      case NODE_REVISIONS_PROVENANCE_PAGE_QUERY:
+        return { nodeRevisionsPage: { items: [], total: 0, hasMore: false } };
+      case NODE_PROVENANCE_QUERY:
+      case NODE_APPROVAL_QUERY:
+      case NODE_COMMENT_SUMMARY_QUERY:
+        return { node: null };
+      case NODE_CHILDREN_QUERY:
+        return serveChildren(vars);
+      case COMMENT_THREADS_QUERY:
+        return { commentThreads: { items: [], total: 0 } };
+      case NODE_EDGE_REMOVALS_QUERY:
+        return { nodeEdgeRemovals: [] };
+      case ORG_APPS_RUNNABLE_QUERY:
+        return { apps: { items: [{ id: 'app-1', name: 'App One', appAgents: [] }], total: 1 } };
+      case MEMORIES_QUERY:
+        return { memories: { items: [], total: 0 } };
+      case DELETE_NODE_MUTATION:
+        throw new Error('the server refuses the delete');
+      case RUN_TASK_APP_MUTATION:
+        throw new Error('the server refuses the run');
+      default:
+        throw new Error(`serve(): unexpected document "${String(doc).match(/(?:query|mutation)\s+(\w+)/)?.[1] ?? 'unnamed'}" — extend the explicit cases, never add a catch-all`);
+    }
+  });
+}
+const runLoad = async () =>
+  (await load({
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok' },
+    url: new URL(HREF),
+    parent: vi.fn().mockResolvedValue(PARENT),
+  } as never)) as Record<string, unknown>;
+
+const mounted: Array<Mounted<Record<string, unknown>>> = [];
+const unsubs: Array<() => void> = [];
+const consoleMsgs: Array<{ level: string; text: string }> = [];
+beforeEach(() => {
+  mockRequest.mockReset();
+  stored = NODE;
+  resetNavigationCalls();
+  consoleMsgs.length = 0;
+  vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { consoleMsgs.push({ level: 'error', text: a.map(String).join(' ') }); });
+  vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => { consoleMsgs.push({ level: 'warn', text: a.map(String).join(' ') }); });
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+});
+afterEach(async () => {
+  const rejections = await captureUnhandledRejections(async () => {
+    while (mounted.length) mounted.pop()!.unmount();
+    while (unsubs.length) unsubs.pop()!();
+    for (let i = 0; i < 10; i++) await tick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let i = 0; i < 10; i++) await tick();
+    flushSync();
+  });
+  expect(rejections, rejections.map(String).join(' | ')).toEqual([]);
+  const noise = consoleMsgs.filter((m) => !m.text.startsWith('[capabilities]'));
+  expect(noise, noise.map((m) => `${m.level}: ${m.text}`).join(' | ')).toEqual([]);
+  vi.unstubAllGlobals();
+  resetNavigationCalls();
+  resetStubPage();
+  document.body.innerHTML = '';
+});
+
+const buttonNamed = (target: HTMLElement, label: string) =>
+  Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
+
+async function settle() {
+  // The client-lane rules: superforms' post-mount validation and the seeding
+  // effects land on later microtasks; asserting right after mount can pass on
+  // broken code (mount-time-store-write-erases-server-error's lesson).
+  for (let i = 0; i < 10; i++) await tick();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  for (let i = 0; i < 10; i++) await tick();
+  flushSync();
+}
+
+
+const field = (target: HTMLElement, sel: string) => target.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(sel);
+
+async function refusedAction(name: 'testFlow' | 'updateFlow' | 'delete', fields: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  const res = await (actions as Record<string, (e: never) => Promise<unknown>>)[name]({
+    request: { formData: async () => fd },
+    params: { id: 'mem-A', nodeId: 'leaf-pk' },
+    locals: { token: 'tok' },
+  } as never) as { status: number; data: Record<string, unknown> };
+  return res.data;
+}
+
+async function mountHydrated(form: Record<string, unknown> | null) {
+  setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+  serve();
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...(await runLoad()) }, form });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  if (!m.target.isConnected) document.body.appendChild(m.target);
+  await settle();
+  return { m, props };
+}
+
+describe('full-page sibling-form refusals keep the refused draft (portal#2446)', () => {
+  it('testFlow: the refused App and payload survive hydration beside the alert', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const actionData = await refusedAction('testFlow', { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', agentRef: '', payload: '{"keep":"me"}' });
+    expect((actionData as { form?: { message?: { type?: string } } }).form?.message?.type).toBe('error');
+    const { m } = await mountHydrated(actionData);
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    const run = Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run');
+    expect(run, 'the Run menu item').toBeTruthy();
+    run!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value, 'the refused payload').toBe('{"keep":"me"}');
+    expect((field(m.target, '#testFlowApp') as HTMLSelectElement).value, 'the refused App').toBe('app-1');
+  });
+
+  it('testFlow control: with no refusal the form opens at its defaults', async () => {
+    const { m } = await mountHydrated(null);
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value).toBe('');
+    expect((field(m.target, '#testFlowApp') as HTMLSelectElement).value).toBe('');
+  });
+
+  it('testFlow: a refusal hydrated on one node does not follow the reader to the next node (a real node change still resets)', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const actionData = await refusedAction('testFlow', { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', agentRef: '', payload: '{"keep":"me"}' });
+    const { m, props } = await mountHydrated(actionData);
+
+    // Before the switch the refused draft IS there (hydration kept it), so the
+    // empty payload asserted after it can only come from the node-change reset.
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value, 'the refused payload before the node change').toBe('{"keep":"me"}');
+
+    // The reader goes to another node and the page component stays mounted
+    // (SvelteKit reuses it). `form` is left as is: the reset effect, not the
+    // action data, is what must clear the draft.
+    const OTHER = { ...NODE, id: 'leaf-2', loc: 'bar', name: 'Bar' };
+    stored = OTHER;
+    const url = 'http://localhost/app/memories/mem-A/nodes/leaf-2';
+    setStubPage(url, { id: 'mem-A', nodeId: 'leaf-2' });
+    const otherParent = { ...PARENT, graphNodes: [...PARENT.graphNodes, { id: 'leaf-2', memoryId: 'mem-A', loc: 'bar', name: 'Bar', nodeType: 'info', tags: [] }] };
+    props.data = { ...otherParent, ...((await load({
+      params: { id: 'mem-A', nodeId: 'leaf-2' },
+      locals: { token: 'tok' },
+      url: new URL(url),
+      parent: vi.fn().mockResolvedValue(otherParent),
+    } as never)) as Record<string, unknown>) };
+    await settle();
+
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Bar"]')!.click();
+    flushSync();
+    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value, 'node A\'s refused payload must not follow the reader to node B').toBe('');
+    expect((field(m.target, '#testFlowApp') as HTMLSelectElement).value).toBe('');
+  });
+
+  // A same-node re-run (invalidateAll after a save elsewhere, a revision bump)
+  // does not enter the node-change reset block, so a kept draft survives it.
+  it('testFlow: a refused draft and the open Run dialog survive a same-node re-run of the page data', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const actionData = await refusedAction('testFlow', { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', agentRef: '', payload: '{"keep":"me"}' });
+    const { m, props } = await mountHydrated(actionData);
+
+    // Open the Run dialog BEFORE the re-run: an open flag (testFlowOpen) must
+    // not be closed by a same-node re-run, only by a real node change.
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Run')!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, '#testFlowPayload')!.value, 'the draft before the re-run').toBe('{"keep":"me"}');
+
+    // Same node id, new data (renamed elsewhere, revision bumped): the page
+    // re-renders with it, which is what makes this a re-run that took effect.
+    stored = { ...NODE, name: 'Foo renamed', revision: 5 };
+    props.data = { ...PARENT, ...(await runLoad()) };
+    await settle();
+    expect(m.target.querySelector('button[aria-label="Actions for Foo renamed"]'), 'the re-run reached the page').not.toBeNull();
+    expect(field(m.target, '#testFlowPayload'), 'the Run dialog is still open after a same-node re-run').not.toBeNull();
+    expect(field(m.target, '#testFlowPayload')!.value, 'the draft after a same-node re-run').toBe('{"keep":"me"}');
+  });
+
+  // The claim the first-mount guard rests on, pinned from the other side: a
+  // hydrated hard = true (a refused hard delete) must not reach the reader
+  // through the menu's delete dialog, because that entry resets it first. The
+  // Settings danger-zone entry also resets it, but its confirm form carries no
+  // `hard` control and the delete superForm has no `dataType` (default 'form':
+  // the enhanced submit posts the DOM fields), so `hard` is never posted from
+  // there and nothing hydrated can be serialised.
+  //
+  // This is not vacuous: the action-data assertion is only the precondition
+  // (the fixture really is a refused hard delete). The checkbox renders ticked
+  // only if $deleteFormData.hard was hydrated to true and nothing reset it, so
+  // removing `$deleteFormData.hard = false` from the menu's 'delete' case turns
+  // this test red (checked by mutant).
+  it('delete: a refused hard delete never opens the menu dialog with Hard delete ticked', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const actionData = await refusedAction('delete', { _kind: 'deleteNode', hard: 'true' });
+    expect((actionData as { form?: { data?: { hard?: boolean } } }).form?.data?.hard, 'the refused draft carries hard = true').toBe(true);
+    const { m } = await mountHydrated(actionData);
+    m.target.querySelector<HTMLElement>('button[aria-label="Actions for Foo"]')!.click();
+    flushSync();
+    const del = Array.from(m.target.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((b) => b.textContent?.trim() === 'Delete');
+    expect(del, 'the Delete menu item').toBeTruthy();
+    del!.click();
+    flushSync();
+    await settle();
+    const hard = field(m.target, 'input[type="checkbox"][name="hard"]') as HTMLInputElement | null;
+    expect(hard, 'the delete dialog is open').not.toBeNull();
+    expect(hard!.checked, 'Hard delete must start unticked').toBe(false);
+  });
+
+  it('updateFlow: the refused flow draft is still what the form will submit', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const rows = JSON.stringify([{ field: 'kept', shape: 'string', description: 'refused draft' }]);
+    const actionData = await refusedAction('updateFlow', { _kind: 'updateFlow', extractionRows: rows, outputWriteTo: '', outputMode: 'replace' });
+    expect((actionData as { form?: { message?: { type?: string } } }).form?.message?.type).toBe('error');
+    const { m } = await mountHydrated(actionData);
+    Array.from(m.target.querySelectorAll('button')).find((b) => /^Flow/.test(b.textContent?.trim() ?? ''))!.click();
+    flushSync();
+    await settle();
+    expect(field(m.target, 'input[name="extractionRows"]')!.value).toBe(rows);
+  });
+});
+
+// portal#2467: the other half of #2446. The refused flow draft is hydrated into the form; the VISIBLE
+// editor (rows, write-to, mode) is seeded from the same refusal on first mount, so the alert and what the
+// reader typed appear together. A real node change still resets it to that node's saved flow. A draft the
+// page cannot read never replaces the saved flow with an empty editor.
+describe('updateFlow: the visible editor shows the refused draft (portal#2467)', () => {
+  const DRAFT_ROWS = [{ field: 'kept', shape: 'number', description: 'refused draft' }];
+  const DRAFT_TARGET = 'hrn:node:acme.com:mem-a:target';
+  const SAVED_TARGET = 'hrn:node:acme.com:mem-a:saved';
+  // A saved flow that differs from every draft below, so "shows the saved flow" and "shows the draft" cannot both pass.
+  const withSavedFlow = () => {
+    stored = { ...NODE, data: { extractionSpec: [{ field: 'saved', shape: 'boolean', description: 'saved row' }], output: { writeTo: SAVED_TARGET, mode: 'replace' } } };
+  };
+  const openFlow = async (m: Mounted<Record<string, unknown>>) => {
+    Array.from(m.target.querySelectorAll('button')).find((b) => /^Flow/.test(b.textContent?.trim() ?? ''))!.click();
+    flushSync();
+    await settle();
+  };
+  const refusal = (rows: string = JSON.stringify(DRAFT_ROWS)) => refusedAction('updateFlow', {
+    _kind: 'updateFlow', extractionRows: rows, outputWriteTo: DRAFT_TARGET, outputMode: 'append',
+  });
+  const saveButton = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLButtonElement>('form[action="?/updateFlow"] button[type="submit"]')!;
+
+  it('shows the refused rows, write-to and mode beside the alert, over a different saved flow', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const actionData = await refusal();
+    expect((actionData as { form?: { message?: { type?: string } } }).form?.message?.type).toBe('error');
+    const { m } = await mountHydrated(actionData);
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the refused field name, not the saved one').toBe('kept');
+    expect((field(m.target, '#flow-shape-0') as HTMLSelectElement).value, 'the refused shape').toBe('number');
+    expect(field(m.target, '#flow-desc-0')!.value, 'the refused description').toBe('refused draft');
+    expect(field(m.target, '#flow-writeto')!.value, 'the refused write-to, not the saved one').toBe(DRAFT_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value, 'the refused mode').toBe('append');
+    expect(field(m.target, '#flow-field-1'), 'no saved row mixed in').toBeNull();
+    // What is shown is what the form submits.
+    expect(field(m.target, 'input[name="extractionRows"]')!.value).toBe(JSON.stringify(DRAFT_ROWS));
+  });
+
+  it('control: with no refusal the editor shows the saved flow', async () => {
+    withSavedFlow();
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const { m } = await mountHydrated(null);
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value).toBe('saved');
+    expect(field(m.target, '#flow-writeto')!.value).toBe(SAVED_TARGET);
+    expect(saveButton(m).disabled, 'nothing to save yet').toBe(true);
+  });
+
+  it('Save is enabled for the shown draft, so the reader can resubmit it without retyping', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const { m } = await mountHydrated(await refusal());
+    await openFlow(m);
+    expect(saveButton(m).disabled).toBe(false);
+  });
+
+  it('the hidden input holds the rows the reader is shown, not the raw draft text (a bad shape)', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const raw = JSON.stringify([{ field: 'kept', shape: 'nope', description: 'd' }]);
+    const { m } = await mountHydrated(await refusal(raw));
+    await openFlow(m);
+    expect((field(m.target, '#flow-shape-0') as HTMLSelectElement).value, 'an unknown shape is shown as string').toBe('string');
+    expect(field(m.target, 'input[name="extractionRows"]')!.value, 'and is submitted as shown')
+      .toBe(JSON.stringify([{ field: 'kept', shape: 'string', description: 'd' }]));
+  });
+
+  it('a draft with a row the editor cannot show is unreadable: the saved flow stays and the refusal stays visible', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal(JSON.stringify([{ shape: 'number', description: 'typed, no name' }])));
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the saved row, not an empty editor').toBe('saved');
+    expect(field(m.target, '#flow-writeto')!.value, 'the saved write-to').toBe(SAVED_TARGET);
+    expect(saveButton(m).disabled, 'nothing differs from the saved flow').toBe(true);
+    expect(m.target.textContent, 'the refusal reason').toContain('Field name is required');
+  });
+
+  it('an empty draft array is every row removed: the editor shows no rows, with the draft’s write-to and mode', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal('[]'));
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0'), 'no rows shown').toBeNull();
+    expect(field(m.target, '#flow-writeto')!.value).toBe(DRAFT_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value).toBe('append');
+  });
+
+  it('a draft whose rows cannot be read leaves the saved rows in the editor, never an empty one', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal('not json'));
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the saved row, not an empty editor').toBe('saved');
+    expect(field(m.target, '#flow-writeto')!.value, 'the saved write-to, not the unreadable draft’s').toBe(SAVED_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value, 'the saved mode, not the draft’s append').toBe('replace');
+    expect(saveButton(m).disabled, 'nothing differs from the saved flow, so nothing to resubmit').toBe(true);
+  });
+
+  it('an unreadable draft keeps the server’s refusal reason visible beside the saved flow', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    withSavedFlow();
+    serve();
+    const { m } = await mountHydrated(await refusal('not json'));
+    await openFlow(m);
+    expect(m.target.textContent, 'the schema refusal for the unreadable rows').toContain('Invalid extraction rows');
+    expect(field(m.target, '#flow-field-0')!.value, 'beside the saved row').toBe('saved');
+  });
+
+  it('a real node change resets the editor to the next node’s saved flow', async () => {
+    setStubPage(HREF, { id: 'mem-A', nodeId: 'leaf-pk' });
+    serve();
+    const { m, props } = await mountHydrated(await refusal());
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'the draft is shown before the switch').toBe('kept');
+
+    stored = { ...NODE, id: 'leaf-2', loc: 'bar', name: 'Bar', data: { extractionSpec: [{ field: 'next', shape: 'boolean' }], output: { writeTo: SAVED_TARGET, mode: 'append' } } };
+    const url = 'http://localhost/app/memories/mem-A/nodes/leaf-2';
+    setStubPage(url, { id: 'mem-A', nodeId: 'leaf-2' });
+    const otherParent = { ...PARENT, graphNodes: [...PARENT.graphNodes, { id: 'leaf-2', memoryId: 'mem-A', loc: 'bar', name: 'Bar', nodeType: 'info', tags: [] }] };
+    props.data = { ...otherParent, ...((await load({
+      params: { id: 'mem-A', nodeId: 'leaf-2' }, locals: { token: 'tok' }, url: new URL(url),
+      parent: vi.fn().mockResolvedValue(otherParent),
+    } as never)) as Record<string, unknown>) };
+    await settle();
+    await openFlow(m);
+    expect(field(m.target, '#flow-field-0')!.value, 'node B’s own saved row, not node A’s refused one').toBe('next');
+    expect(field(m.target, '#flow-field-1')).toBeNull();
+    expect(field(m.target, '#flow-writeto')!.value).toBe(SAVED_TARGET);
+    expect((field(m.target, '#flow-mode') as HTMLSelectElement).value).toBe('append');
+  });
+});

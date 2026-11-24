@@ -42,12 +42,10 @@ describe('LiveOutcome', () => {
     expect(a.textContent?.trim()).toBe('');
   });
 
-  it('carries the caller class and empty:m-0 on both regions', async () => {
+  it('carries the caller class on both regions, idle:m-0 on the LiveRegion status and empty:m-0 on the plain alert', async () => {
     const t = await mount();
-    for (const el of [status(t), alert(t)]) {
-      const cls = el.className.split(/\s+/);
-      expect(cls).toContain('host-outcome');
-      expect(cls).toContain('empty:m-0');
-    }
+    for (const el of [status(t), alert(t)]) expect(el.className.split(/\s+/)).toContain('host-outcome');
+    expect(status(t).className.split(/\s+/)).toContain('idle:m-0');
+    expect(alert(t).className.split(/\s+/)).toContain('empty:m-0');
   });
 });

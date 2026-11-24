@@ -209,7 +209,7 @@ describe('run detail cancel action', () => {
         message: { type: 'success', text: 'Run cancellation requested.' },
       },
     });
-    expect(mockRequest).toHaveBeenCalledWith(CANCEL_APP_RUN_MUTATION, { id: 'run-1' });
+    expect(mockRequest).toHaveBeenCalledWith(CANCEL_APP_RUN_MUTATION, { ref: 'run-1' });
   });
 
   it('rejects cancel POSTs with the wrong form discriminator', async () => {

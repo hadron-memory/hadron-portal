@@ -212,7 +212,8 @@
         {:else if cell.column.id === 'when'}
           {row.at ? new Date(row.at).toLocaleString() : ''}
         {:else}
-          {cell.getValue() ?? ''}
+          <!-- portal#2492: the author name has no break opportunity, so it wraps anywhere inside its cell. -->
+          <span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{cell.getValue() ?? ''}</span>
         {/if}
       {/snippet}
     </DataTable>
