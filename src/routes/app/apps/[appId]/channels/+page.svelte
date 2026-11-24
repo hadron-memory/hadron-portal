@@ -348,7 +348,7 @@
           {/if}
         {:else if cell.column.id === 'host'}
           <div class="min-w-0">
-            <div class="truncate">{row.host}</div>
+            <div class="truncate" title={row.host}>{row.host}</div>
             {#if row.channel.memory}
               <Urn value={row.channel.memory.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
             {:else}
@@ -389,7 +389,7 @@
             />
           {/if}
         {:else}
-          <div class="truncate">{cell.getValue()}</div>
+          <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue()}</div>
         {/if}
       {/snippet}
     </DataTable>
@@ -528,7 +528,7 @@
                         <Urn value={row.channelUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
                       </div>
                     {:else}
-                      <div class="truncate">{cell.getValue()}</div>
+                      <div class="truncate" title={String(cell.getValue() ?? '')}>{cell.getValue()}</div>
                     {/if}
                   {/snippet}
                 </DataTable>

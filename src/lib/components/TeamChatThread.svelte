@@ -148,6 +148,8 @@
       (failedSubmission<PostTeamChatMessageForm>(matchingSubmission, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
       (draft ? { ...postForm, data: { ...postForm.data, body: draft.body, replyToSeq: draft.replyToSeq } } : postForm),
   );
+  // The largest delay `setTimeout` accepts; a larger one fires at once.
+  const NEVER_TIMEOUT_MS = 2 ** 31 - 1;
   const {
     form: postFormData,
     errors: postErrors,
@@ -163,6 +165,19 @@
       // must still deliver action results, but must not reseed an unsent
       // draft from the loader's empty form when this thread remounts.
       applyAction: untrack(() => onDraftChange ? 'never' : true),
+      // #2542: superforms' `cancel` completes a submit only while it is still
+      // Submitting or Delayed, and after `timeoutMs` (8 s by default) the state is
+      // Timeout, which it no longer counts as in flight. That is long before the
+      // stalled note shows at 30 s, so without this "Stop waiting" would abort the
+      // request and leave the form `submitting` for good. This form reads no
+      // `$timeout` or `$delayed`, so nothing else loses its Timeout state.
+      timeoutMs: NEVER_TIMEOUT_MS,
+      // #2542: keep the in-flight request's controller and superforms' own
+      // cancel, so "Stop waiting" can abort the request itself.
+      onSubmit: ({ controller, cancel }) => {
+        postAbandoned = false;
+        postRequest = { controller, cancel };
+      },
       validators: zod4Client(postTeamChatMessageSchema),
       validationMethod: 'oninput',
       scrollToError: 'smooth',
@@ -209,11 +224,44 @@
   // Why 30 s: well past a slow-but-healthy post, short enough that the reader is
   // not locked in for a minute. The request itself is not aborted, which is why
   // the note says the message may still be sent.
+  //
+  // #2542: "Stop waiting" is the reader's way out. Kit's enhance returns without
+  // calling any result handler when its fetch is aborted, so superforms would
+  // stay `submitting` for good; its own `cancel` is what completes the submit,
+  // which is why both are kept and called together.
   let postStalled = $state(false);
+  // Set once the reader has stopped waiting: the draft is back in the composer
+  // with Post enabled, and the server may still have taken the message, so the
+  // note stays (announced) until they edit the draft or post again.
+  let postAbandoned = $state(false);
+  let postRequest: { controller: AbortController; cancel: () => void } | null = null;
+  function stopWaiting() {
+    const request = postRequest;
+    postRequest = null;
+    if (!request) return;
+    // `cancel` must run even if the abort throws: it is what unlocks the form.
+    try {
+      request.controller.abort();
+    } finally {
+      request.cancel();
+    }
+    postAbandoned = true;
+    // The button that held focus is gone with the note: hand focus to the composer.
+    void tick().then(() => composerEl?.focus());
+  }
+  // Leaving the chat while the post is stalled abandons it, so coming back finds
+  // Post enabled with no first request still open (#2540 seat P3, Gaia). A young
+  // post is not aborted: the page is held busy until the bound, so a reader
+  // cannot leave with a healthy post in flight.
+  onDestroy(() => {
+    if (postStalled) postRequest?.controller.abort();
+  });
   $effect(() => {
     const submitting = $postSubmitting;
     if (!submitting) {
       postStalled = false;
+      // A settled request is not one to abort later.
+      postRequest = null;
       untrack(() => onSubmittingChange?.(false));
       return;
     }
@@ -1445,7 +1493,7 @@
           bind:this={composerEl}
           name="body"
           bind:value={$postFormData.body}
-          oninput={(event) => onDraftChange?.({ body: event.currentTarget.value, replyToSeq: replyTo === null ? undefined : String(replyTo) })}
+          oninput={(event) => { postAbandoned = false; onDraftChange?.({ body: event.currentTarget.value, replyToSeq: replyTo === null ? undefined : String(replyTo) }); }}
           placeholder={postForm.data.channelRef ? t('app.channel.composer.placeholder', 'Post to this chat… (Ctrl/Cmd+Enter to send).') : t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl/Cmd+Enter to send). Mention a teammate with @name.')}
           rows="3"
           disabled={$postSubmitting}
@@ -1469,8 +1517,23 @@
           <p class="mt-2 text-xs text-amber-800 dark:text-amber-400">
             {t('app.team-chat.composer.stalled', 'The server has not answered yet. Your message may still be sent: check the chat before posting it again.')}
           </p>
+        {:else if postAbandoned}
+          <p class="mt-2 text-xs text-amber-800 dark:text-amber-400">
+            {t('app.team-chat.composer.stopped', 'You stopped waiting. Your message may already have been sent: check the chat before posting it again.')}
+          </p>
         {/if}
       </LiveRegion>
+      {#if postStalled}
+        <!-- Outside the live region on purpose: only the note is announced. -->
+        <button
+          type="button"
+          data-testid="team-chat-stop-waiting"
+          onclick={stopWaiting}
+          class="mt-2 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          {t('app.team-chat.composer.stop-waiting', 'Stop waiting')}
+        </button>
+      {/if}
       <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
         {t('app.team-chat.composer.attribution', 'Posts from here are attributed to you, not to a worker.')}
       </p>

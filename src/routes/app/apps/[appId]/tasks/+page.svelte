@@ -415,7 +415,7 @@
           {:else if cell.column.id === 'title'}
             <div class="flex min-w-0 flex-col">
               <span class="flex min-w-0 items-center gap-1.5">
-                <a href={taskHref(basePath, row.task)} class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.task.title}</a>
+                <a href={taskHref(basePath, row.task)} title={row.task.title} class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.task.title}</a>
                 <TaskHandle handle={row.task.handle} />
               </span>
               {#if row.task.source}<TaskSource source={row.task.source} />{/if}
