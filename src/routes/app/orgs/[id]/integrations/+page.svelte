@@ -14,6 +14,7 @@
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
+  import { orgRoleCanManage } from '$lib/ai-config-manage';
   import {
     connectExchangeSchema,
     deleteExchangeConnectionSchema,
@@ -402,7 +403,7 @@
       ownerLabel={org.name}
       ownerUrn={org.urn}
       configs={data.configs}
-      members={org.members ?? []}
+      canManage={orgRoleCanManage(org.members, data.currentUserId)}
       currentUserId={data.currentUserId}
       configsError={data.configsError}
     />

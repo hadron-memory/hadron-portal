@@ -34,6 +34,7 @@ it('config continuation remains reachable, but cannot navigate away from an open
   const nextHref = '/app/apps/a1?tab=ai-configs&configOffset=20';
   const root = await mountPage('ai-configs', {
     org: { id: 'org-a', name: 'Org', urn: 'hrn:org:example.test:demo', members: [{ role: 'ADMIN', user: { id: 'u1' } }] },
+    app: { ...(await pageData()).app, organizationId: 'org-a' },
     appConfigs: [], configsPage: { offset: 0, count: 0, total: 201, previousHref: null, nextHref },
   });
   const nav = () => root.querySelector('nav[aria-label="AI config pages"]');
@@ -54,6 +55,7 @@ it('config continuation remains reachable, but cannot navigate away from an open
 it('a now-empty config page offers a route back without claiming the inventory is empty', async () => {
   const root = await mountPage('ai-configs', {
     org: { id: 'org-a', name: 'Org', urn: 'hrn:org:example.test:demo', members: [{ role: 'ADMIN', user: { id: 'u1' } }] },
+    app: { ...(await pageData()).app, organizationId: 'org-a' },
     appConfigs: [], configsPage: { offset: 40, count: 0, total: 1, firstHref: '/app/apps/a1?tab=ai-configs', previousHref: '/app/apps/a1?tab=ai-configs&configOffset=20', nextHref: null },
   });
   expect(root.textContent).toContain('No AI configurations on this page.');

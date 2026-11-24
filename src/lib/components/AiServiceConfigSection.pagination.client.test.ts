@@ -6,7 +6,7 @@ import { resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import AiServiceConfigSection from './AiServiceConfigSection.svelte';
 import { resetAiConfigRecoveryForTests } from './ai-config-recovery';
 import type { ListPageNavigation } from '$lib/list-page';
-import type { AiServiceConfig, OrgMember } from '$lib/types';
+import type { AiServiceConfig } from '$lib/types';
 
 type SectionProps = ComponentProps<typeof AiServiceConfigSection>;
 let mounted: Mounted<SectionProps> | undefined;
@@ -27,11 +27,6 @@ const page: ListPageNavigation = { offset: 20, count: 20, total: 45,
   firstHref: '/app/apps/app1?tab=ai-configs',
   previousHref: '/app/apps/app1?tab=ai-configs',
   nextHref: '/app/apps/app1?tab=ai-configs&configOffset=40' };
-// A complete OrgMember/UserSummary, so prop drift stays compiler-visible.
-const member: OrgMember = {
-  id: 'membership-1', role: 'ADMIN', canInvite: false, createdAt: '2026-11-11T00:00:00Z',
-  user: { id: 'u1', handle: 'member-one', githubUsername: null, name: 'Member One', avatarUrl: null },
-};
 const pager = (root: HTMLElement) => root.querySelector('nav[aria-label="AI config pages"]');
 const rows = (root: HTMLElement) => root.querySelectorAll('tbody tr');
 /** [label, href] for every anchor the server pager renders, in markup order. */
@@ -72,7 +67,7 @@ async function open(fresh: AiServiceConfig[] | null) {
     throw new Error(`Unexpected fetch ${init?.method ?? 'GET'} ${url}`);
   }));
   const initialProps: SectionProps = {
-    ownerType: 'APP', ownerId: 'app1', currentUserId: 'u1', members: [member],
+    ownerType: 'APP', ownerId: 'app1', currentUserId: 'u1', canManage: true,
     configs: all.slice(20, 40), pagination: page,
   };
   mounted = mountComponent(AiServiceConfigSection, reactiveProps(initialProps));

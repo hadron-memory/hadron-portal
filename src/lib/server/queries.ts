@@ -563,12 +563,13 @@ export const EXCHANGE_CONNECTION_FIELDS = /* GraphQL */ `
  * What survives, and why each is genuinely rendered:
  *
  *   - the chrome three — breadcrumb, back link, `<title>`;
- *   - **`members`** — `AiServiceConfigSection` derives `canManage` from
- *     `m.user.id === currentUserId && role in (OWNER, ADMIN)`. Selected at FULL
- *     `OrgMember` width on purpose: narrowing to the two fields it reads would
- *     buy no containment, because the hazard is the list being non-null rather
- *     than how wide its rows are, and it would force a prop-type change on a
- *     component three routes share. Bytes, not safety.
+ *   - **`members`** — the callers of `AiServiceConfigSection` read the viewer's
+ *     role from it (`orgRoleCanManage`: `m.user.id === currentUserId && role in
+ *     (OWNER, ADMIN)`) for an organization's App or Agent; a person's has no
+ *     organization and takes the server's manage flag instead (portal#2567).
+ *     Selected at FULL `OrgMember` width on purpose: narrowing to the two fields
+ *     it reads would buy no containment, because the hazard is the list being
+ *     non-null rather than how wide its rows are. Bytes, not safety.
  *   - **`agents { id name urn }`** — only in the `…_WITH_AGENTS` variant, and
  *     only those three, because that is what the install `<select>` draws
  *     (`{a.name} ({a.urn})`, keyed by `a.id`) and what the loader's own

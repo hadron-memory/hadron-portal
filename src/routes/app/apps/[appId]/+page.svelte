@@ -213,6 +213,7 @@
   import { rosterIsStale } from './hold-stale';
   import { castableAgentOptions, castGroups } from './cast-agents';
   import type { InstallMarks } from '$lib/app-install-marks';
+  import { aiConfigCanManage } from '$lib/ai-config-manage';
 
   type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
   type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -3210,10 +3211,18 @@
               {t('app-chat.no-llm.title', 'Connect an LLM provider to enable agent chat')}
             </p>
             <p class="mb-4 text-sm text-zinc-500">
-              {t(
-                'app-chat.no-llm.description',
-                'This App has a chatbot agent linked, but no AI service configuration with a key resolves for it yet. Add one for this App, its agent, or the organization.',
-              )}
+              {#if app.organizationId}
+                {t(
+                  'app-chat.no-llm.description',
+                  'This App has a chatbot agent linked, but no AI service configuration with a key resolves for it yet. Add one for this App, its agent, or the organization.',
+                )}
+              {:else}
+                <!-- portal#2567: a person's App has no organization to add one to. A new key for the new copy. -->
+                {t(
+                  'app-chat.no-llm.description-personal',
+                  'This App has a chatbot agent linked, but no AI service configuration with an API key resolves for it yet. Add one for this App or its agent.',
+                )}
+              {/if}
             </p>
             <!-- #1007/#1008: AI providers moved out of Settings to their own
                  tab, so the button goes there. A new key for the new copy: the
@@ -4657,7 +4666,8 @@
           ownerUrn={app.urn}
           pagination={tabData.configsPage}
           configs={tabData.appConfigs ?? []}
-          members={org?.members ?? []}
+          canManage={aiConfigCanManage({ ownerIsPerson: !app.organizationId, orgMembers: org?.members, userId: data.currentUserId, canManageFlag: tabData.canManageApp ?? null, impersonating })}
+          ownerIsPerson={!app.organizationId}
           currentUserId={data.currentUserId}
           configsError={tabData.configsError}
           onRefreshed={refreshChatConfigs}

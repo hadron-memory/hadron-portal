@@ -23,6 +23,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import { aiConfigCanManage } from '$lib/ai-config-manage';
   import AgentTickerTemplatesPanel from '$lib/components/tickers/AgentTickerTemplatesPanel.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
@@ -1646,7 +1647,8 @@
         ownerLabel={agent.name}
         ownerUrn={agent.urn}
         configs={data.agentConfigs ?? []}
-        members={org?.members ?? []}
+        canManage={aiConfigCanManage({ ownerIsPerson: !agent.organizationId, orgMembers: org?.members, userId: data.currentUserId, canManageFlag: data.canManageAgent, impersonating: !!data.impersonating, platformAdmin: !!(data.user?.roles?.includes('ADMIN') || data.user?.roles?.includes('OWNER')) })}
+        ownerIsPerson={!agent.organizationId}
         currentUserId={data.currentUserId}
         configsError={data.configsError}
       />

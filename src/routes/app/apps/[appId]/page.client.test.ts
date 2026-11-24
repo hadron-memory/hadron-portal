@@ -2405,7 +2405,7 @@ describe('App AI configuration readback lifecycle', () => {
         initialTab: 'ai-configs', selectedChatKey: AGENT_CHAT_KEY,
         app: {
           ...data.app, surfaces: ['chat'], agentId: 'ag1', agent: { id: 'ag1', name: 'Bot' },
-          agents: [{ id: 'ag1', name: 'Bot' }],
+          agents: [{ id: 'ag1', name: 'Bot' }], organizationId: 'o1',
         },
         appChats: [{ key: AGENT_CHAT_KEY, label: 'Bot' }],
         org: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [{ user: { id: 'u1' }, role: 'ADMIN' }] },

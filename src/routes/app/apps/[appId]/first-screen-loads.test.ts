@@ -130,7 +130,7 @@ const TAB_OPS: Record<string, string[]> = {
   agents: ['MyAgents', 'PublicAgents', 'MemberOrgIds', 'AppBootPointers', 'AppInstallMarks', 'SelfCanManage'],
   memory: ['AppNodesPage', 'AppMemoryScope', 'SelfCanManage'],
   keys: ['AppKeys', 'AppKeyScopes'],
-  'ai-configs': ['AiServiceConfigs'],
+  'ai-configs': ['AiServiceConfigs', 'SelfCanManage'],
   settings: ['Workers', 'AppChatbotAiConfig', 'AppSaturationAlarmWakeRoles', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'SelfCanManage', 'AppMemoryScope'],
   'node-role-templates': ['RoleTemplates', 'AppViewerManages', 'ConfigMemoryChoices'],
   client: ['SelfCanManage', 'AppKeys'],
