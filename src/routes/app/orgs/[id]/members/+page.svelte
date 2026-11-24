@@ -369,7 +369,7 @@
               <img src={m.user.avatarUrl} alt="" class="h-8 w-8 shrink-0 rounded-full" />
             {/if}
             <div class="min-w-0">
-              <span class="block truncate font-medium text-zinc-900 dark:text-white">{memberName(m)}</span>
+              <span class="block truncate font-medium text-zinc-900 dark:text-white" title={memberName(m)}>{memberName(m)}</span>
               {#if m.user.handle}
                 <div class="mt-0.5 flex min-w-0"><Urn value={memberUrn(m)} type="user" size={8} /></div>
               {/if}
@@ -377,7 +377,7 @@
           </div>
         {:else if cell.column.id === 'email'}
           {#if m.user.email}
-            <div class="truncate text-zinc-600 dark:text-zinc-400">{m.user.email}</div>
+            <div class="truncate text-zinc-600 dark:text-zinc-400" title={m.user.email}>{m.user.email}</div>
           {:else}
             <span class="text-xs text-zinc-500">—</span>
           {/if}

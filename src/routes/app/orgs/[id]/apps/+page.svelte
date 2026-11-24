@@ -158,7 +158,7 @@
     >
       {#snippet cell(cell, app)}
         {#if cell.column.id === 'name'}
-          <div class="truncate">
+          <div class="truncate" title={app.name}>
             <a href="/app/apps/{app.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{app.name}</a>
           </div>
         {:else if cell.column.id === 'urn'}
@@ -186,7 +186,8 @@
           />
         {:else}
           {@const f = fmt[cell.column.id]}
-          <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
+          {@const text = String((f ? f(cell.getValue()) : cell.getValue()) ?? '')}
+          <div class="truncate" title={text}>{text}</div>
         {/if}
       {/snippet}
     </DataTable>

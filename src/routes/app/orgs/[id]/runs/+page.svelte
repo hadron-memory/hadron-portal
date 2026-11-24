@@ -267,7 +267,7 @@
         {:else if cell.column.id === 'status'}
           <span class="rounded-full px-2 py-0.5 text-xs font-medium {statusChipClass(run.status)}">{runStatusLabel(run.status)}</span>
         {:else if cell.column.id === 'app'}
-          <a href="/app/apps/{run.appId}/runs" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{run.app}</a>
+          <a href="/app/apps/{run.appId}/runs" title={run.app} class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{run.app}</a>
         {:else if cell.column.id === 'entry'}
           <!-- The <Urn> chip alone: it already renders the loc, so the separate
                loc line above it was duplicate text in every row. The column
