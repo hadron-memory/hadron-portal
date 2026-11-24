@@ -2400,7 +2400,8 @@
   );
   // portal#2468: the host error names the host that was refused, so picking another host clears it (on the
   // picker's change, never on submit: a wrong re-pick is refused again by the next reply). Only the host field's
-  // error goes; a refusal that is not about the host stays.
+  // error goes; a refusal that is not about the host stays. portal#2420: the scope select clears it too,
+  // because a scope with no host removes the field the refusal was about.
   function clearGrantHostError() {
     if (!$grantKeyScopeErrors.hostId) return;
     grantKeyScopeErrors.update((e) => ({ ...e, hostId: undefined }));
@@ -4537,7 +4538,7 @@
               </p>
               <div>
                 <label for="grant-scope" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.keys.grant.scope', 'Scope')}</label>
-                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} aria-describedby={hostsBlocked ? 'grant-scope-help' : undefined} class={inputClass}>
+                <select id="grant-scope" name="scope" bind:value={$grantKeyScopeForm.scope} onchange={clearGrantHostError} aria-describedby={hostsBlocked ? 'grant-scope-help' : undefined} class={inputClass}>
                   <option value="attention:deliver">attention:deliver</option>
                   <option value="host:operate" disabled={hostsBlocked || hostsState.kind === 'loading'}>host:operate</option>
                 </select>
