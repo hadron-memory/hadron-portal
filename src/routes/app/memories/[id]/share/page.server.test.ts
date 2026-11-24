@@ -111,10 +111,10 @@ describe('share load()', () => {
 
 describe('createShare action', () => {
   it('addresses the mutation by the memory’s CANONICAL ID, not the route ref', async () => {
-    // @copilot on #839: `[id]` is a ref and may be a URN, but `memoryId` on
-    // this mutation is a strict id — the server looks it up with
-    // `findUnique({ where: { id } })`. A URN would match no row and every grant
-    // would fail FORBIDDEN, indistinguishably from "not the principal".
+    // @copilot on #839: `[id]` is a ref and may be a URN. The mutation's memoryRef
+    // now takes an id or URN (hadron-server#4137), but the page keeps sending the
+    // canonical id it resolved, so an unknown memory stays a 404 rather than an
+    // indistinguishable FORBIDDEN.
     mockRequest
       .mockResolvedValueOnce({ memory: memory({ id: 'mem-canonical' }) })
       .mockResolvedValueOnce({ createMemoryShare: { memoryShare: { role: 'writer' } } });
@@ -125,8 +125,9 @@ describe('createShare action', () => {
     );
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
-    expect(vars).toEqual({ memoryId: 'mem-canonical', granteeRef: 'u-2', role: 'writer' });
-    expect(vars.memoryId).not.toBe('hrn:mem:acme.com:notes');
+    expect(vars).toEqual({ memoryRef: 'mem-canonical', granteeRef: 'u-2', role: 'writer' });
+    expect(vars.memoryRef).not.toBe('hrn:mem:acme.com:notes');
+    expect(vars).not.toHaveProperty('memoryId');
   });
 
   it('refuses a blank grantee before calling the server', async () => {
@@ -172,7 +173,7 @@ describe('updateShareRole action', () => {
     );
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
-    expect(vars).toEqual({ memoryId: 'mem-canonical', granteeRef: 'u-2', role: 'writer' });
+    expect(vars).toEqual({ memoryRef: 'mem-canonical', granteeRef: 'u-2', role: 'writer' });
   });
 
   it('refuses a blank grantee', async () => {
@@ -219,5 +220,19 @@ describe('revokeShare action', () => {
 
     expect(formOf(result)?.valid).toBe(false);
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('share mutation documents (hadron-server#4137, portal#2455)', () => {
+  it('create and update-role take memoryRef and granteeRef as ID!, never memoryId', async () => {
+    const q = await import('$lib/server/queries');
+    for (const [doc, field] of [
+      [q.CREATE_MEMORY_SHARE_MUTATION, 'createMemoryShare'],
+      [q.UPDATE_MEMORY_SHARE_ROLE_MUTATION, 'updateMemoryShareRole'],
+    ] as const) {
+      expect(doc).toContain('($memoryRef: ID!, $granteeRef: ID!, $role: MemoryShareRole!)');
+      expect(doc).toContain(`${field}(memoryRef: $memoryRef, granteeRef: $granteeRef, role: $role)`);
+      expect(doc).not.toContain('memoryId');
+    }
   });
 });
