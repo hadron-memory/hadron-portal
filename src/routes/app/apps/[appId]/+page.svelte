@@ -4495,7 +4495,8 @@
                 />
               {:else}
                 {@const f = appKeyFmt[cell.column.id]}
-                <div class="truncate" title={String(f ? f(cell.getValue()) : (cell.getValue() ?? '—'))}>{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+                {@const text = String((f ? f(cell.getValue()) : cell.getValue()) ?? '—')}
+                <div class="truncate" title={text}>{text}</div>
               {/if}
             {/snippet}
           </DataTable>
