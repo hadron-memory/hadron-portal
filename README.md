@@ -41,9 +41,9 @@ Open [http://localhost:5173](http://localhost:5173).
 
 Both variables point to the same server; the `PUBLIC_` prefix makes SvelteKit expose it to client-side code.
 
-`PUBLIC_SERVER_URL` is also the only origin the portal will send a person to for a server-hosted ceremony (an App secret change, a grant signature): a ceremony link on any other host is refused, and when it is unset no ceremony link or redirect is offered at all. It is never guessed from `LOCAL_SERVER_URL` or the `localhost` default.
+`PUBLIC_SERVER_URL` is also the only origin the portal will send a person to for a server-hosted ceremony (an App secret change, a grant signature): a ceremony link on any other origin is refused, and when it is unset no ceremony link or redirect is offered at all. It is never guessed from `LOCAL_SERVER_URL` or the `localhost` default.
 
-The match is on the exact origin (scheme, host and port), not on the machine: `http://localhost:4000` and `http://127.0.0.1:4000` are different origins. Set `PUBLIC_SERVER_URL` to exactly the origin the server mints ceremony links with. If they differ, a protected create or change is staged on the server but the portal refuses the link by design: you see "This change was staged on the server, but this portal cannot offer its signing page" and no request is added to the tracked list. The refusal is otherwise silent, so when that message appears, check this variable first.
+The match is on the exact origin (scheme, host and port), not on the machine: `http://localhost:4000` and `http://127.0.0.1:4000` are different origins. Set `PUBLIC_SERVER_URL` to exactly the origin the server mints ceremony links with. If they differ, the portal refuses the link by design, and what you see depends on the ceremony. A protected secret change is staged on the server, and you see "This change was staged on the server, but this portal cannot offer its signing page"; no request is added to the tracked list. A grant signature answers 503 with "The grant request could not be completed. Refresh before trying again." Nothing else flags the cause, so when either message appears, check this variable first.
 
 ## Auth flow
 
