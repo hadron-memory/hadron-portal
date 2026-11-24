@@ -178,7 +178,7 @@ describe('revision view — the snapshot\'s own provenance, streamed', () => {
     const { load } = await import('./revisions/[revisionId]/+page.server');
     const data = (await load(revEvent())) as unknown as { provenance: Promise<unknown> };
     expect(await data.provenance).toEqual({ ok: true, value: p });
-    expect(mockRequest.mock.calls.find(([d]) => d === NODE_REVISION_PROVENANCE_QUERY)?.[1]).toEqual({ revisionId: 'r1' });
+    expect(mockRequest.mock.calls.find(([d]) => d === NODE_REVISION_PROVENANCE_QUERY)?.[1]).toEqual({ nodeRevRef: 'r1' });
   });
 });
 

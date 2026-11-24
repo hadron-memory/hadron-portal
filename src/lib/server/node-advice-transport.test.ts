@@ -11,7 +11,7 @@ const NODE_ADVICE_UPDATE_MUTATION = /* GraphQL */ `mutation NodeAdviceUpdate($in
 const NODE_ADVICE_TASK_MUTATION = /* GraphQL */ `mutation NodeAdviceTask($input: UpdateNodeInput!) { saved: updateTaskNode(input: $input) { id } }`;
 const NODE_ADVICE_SPEC_MUTATION = /* GraphQL */ `mutation NodeAdviceSpec($input: UpdateNodeInput!) { saved: updateSpecNode(input: $input) { id } }`;
 const NODE_ADVICE_REVIEW_MUTATION = /* GraphQL */ `mutation NodeAdviceReview($input: UpdateNodeInput!) { saved: updateReviewNode(input: $input) { id } }`;
-const NODE_ADVICE_RESTORE_MUTATION = /* GraphQL */ `mutation NodeAdviceRestore($revisionId: ID!) { saved: restoreNodeRevision(revisionId: $revisionId) { id } }`;
+const NODE_ADVICE_RESTORE_MUTATION = /* GraphQL */ `mutation NodeAdviceRestore($nodeRevRef: String!) { saved: restoreNodeRevision(nodeRevRef: $nodeRevRef) { id } }`;
 const NODE_ADVICE_BULK_MUTATION = /* GraphQL */ `mutation NodeAdviceBulk($input: SearchReplaceInNodesInput!) { saved: searchReplaceInNodes(input: $input) { totalReplacements } }`;
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -26,7 +26,7 @@ describe('shared node advice transport', () => {
     ['create', NODE_ADVICE_CREATE_MUTATION], ['update', NODE_ADVICE_UPDATE_MUTATION], ['task', NODE_ADVICE_TASK_MUTATION], ['spec', NODE_ADVICE_SPEC_MUTATION], ['review', NODE_ADVICE_REVIEW_MUTATION], ['restore', NODE_ADVICE_RESTORE_MUTATION], ['bulk', NODE_ADVICE_BULK_MUTATION],
   ])('keeps %s advice without changing the data or replaying the write', async (operation, document) => {
     const data = { saved: operation === 'bulk' ? { totalReplacements: 3 } : { id: 'n' } };
-    const variables: Record<string, unknown> = operation === 'restore' ? { revisionId: 'revision' }
+    const variables: Record<string, unknown> = operation === 'restore' ? { nodeRevRef: 'revision' }
       : operation === 'bulk' ? { input: { nodeIds: ['n'], fields: ['content'], oldText: 'before', newText: 'after' } }
       : { input: { memoryId: 'm', loc: 'n', name: 'N' } };
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data, extensions: { warnings: [{ path: 'saved', code: INCLUDE_PIN_UNKEPT, text: INCLUDE_PIN_UNKEPT_TEXT }] } }), { headers: { 'content-type': 'application/json' } }));
