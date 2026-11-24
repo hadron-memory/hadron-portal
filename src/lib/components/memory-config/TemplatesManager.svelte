@@ -134,7 +134,7 @@
   {#if editing !== undefined && writable}
     <div role="group" aria-label={t('config.template-editor', 'Template editor')} class="min-w-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <fieldset disabled={pending} class="min-w-0 space-y-4">
-        <h2 class="text-xl font-semibold">{editing ? t('config.edit-template', 'Edit template') : t('config.create-template', 'Create template')}</h2>
+        <svelte:element this={embedded ? 'h3' : 'h2'} class="text-xl font-semibold">{editing ? t('config.edit-template', 'Edit template') : t('config.create-template', 'Create template')}</svelte:element>
         <form id={formId} onsubmit={save} class="space-y-4"><label class="block">{t('config.name', 'Name')}<input bind:this={nameInput} required maxlength="64" bind:value={name} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950" /></label>
         <label class="block">{t('config.description', 'Description')}<textarea bind:value={description} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950"></textarea></label>
         <label class="flex items-center gap-2"><input type="checkbox" bind:checked={required} />{t('config.required', 'Required')}</label></form>
@@ -170,7 +170,7 @@
   {#if bulk && writable}<p class="text-sm text-zinc-600 dark:text-zinc-400">{t('config.bulk.close-first', 'Close the apply panel to change templates.')}</p><BulkApply template={bulk} {memories} {memoriesFailed} bind:pending={bulkPending} onclose={() => { bulk = null; anchor()?.focus(); }} />{/if}
   {#if chosen && writable}
     <section class="space-y-4 rounded-xl border p-5 dark:border-zinc-700">
-      <h2 class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: chosen.name })}</h2>
+      <svelte:element this={embedded ? 'h3' : 'h2'} class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: chosen.name })}</svelte:element>
       {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
       {#if memory}<p>{memory.name}</p><Urn value={memory.urn} linked />{/if}
       <button type="button" disabled={pending} onclick={() => memoryPicker = true} aria-haspopup="dialog" aria-expanded={memoryPicker} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.choose-memory', 'Choose memory…')}</button>
@@ -178,7 +178,7 @@
       {#if memoriesFailed}<p role="alert">{t('config.memories-failed', 'Memories could not be loaded. Reload the page to try again.')}</p>{/if}
       <button type="button" disabled={!memory || pending} onclick={() => apply(true)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{previewStale ? t('config.preview-again', 'Preview again') : t('config.preview', 'Preview')}</button>
       {#if preview}
-        <h3 class="font-semibold">{previewStale ? t('config.preview-stale', 'Preview out of date — preview again before applying') : preview.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.applied-heading', 'Template applied')}</h3>
+        <svelte:element this={embedded ? 'h4' : 'h3'} class="font-semibold">{previewStale ? t('config.preview-stale', 'Preview out of date — preview again before applying') : preview.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.applied-heading', 'Template applied')}</svelte:element>
         {#if preview.required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
         <DataTable table={previewTable} listKey="node-role-template-preview" bind:globalFilter={previewFilter} searchPlaceholder={t('config.search-preview', 'Search preview…')} searchAriaLabel={t('config.search-preview', 'Search preview…')}>
           {#snippet cell(cell, row)}<span class="block whitespace-normal break-words">{cell.column.id === 'outcome' ? outcomeCopy(row.outcome, !!preview?.dryRun) : row.role}</span>{/snippet}

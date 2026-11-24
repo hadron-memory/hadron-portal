@@ -9,10 +9,12 @@
    * stays mounted while folded: a form half filled in, a pending write or a fresh row survives a collapse,
    * and a section nobody opens never mounts, so it never costs a read.
    */
-  let { id, title, open = $bindable(false), onopen, children }: {
+  let { id, title, tone = 'default', open = $bindable(false), onopen, children }: {
     /** Stable, unique on the page: it names the toggle and the region, and is the `?section=` value. */
     id: string;
     title: string;
+    /** `danger` keeps the warning a destructive section carried as a heading: the title reads red, folded or open. */
+    tone?: 'default' | 'danger';
     open?: boolean;
     /** Fires each time the section goes from folded to open. */
     onopen?: () => void;
@@ -38,7 +40,7 @@
       aria-expanded={open}
       aria-controls="section-{id}-body"
       onclick={toggle}
-      class="flex w-full items-center justify-between gap-3 rounded-xl px-5 py-4 text-left font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 dark:text-white dark:hover:bg-zinc-800/60"
+      class="flex w-full items-center justify-between gap-3 rounded-xl px-5 py-4 text-left font-semibold hover:bg-zinc-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 dark:hover:bg-zinc-800/60 {tone === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-white'}"
     >
       <span>{title}</span>
       <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5 shrink-0 text-zinc-500 transition-transform dark:text-zinc-400 {open ? 'rotate-180' : ''}">
@@ -46,7 +48,7 @@
       </svg>
     </button>
   </h2>
-  <div id="section-{id}-body" role="region" aria-labelledby="section-{id}-toggle" hidden={!open} class="border-t border-zinc-200 px-5 py-5 dark:border-zinc-800">
+  <div id="section-{id}-body" hidden={!open} class="border-t border-zinc-200 px-5 py-5 dark:border-zinc-800">
     {#if everOpened}{@render children()}{/if}
   </div>
 </section>

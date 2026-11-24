@@ -19,6 +19,27 @@ function search(root: HTMLElement, label: string, value: string) {
 }
 beforeEach(() => { localStorage.clear(); resetNavigationGuards(); fetcher.mockReset(); vi.stubGlobal('fetch', fetcher); vi.spyOn(window, 'confirm').mockReturnValue(true); });
 afterEach(() => { cleanup.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+describe('heading levels inside a titled section (portal#2612 P3)', () => {
+  const levels = (root: HTMLElement) => [...root.querySelectorAll('h1,h2,h3,h4')].map((h) => h.tagName.toLowerCase());
+  async function toPreview(embedded: boolean) {
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ dryRun: true, required: false, warnings: [], tasks: [] }) });
+    const m = mountComponent(TemplatesManager, { initial: [template], ownerType: 'USER' as const, ownerRef: 'u1', readOnly: false, canManage: true, embedded, memories: [{ id: 'm1', name: 'My memory', urn: 'hrn:mem:example.com:my-memory' }], memoriesFailed: false } as never);
+    cleanup.push(m.unmount);
+    button(m.target, 'Apply to a memory…').click(); flushSync();
+    return m;
+  }
+  it('embedded: the apply panel sits one level below the section title, never beside it', async () => {
+    const m = await toPreview(true);
+    expect(levels(m.target)).not.toContain('h1');
+    expect(levels(m.target)).not.toContain('h2');
+    expect(levels(m.target)).toContain('h3');
+  });
+  it('standalone: the page keeps its own h1 and h2', async () => {
+    const m = await toPreview(false);
+    expect(levels(m.target)).toContain('h1');
+    expect(levels(m.target)).toContain('h2');
+  });
+});
 describe('template management states', () => {
   it('impersonation and non-manager views have no mutation or apply controls', () => {
     for (const [readOnly, canManage] of [[true, true], [false, false]]) {

@@ -37,7 +37,19 @@ describe('CollapsibleSection', () => {
     expect(heading.textContent?.trim()).toBe('App Keys');
     expect(heading.contains(toggle())).toBe(true);
     expect(toggle().getAttribute('aria-controls')).toBe('section-keys-body');
-    expect(region().getAttribute('aria-labelledby')).toBe('section-keys-toggle');
+    // The toggle carries the name and the state; a landmark per section would add one entry each to the page's landmark list.
+    expect(region().hasAttribute('role')).toBe(false);
+    expect(region().hasAttribute('aria-labelledby')).toBe(false);
+  });
+
+  it('a danger section reads red, folded or open; the default does not (portal#2612 P3)', () => {
+    mountSection({ tone: 'danger' });
+    expect(toggle().className).toContain('text-red-600');
+    expect(toggle().className).not.toContain('text-zinc-900');
+    mounted.pop()!.unmount();
+    mountSection();
+    expect(toggle().className).not.toContain('text-red-600');
+    expect(toggle().className).toContain('text-zinc-900');
   });
 
   it('unfolds on a press, mounts the body once, and reports each opening', async () => {

@@ -1425,6 +1425,11 @@
       // bar is the truthful source; the loader's tab applies when the URL names none.
       const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
       activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? DEFAULT_TAB;
+      // A same-App navigation or Back/Forward to a link naming a Settings section (`?section=` or a retired
+      // `?tab=keys`) reuses this component, so the init-time read in `openSections` never sees it: open the
+      // named section here. Only ever opens; a section the reader folded stays folded unless the URL names it.
+      const urlSection = resolveSectionIntent(new URL(window.location.href).searchParams);
+      if (urlSection) openSections[urlSection] = true;
     }
     // #2164: `?view=full` is shallow-rewritten the same way, so it follows the address bar too. On a real
     // navigation the loader read the same URL through the same function, so the two agree; only a
@@ -4945,7 +4950,7 @@
       </CollapsibleSection>
 
       <!-- Danger zone -->
-      <CollapsibleSection id="danger-zone" title={t('app.settings.section.danger', 'Danger zone')} bind:open={openSections['danger-zone']}>
+      <CollapsibleSection id="danger-zone" title={t('app.settings.section.danger', 'Danger zone')} tone="danger" bind:open={openSections['danger-zone']}>
       <div class="max-w-lg">
         <form method="POST" action="?/deleteApp" use:deleteAppEnhance onsubmit={(e) => {
           if (!confirm(`Delete app "${app.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();

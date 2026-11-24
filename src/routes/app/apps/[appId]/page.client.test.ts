@@ -1359,7 +1359,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     await tick(2);
     const keysPanel = m.target.querySelector('#section-keys-body')!;
     expect(m.target.querySelector('#section-keys-toggle')!.getAttribute('aria-expanded')).toBe('true');
-    expect(keysPanel.getAttribute('aria-labelledby')).toBe('section-keys-toggle');
+    expect(m.target.querySelector('#section-keys-toggle')!.getAttribute('aria-controls')).toBe('section-keys-body');
     expect(keysPanel.textContent).toContain('+ Generate Key');
     expect(keysPanel.textContent).toContain('production-backend');
     // Unfolding one leaves the others as they were.
@@ -1376,6 +1376,36 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     await tick(2);
     expect((m.target.querySelector('#section-keys-body') as HTMLElement).hidden).toBe(true);
     expect(m.target.querySelector('#section-keys-body')!.textContent).toContain('production-backend');
+  });
+
+  it('a same-App navigation to a link naming a section opens that section (portal#2612 P3)', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
+    const m = mountComponent(Page as never, reactiveProps({ data: await keyedData('settings'), form: null }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const expanded = (id: string) => m.target.querySelector(`#section-${id}-toggle`)!.getAttribute('aria-expanded');
+    const after = navigationGuards.find((guard) => guard.fn === 'afterNavigate')!.callback as (nav: { type: string }) => void;
+
+    // The component is reused for a query-only navigation, so init never sees the new URL.
+    window.history.replaceState({}, '', '/app/apps/a1?section=ai-configs');
+    after({ type: 'link' });
+    await tick(2);
+    expect(expanded('ai-configs')).toBe('true');
+    expect(expanded('keys')).toBe('false');
+
+    // The retired ?tab=keys link names a section too.
+    window.history.replaceState({}, '', '/app/apps/a1?tab=keys');
+    after({ type: 'popstate' });
+    await tick(2);
+    expect(expanded('keys')).toBe('true');
+
+    // A URL naming no section opens nothing: a folded section stays folded.
+    (m.target.querySelector('#section-keys-toggle') as HTMLButtonElement).click();
+    await tick(2);
+    window.history.replaceState({}, '', '/app/apps/a1?tab=settings');
+    after({ type: 'link' });
+    await tick(2);
+    expect(expanded('keys')).toBe('false');
   });
 
   it('opens Settings with the section open for the retired ?tab=keys and ?tab=ai-configs links', async () => {
