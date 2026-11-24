@@ -129,7 +129,7 @@ describe('App Runs manual server table', () => {
     const url = new URL(navigationCalls.at(-1)!.args[0] as string, 'https://test');
     expect(url.searchParams.get('sort')).toBe('status'); expect(url.searchParams.has('page')).toBe(false);
     expect(m.target.querySelector('tbody tr')?.textContent).toContain('row-20');
-    expect([...m.target.querySelectorAll('th')].find(e => e.textContent?.trim() === 'Duration')?.querySelector('button')).toBeNull();
+    expect([...m.target.querySelectorAll('th')].find(e => e.textContent?.includes('Duration'))?.querySelector('button')).toBeTruthy();
   });
   it('keeps an explicit URL slice on saved-view init while restoring column arrangement', async () => {
     const v = await localStorageViewStore.create('app-runs-server', 'Saved', normalizeView({ sorting: [{ id: 'status', desc: false }], columnFilters: [{ id: 'status', value: ['FAILED'] }], columnVisibility: { failure: false }, pagination: { pageIndex: 9, pageSize: 100 } }));
@@ -557,5 +557,23 @@ describe('App Runs announces the served result after a successful navigate (port
     await navigateAndServe(m, () => find(m.target, 'Active').click(), section({ page: 1, total: 2 }));
     expect(m.target.querySelectorAll('[role="status"]')).toHaveLength(1);
     expect(m.target.querySelectorAll('[aria-live="assertive"]')).toHaveLength(0);
+  });
+});
+describe('App Runs Duration sort (portal#1499)', () => {
+  const lastGoto = () => new URL(navigationCalls.filter(x => x.fn === 'goto').at(-1)!.args[0] as string, 'https://test').searchParams;
+  it('makes the Duration header sortable and asks the server for it', async () => {
+    const m = mount(section({ page: 1 })); await tick(16);
+    find(m.target, 'Duration').click(); await tick(16);
+    expect(lastGoto().get('sort')).toBe('duration');
+  });
+  it('offers Duration in the Sort select', async () => {
+    const m = mount(section({ page: 1 })); await tick(16);
+    changeSelect(selectControl(m.target, 'Sort runs by'), 'duration'); await tick(16);
+    expect(lastGoto().get('sort')).toBe('duration');
+  });
+  it.each([['desc', 'Sorted by Duration, longest first'], ['asc', 'Sorted by Duration, shortest first']] as const)('reads %s as: %s, and marks the header', async (dir, summary) => {
+    const m = mount(section({ page: 1, sort: 'duration', dir })); await tick(16);
+    expect(m.target.querySelector('[data-testid="runs-sort-summary"]')?.textContent?.trim()).toBe(summary);
+    expect([...m.target.querySelectorAll('thead th')].find(h => h.textContent?.includes('Duration'))?.getAttribute('aria-sort')).toBe(dir === 'desc' ? 'descending' : 'ascending');
   });
 });

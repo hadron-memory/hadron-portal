@@ -1,7 +1,7 @@
 import { RUN_STATUSES, type AppRun, type AppRunStatus } from './runs';
 import { t } from '$lib/i18n/t';
 export const RUNS_PAGE_SIZE = 20;
-export const RUN_SORTS = ['createdAt', 'startedAt', 'finishedAt', 'status'] as const;
+export const RUN_SORTS = ['createdAt', 'startedAt', 'finishedAt', 'duration', 'status'] as const;
 export type RunSort = typeof RUN_SORTS[number];
 export interface RunsQuery { page: number; statuses: AppRunStatus[]; sort: RunSort; dir: 'asc' | 'desc' }
 export interface RunsSection extends RunsQuery { runs: AppRun[]; total: number; failed: boolean; explicitState: boolean }
@@ -57,6 +57,7 @@ export function runSortLabel(sort: RunSort): string {
   switch (sort) {
     case 'startedAt': return t('runs.started', 'Started');
     case 'finishedAt': return t('runs.finished', 'Finished');
+    case 'duration': return t('runs.duration', 'Duration');
     case 'status': return t('runs.status', 'Status');
     default: return t('runs.created', 'Created');
   }

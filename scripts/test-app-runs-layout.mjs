@@ -39,7 +39,7 @@ try {
    await page.locator('th').filter({ hasText: /^Duration/ }).waitFor();
    assert.equal(await page.locator('tbody tr').count(), 20);
    assert.equal(await page.locator('thead th').count(), 7);
-   assert.equal(await page.locator('th').filter({ hasText: /^Duration/ }).getByRole('button').count(), 0);
+   assert.equal(await page.locator('th').filter({ hasText: /^Duration/ }).getByRole('button').count(), 1);
    assert.equal(await page.getByLabel('Sort runs by').inputValue(), 'createdAt');
    assert.equal(await page.getByText('Showing the first', { exact: false }).count(), 0);
    assert.equal(await page.getByText('Pages step through this App’s runnable nodes; only Flow entry nodes are listed.', { exact: true }).count(), 1);

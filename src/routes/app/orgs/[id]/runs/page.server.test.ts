@@ -116,6 +116,35 @@ describe('org App Runs load()', () => {
     expect(result).not.toHaveProperty('status');
   });
 
+  // portal#1499: the first step of the server-sort end state. Duration is the one column whose window is chosen by the
+  // server, so the longest run in the org leads even when it is older than the latest 200.
+  it.each([['asc'], ['desc']])('asks the server for the Duration order (%s) when ?sort=duration is set', async (dir) => {
+    routeQueries();
+
+    const result = await runLoad(`?sort=duration&dir=${dir}`);
+
+    expect(mockRequest).toHaveBeenCalledWith(ORG_APP_RUNS_QUERY, {
+      orgRef: 'org-1',
+      status: null,
+      limit: 200,
+      offset: 0,
+      sortBy: 'duration',
+      sortDir: dir,
+    });
+    expect(result).toMatchObject({ sort: 'duration', dir });
+  });
+
+  it('keeps the default window request unchanged for no sort or an unknown one', async () => {
+    for (const search of ['', '?sort=bogus&dir=asc', '?dir=asc']) {
+      routeQueries();
+      mockRequest.mockClear();
+      routeQueries();
+      const result = await runLoad(search);
+      expect(mockRequest).toHaveBeenCalledWith(ORG_APP_RUNS_QUERY, { orgRef: 'org-1', status: null, limit: 200, offset: 0 });
+      expect(result).toMatchObject({ sort: null });
+    }
+  });
+
   it('flags truncation when the org has more runs than the window holds', async () => {
     routeQueries({ runs: { items: [run], total: 1_342 } });
 

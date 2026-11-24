@@ -43,13 +43,14 @@
     void tick().then(() => { if (alive && generation === epoch && document.activeElement === document.body) heading?.focus(); });
   });
   // portal#2290: the pager and the sort header build on the request the reader is waiting on (`controls`), not the served page.
-  const sorting = $derived(controls.sort === 'status' || controls.sort === 'startedAt' ? [{ id: controls.sort, desc: controls.dir === 'desc' }] : []);
+  const sorting = $derived(controls.sort === 'status' || controls.sort === 'startedAt' || controls.sort === 'duration' ? [{ id: controls.sort, desc: controls.dir === 'desc' }] : []);
   const columns: PortalColumnDef<AppRun>[] = [
     { accessorKey: 'status', header: t('runs.col.status', 'Status'), size: 130 },
     { accessorKey: 'triggerKind', header: t('runs.col.trigger', 'Trigger'), enableSorting: false, size: 180 },
     { accessorKey: 'entryNodeUrn', header: t('runs.col.entry', 'Entry node'), enableSorting: false, size: 300, minSize: 220 },
     { accessorKey: 'startedAt', header: t('runs.col.started', 'Started'), size: 200 },
-    { id: 'duration', header: t('runs.col.duration', 'Duration'), enableSorting: false, size: 110 },
+    // TanStack only treats a column as sortable when it has an accessor; the server does the ordering (manualSorting), this one just makes the header a control.
+    { id: 'duration', accessorFn: r => (r.startedAt && r.finishedAt ? Date.parse(r.finishedAt) - Date.parse(r.startedAt) : undefined), header: t('runs.col.duration', 'Duration'), size: 110 },
     { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];
@@ -57,11 +58,13 @@
   // portal#1766/#2315: the unknown branch (`Unknown: {raw}`) is runStatusLabel's own, shared with every other surface.
   const STATUS_LABELS: Record<AppRunStatus, string> = { PENDING: 'Pending', RUNNING: 'Running', COMPLETED: 'Completed', FAILED: 'Failed', TIMED_OUT: 'Timed out', CANCELLED: 'Cancelled' };
   const statusLabel = (status: string) => runStatusLabel(status, (s) => t(`runs.status.${s}`, STATUS_LABELS[s]));
-  const SORT_LABELS: Record<RunsQuery['sort'], string> = { createdAt: 'Created', startedAt: 'Started', finishedAt: 'Finished', status: 'Status' };
+  const SORT_LABELS: Record<RunsQuery['sort'], string> = { createdAt: 'Created', startedAt: 'Started', finishedAt: 'Finished', duration: 'Duration', status: 'Status' };
   const sortSummary = $derived.by(() => {
     const sort = t(`runs.sort.${controls.sort}`, SORT_LABELS[controls.sort] ?? controls.sort);
     const order = controls.sort === 'status'
       ? (controls.dir === 'asc' ? t('runs.order.status-asc', 'A to Z') : t('runs.order.status-desc', 'Z to A'))
+      : controls.sort === 'duration'
+      ? (controls.dir === 'asc' ? t('runs.order.duration-asc', 'shortest first') : t('runs.order.duration-desc', 'longest first'))
       : (controls.dir === 'asc' ? t('runs.order.time-asc', 'oldest first') : t('runs.order.time-desc', 'newest first'));
     return t('runs.sort-summary', 'Sorted by {sort}, {order}', { sort, order });
   });
@@ -132,7 +135,7 @@
     <legend class="sr-only">{t('runs.filter.statuses', 'Run statuses')}</legend>
     <label class="flex min-h-11 min-w-0 items-center gap-2">{t('runs.sort-by', 'Sort by')}
       <select aria-label={t('runs.sort-label', 'Sort runs by')} value={controls.sort} onchange={e => navigate(query({ page: 1, sort: e.currentTarget.value as RunsQuery['sort'] }))} class="min-h-11 min-w-0 rounded border border-zinc-300 bg-white px-2 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-        <option value="createdAt">{t('runs.created', 'Created')}</option><option value="startedAt">{t('runs.started', 'Started')}</option><option value="finishedAt">{t('runs.finished', 'Finished')}</option><option value="status">{t('runs.status', 'Status')}</option>
+        <option value="createdAt">{t('runs.created', 'Created')}</option><option value="startedAt">{t('runs.started', 'Started')}</option><option value="finishedAt">{t('runs.finished', 'Finished')}</option><option value="duration">{t('runs.duration', 'Duration')}</option><option value="status">{t('runs.status', 'Status')}</option>
       </select>
     </label>
     <label class="flex min-h-11 min-w-0 items-center gap-2">{t('runs.order', 'Order')}
