@@ -15,6 +15,8 @@
    * that was applied meanwhile.
    * portal#2417 — the link is rebuilt from the portal's configured origin; when there is none
    * (`ceremonyUrl` null) no link is offered at all, never a guess.
+   * portal#2583 — this row is the notice on a later visit too, so its unlinked hint says the change
+   * still waits (its own key; `secrets.write.staged-unlinked` stays the staging-time sentence of a refused write).
    */
   let { requestId, secretId = null, ceremonyUrl, state: requestState, operation, expiresAt, secretName = null, impersonating = false }: {
     requestId: string; secretId?: string | null; ceremonyUrl: string | null; state: string; operation: string; expiresAt: string; secretName?: string | null; impersonating?: boolean;
@@ -74,7 +76,7 @@
       {#if ceremonyUrl}
         <a href={ceremonyUrl} target="_blank" rel="noopener noreferrer" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">{t('secrets.request.open-link', 'Open the signing page')}<span class="sr-only"> {t('secrets.request.new-tab', '(opens in a new tab)')}</span><span aria-hidden="true"> ↗</span></a>
       {:else}
-        <p class="text-xs text-amber-800 dark:text-amber-300">{t('secrets.write.staged-unlinked', "This change was staged on the server, but this portal cannot offer its signing page. Open the request with the Hadron CLI or on the server's own page. Nothing has been changed yet.")}</p>
+        <p class="text-xs text-amber-800 dark:text-amber-300">{t('secrets.request.unlinked', "This change is staged on the server and still needs your signature, but this portal cannot offer its signing page. Open the request with the Hadron CLI or on the server's own page. Nothing has been changed yet.")}</p>
       {/if}
       <form method="POST" action="?/withdraw" use:enhance={() => async ({ update }) => { await update();
           // The page re-renders after update(); read the notice's connection only once it has.
