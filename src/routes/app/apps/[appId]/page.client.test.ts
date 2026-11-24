@@ -1336,34 +1336,88 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
   const selectedTab = (m: Mounted<Record<string, unknown>>) =>
     m.target.querySelector('[role="tab"][aria-selected="true"]')?.id;
 
-  it('gives each list its own tab and takes both out of Settings', async () => {
-    setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
-    const props = reactiveProps({ data: await keyedData('keys'), form: null });
+  it('puts App Keys and AI Service Configs in Settings as folded sections, not tabs', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
+    const props = reactiveProps({ data: await keyedData('settings'), form: null });
     const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
 
     const labels = Array.from(m.target.querySelectorAll('[role="tab"]')).map((tab) => tab.textContent?.trim());
-    expect(labels).toEqual(expect.arrayContaining(['App Keys', 'AI Service Configs', 'Settings']));
+    expect(labels).toContain('Settings');
+    expect(labels).not.toContain('App Keys');
+    expect(labels).not.toContain('AI Service Configs');
 
-    const keysPanel = m.target.querySelector('#panel-keys')!;
-    expect(keysPanel.getAttribute('aria-labelledby')).toBe('tab-keys');
+    // Every section starts folded, and a folded one has not mounted its body.
+    const toggles = Array.from(m.target.querySelectorAll<HTMLButtonElement>('#panel-settings h2 > button[aria-expanded]'));
+    expect(toggles.length).toBeGreaterThanOrEqual(4);
+    expect(toggles.every((t) => t.getAttribute('aria-expanded') === 'false')).toBe(true);
+    expect(m.target.querySelector('#section-keys-body')?.textContent?.trim()).toBe('');
+    expect(m.target.querySelector('#section-ai-configs-body')?.textContent?.trim()).toBe('');
+
+    (m.target.querySelector('#section-keys-toggle') as HTMLButtonElement).click();
+    await tick(2);
+    const keysPanel = m.target.querySelector('#section-keys-body')!;
+    expect(m.target.querySelector('#section-keys-toggle')!.getAttribute('aria-expanded')).toBe('true');
+    expect(m.target.querySelector('#section-keys-toggle')!.getAttribute('aria-controls')).toBe('section-keys-body');
     expect(keysPanel.textContent).toContain('+ Generate Key');
     expect(keysPanel.textContent).toContain('production-backend');
+    // Unfolding one leaves the others as they were.
+    expect(m.target.querySelector('#section-ai-configs-toggle')!.getAttribute('aria-expanded')).toBe('false');
 
-    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    (m.target.querySelector('#section-ai-configs-toggle') as HTMLButtonElement).click();
     await tick(2);
-    const configsPanel = m.target.querySelector('#panel-ai-configs')!;
-    expect(configsPanel.textContent).toContain('AI provider configurations');
+    const configsPanel = m.target.querySelector('#section-ai-configs-body')!;
     expect(configsPanel.textContent).toContain('Owned by Team');
-    expect(m.target.querySelector('#panel-keys')).toBeNull();
-
-    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
+    // One title per section: the toggle names it, the body does not print it again.
+    expect(configsPanel.textContent).not.toContain('AI provider configurations');
+    // Folding the keys again hides them but keeps them mounted, so a draft survives.
+    (m.target.querySelector('#section-keys-toggle') as HTMLButtonElement).click();
     await tick(2);
-    const settingsPanel = m.target.querySelector('#panel-settings')!;
-    expect(settingsPanel.textContent).not.toContain('Generate Key');
-    expect(settingsPanel.textContent).not.toContain('production-backend');
-    expect(settingsPanel.textContent).not.toContain('AI provider configurations');
+    expect((m.target.querySelector('#section-keys-body') as HTMLElement).hidden).toBe(true);
+    expect(m.target.querySelector('#section-keys-body')!.textContent).toContain('production-backend');
+  });
+
+  it('a same-App navigation to a link naming a section opens that section (portal#2612 P3)', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
+    const m = mountComponent(Page as never, reactiveProps({ data: await keyedData('settings'), form: null }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const expanded = (id: string) => m.target.querySelector(`#section-${id}-toggle`)!.getAttribute('aria-expanded');
+    const after = navigationGuards.find((guard) => guard.fn === 'afterNavigate')!.callback as (nav: { type: string }) => void;
+
+    // The component is reused for a query-only navigation, so init never sees the new URL.
+    window.history.replaceState({}, '', '/app/apps/a1?section=ai-configs');
+    after({ type: 'link' });
+    await tick(2);
+    expect(expanded('ai-configs')).toBe('true');
+    expect(expanded('keys')).toBe('false');
+
+    // The retired ?tab=keys link names a section too.
+    window.history.replaceState({}, '', '/app/apps/a1?tab=keys');
+    after({ type: 'popstate' });
+    await tick(2);
+    expect(expanded('keys')).toBe('true');
+
+    // A URL naming no section opens nothing: a folded section stays folded.
+    (m.target.querySelector('#section-keys-toggle') as HTMLButtonElement).click();
+    await tick(2);
+    window.history.replaceState({}, '', '/app/apps/a1?tab=settings');
+    after({ type: 'link' });
+    await tick(2);
+    expect(expanded('keys')).toBe('false');
+  });
+
+  it('opens Settings with the section open for the retired ?tab=keys and ?tab=ai-configs links', async () => {
+    for (const [tab, open, shut] of [['keys', 'keys', 'ai-configs'], ['ai-configs', 'ai-configs', 'keys']] as const) {
+      setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
+      const m = mountComponent(Page as never, reactiveProps({ data: await keyedData('settings'), form: null }) as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      expect(selectedTab(m)).toBe('tab-settings');
+      expect(m.target.querySelector(`#section-${open}-toggle`)!.getAttribute('aria-expanded')).toBe('true');
+      expect(m.target.querySelector(`#section-${shut}-toggle`)!.getAttribute('aria-expanded')).toBe('false');
+    }
   });
 
   // A fresh page (a full POST before hydration) is followed by SvelteKit
@@ -1377,7 +1431,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     await tick(2);
   };
 
-  it('opens App Keys for a key action result that arrives on a fresh page', async () => {
+  it('opens the App Keys section of Settings for a key action result that arrives on a fresh page', async () => {
     setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
     const m = mountComponent(Page as never, {
       data: await keyedData('chats'), form: await revokeResult(),
@@ -1385,7 +1439,8 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     mounted.push(m);
     await tick(2);
     await enterNavigation();
-    expect(selectedTab(m)).toBe('tab-keys');
+    expect(selectedTab(m)).toBe('tab-settings');
+    expect(m.target.querySelector('#section-keys-toggle')!.getAttribute('aria-expanded')).toBe('true');
     expect(m.target.textContent).toContain('Key revoked.');
   });
 
@@ -1409,7 +1464,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    (m.target.querySelector('#tab-keys') as HTMLButtonElement).click();
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
     await tick(2);
     await enterNavigation();
     expect(selectedTab(m)).toBe('tab-worklog');
@@ -1443,7 +1498,7 @@ describe('App Keys Scopes column (portal#1099)', () => {
     const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector('#panel-keys')!;
+    return m.target.querySelector('#section-keys-body')!;
   }
   const headers = (panel: Element) => [...panel.querySelectorAll('th')].map((th) => th.textContent?.trim() ?? '');
 
@@ -1536,7 +1591,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    // The page root, not #panel-keys: the shared success line sits above the
+    // The page root, not #section-keys-body: the shared success line sits above the
     // tabs, outside the panel.
     return m.target;
   }
@@ -1908,14 +1963,14 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(trigFocus).toHaveBeenCalled();
   });
 
-  it('a success whose row is gone lands focus on the Keys tab panel, never <body>', async () => {
+  it('a success whose row is gone lands focus on the App Keys section toggle, never <body>', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     const trigBefore = document.querySelector('button[aria-label^="Actions for key"]') as HTMLElement;
     // A keyed row normally survives the success path's invalidation, so a
     // detached trigger is the DEFENSIVE case (a refresh that dropped the key).
     // Stand in for it by removing the row outright.
-    const tabPanel = document.getElementById('panel-keys')!;
+    const tabPanel = document.getElementById('section-keys-toggle')!;
     const trigFocus = vi.spyOn(trigBefore, 'focus');
     const panelFocus = vi.spyOn(tabPanel, 'focus');
     trigBefore.closest('tr')!.remove();
@@ -1925,8 +1980,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
     flushSync(); await tick(2);
     expect(document.querySelector('dialog[open]')).toBeNull();
     // A detached trigger cannot take focus — the teardown owes the close a
-    // landing spot, and it is the Keys tab panel (a focusable region
-    // boundary), never <body>. (Target pinned by spy: the env blurs
+    // landing spot, and it is the App Keys section toggle (a focusable control), never <body>. (Target pinned by spy: the env blurs
     // activeElement after the flush; the real-browser detached-trigger leg
     // is in the layout script.)
     expect(trigFocus).not.toHaveBeenCalled();
@@ -2005,7 +2059,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
       const { m, props } = await mountAppKeys();
       await openGrant(m.target);
       expect(document.querySelector('dialog[open]')).toBeTruthy();
-      const panelFocus = vi.spyOn(document.getElementById('panel-keys')!, 'focus');
+      const panelFocus = vi.spyOn(document.getElementById('section-keys-toggle')!, 'focus');
       await moveTo(props, 'a2', KEY_B);
       // The fence-driven teardown stays out of the navigation's focus reset
       // (#2356): no Keys-panel fallback.
@@ -2031,7 +2085,7 @@ describe('App key scope grant dialog (portal#1487)', () => {
       await moveTo(props, 'a2', KEY_B);
       expect(document.querySelector('dialog[open]')).toBeNull();
       const dialog = await openGrant(m.target);
-      const tabPanel = document.getElementById('panel-keys')!;
+      const tabPanel = document.getElementById('section-keys-toggle')!;
       const panelFocus = vi.spyOn(tabPanel, 'focus');
       document.querySelector('button[aria-label^="Actions for key"]')!.closest('tr')!.remove();
       (dialog.querySelector('button[type="button"]') as HTMLButtonElement).click();
@@ -2289,7 +2343,7 @@ describe('App key inventory states (portal#1068)', () => {
     const m = mountComponent(Page as never, reactiveProps({ data: { ...data, initialTab: tab, appKeys, keyScopes: { kind: 'hidden' } }, form: null }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(`#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
   }
   it.each(['keys', 'client'] as const)('%s tab: a manager with keys sees them and no refusal copy', async (tab) => {
     const panel = await mountTab(tab, { kind: 'ok', keys: [key] });
@@ -2334,7 +2388,7 @@ describe('withheld App rosters (portal#1148)', () => {
     }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(`#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
   }
   const WITHHELD_AGENTS = 'The agents installed in this App aren’t visible to you.';
 
@@ -2416,8 +2470,9 @@ describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
     expect(cta).toBeDefined();
     cta!.click();
     await tick(2);
-    expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-ai-configs');
-    expect(m.target.querySelector('#panel-ai-configs')).not.toBeNull();
+    expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-settings');
+    expect(m.target.querySelector('#section-ai-configs-toggle')!.getAttribute('aria-expanded')).toBe('true');
+    expect(m.target.querySelector('#section-ai-configs-body')!.textContent).toContain('Owned by');
   });
 });
 
@@ -2484,7 +2539,7 @@ describe('App AI configuration readback lifecycle', () => {
     (await readyAiButton(target, 'Save')).click();
   }
 
-  it('keeps a pending mutation, uncertainty and its replay lock while the AI tab is hidden', async () => {
+  it('keeps a pending mutation, uncertainty and its replay lock while Settings is on another tab', async () => {
     let rejectCreate!: (error: Error) => void;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
       if (url === '/api/ai-configs/principal') return { ok: true, json: async () => ({ principal: { principalType: 'USER', userId: 'u1', appId: null } }) } as Response;
@@ -2497,10 +2552,11 @@ describe('App AI configuration readback lifecycle', () => {
     const m = await mountAi();
     await fillNewConfig(m.target);
     await vi.waitFor(() => expect(typeof rejectCreate).toBe('function'));
-    const panel = m.target.querySelector<HTMLElement>('#panel-ai-configs')!;
+    // The AI Service Configs section lives in Settings, whose panel stays mounted (hidden) on another tab.
+    const panel = m.target.querySelector<HTMLElement>('#panel-settings')!;
     const region = m.target.querySelector<HTMLElement>('[data-testid="ai-config-feedback"]')!;
 
-    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
+    (m.target.querySelector('#tab-chats') as HTMLButtonElement).click();
     await tick(3);
     rejectCreate(new Error('dropped response'));
     await tick(30);
@@ -2508,7 +2564,7 @@ describe('App AI configuration readback lifecycle', () => {
     expect(region.isConnected).toBe(true);
     expect(region.textContent).toContain('couldn’t confirm the change went through');
 
-    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
     await tick(3);
     expect(panel.hidden).toBe(false);
     expect(m.target.querySelector('[data-testid="ai-config-feedback"]')).toBe(region);
@@ -2624,7 +2680,7 @@ describe('App AI configuration readback lifecycle', () => {
     await tick(10);
     expect(m.target.querySelector('#agent-chat-ai-config')?.textContent).toContain('default (anthropic · claude-sonnet-5)');
 
-    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
     await tick(3);
     (m.target.querySelector('button[aria-label="Actions for default"]') as HTMLButtonElement).click();
     flushSync();
@@ -2756,7 +2812,7 @@ describe('App AI configuration readback lifecycle', () => {
     flushSync();
     expect(optionValues(m.target)).toEqual(['default', 'c2', 'c1']);
 
-    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
     await tick(3);
     (m.target.querySelector('button[aria-label="Actions for fast"]') as HTMLButtonElement).click();
     flushSync();
@@ -2929,7 +2985,7 @@ describe('key controls follow App.viewerManages (portal#1153)', () => {
     }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(`#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
   }
   const manager = { viewerManages: { kind: 'known', manages: true } };
   const nonManager = { viewerManages: { kind: 'known', manages: false } };
@@ -2960,8 +3016,8 @@ describe('key controls follow App.viewerManages (portal#1153)', () => {
     expect(panel.querySelector('form[action="?/revokeKey"]')).toBeNull();
     expect(panel.querySelector('[data-testid="key-controls-withheld"]')?.textContent).toContain(MANAGERS);
     expect(panel.textContent).not.toContain(UNKNOWN);
-    // The Keys tab stays in the strip for a non-manager, so the rule stays discoverable.
-    expect([...document.querySelectorAll('[role=tab]')].some((t) => t.textContent?.includes('App Keys'))).toBe(true);
+    // The App Keys section stays in Settings for a non-manager, so the rule stays discoverable.
+    expect(document.querySelector('#section-keys-toggle')?.textContent).toContain('App Keys');
   });
 
   it('keys tab: false with the list also hidden shows ONE combined line, not two', async () => {
@@ -4062,21 +4118,21 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     await tick(10);
     navigationCalls.length = 0;
     navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
-    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    m.target.querySelector<HTMLButtonElement>('#tab-settings')!.click();
     await tick(5);
 
     expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
-    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
   });
 
   it('#1831 control: a local click with no pending choice stays local even if goto would fail', async () => {
     const { m } = await openCast();
     navigationHooks.onGoto = () => Promise.reject(new Error('loader failed'));
-    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    m.target.querySelector<HTMLButtonElement>('#tab-settings')!.click();
     await tick(5);
 
     expect(navigationCalls.filter((call) => call.fn === 'goto')).toHaveLength(0);
-    expect(m.target.querySelector('#tab-keys')?.getAttribute('aria-selected')).toBe('true');
+    expect(m.target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
   });
 
   it('#1831 releasing on supersession does not clear a NEWER focusTab-owned navigation', async () => {
@@ -4129,9 +4185,9 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     navigationCalls.length = 0;
     navigationHooks.onGoto = undefined;
     // Latch must still be held: an ordinary local tab is routed through goto.
-    m.target.querySelector<HTMLButtonElement>('#tab-keys')!.click();
+    m.target.querySelector<HTMLButtonElement>('#tab-settings')!.click();
     await tick(5);
-    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=keys']);
+    expect(navigationCalls.filter((call) => call.fn === 'goto').map((call) => String(call.args[0]))).toEqual(['/app/apps/a1?tab=settings']);
     releaseGoto?.();
     await tick(5);
   });

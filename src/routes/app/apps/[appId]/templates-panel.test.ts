@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { error } from '@sveltejs/kit';
 import { templatesPageData } from '$lib/server/memory-config/page-data';
-import { resolveTabIntent } from './tab-intent';
+import { resolveSectionIntent, resolveTabIntent } from './tab-intent';
 import { loadTemplatesPanel } from './templates-panel';
 import { load as legacyLoad } from './node-role-templates/+page.server';
 
@@ -22,8 +22,12 @@ function forbidden() {
 }
 
 describe('?tab=node-role-templates', () => {
-  it('is a known App tab id', () => {
-    expect(resolveTabIntent(new URLSearchParams('tab=node-role-templates')).initialTab).toBe('node-role-templates');
+  // The templates are a section of Settings now: the old tab id (and the legacy route's redirect to it) opens Settings with
+  // that section unfolded, and the section's data is still read under this id.
+  it('opens Settings with the Node-role templates section open', () => {
+    const params = new URLSearchParams('tab=node-role-templates');
+    expect(resolveTabIntent(params).initialTab).toBe('settings');
+    expect(resolveSectionIntent(params)).toBe('node-role-templates');
   });
 });
 

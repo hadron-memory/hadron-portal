@@ -177,7 +177,8 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker, AiServiceConfig } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
-  import { resolveTabIntent, type AppTabId } from './tab-intent';
+  import { resolveSectionIntent, resolveTabIntent, SECTION_DATA_TAB, sectionForTab, SETTINGS_SECTION_IDS, visibleTabFor, type AppTabId, type SettingsSectionId } from './tab-intent';
+  import CollapsibleSection from '$lib/components/CollapsibleSection.svelte';
   import { DEFAULT_TAB, READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
@@ -1071,11 +1072,14 @@
   // SvelteKit's afterNavigate `enter` re-sync runs after them and reset the
   // tab to Chats. Seeding from the result makes the server render, the effects
   // and the `enter` re-sync agree.
+  function keyActionSubmitted(result: unknown): boolean {
+    return !!(submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey') || submittedForm<GrantAppKeyScopeForm>(result, 'grantKeyScope') || submittedForm<RevokeAppKeyScopeForm>(result, 'revokeKeyScope'));
+  }
   function tabForActionResult(result: unknown, current: TabId | null): TabId | null {
-    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey') || submittedForm<GrantAppKeyScopeForm>(result, 'grantKeyScope') || submittedForm<RevokeAppKeyScopeForm>(result, 'revokeKeyScope')) {
+    if (keyActionSubmitted(result)) {
       // The Client tab lists the same keys and shares the revoke action, so a
-      // revoke made THERE stays there.
-      return current === 'client' ? 'client' : 'keys';
+      // revoke made THERE stays there. Otherwise the keys are the App Keys section of Settings (opened below).
+      return current === 'client' ? 'client' : 'settings';
     }
     // #1006: installing and unlinking an agent happen on the Agents tab now.
     if (submittedForm<AddAgentForm>(result, 'addAgent') || submittedForm<RemoveAppAgentForm>(result, 'removeAgent')) {
@@ -1102,7 +1106,7 @@
     // #744: `chats` always exists — the team chat is always offered, even
     // unbootstrapped, because that is how the first message gets posted.
     untrack(() => {
-      const initial = (data.initialTab as TabId | null) ?? null;
+      const initial = visibleTabFor((data.initialTab as TabId | null) ?? null);
       return tabForActionResult(form, initial) ?? initial ?? DEFAULT_TAB;
     }),
   );
@@ -1242,7 +1246,7 @@
   // together, so one key present means the group was read), or when its own
   // read has arrived. The banner's worker names alone do not cover AI Team:
   // its install marks are a group of their own.
-  const NAVIGATING_TABS: readonly AppTabId[] = ['runs', 'node-role-templates'];
+  const NAVIGATING_TABS: readonly AppTabId[] = ['runs'];
   function coveredByData(id: AppTabId): boolean {
     return TAB_READS[id].every((group) => READ_GROUP_KEYS[group].length === 0 || READ_GROUP_KEYS[group].some((key) => key in data));
   }
@@ -1250,7 +1254,29 @@
     if (NAVIGATING_TABS.includes(id) || coveredByData(id)) return true;
     return tabCache.key === tabCacheKey && !!tabCache.byTab[id]?.payload;
   }
-  const tabFailed = $derived(tabCache.key === tabCacheKey && tabCache.byTab[activeTab as AppTabId]?.state === 'failed');
+  const tabFailedFor = (id: AppTabId) => tabCache.key === tabCacheKey && tabCache.byTab[id]?.state === 'failed';
+  const tabFailed = $derived(tabFailedFor(activeTab as AppTabId));
+  // Settings sections that read their own data. A section nobody opens costs no read: it is asked for the first
+  // time the section unfolds, through the same tab endpoint and cache as a tab's first show.
+  // Every section starts folded unless the URL names one. Each is an explicit boolean: a bound prop may not be undefined.
+  let openSections = $state<Record<SettingsSectionId, boolean>>(untrack(() => {
+    const named = resolveSectionIntent($page.url.searchParams) ?? sectionForTab(data.initialTab ?? null);
+    // A key action's answer lands on the App Keys section, open, so the outcome (above all a one-time raw key) is in view.
+    const open = named ?? (keyActionSubmitted(form) && data.initialTab !== 'client' ? 'keys' : null);
+    return Object.fromEntries(SETTINGS_SECTION_IDS.map((id) => [id, id === open])) as Record<SettingsSectionId, boolean>;
+  }));
+  // The Settings panel stays mounted once shown, hidden on another tab: a tab switch is not a full-page readback, so a
+  // pending AI config write, its "couldn't confirm" warning and its replay lock, an open edit form and the sections the
+  // reader unfolded all survive a visit to another tab.
+  let settingsEverShown = $state(false);
+  $effect(() => { if (activeTab === 'settings') settingsEverShown = true; });
+  const wantedTabIds = $derived.by(() => {
+    const ids = new Set<AppTabId>([activeTab as AppTabId]);
+    if (activeTab === 'settings') {
+      for (const [section, tab] of Object.entries(SECTION_DATA_TAB) as [SettingsSectionId, AppTabId][]) if (openSections[section]) ids.add(tab);
+    }
+    return [...ids];
+  });
   // New loader data (a navigation, or an action's refresh) supersedes every
   // cached tab: each keeps rendering what it has, and is read again on its
   // next show. Another App or principal starts an empty cache.
@@ -1281,12 +1307,13 @@
   // again when it went stale. A read in flight is not repeated, and a failed
   // one waits for the reader's retry (no loop against a failing server).
   $effect(() => {
-    const id = activeTab as AppTabId;
     const key = tabCacheKey;
-    if (tabCache.key !== key || NAVIGATING_TABS.includes(id) || coveredByData(id)) return;
-    const entry = tabCache.byTab[id];
-    if (entry && (entry.state !== 'ok' || !entry.stale)) return;
-    untrack(() => void fetchTab(id, key, entry?.payload));
+    for (const id of wantedTabIds) {
+      if (tabCache.key !== key || NAVIGATING_TABS.includes(id) || coveredByData(id)) continue;
+      const entry = tabCache.byTab[id];
+      if (entry && (entry.state !== 'ok' || !entry.stale)) continue;
+      untrack(() => void fetchTab(id, key, entry?.payload));
+    }
   });
   async function fetchTab(id: AppTabId, key: string, held: Record<string, unknown> | undefined) {
     const generation = dataGeneration;
@@ -1356,16 +1383,9 @@
     { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
     { id: 'runs', label: t('app.tabs.runs', 'Runs') },
     { id: 'memory', label: t('app.tabs.memory', 'Memories') },
-    // #1007/#1008: App Keys and AI Service Configs were sections at the foot of
-    // Settings, below the App form, its agents and its memories. Each is a list
-    // a reader comes for on its own, so each gets its own tab — and its own
-    // `?tab=` address.
-    { id: 'keys', label: t('app.tabs.keys', 'App Keys') },
-    { id: 'ai-configs', label: t('app.tabs.ai-configs', 'AI Service Configs') },
+    // App Keys and AI Service Configs are collapsed sections of Settings (the App's setup is one place); their
+    // old `?tab=` ids still resolve there, with the section open.
     { id: 'settings', label: 'Settings' },
-    // #1936: the former /node-role-templates page, in place. Shown to everyone who
-    // saw the old link (the page itself); writes stay gated on `canManage`.
-    { id: 'node-role-templates', label: t('config.templates', 'Node-role templates') },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
   $effect(() => {
@@ -1405,6 +1425,11 @@
       // bar is the truthful source; the loader's tab applies when the URL names none.
       const urlTab = resolveTabIntent(new URL(window.location.href).searchParams).initialTab;
       activeTab = ((urlTab ?? data.initialTab) as TabId | null) ?? DEFAULT_TAB;
+      // A same-App navigation or Back/Forward to a link naming a Settings section (`?section=` or a retired
+      // `?tab=keys`) reuses this component, so the init-time read in `openSections` never sees it: open the
+      // named section here. Only ever opens; a section the reader folded stays folded unless the URL names it.
+      const urlSection = resolveSectionIntent(new URL(window.location.href).searchParams);
+      if (urlSection) openSections[urlSection] = true;
     }
     // #2164: `?view=full` is shallow-rewritten the same way, so it follows the address bar too. On a real
     // navigation the loader read the same URL through the same function, so the two agree; only a
@@ -1529,11 +1554,12 @@
     // re-latches; its own goto returned above.
     tabNavigationPending = false;
   });
-  // #1936: the templates manager guards its draft against ROUTE changes (beforeNavigate), but a
-  // declined route change only cancels the router: this function would still select the tab and
-  // unmount the draft (LOCAL P2 D1). So the page asks first, for every way out of the tab, and
-  // clears the manager's copy of the question so its own route guard does not ask a second time.
-  // If we then do not land on the chosen tab, the question is put back with the draft.
+  // #1936: the templates manager (a section of Settings) guards its draft against ROUTE changes (beforeNavigate), but a
+  // declined route change only cancels the router: focusTab would still select the tab the router never reached
+  // (LOCAL P2 D1). So for a choice that navigates (Runs, or any choice made while a navigation is pending) the page asks
+  // first and clears the manager's copy of the question, so its own route guard does not ask a second time. If we then
+  // do not land on the chosen tab, the question is put back with the draft. A choice that stays local needs no question:
+  // the Settings panel stays mounted, so the draft survives it.
   let templatesLeaveMessage = $state<string | null>(null);
   // #2288: set only when the navigation THIS choice owns rejects; cleared by the next choice (a landing always follows one).
   let tabNavigationFailed = $state(false);
@@ -1560,18 +1586,18 @@
     const stayOnRuns = id === 'runs' && activeTab === 'runs';
     if (stayOnRuns && !tabNavigationPending) return;
     let asked: string | null = null;
-    if (activeTab === 'node-role-templates' && id !== activeTab && templatesLeaveMessage) {
+    let landed = false;
+    if (activeTab === 'settings' && id !== activeTab && (id === 'runs' || tabNavigationPending) && templatesLeaveMessage) {
       if (!window.confirm(templatesLeaveMessage)) return;
       asked = templatesLeaveMessage;
       templatesLeaveMessage = null;
     }
-    let landed = false;
     const mine = ++tabNavigation, appId = app.id, principalId = data.currentUserId;
     let ownNavigationHref: string | null = null;
     try {
       // A second choice supersedes an in-flight Runs navigation, including
       // a choice of a normally local tab. Its loader URL must agree as well.
-      if (id === 'runs' || id === 'node-role-templates' || tabNavigationPending) {
+      if (id === 'runs' || tabNavigationPending) {
         tabNavigationPending = true;
         // Staying on Runs keeps the reader's page, status and sort: the URL they are on, not a clean ?tab=runs.
         const href = stayOnRuns ? window.location.pathname + window.location.search : `/app/apps/${encodeURIComponent(appId)}?tab=${id}`;
@@ -1619,7 +1645,7 @@
     finally {
       if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
       if (mine === tabNavigation) tabNavigationPending = false;
-      if (asked && !landed && tabAlive && activeTab === 'node-role-templates') templatesLeaveMessage = asked;
+      if (asked && !landed && tabAlive && activeTab === 'settings') templatesLeaveMessage = asked;
     }
   }
 
@@ -1981,8 +2007,8 @@
   // normally survives the success path's invalidation (the row DOM is reused),
   // so a detached trigger is the defensive case (a row removed by a refresh
   // that dropped the key), and a cross-App fence drops the departed App's
-  // dialog wholesale. A detached (or absent) trigger lands on the Keys TAB
-  // PANEL (#panel-keys, a focusable region boundary by its tabindex 0), never
+  // dialog wholesale. A detached (or absent) trigger lands on the App Keys
+  // section's toggle (#section-keys-toggle, a real control where the list sits), never
   // <body>, with preventScroll so it does not jump the page; the fence case
   // skips the fallback because the navigation owns focus.
   function grantScopeDialogAction(el: HTMLDialogElement) {
@@ -1992,7 +2018,7 @@
       destroy() {
         if (el.open) el.close();
         if (grantScopeTriggerEl && grantScopeTriggerEl.isConnected) grantScopeTriggerEl.focus();
-        else if (!grantScopeFenceFired) document.getElementById('panel-keys')?.focus({ preventScroll: true });
+        else if (!grantScopeFenceFired) document.getElementById('section-keys-toggle')?.focus({ preventScroll: true });
       },
     };
   }
@@ -2119,7 +2145,7 @@
     revokeScopeKey = null;
   }
   // Same focus contract as the grant dialog: focus lands on the picker, and
-  // closing returns it to the ⋯ trigger, else the Keys tab panel (never
+  // closing returns it to the ⋯ trigger, else the App Keys section's toggle (never
   // <body>), unless a cross-App fence tore it down.
   function revokeScopeDialogAction(el: HTMLDialogElement) {
     el.showModal();
@@ -2128,7 +2154,7 @@
       destroy() {
         if (el.open) el.close();
         if (revokeScopeTriggerEl && revokeScopeTriggerEl.isConnected) revokeScopeTriggerEl.focus();
-        else if (!revokeScopeFenceFired) document.getElementById('panel-keys')?.focus({ preventScroll: true });
+        else if (!revokeScopeFenceFired) document.getElementById('section-keys-toggle')?.focus({ preventScroll: true });
       },
     };
   }
@@ -2600,7 +2626,6 @@
   let agentToolsForm = $state<HTMLFormElement>();
   let selectedTools = $derived(new Set(app.agentTools ?? []));
   let newKeyLabel = $state('');
-  let memoriesOpen = $state(false);
 
   const activeKeys = $derived(appKeys.filter((k) => !k.revokedAt));
   let newKeySectionOpen = $state(false);
@@ -3090,20 +3115,19 @@
   <!-- portal#2240: a tab the loader did not bring is read on its first show.
        Until it arrives the panel says so; a failed first read says that, with
        a retry. Runs and Templates navigate and bring their own states. -->
-  {#snippet tabArriving()}
-    {#if tabFailed}
+  {#snippet tabArriving(id: AppTabId = activeTab as AppTabId)}
+    {#if tabFailedFor(id)}
       <div role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
         <p>{t('app.tab.load-failed', 'This tab could not be loaded. Try again in a moment.')}</p>
-        <button type="button" onclick={() => retryTab(activeTab as AppTabId)} class="mt-2 font-medium underline">{t('app.tab.retry', 'Try again')}</button>
+        <button type="button" onclick={() => retryTab(id)} class="mt-2 font-medium underline">{t('app.tab.retry', 'Try again')}</button>
       </div>
     {:else}
       <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tab.loading', 'Loading…')}</p>
     {/if}
   {/snippet}
   <!-- The visible line sits in a panel that unmounts when the tab arrives, so a persistent region beside it does the announcing. -->
-  <LiveRegion class="sr-only" data-testid="tab-loading-region">{#if !tabShown(activeTab as AppTabId) && activeTab !== 'ai-configs' && !tabFailed}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
-  <!-- The AI Service Configs panel is always mounted (below) and says this itself. -->
-  {#if !tabShown(activeTab as AppTabId) && activeTab !== 'ai-configs'}
+  <LiveRegion class="sr-only" data-testid="tab-loading-region">{#if wantedTabIds.some((id) => !tabShown(id) && !tabFailedFor(id))}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
+  {#if !tabShown(activeTab as AppTabId)}
     <div id="panel-{activeTab}" role="tabpanel" aria-labelledby="tab-{activeTab}" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       {@render tabArriving()}
     </div>
@@ -3228,11 +3252,11 @@
                 )}
               {/if}
             </p>
-            <!-- #1007/#1008: AI providers moved out of Settings to their own
-                 tab, so the button goes there. A new key for the new copy: the
-                 old one's text named Settings. -->
+            <!-- AI Service Configs is a section of Settings, so the button opens
+                 Settings with it unfolded. A new key for the copy: the old
+                 one's text named Settings. -->
             <button
-              onclick={() => activeTab = 'ai-configs'}
+              onclick={() => { openSections['ai-configs'] = true; activeTab = 'settings'; }}
               class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
             >
               {t('app-chat.no-llm.cta-ai-configs', 'Configure AI Service Configs')}
@@ -3491,12 +3515,6 @@
     </div>
   {/if}
 
-  {#if activeTab === 'node-role-templates'}
-    <div id="panel-node-role-templates" role="tabpanel" aria-labelledby="tab-node-role-templates" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
-      <LiveRegion>{#if !tabData.templatesPanel}<p>{t('config.templates-loading', 'Loading templates…')}</p>{/if}</LiveRegion>
-      {#if tabData.templatesPanel}<AppNodeRoleTemplates data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />{/if}
-    </div>
-  {/if}
 
   {#if activeTab === 'worklog' && tabShown('worklog')}
     <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
@@ -4387,9 +4405,7 @@
   {/if}
 
   <!-- ───────────── APP KEYS TAB (#1007) ───────────── -->
-  {#if activeTab === 'keys' && tabShown('keys')}
-    <div id="panel-keys" role="tabpanel" aria-labelledby="tab-keys" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
-    <div class="space-y-8">
+  {#snippet keysBody()}
       <!-- App Keys (the richer download flow lives on the Client tab for non-CHATBOT apps).
            portal#2135: only the prose and the create row keep the readable
            42rem; the key table takes the panel's full width, so its default
@@ -4653,21 +4669,16 @@
           </dialog>
         {/if}
       </section>
-    </div>
-    </div>
-  {/if}
+  {/snippet}
 
-  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ─────────────
-       Keep the Section mounted while hidden: tab switches are not a full-page
-       readback, so pending writes, safety warnings and fresh rows must survive. -->
-  <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" hidden={activeTab !== 'ai-configs'} class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
-    <div class="space-y-8">
-      <!-- AI providers (registry; consumers resolve a config by name) -->
-      <!-- portal#2240: mounted once its rows have arrived, then kept mounted while hidden. -->
-      <LiveRegion class="sr-only" data-testid="ai-configs-loading-region">{#if activeTab === 'ai-configs' && !tabShown('ai-configs') && !tabFailed}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
+  <!-- AI Service Configs (registry; consumers resolve a config by name). The section keeps its body mounted while
+       folded, so pending writes, safety warnings and fresh rows survive a collapse (portal#2240: mounted once its
+       rows have arrived). -->
+  {#snippet aiConfigsBody()}
       {#if tabShown('ai-configs')}
       <section class="max-w-2xl">
         <AiServiceConfigSection
+          embedded
           ownerType="APP"
           ownerId={app.id}
           ownerLabel={app.name}
@@ -4682,26 +4693,27 @@
         />
       </section>
       {:else}
-        {@render tabArriving()}
+        {@render tabArriving('ai-configs')}
       {/if}
-    </div>
-  </div>
+  {/snippet}
 
-  <!-- ───────────── SETTINGS TAB ───────────── -->
-  {#if activeTab === 'settings' && tabShown('settings')}
-    <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
-    <div class="space-y-8">
+  <!-- ───────────── SETTINGS TAB ─────────────
+       Every section starts folded; the reader unfolds the one they want. App Keys and AI Service Configs read
+       their own data, so they are asked for the first time they open. -->
+  {#if (activeTab === 'settings' || settingsEverShown) && tabShown('settings')}
+    <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden={activeTab !== 'settings'} class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    <div class="space-y-3">
       <!-- App settings (form-driven; mirrors the legacy fields, including the org-original ones) -->
-      <section class="max-w-lg">
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="font-semibold text-zinc-900 dark:text-white">App</h2>
-          {#if !editMode}
+      <CollapsibleSection id="app" title={t('app.settings.section.app', 'App')} bind:open={openSections['app']}>
+      <div class="max-w-lg">
+        {#if !editMode}
+          <div class="mb-4 flex justify-end">
             <button type="button" onclick={() => { syncEditFields(); editMode = true; }}
               class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
               Edit
             </button>
-          {/if}
-        </div>
+          </div>
+        {/if}
 
         {#if editMode}
           <form method="POST" action="?/update" use:appSettingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
@@ -4875,45 +4887,71 @@
             </div>
           </div>
         {/if}
-      </section>
+      </div>
+      </CollapsibleSection>
 
       <!-- portal#2194: the host-sweep switch. Everyone who can read it sees the mode;
            only an App manager acting as themselves gets the controls. -->
-      <AppSweepMode ownerId={app.id} mode={data.app.sweepMode ?? null} canManage={tabData.canManageApp === true && !impersonating} />
+      {#if data.app.sweepMode}
+        <CollapsibleSection id="sweep-mode" title={t('app.sweep-mode.heading', 'Sweep mode')} bind:open={openSections['sweep-mode']}>
+          <AppSweepMode embedded ownerId={app.id} mode={data.app.sweepMode} canManage={tabData.canManageApp === true && !impersonating} />
+        </CollapsibleSection>
+      {/if}
 
       <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
       {#if app.agentId}
+        <CollapsibleSection id="chatbot-ai-config" title={t('app.chatbot-ai-config.title', 'Chatbot AI config')} bind:open={openSections['chatbot-ai-config']}>
         {#key app.id}
           <ChatbotAiConfigSetting
+            embedded
             choices={tabData.aiChoices ?? null}
             current={tabData.chatbotAiConfig ?? { ok: false }}
             manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
           />
         {/key}
+        </CollapsibleSection>
       {/if}
 
       <!-- portal#2464: the roles this App's saturation alarms wake. Keyed on the App, so a draft never follows the person to another App. -->
+      {#if tabData.saturationWakeRoles && tabData.saturationWakeRoles.kind !== 'hidden'}
+      <CollapsibleSection id="wake-roles" title={t('app.wake-roles.title', 'Saturation alarm wake roles')} bind:open={openSections['wake-roles']}>
       {#key app.id}
         <SaturationAlarmWakeRoles
+          embedded
           read={tabData.saturationWakeRoles ?? null}
           canManage={wakeRolesCanManage(data.viewerManages, impersonating)}
         />
       {/key}
+      </CollapsibleSection>
+      {/if}
 
       <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
-      <section class="max-w-4xl">
-        <button onclick={() => memoriesOpen = !memoriesOpen} aria-expanded={memoriesOpen} class="flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
-          {t('app.memory-scope.heading', 'Accessible Memories')}
-          {#if memoryScope !== null}<span class="text-sm font-normal text-zinc-500">({memoryScope.length})</span>{/if}
-        </button>
-        {#if memoriesOpen}
-          <AccessibleMemories rows={memoryScope} />
+      <CollapsibleSection id="accessible-memories" title={`${t('app.memory-scope.heading', 'Accessible Memories')}${memoryScope !== null ? ` (${memoryScope.length})` : ''}`} bind:open={openSections['accessible-memories']}>
+        <div class="max-w-4xl"><AccessibleMemories rows={memoryScope} /></div>
+      </CollapsibleSection>
+
+      <CollapsibleSection id="keys" title={t('app.tabs.keys', 'App Keys')} bind:open={openSections['keys']}>
+        {#if tabShown('keys')}{@render keysBody()}{:else}{@render tabArriving('keys')}{/if}
+      </CollapsibleSection>
+
+      <CollapsibleSection id="ai-configs" title={t('app.tabs.ai-configs', 'AI Service Configs')} bind:open={openSections['ai-configs']}>
+        <div class="max-w-2xl">{@render aiConfigsBody()}</div>
+      </CollapsibleSection>
+
+      <!-- #1936: the former /node-role-templates page, in place: shown to everyone who saw the old link (the page itself);
+           writes stay gated on `canManage`. The manager guards an unsaved draft against route changes itself; the Settings
+           panel stays mounted, so a tab switch cannot lose it. -->
+      <CollapsibleSection id="node-role-templates" title={t('config.templates', 'Node-role templates')} bind:open={openSections['node-role-templates']}>
+        {#if tabData.templatesPanel}
+          <AppNodeRoleTemplates embedded data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />
+        {:else}
+          {@render tabArriving('node-role-templates')}
         {/if}
-      </section>
+      </CollapsibleSection>
 
       <!-- Danger zone -->
-      <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
-        <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
+      <CollapsibleSection id="danger-zone" title={t('app.settings.section.danger', 'Danger zone')} tone="danger" bind:open={openSections['danger-zone']}>
+      <div class="max-w-lg">
         <form method="POST" action="?/deleteApp" use:deleteAppEnhance onsubmit={(e) => {
           if (!confirm(`Delete app "${app.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
         }} novalidate>
@@ -4922,7 +4960,8 @@
             Delete app
           </button>
         </form>
-      </section>
+      </div>
+      </CollapsibleSection>
     </div>
     </div>
   {/if}

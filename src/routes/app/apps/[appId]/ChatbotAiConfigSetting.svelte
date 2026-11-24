@@ -14,7 +14,9 @@
   import { t } from '$lib/i18n/t';
   import { chatAiChoiceLabel, type ChatAiChoiceOption } from '$lib/chat-ai-choice';
 
-  let { choices, current, manages }: {
+  let { choices, current, manages, embedded = false }: {
+    /** Inside a titled section: the section's heading is the title, so none is drawn here. */
+    embedded?: boolean;
     /** The server's list (`chatAiConfigChoices`); null when it couldn't be read. */
     choices: ChatAiChoiceOption[] | null;
     /** `App.chatbotAiConfigId`, or `{ ok: false }` when that read failed. */
@@ -62,8 +64,8 @@
   const buttonClass = 'rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 pointer-coarse:min-h-11 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800';
 </script>
 
-<section class="max-w-lg" aria-labelledby="chatbot-ai-config-title">
-  <h2 id="chatbot-ai-config-title" class="mb-1 font-semibold text-zinc-900 dark:text-white">{t('app.chatbot-ai-config.title', 'Chatbot AI config')}</h2>
+<section class="max-w-lg" aria-labelledby={embedded ? undefined : 'chatbot-ai-config-title'}>
+  {#if !embedded}<h2 id="chatbot-ai-config-title" class="mb-1 font-semibold text-zinc-900 dark:text-white">{t('app.chatbot-ai-config.title', 'Chatbot AI config')}</h2>{/if}
   <p class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
     {t('app.chatbot-ai-config.help', "The AI config this App's new chats start with. A chat where someone picked a config keeps that one.")}
   </p>

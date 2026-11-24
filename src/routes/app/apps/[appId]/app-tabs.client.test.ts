@@ -500,7 +500,7 @@ describe('App tab navigation failure feedback (#2288)', () => {
     let calls = 0;
     navigationHooks.onGoto = () => (++calls === 1 ? first.promise : undefined);
     await pick(target, 'runs');
-    await pick(target, 'node-role-templates'); // supersedes the held Runs choice
+    await pick(target, 'settings'); // supersedes the held Runs choice
     first.reject(new Error('navigation rejected'));
     await wait(20);
     await tick(4);
@@ -546,14 +546,14 @@ describe('App tab navigation failure feedback (#2288)', () => {
       let calls = 0;
       navigationHooks.onGoto = () => (++calls === 1 ? first.promise : undefined);
       await pick(target, 'runs');
-      await pick(target, 'node-role-templates');
-      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
+      await pick(target, 'settings');
+      expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
       first.resolve();
       await drain();
-      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
+      expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
       expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('false');
       expect(alerts(target)).toHaveLength(0);
-      expect(gotos()).toEqual(['/app/apps/a1?tab=runs', '/app/apps/a1?tab=node-role-templates']); // the release adds none
+      expect(gotos()).toEqual(['/app/apps/a1?tab=runs', '/app/apps/a1?tab=settings']); // the release adds none
     });
     it('a held preload that resolves after a newer choice starts no navigation of its own', async () => {
       const target = await mountTab('chats');
@@ -561,11 +561,11 @@ describe('App tab navigation failure feedback (#2288)', () => {
       navigationHooks.onPreloadData = () => held.promise.then(() => ({ type: 'loaded', data: {} }));
       await pick(target, 'runs'); // parked inside preloadData
       navigationHooks.onPreloadData = undefined;
-      await pick(target, 'node-role-templates');
+      await pick(target, 'settings');
       held.resolve();
       await drain();
-      expect(gotos()).toEqual(['/app/apps/a1?tab=node-role-templates']);
-      expect(target.querySelector('#tab-node-role-templates')?.getAttribute('aria-selected')).toBe('true');
+      expect(gotos()).toEqual(['/app/apps/a1?tab=settings']);
+      expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
     });
     it('a held preload that resolves after teardown starts no navigation and throws nothing', async () => {
       const target = await mountTab('chats');
@@ -604,12 +604,11 @@ describe('App tab navigation failure feedback (#2288)', () => {
   });
 
   // portal#2302 item 4: the tab navigation keeps the reader's focus and scroll.
-  it('portal#2302: the Runs and Templates navigations pass keepFocus and noScroll', async () => {
+  it('portal#2302: the Runs navigation passes keepFocus and noScroll', async () => {
     const target = await mountTab('chats');
     await pick(target, 'runs');
-    await pick(target, 'node-role-templates');
     const options = navigationCalls.filter((c) => c.fn === 'goto').map((c) => c.args[1]);
-    expect(options).toEqual([{ keepFocus: true, noScroll: true }, { keepFocus: true, noScroll: true }]);
+    expect(options).toEqual([{ keepFocus: true, noScroll: true }]);
   });
 
   // portal#2302 item 3: a local tab chosen while a navigation is in flight still goes by its own
@@ -690,17 +689,7 @@ describe('App tab navigation failure feedback (#2288)', () => {
     await pick(target, 'runs');
     expect(alerts(target)).toHaveLength(1);
   });
+  // 'Clicking the Runs tab you are already on clears the alert' (#2290) needed an alert raised by a failed choice made FROM Runs,
+  // which only a second navigating tab (Templates) could produce. Runs is the only one now, so that state cannot be reached.
 
-  it('clicking the Runs tab you are already on clears the alert and still starts no navigation (#2290)', async () => {
-    const target = await mountTab('runs');
-    let gotos = 0;
-    navigationHooks.onGoto = async () => { gotos++; throw new Error('navigation rejected'); };
-    await pick(target, 'node-role-templates'); // a failed choice made from Runs
-    expect(alerts(target)).toHaveLength(1);
-    expect(gotos).toBe(1);
-    await pick(target, 'runs'); // the tab already shown: a no-op that acknowledges the alert
-    expect(alerts(target)).toHaveLength(0);
-    expect(gotos).toBe(1);
-    expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
-  });
 });

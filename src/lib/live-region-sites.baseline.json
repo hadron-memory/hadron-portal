@@ -38,8 +38,7 @@
     "p:776e5737"
   ],
   "src/routes/app/apps/[appId]/+page.svelte": [
-    "testid:cast-refresh-status",
-    "testid:key-copy-status"
+    "testid:cast-refresh-status"
   ],
   "src/routes/app/apps/[appId]/tasks/+page.svelte": [
     "testid:open-by-handle",

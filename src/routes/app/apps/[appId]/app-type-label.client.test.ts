@@ -32,6 +32,11 @@ async function mountTab(tab: 'profile' | 'settings', appType: string) {
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
+  // Settings' sections start folded: the App section holds the Type row and the Edit button.
+  if (tab === 'settings') {
+    m.target.querySelector<HTMLButtonElement>('#section-app-toggle')!.click();
+    await tick(2);
+  }
   return m.target as HTMLElement;
 }
 

@@ -17,7 +17,9 @@
   import { t } from '$lib/i18n/t';
 
   type Read = { kind: 'ok'; roles: string[] } | { kind: 'hidden' } | { kind: 'failed' };
-  let { read, canManage }: {
+  let { read, canManage, embedded = false }: {
+    /** Inside a titled section: the section's heading is the title, so none is drawn here. */
+    embedded?: boolean;
     /** The loader's read: the list, `hidden` (the roster's refusal) or `failed`. */
     read: Read | null;
     /** The viewer manages the App and acts as themselves. */
@@ -86,8 +88,8 @@
 </script>
 
 {#if read && read.kind !== 'hidden'}
-  <section class="max-w-lg" aria-labelledby="wake-roles-title">
-    <h2 id="wake-roles-title" class="mb-1 font-semibold text-zinc-900 dark:text-white">{t('app.wake-roles.title', 'Saturation alarm wake roles')}</h2>
+  <section class="max-w-lg" aria-labelledby={embedded ? undefined : 'wake-roles-title'}>
+    {#if !embedded}<h2 id="wake-roles-title" class="mb-1 font-semibold text-zinc-900 dark:text-white">{t('app.wake-roles.title', 'Saturation alarm wake roles')}</h2>{/if}
     <p class="mb-3 text-sm text-zinc-500 dark:text-zinc-400">
       {t('app.wake-roles.help', 'Workers in these roles are offered a wake when a saturation alarm is raised. A change applies to alarms raised afterwards.')}
     </p>

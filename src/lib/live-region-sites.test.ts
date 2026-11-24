@@ -68,7 +68,6 @@ const reviewedNotDefects: Record<string, string> = {
   'src/lib/components/tickers/TickerEnabledControl.svelte#testid:ticker-enabled-result': "the branch is `{#if impersonating}...{:else}`, fixed for the whole session; the result span mounts empty with the control and its own {#if ok} is INSIDE it",
   'src/routes/app/agents/[id]/AgentMemberRolesEditor.svelte#p:776e5737': "the branch is `{#if canManage}`, which comes from the page load; an invalidation that flips it mounts the whole editor, as opening it does, and `announcement` changes inside the region while the editor is there",
   'src/routes/app/apps/[appId]/+page.svelte#testid:cast-refresh-status': "the region mounts EMPTY with the AI Team tab panel (portal#1715) and its own {#if castRefreshFailed} is INSIDE it, so the failure arrives in an existing region",
-  'src/routes/app/apps/[appId]/+page.svelte#testid:key-copy-status': "the region mounts with the API keys tab panel before any copy (portal#2330) and its own {#if} is INSIDE it, so the copy result arrives in an existing region",
   'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte#span:7ed159ba': "the status span mounts with the Show more row, which exists while more children remain; the \"Showing the first n\" count and the failure text change inside it, so an update arrives in an existing region"
 };
 

@@ -65,7 +65,8 @@ describe('portal#2292: the document title leads with the shown tab', () => {
   it('gives every tab its own label, so a new tab cannot ship without a title', async () => {
     const target = await mountAt(null);
     const ids = clientTabIds(target).filter((id) => id !== 'profile');
-    expect(ids.length).toBeGreaterThanOrEqual(10);
+    // A floor, not a count: it fails if the strip loses tabs wholesale (App Keys, AI Service Configs and Node-role templates left it for Settings).
+    expect(ids.length).toBeGreaterThanOrEqual(8);
     for (const id of ids) {
       await select(target, id);
       expect(document.title, id).toBe(`${labelOf(target, id)} · ${TAIL}`);

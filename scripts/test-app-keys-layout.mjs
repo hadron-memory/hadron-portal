@@ -58,11 +58,11 @@ const MUTANTS = {
   // legs must catch it. (The patterns match the COMPILED module the plugin
   // sees — the Svelte compiler flattens if/else to one line — so they stay
   // whitespace- and quote-tolerant; a non-match aborts the run below.)
-  'no-focus-restore': [[/if \(grantScopeTriggerEl && grantScopeTriggerEl\.isConnected\) grantScopeTriggerEl\.focus\(\);\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, '']],
+  'no-focus-restore': [[/if \(grantScopeTriggerEl && grantScopeTriggerEl\.isConnected\) grantScopeTriggerEl\.focus\(\);\s*else document\.getElementById\(['"]section-keys-toggle['"]\)\?\.focus\(\);/, '']],
   // portal#1487 review: the fallback landing spot is gone, so a close whose
   // captured trigger is detached (the success path re-renders the rows)
   // drops focus to <body> — the detached-trigger leg must catch it
-  'no-focus-fallback': [[/\s*else document\.getElementById\(['"]panel-keys['"]\)\?\.focus\(\);/, '']],
+  'no-focus-fallback': [[/\s*else document\.getElementById\(['"]section-keys-toggle['"]\)\?\.focus\(\);/, '']],
 };
 const mutantName = process.env.KEYS_MUTANT ?? null;
 // An unsound run (bad knob, mutant that did not apply, page reloaded under a
@@ -140,7 +140,7 @@ const failures = [];
 
 function geometry() {
   const r = (el) => { const b = el.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height }; };
-  const panel = document.getElementById('panel-keys');
+  const panel = document.getElementById('section-keys-body');
   const form = panel.querySelector('form[action="?/createKey"]');
   const input = form.querySelector('#label');
   const button = form.querySelector('button[type="submit"]');
@@ -160,7 +160,7 @@ function geometry() {
     note: note ? r(note) : null,
     scopesColumn: [...panel.querySelectorAll('thead th')].some((th) => th.textContent.trim().startsWith('Scopes')),
     previewLines: previewCells.map((el) => (el ? { lines: Math.round(el.getBoundingClientRect().height / lineHeight(el)), clipped: el.scrollWidth > el.clientWidth } : null)),
-    panel: r(panel), panelContent: panel.clientWidth, form: r(form), input: r(input), button: r(button),
+    panel: r(panel), panelContent: panel.clientWidth - parseFloat(getComputedStyle(panel).paddingLeft) - parseFloat(getComputedStyle(panel).paddingRight), form: r(form), input: r(input), button: r(button),
     error: error ? r(error) : null, scroller: r(scroller),
     scrollerClient: scroller.clientWidth, scrollerScroll: scroller.scrollWidth,
     scrollerOverflowX: getComputedStyle(scroller).overflowX,
@@ -177,7 +177,7 @@ function geometry() {
 // Scroll a cell into the scroller's view the way a reader would, then report
 // whether it sits fully inside the scroller's visible box.
 function reach(selector) {
-  const scroller = document.querySelector('#panel-keys [data-testid="data-table-scroller"]');
+  const scroller = document.querySelector('#section-keys-body [data-testid="data-table-scroller"]');
   const el = scroller.querySelector(selector);
   if (!el) return { found: false };
   scroller.scrollLeft = 0;
@@ -244,13 +244,13 @@ async function open(browser, origin, css, { width, dark, state, savedView, scope
     const h = await import('/src/lib/test/fixtures/app-keys-layout-harness.ts');
     window.stopKeys = await h.mountAppKeys(document.getElementById('fixture'), { error: state === 'error', ...(scopes ? { scopes } : {}) });
   }, { state, scopes });
-  await page.locator('#panel-keys tbody tr').first().waitFor();
+  await page.locator('#section-keys-body tbody tr').first().waitFor();
   if (state === 'generating') {
     await page.evaluate(async () => {
       const h = await import('/src/lib/test/fixtures/app-keys-layout-harness.ts');
-      await h.beginGenerating(document.querySelector('#panel-keys form[action="?/createKey"]'));
+      await h.beginGenerating(document.querySelector('#section-keys-body form[action="?/createKey"]'));
     });
-    await page.locator('#panel-keys form[action="?/createKey"] button[type="submit"]:disabled').waitFor();
+    await page.locator('#section-keys-body form[action="?/createKey"] button[type="submit"]:disabled').waitFor();
   }
   await settle(page);
   return { page, errors };
@@ -345,7 +345,7 @@ try {
       }
       // Masking: the cells show exactly the stored previews.
       const previews = await page.evaluate(() => {
-        const panel = document.getElementById('panel-keys');
+        const panel = document.getElementById('section-keys-body');
         const col = [...panel.querySelectorAll('thead th')].findIndex((th) => th.textContent.trim().startsWith('Preview'));
         return [...panel.querySelectorAll('tbody tr')].map((tr) => tr.children[col]?.textContent.trim());
       });
@@ -400,7 +400,7 @@ try {
       const shot = (state) => process.env.KEYS_SHOTS
         ? page.screenshot({ path: `${process.env.KEYS_SHOTS}/grant-${width}-${dark ? 'dark' : 'light'}-${state}.png` })
         : Promise.resolve();
-      await page.locator('#panel-keys tbody tr:last-child td:last-child button').click();
+      await page.locator('#section-keys-body tbody tr:last-child td:last-child button').click();
       await page.getByRole('menuitem', { name: /Grant scope/ }).click();
       await page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
 
@@ -489,7 +489,7 @@ try {
       // the action's destroy() runs, so the browser's own close() restore
       // fails on a detached dialog; the menu hands its own trigger to
       // onselect and the action refocuses that element on teardown.
-      const trigger = '#panel-keys tbody tr:last-child button[aria-label^="Actions for key"]';
+      const trigger = '#section-keys-body tbody tr:last-child button[aria-label^="Actions for key"]';
       const focusAfterClose = async () => {
         await page.locator('dialog[data-testid="grant-scope-dialog"]').waitFor({ state: 'detached' });
         return page.evaluate((sel) => ({
@@ -526,8 +526,8 @@ try {
     } finally { await page.close(); }
     // A keyed row normally survives the success path's invalidation, so a
     // detached trigger is the defensive case. Removing the row outright
-    // stands in for it: the teardown owes a landing spot, the Keys tab panel
-    // (#panel-keys, a focusable region boundary), never <body>. tr.remove()
+    // stands in for it: the teardown owes a landing spot, the App Keys
+    // section's toggle (#section-keys-toggle, a real control where the list sits), never <body>. tr.remove()
     // mutates Svelte-owned DOM behind the keyed {#each}, so this leg gets a page
     // of its own: nothing before or after it can rely on that table, and no
     // ordering convention is needed.
@@ -535,7 +535,7 @@ try {
       const detached = await open(browser, origin, css, { width, dark, state: 'default' });
       try {
         const check = (ok, msg) => { if (!ok) failures.push(`${leg}/detached-trigger: ${msg}`); };
-        const trigger = '#panel-keys tbody tr:last-child button[aria-label^="Actions for key"]';
+        const trigger = '#section-keys-body tbody tr:last-child button[aria-label^="Actions for key"]';
         await detached.page.locator(trigger).click();
         await detached.page.getByRole('menuitem', { name: /Grant scope/ }).click();
         await detached.page.locator('dialog[open][data-testid="grant-scope-dialog"]').waitFor();
@@ -546,7 +546,7 @@ try {
           id: document.activeElement?.id ?? '',
           onBody: document.activeElement === document.body || document.activeElement === null,
         }));
-        check(fallback.id === 'panel-keys' && !fallback.onBody, `focus after a detached trigger is ${fallback.id ? `#${fallback.id}` : fallback.onBody ? '<body>' : 'elsewhere'}`);
+        check(fallback.id === 'section-keys-toggle' && !fallback.onBody, `focus after a detached trigger is ${fallback.id ? `#${fallback.id}` : fallback.onBody ? '<body>' : 'elsewhere'}`);
         check(detached.errors.length === 0, `page errors: ${detached.errors.join(' | ')}`);
       } finally { await detached.page.close(); }
     }
@@ -564,8 +564,8 @@ try {
       const shot = (state) => process.env.KEYS_SHOTS
         ? page.screenshot({ path: `${process.env.KEYS_SHOTS}/revoke-${width}-${dark ? 'dark' : 'light'}-${state}.png` })
         : Promise.resolve();
-      const heldRow = page.locator('#panel-keys tbody tr', { hasText: 'production-backend-router' });
-      const emptyRow = page.locator('#panel-keys tbody tr', { hasText: 'key-1' });
+      const heldRow = page.locator('#section-keys-body tbody tr', { hasText: 'production-backend-router' });
+      const emptyRow = page.locator('#section-keys-body tbody tr', { hasText: 'key-1' });
       const trigger = heldRow.locator('button[aria-label^="Actions for key"]');
 
       // The empty key: disabled, with the reason as text the item points at.
@@ -634,19 +634,19 @@ try {
   if (WIDTHS.includes(1440)) {
     const { page, errors } = await open(browser, origin, css, { width: 1440, dark: false, state: 'default' });
     try {
-      const rows = () => page.locator('#panel-keys tbody tr').count();
-      await page.locator('#panel-keys [data-testid="table-header-toggle"]').click();
+      const rows = () => page.locator('#section-keys-body tbody tr').count();
+      await page.locator('#section-keys-body [data-testid="table-header-toggle"]').click();
       const search = page.getByRole('textbox', { name: 'Search app keys' });
       await search.fill('router');
-      await page.waitForFunction(() => document.querySelectorAll('#panel-keys tbody tr').length === 1);
+      await page.waitForFunction(() => document.querySelectorAll('#section-keys-body tbody tr').length === 1);
       assert.equal(await rows(), 1);
       await search.fill('');
-      await page.waitForFunction(() => document.querySelectorAll('#panel-keys tbody tr').length === 3);
-      assert.ok(await page.locator('#panel-keys [data-testid="table-footer"]').count() === 1, 'pagination footer present');
-      assert.ok(await page.locator('#panel-keys [data-testid="table-header"]').locator('summary').filter({ hasText: /Columns/ }).count() === 1, 'column toggle present');
-      const header = await page.evaluate(() => { const h = document.querySelector('#panel-keys [data-testid="table-header"]').getBoundingClientRect(); const s = document.querySelector('#panel-keys [data-testid="data-table-scroller"]').getBoundingClientRect(); return { h: h.width, s: s.width }; });
+      await page.waitForFunction(() => document.querySelectorAll('#section-keys-body tbody tr').length === 3);
+      assert.ok(await page.locator('#section-keys-body [data-testid="table-footer"]').count() === 1, 'pagination footer present');
+      assert.ok(await page.locator('#section-keys-body [data-testid="table-header"]').locator('summary').filter({ hasText: /Columns/ }).count() === 1, 'column toggle present');
+      const header = await page.evaluate(() => { const h = document.querySelector('#section-keys-body [data-testid="table-header"]').getBoundingClientRect(); const s = document.querySelector('#section-keys-body [data-testid="data-table-scroller"]').getBoundingClientRect(); return { h: h.width, s: s.width }; });
       assert.ok(near(header.h, header.s), `open table header ${header.h}px matches the table ${header.s}px`);
-      const label = page.locator('#panel-keys th').filter({ hasText: /^Name/ });
+      const label = page.locator('#section-keys-body th').filter({ hasText: /^Name/ });
       await label.click();
       assert.ok(['ascending', 'descending'].includes(await label.getAttribute('aria-sort')), 'Name header sorts');
       assert.equal(errors.length, 0, `page errors: ${errors.join(' | ')}`);
@@ -662,7 +662,7 @@ try {
     const wide = await open(browser, origin, css, { width: 1440, dark: false, state: 'default', savedView: { label: 700, scopes: 400 } });
     try {
       const g = await wide.page.evaluate(() => {
-        const s = document.querySelector('#panel-keys [data-testid="data-table-scroller"]');
+        const s = document.querySelector('#section-keys-body [data-testid="data-table-scroller"]');
         const th = [...s.querySelectorAll('th')].find((t) => t.textContent.trim().startsWith('Name'));
         return { label: th.getBoundingClientRect().width, scroll: s.scrollWidth, client: s.clientWidth, pageOverflow: document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth };
       });

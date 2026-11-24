@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { AGENT_CHAT_KEY, TEAM_CHAT_LOC } from '$lib/app-chats';
-import { APP_TAB_IDS, resolveTabIntent, shouldLoadTeamRoster } from './tab-intent';
+import { APP_TAB_IDS, resolveSectionIntent, resolveTabIntent, SECTION_DATA_TAB, SETTINGS_SECTION_IDS, shouldLoadTeamRoster, visibleTabFor } from './tab-intent';
 
 const intent = (qs: string) => resolveTabIntent(new URLSearchParams(qs));
 
@@ -18,8 +18,28 @@ describe('resolveTabIntent', () => {
     expect(intent('tab=worklog')).toEqual({ initialTab: 'worklog', requestedChat: null });
   });
 
-  it.each(APP_TAB_IDS)('accepts the known tab id %s', (tab) => {
+  // App Keys, AI Service Configs and Node-role templates are sections of Settings now: their old tab ids resolve to Settings (below).
+  it.each(APP_TAB_IDS.filter((tab) => !['keys', 'ai-configs', 'node-role-templates'].includes(tab)))('accepts the known tab id %s', (tab) => {
     expect(intent(`tab=${tab}`).initialTab).toBe(tab);
+  });
+
+  it.each(['keys', 'ai-configs', 'node-role-templates'])('resolves the retired tab id %s to Settings, with that section open', (id) => {
+    expect(intent(`tab=${id}`).initialTab).toBe('settings');
+    expect(resolveSectionIntent(new URLSearchParams(`tab=${id}`))).toBe(id);
+    expect(visibleTabFor(id)).toBe('settings');
+  });
+
+  it('opens the section ?section= names, and none for an unknown or absent one', () => {
+    expect(resolveSectionIntent(new URLSearchParams('tab=settings&section=keys'))).toBe('keys');
+    expect(resolveSectionIntent(new URLSearchParams('tab=settings&section=nonsense'))).toBeNull();
+    expect(resolveSectionIntent(new URLSearchParams('tab=settings&section=constructor'))).toBeNull();
+    expect(resolveSectionIntent(new URLSearchParams('tab=settings'))).toBeNull();
+    expect(resolveSectionIntent(new URLSearchParams(''))).toBeNull();
+  });
+
+  it('every section id is unique, and each data section names a known tab id', () => {
+    expect(new Set(SETTINGS_SECTION_IDS).size).toBe(SETTINGS_SECTION_IDS.length);
+    for (const tab of Object.values(SECTION_DATA_TAB)) expect(APP_TAB_IDS).toContain(tab);
   });
 
   // portal#2241: Profile is addressable, and a tab-less URL still falls back to the page default

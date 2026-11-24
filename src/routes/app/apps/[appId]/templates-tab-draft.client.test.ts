@@ -1,6 +1,7 @@
 /**
- * #1936 (LOCAL P2) — the manager asks before a ROUTE change discards a draft; as a tab,
- * choosing another App tab is local and never reached that guard. Real manager, both directions.
+ * #1936 (LOCAL P2) — the manager asks before a ROUTE change discards a draft. As a section of Settings, a local tab switch
+ * never reaches that guard and cannot lose the draft (the panel stays mounted); a choice that navigates (Runs) asks once,
+ * from the page. Real manager, both directions.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -33,35 +34,30 @@ const createTemplate = async (target: HTMLElement) => {
   await tick(3);
 };
 
-describe('leaving the templates tab with an unsaved draft (#1936)', () => {
-  it('declining keeps the draft and the tab', async () => {
+describe('leaving the templates section with an unsaved draft (#1936)', () => {
+  // The Settings panel stays mounted on another tab, so a local switch cannot lose the draft and asks nothing.
+  it('a local tab switch asks nothing and the draft is still there on return', async () => {
     const target = await mountWithDraft();
     await createTemplate(target);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    target.querySelector<HTMLElement>('#tab-settings')!.click();
-    await tick(3);
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(target.querySelector('[aria-label="Template editor"]')).not.toBeNull();
-    expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('false');
-  });
-
-  it('accepting leaves the tab', async () => {
-    const target = await mountWithDraft();
-    await createTemplate(target);
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    target.querySelector<HTMLElement>('#tab-settings')!.click();
-    await tick(3);
-    expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
-    expect(target.querySelector('[aria-label="Template editor"]')).toBeNull();
-  });
-
-  it('control: with no draft, switching asks nothing', async () => {
-    const target = await mountWithDraft();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    target.querySelector<HTMLElement>('#tab-settings')!.click();
+    target.querySelector<HTMLElement>('#tab-chats')!.click();
     await tick(3);
     expect(confirm).not.toHaveBeenCalled();
-    expect(target.querySelector('#tab-settings')?.getAttribute('aria-selected')).toBe('true');
+    expect(target.querySelector('#tab-chats')?.getAttribute('aria-selected')).toBe('true');
+    expect(target.querySelector<HTMLElement>('#panel-settings')!.hidden).toBe(true);
+    target.querySelector<HTMLElement>('#tab-settings')!.click();
+    await tick(3);
+    expect(target.querySelector<HTMLElement>('#panel-settings')!.hidden).toBe(false);
+    expect(target.querySelector('[aria-label="Template editor"]')).not.toBeNull();
+  });
+
+  it('control: with no draft, a navigating choice asks nothing either', async () => {
+    const target = await mountWithDraft();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    navigationHooks.onPreloadData = () => ({ type: 'loaded', data: { runsPanel: null } });
+    target.querySelector<HTMLElement>('#tab-runs')!.click();
+    await tick(10);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   // LOCAL P2 D1: Runs is a navigating choice. A declined route guard only cancels the router; the
@@ -99,14 +95,5 @@ describe('leaving the templates tab with an unsaved draft (#1936)', () => {
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(cancel).not.toHaveBeenCalled();
     expect(target.querySelector('#tab-runs')?.getAttribute('aria-selected')).toBe('true');
-  });
-
-  it('accepting a local switch asks exactly once', async () => {
-    const target = await mountWithDraft();
-    await createTemplate(target);
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    target.querySelector<HTMLElement>('#tab-settings')!.click();
-    await tick(3);
-    expect(confirm).toHaveBeenCalledTimes(1);
   });
 });
