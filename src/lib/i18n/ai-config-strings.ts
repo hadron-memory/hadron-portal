@@ -45,7 +45,10 @@ export const aiConfigStrings = {
   ownerOnly: (ownerType: AiConfigOwnerType): string =>
     ownerType === 'AGENT'
       ? t('ai-config.owner-only-agent', 'Only the owner of this Agent can manage its AI service configurations.')
-      : t('ai-config.owner-only-app', 'Only the owner of this App can manage its AI service configurations.'),
+      : ownerType === 'APP'
+        ? t('ai-config.owner-only-app', 'Only the owner of this App can manage its AI service configurations.')
+        // Nothing else is a person's: never name an App for another kind of owner.
+        : t('ai-config.admin-only', 'Only organization admins can manage AI service configurations.'),
   /** Surfaced when the masked list fails to load for an admin. */
   loadError: (): string =>
     t('ai-config.load-error', "Couldn't load AI configurations — try again."),
