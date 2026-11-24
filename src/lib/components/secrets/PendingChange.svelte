@@ -72,7 +72,7 @@
       {/if}
     </LiveRegion>
     <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">{t('secrets.request.expires', 'Expires {time}', { time: fmtRunTime(expiresAt) })}</p>
-    <div class="mt-3 flex flex-wrap items-center gap-2">
+    <div class="mt-3 flex flex-wrap items-center gap-2" data-testid="pending-change-actions">
       {#if ceremonyUrl}
         <a href={ceremonyUrl} target="_blank" rel="noopener noreferrer" class="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">{t('secrets.request.open-link', 'Open the signing page')}<span class="sr-only"> {t('secrets.request.new-tab', '(opens in a new tab)')}</span><span aria-hidden="true"> ↗</span></a>
       {:else}
