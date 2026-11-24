@@ -12,8 +12,16 @@ it('uses the whole-set server sort and omits empty statuses at page20', async ()
 it('never sends invalid enums or an empty statuses array', async () => {
   const { loadAppRunsPage } = await import('$lib/server/app-runs-page');
   const load = async (event: { url: URL }) => loadAppRunsPage({ request } as never, 'a', event.url.searchParams);
-  await load({ url: new URL('https://test/app/apps/a/runs?sort=duration&dir=garbage&status=bad') });
+  await load({ url: new URL('https://test/app/apps/a/runs?sort=bogus&dir=garbage&status=bad') });
   expect(request).toHaveBeenCalledWith(APP_RUNS_QUERY, { appRef: 'a', sortBy: 'createdAt', sortDir: 'desc', limit: 20, offset: 0 });
+});
+it('sends the Duration sort to the server in both directions (portal#1499)', async () => {
+  const { loadAppRunsPage } = await import('$lib/server/app-runs-page');
+  for (const dir of ['asc', 'desc'] as const) {
+    request.mockClear();
+    await loadAppRunsPage({ request } as never, 'a', new URLSearchParams(`sort=duration&dir=${dir}`));
+    expect(request).toHaveBeenCalledWith(APP_RUNS_QUERY, { appRef: 'a', sortBy: 'duration', sortDir: dir, limit: 20, offset: 0 });
+  }
 });
 it('clamps an out-of-range page using the server total and reads that last page', async () => {
   request.mockImplementation(async q => q === APP_RUNS_QUERY ? { appRuns: { items: [], total: 21 } } : { app: { id: 'a' } });
