@@ -14,6 +14,12 @@ import { chromium } from 'playwright';
 
 // Fail before measuring if either consumer bypasses the shared source. Without
 // this, a stale literal shell can keep passing while the production shell drifts.
+// New chat is the + under the list; it opens a menu of where the chat is saved. The private choice starts it.
+async function startChat(page) {
+  await page.getByRole('button', { name: 'New chat', exact: true }).click();
+  await page.getByRole('menuitem', { name: /Save to my private memory/ }).click();
+}
+
 const layoutSource = readFileSync('src/routes/app/+layout.svelte', 'utf8');
 const oracleSource = readFileSync('scripts/test-agent-chat-phone-layout.mjs', 'utf8');
 assert.match(layoutSource, /<div\s+class=\{APP_SHELL_ROW\}>/, 'layout row must use app-shell.ts');
@@ -505,7 +511,7 @@ try {
 
       // ── Refused start: the alert is readable where the user is ────
       const refused = await open(width, dark, { refuseStart: true });
-      await refused.page.getByRole('button', { name: '+ New chat' }).click();
+      await startChat(refused.page);
       const alert = refused.page.getByRole('alert').filter({ visible: true });
       await alert.waitFor();
       assert.equal(await alert.count(), 1, `${leg}: exactly one visible refusal`);
@@ -529,14 +535,14 @@ try {
 
       // ── Refused start after Back ────────────────────────────────────
       // https://github.com/hadron-memory/hadron-portal/pull/2090#issuecomment-6843290025
-      // Back keeps the selected chat; a refused "+ New chat" from there must
+      // Back keeps the selected chat; a refused New chat from there must
       // still show its alert where the user is, not in the hidden pane.
       if (phone) {
         const again = await open(width, dark, { refuseStart: true });
         await again.page.locator('[data-chat-row="chats:a"]').click();
         await again.page.getByText('Which weeks work best').waitFor();
         await again.page.getByRole('button', { name: 'Back to chats' }).click();
-        await again.page.getByRole('button', { name: '+ New chat' }).click();
+        await startChat(again.page);
         const shown = again.page.getByRole('alert').filter({ visible: true });
         await shown.waitFor();
         assert.equal(await shown.count(), 1, `${leg}: a refused start after Back needs exactly one visible alert`);

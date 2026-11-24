@@ -11,7 +11,7 @@ it('fails closed without a known org membership or signed-in user',()=>{
  expect(canCreateAppMemory({members:[{role:'OWNER',user:{id:'other'}}]},'me')).toBe(false);
  expect(canCreateAppMemory({members:[{role:'OWNER',user:{id:'me'}}]},null)).toBe(false);
 });
-// The list is the viewer's whole memory scope (cor:dmo:050:17), one row per memory, whatever put it in scope.
+// The list is the viewer's whole memory scope (hrn:node:hadronmemory.com:specs:cor:dmo:050:17), one row per memory, whatever put it in scope.
 describe('the App memory list is the whole scope', () => {
   const row = (id: string, cls: string, kinds: string[]) => ({
     memoryId: id, memoryUrn: `hrn:mem:example.com:${id}`, name: `Memory ${id}`, class: cls, viewerCanWrite: true,

@@ -17,7 +17,7 @@ export type AppMemoryMessage = App.Superforms.Message & { created?: CreatedAppMe
 // The attach result carries no extra fields: the list refreshes and shows the memory.
 export type AttachMemoryMessage = App.Superforms.Message;
 
-// One row per memory the App reads from for this viewer (cor:dmo:050:17): its own app memories, the team
+// One row per memory the App reads from for this viewer (hrn:node:hadronmemory.com:specs:cor:dmo:050:17): its own app memories, the team
 // space, Agent-linked memories, and the viewer's own. `class` is the memory's class, shown as-is.
 export interface AppMemoryRow { id: string; urn: string; name: string; class: string; appId: string | null }
 export const CREATE_APP_MEMORY_MUTATION = /* GraphQL */ `
