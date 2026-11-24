@@ -13,6 +13,7 @@ import { createServer } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { chromium } from 'playwright';
+import { probeSrOnlyAnchors } from './lib/cell-escape-probe.mjs';
 
 const CHIP = /<span class="block max-w-full min-w-0"><Urn value=\{row\.grantorUrn\} type="user" size=\{8\} compact \/><\/span>/;
 const STACK = /<div class="flex max-w-full min-w-0 flex-col">/;
@@ -132,6 +133,10 @@ try {
     check(m.hasChip, 'no URN chip rendered in the Shared by cell (a vacuous pass)');
     check(m.text.includes('G'.repeat(8)), `grantor name missing from the cell: ${m.text}`);
     check(m.worst <= 0.5, `Shared by content escapes its cell by ${m.worst.toFixed(1)}px (${m.worstEl}, cell ${m.cellWidth.toFixed(0)}px)`);
+    // portal#2548: the Role <label class="sr-only"> in each row is anchored by its cell, never by the page.
+    const sr = await page.evaluate(probeSrOnlyAnchors);
+    check(sr.seen > 0, 'no sr-only label rendered in a cell, the anchor check measured nothing');
+    check(sr.unanchored.length === 0, `an sr-only label is not anchored inside its cell ${JSON.stringify(sr.unanchored)}`);
     check(m.nameTruncated, 'the 64-character name did not truncate inside the cell');
     check(errors.length === 0, `page errors: ${errors.join('; ')}`);
     console.log(`${leg}: cell ${m.cellWidth.toFixed(0)}px, overshoot ${m.worst.toFixed(1)}px`);

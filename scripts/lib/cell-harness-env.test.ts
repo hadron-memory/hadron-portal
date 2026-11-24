@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { parseHarnessEnv, injectionEcho, KINDS, PAGE_KINDS, APPS_KINDS, ORGS_KINDS, TITLE_CHECKED_KINDS, batteryFor, partyNarrowProbeNote, PARTY_NARROW_PROBE_WIDTH, PARTY_NARROW_CLAIM } from './cell-harness-env.mjs';
 
 // The accepted set, spelled out here on purpose — see the accept test below.
-// The ten apps kinds join from main's portal#2488 slice, the nine orgs kinds from portal#2491 and wake
+// The ten apps kinds join from main's portal#2488 slice, the orgs kinds from portal#2491 (nine, and portal#2548's orgs-sessions) and wake
 // from main's portal#2501 slice (unioned in #2507's carries).
-const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label', 'agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants', 'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions', 'lib-rows'];
+const ALL_KINDS = ['alarms', 'runs', 'config', 'findings', 'wake', 'agent-tasks', 'party-label', 'agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants', 'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions', 'orgs-sessions', 'lib-rows'];
 
 // portal#2129 rows 1, 6, 8: every env knob is validated before any browser launches.
 describe('parseHarnessEnv', () => {
@@ -107,7 +107,7 @@ describe('batteryFor', () => {
       pages: PAGE_KINDS,
       // Spelled out, not rebuilt from the constants: a kind added to either list must be a deliberate edit here.
       apps: ['apps-staff', 'apps-agents', 'apps-keys', 'apps-mine', 'apps-secrets', 'apps-stops', 'apps-tickers', 'apps-tasks', 'apps-channels', 'apps-grants',
-        'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions'],
+        'orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs', 'orgs-agents', 'orgs-subscribed-agents', 'orgs-memories-personal', 'orgs-memories-org', 'orgs-memories-subscriptions', 'orgs-sessions'],
       lib: ['lib-rows'],
     });
   });
