@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { buildSchema, Kind, parse, validate, type FieldNode } from 'graphql';
 import { describe, expect, it } from 'vitest';
 import {
+  CANCEL_APP_RUN_MUTATION,
   CREATE_SCOPE_MUTATION,
   DELETE_SCOPE_MUTATION,
   ORG_SYSTEM_MEMORY_IDS_QUERY,
@@ -94,5 +95,23 @@ describe('#1075 Task Nodes operations match the server snapshot', () => {
     expect(directSelections('query Q { memories { items { id } } }', 'items')).not.toContain('appId');
     // An alias removes the `appId` response key the org-memory filter reads (Beckett, #2409).
     expect(directSelections('query Q { memories { items { id other: appId } } }', 'items')).not.toContain('appId');
+  });
+});
+
+// #2498 — hadron-server#4141 S5 (PR #4789) renamed cancelAppRun's argument
+// `id` -> `ref`, a hard rename with no alias (hrn:node:hadronmemory.com:specs:cor:api:140:01). The kill switch is
+// the run page's cancel button, so a stale document would pass every handler
+// test (the mock answers whatever shape it is sent) and fail only on a live
+// stack. Pinned against the snapshot at the server head this PR stamps.
+describe('#2498 CancelAppRun matches the server snapshot', () => {
+  it('cancelAppRun is called with `ref`, never `id`', () => {
+    expect(errors(CANCEL_APP_RUN_MUTATION)).toEqual([]);
+    expect(CANCEL_APP_RUN_MUTATION).toContain('cancelAppRun(ref: $ref)');
+    expect(CANCEL_APP_RUN_MUTATION).toContain('$ref: ID!');
+    expect(CANCEL_APP_RUN_MUTATION).not.toMatch(/cancelAppRun\(\s*id:/);
+    // The drifted form is refused by the same validator.
+    const drifted = CANCEL_APP_RUN_MUTATION.replace('cancelAppRun(ref: $ref)', 'cancelAppRun(id: $ref)');
+    expect(drifted).not.toBe(CANCEL_APP_RUN_MUTATION);
+    expect(errors(drifted).join('\n')).toContain('Unknown argument "id" on field "Mutation.cancelAppRun"');
   });
 });
