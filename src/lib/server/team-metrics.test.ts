@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadTeamMetrics, windowFromParams } from './team-metrics';
 
-const count = (total: number, truncated = false) => ({ total, ids: ['a', 'b'].slice(0, total), truncated });
+const count = (total: number, truncated = false) => {
+  const ids = ['a', 'b'].slice(0, total);
+  return { total, ids, truncated, named: ids.map((id) => ({ id, name: null })) };
+};
 const full = {
   appId: 'app1', asOf: '2026-11-22T10:00:00Z', window: { since: '2026-11-15T10:00:00Z', until: '2026-11-22T10:00:00Z' },
   startedOwned: { all: count(2), ownersTruncated: false, byOwner: [] },

@@ -5,7 +5,10 @@
  * The portal computes nothing from it: every figure on
  * the page is a field here (portal#1856).
  */
-export type MetricsCount = { total: number; ids: string[]; truncated: boolean };
+/** One id of a count with its name, from the same call (hadron-server#5029); `name` is null when none is readable to this reader. */
+export type MetricsNamedId = { id: string; name: string | null };
+/** `named` is `ids` in the same order, one entry each; the figure is still `total`. */
+export type MetricsCount = { total: number; ids: string[]; truncated: boolean; named: MetricsNamedId[] };
 export type MetricsProject = { handle: string; noProject: boolean; taskId: string | null; title: string | null };
 export type MetricsParty = { id: string; kind: string; name: string | null; urn: string | null };
 export type MetricsOwnerGroup = {
