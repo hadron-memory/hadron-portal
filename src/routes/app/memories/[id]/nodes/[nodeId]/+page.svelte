@@ -1387,8 +1387,10 @@
   // reset in the per-node effect.
   let dlSections = $state({ METADATA: true, CONTENT: true, ABSTRACT: true, DATA: true, PROPERTIES: true, EDGES: true });
   // A PDF is always the title and content; these are the sections the reader adds (portal#426). None is the content-only PDF, and
-  // Print (#1073) never sends any. Comments joins when its ruling lands.
+  // Print (#1073) never sends any. Comments joins when its ruling lands (hadron-portal#426). The sort only makes the list stable; the
+  // server owns the order of the sections in the PDF.
   let dlPdfSections = $state({ ABSTRACT: false, DATA: false, PROPERTIES: false, EDGES: false, METADATA: false });
+  const PDF_SECTION_CHOICES = [['ABSTRACT', 'Abstract'], ['DATA', 'Data'], ['PROPERTIES', 'Properties'], ['EDGES', 'Edges'], ['METADATA', 'Metadata']] as const;
   const dlPdfSelected = $derived(
     (Object.keys(dlPdfSections) as (keyof typeof dlPdfSections)[]).filter((k) => dlPdfSections[k]).sort(),
   );
@@ -3217,21 +3219,11 @@
               <fieldset class="mb-3">
                 <legend class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">Sections</legend>
                 <div class="space-y-1.5">
-                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                    <input type="checkbox" bind:checked={dlPdfSections.ABSTRACT} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Abstract
-                  </label>
-                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                    <input type="checkbox" bind:checked={dlPdfSections.DATA} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Data
-                  </label>
-                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                    <input type="checkbox" bind:checked={dlPdfSections.PROPERTIES} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Properties
-                  </label>
-                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                    <input type="checkbox" bind:checked={dlPdfSections.EDGES} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Edges
-                  </label>
-                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                    <input type="checkbox" bind:checked={dlPdfSections.METADATA} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Metadata
-                  </label>
+                  {#each PDF_SECTION_CHOICES as [key, label] (key)}
+                    <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                      <input type="checkbox" bind:checked={dlPdfSections[key]} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> {label}
+                    </label>
+                  {/each}
                 </div>
                 <p class="mt-1.5 text-xs text-zinc-500">The title and content are always included.</p>
               </fieldset>

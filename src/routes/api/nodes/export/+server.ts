@@ -19,7 +19,8 @@ interface NodeExportResult {
 }
 
 const FORMATS = new Set(['MD', 'JSON', 'PDF']);
-const SECTIONS = new Set(['METADATA', 'CONTENT', 'ABSTRACT', 'DATA', 'PROPERTIES', 'EDGES', 'COMMENTS']);
+const SECTIONS = new Set(['METADATA', 'CONTENT', 'ABSTRACT', 'DATA', 'PROPERTIES', 'EDGES']);
+// COMMENTS is deliberately not here: the Comments section waits on its ruling (portal#426 follow-up), and the server enum has no such value yet.
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {

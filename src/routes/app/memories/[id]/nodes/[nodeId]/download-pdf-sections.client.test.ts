@@ -107,31 +107,38 @@ describe('Download → PDF section picker (portal#426)', () => {
     openDownload(target);
     choose(target, 'PDF');
     download(target).click();
-    await new Promise((r) => setTimeout(r, 10));
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(1));
     expect(sent(fn)).toEqual({ id: 'leaf-pk', format: 'PDF', full: false, sections: [] });
 
     fn.mockClear();
+    await vi.waitFor(() => expect(target.querySelector('input[name="dlFormat"]')).toBeNull()); // the first download closed the dialog
     openDownload(target);
     choose(target, 'PDF');
     checkbox(target, 'Edges')!.click();
     checkbox(target, 'Data')!.click();
     flushSync();
     download(target).click();
-    await new Promise((r) => setTimeout(r, 10));
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(1));
     expect(sent(fn)).toEqual({ id: 'leaf-pk', format: 'PDF', full: false, sections: ['DATA', 'EDGES'] });
   });
 
-  it('keeps the Markdown picks separate from the PDF picks', async () => {
+  it('keeps the Markdown picks and the PDF picks apart, in both directions', async () => {
     const { target } = await mountPage();
     openDownload(target);
     choose(target, 'PDF');
-    checkbox(target, 'Edges')!.click();
+    checkbox(target, 'Edges')!.click(); // PDF: Edges on, Data off
     flushSync();
     choose(target, 'MD');
-    const scope = target.querySelector<HTMLInputElement>('input[name="dlScope"][value="false"]')!;
-    scope.click();
+    target.querySelector<HTMLInputElement>('input[name="dlScope"][value="false"]')!.click();
     flushSync();
-    expect(checkbox(target, 'Edges')!.checked).toBe(true); // Markdown's own default: every section on
+    expect(checkbox(target, 'Data')!.checked).toBe(true); // Markdown's own default: every section on
+    checkbox(target, 'Data')!.click(); // Markdown: Data off
+    flushSync();
+    choose(target, 'PDF');
+    expect(checkbox(target, 'Edges')!.checked).toBe(true);
+    expect(checkbox(target, 'Data')!.checked).toBe(false); // PDF's own default, not Markdown's pick
+    choose(target, 'MD');
+    expect(checkbox(target, 'Data')!.checked).toBe(false); // Markdown kept its own pick
     expect(checkbox(target, 'Content')).toBeDefined();
   });
 });

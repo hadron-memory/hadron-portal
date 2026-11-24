@@ -30,14 +30,24 @@ describe('/api/nodes/export PDF sections (portal#426)', () => {
     expect(variables()).toEqual({ id: 'n1', format: 'PDF', full: false, sections: ['DATA', 'EDGES'] });
   });
 
-  it('does not rely on the server ignoring full: a PDF keeps its sections when full is left on', async () => {
+  it('a PDF keeps its sections whatever full says, so no caller depends on the server ignoring full', async () => {
     await POST(ev({ id: 'n1', format: 'PDF', sections: ['PROPERTIES'] }));
     expect(variables().sections).toEqual(['PROPERTIES']);
   });
 
-  it('accepts COMMENTS, and drops values that are not sections', async () => {
-    await POST(ev({ id: 'n1', format: 'PDF', full: false, sections: ['COMMENTS', 'BOGUS', 7] }));
-    expect(variables().sections).toEqual(['COMMENTS']);
+  it('drops COMMENTS (not ruled yet) and anything that is not a section', async () => {
+    await POST(ev({ id: 'n1', format: 'PDF', full: false, sections: ['COMMENTS', 'BOGUS', 7, 'EDGES'] }));
+    expect(variables().sections).toEqual(['EDGES']);
+  });
+
+  it('sends the content-only PDF as full:false with no sections, which is what the Download dialog sends when none is ticked', async () => {
+    await POST(ev({ id: 'n1', format: 'PDF', full: false, sections: [] }));
+    expect(variables()).toEqual({ id: 'n1', format: 'PDF', full: false, sections: [] });
+  });
+
+  it('treats sections that are not a list as none', async () => {
+    await POST(ev({ id: 'n1', format: 'PDF', full: false, sections: 'DATA' }));
+    expect(variables().sections).toBeUndefined();
   });
 
   it('sends no sections for a plain PDF (Print stays content-only)', async () => {
