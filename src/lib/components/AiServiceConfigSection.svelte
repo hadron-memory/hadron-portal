@@ -1,9 +1,10 @@
 <script lang="ts">
-  // Shared wrapper for the AI-config registry surface. Owns the org-ADMIN
-  // gating (UI mirror of the server's enforcement) plus the admin-only and
-  // load-error states, and delegates the actual CRUD UI to
+  // Shared wrapper for the AI-config registry surface. Shows the admin-only /
+  // owner-only and load-error states, and delegates the actual CRUD UI to
   // AiServiceConfigManager. Used identically by the Org / Agent / App surfaces
-  // so the gating + notice copy lives in exactly one place.
+  // so the notice copy lives in exactly one place. Who may manage is decided by
+  // the CALLER (`$lib/ai-config-manage`, portal#2567): an org's ADMIN, or the
+  // owner of a person's App or Agent. The server stays the authority.
   import { onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import type { ListPageNavigation } from '$lib/list-page';
@@ -13,7 +14,7 @@
   import { getAiConfigRecoveryStore, nextAiConfigRecoveryId } from './ai-config-recovery';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import type { AiConfigCommitted, AiConfigMutationPending, AiConfigUncertain } from './ai-config-manager';
-  import type { AiConfigOwnerType, AiServiceConfig, OrgMember } from '$lib/types';
+  import type { AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 
   let {
     pagination,
@@ -22,7 +23,8 @@
     ownerLabel = null,
     ownerUrn = null,
     configs,
-    members = [],
+    canManage,
+    ownerIsPerson,
     currentUserId = null,
     configsError = false,
     allowTest = true,
@@ -36,8 +38,10 @@
     /** The same already-authorized owner's URN; null omits the chip. */
     ownerUrn?: string | null;
     configs: AiServiceConfig[];
-    /** Members of the owning org; the current user's role gates management. */
-    members?: OrgMember[];
+    /** Whether the viewer is shown the controls; see `aiConfigCanManage`. */
+    canManage: boolean;
+    /** True for a person's App or Agent: picks the read-only text that names its owner, not an organization. */
+    ownerIsPerson: boolean;
     currentUserId?: string | null;
     /** True when the (admin-gated) masked list failed to load. */
     configsError?: boolean;
@@ -51,12 +55,6 @@
   const selectedContext = $derived(JSON.stringify([
     $page.data.activeOrgId ?? null, $page.params.appId ?? null,
   ]));
-
-  const canManage = $derived(
-    members.some(
-      (m) => m.user.id === currentUserId && (m.role === 'OWNER' || m.role === 'ADMIN'),
-    ),
-  );
 
   // Outcomes live HERE, outside the manager's form/row and every manager
   // conditional. A newer action supersedes only ordinary success; uncertainty
@@ -366,7 +364,7 @@
       <div class="mb-1 max-w-full"><Urn value={ownerUrn} size={10} compact label={ownerLabel} /></div>
     {/if}
   {/if}
-  <p class="text-sm text-zinc-500">{s.adminOnly()}</p>
+  <p class="text-sm text-zinc-500">{ownerIsPerson ? s.ownerOnly(ownerType) : s.adminOnly()}</p>
 {:else if configsError}
   <div
     class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"

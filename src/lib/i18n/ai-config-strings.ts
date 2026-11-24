@@ -7,6 +7,7 @@
  * Principle III. IDs are stable under the `ai-config.*` namespace.
  */
 
+import type { AiConfigOwnerType } from '$lib/types';
 import { t } from './t';
 
 export const aiConfigStrings = {
@@ -40,6 +41,14 @@ export const aiConfigStrings = {
   /** Shown to non-admins on every AI-config surface (gating mirror). */
   adminOnly: (): string =>
     t('ai-config.admin-only', 'Only organization admins can manage AI service configurations.'),
+  /** Read-only text on a person's App or Agent: the owner manages its key, nobody else (portal#2567). */
+  ownerOnly: (ownerType: AiConfigOwnerType): string =>
+    ownerType === 'AGENT'
+      ? t('ai-config.owner-only-agent', 'Only the owner of this Agent can manage its AI service configurations.')
+      : ownerType === 'APP'
+        ? t('ai-config.owner-only-app', 'Only the owner of this App can manage its AI service configurations.')
+        // Nothing else is a person's: never name an App for another kind of owner.
+        : t('ai-config.admin-only', 'Only organization admins can manage AI service configurations.'),
   /** Surfaced when the masked list fails to load for an admin. */
   loadError: (): string =>
     t('ai-config.load-error', "Couldn't load AI configurations — try again."),

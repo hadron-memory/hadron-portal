@@ -89,8 +89,8 @@ function config(over: Partial<AiServiceConfig> = {}): AiServiceConfig {
 async function open(props: Props = {}, component: unknown = AiServiceConfigSection) {
   const m = mountComponent(component as never, reactiveProps({
     ...managerCallbacks(),
-    ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [], canManage: true, allowTest: true,
-    members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
+    ownerType: 'ORGANIZATION', ownerId: 'o1', configs: [], canManage: true, ownerIsPerson: false, allowTest: true,
+    currentUserId: 'u1',
     ...props,
   }) as never) as Mounted<Props>;
   mounted.push(m);
@@ -160,8 +160,8 @@ describe('AI configuration acknowledgement (#303)', () => {
     expect(manager.target.querySelector('[title="hrn:org:acme.com"]')).not.toBeNull();
 
     const section = await open({
-      ownerLabel: 'Acme', ownerUrn: 'hrn:org:acme.com', canManage: undefined,
-      members: [{ user: { id: 'u1' }, role: 'ADMIN' }], currentUserId: 'u1',
+      ownerLabel: 'Acme', ownerUrn: 'hrn:org:acme.com',
+      canManage: true, currentUserId: 'u1',
     }, AiServiceConfigSection);
     expect(section.target.textContent).toContain('Owned by Acme');
     expect(section.target.querySelector('[title="hrn:org:acme.com"]')).not.toBeNull();
@@ -611,7 +611,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
   it('acknowledges a committed save when refreshed permissions hide the manager', async () => {
     const m = await open();
     stubFetch(() => ({}), () => {
-      m.props.members = [];
+      m.props.canManage = false;
       return { body: { configs: [] } };
     });
     await startCreate(m.target, 'fast');
@@ -770,7 +770,7 @@ describe('AI configuration feedback lifecycle review controls', () => {
     const fresh = await open({
       configs: [config()],
       currentUserId: 'u2',
-      members: [{ user: { id: 'u2' }, role: 'ADMIN' }],
+      canManage: true,
     });
     editRow(fresh.target);
     await settle();
@@ -848,7 +848,6 @@ describe('AI configuration feedback lifecycle review controls', () => {
 
     m.props.currentUserId = 'u2';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
-    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(readbackSignals[0]?.aborted).toBe(true);
   });
@@ -1450,7 +1449,6 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     m.props.currentUserId = 'u2';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
-    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     releaseCreate();
     await settle();
@@ -1463,7 +1461,6 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     m.props.currentUserId = 'u1';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
-    m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(readbacks).toHaveLength(1);
     button(m.target, 'Add configuration').click();
@@ -1512,7 +1509,6 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     m.props.currentUserId = 'u2';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
-    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     m.props.configsError = true;
     await settle();
     m.props.configsError = false;
@@ -1568,7 +1564,6 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     m.props.currentUserId = 'u2';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
-    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).not.toContain('couldn’t be refreshed');
     button(m.target, 'Add configuration').click();
@@ -1577,7 +1572,6 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     m.props.currentUserId = 'u1';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
-    m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).toContain('couldn’t be refreshed');
     button(m.target, 'Add configuration').click();
@@ -1624,7 +1618,6 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     m.props.currentUserId = 'u2';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
-    m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).not.toContain('couldn’t confirm the change went through');
     expect(m.target.querySelector('#ac-key')).toBeNull();
@@ -1635,7 +1628,6 @@ describe('AI configuration code-review lifecycle pins', () => {
 
     m.props.currentUserId = 'u1';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u1', appId: null } } };
-    m.props.members = [{ user: { id: 'u1' }, role: 'ADMIN' }];
     await settle();
     expect(feedback(m.target).textContent).toContain('couldn’t confirm the change went through');
     button(m.target, 'Add configuration').click();
@@ -1986,7 +1978,6 @@ describe('#1898 follow-ups', () => {
     if (kind === 'user') {
       m.props.currentUserId = 'u2';
     principalReply = { body: { principal: { principalType: 'USER', userId: 'u2', appId: null } } };
-      m.props.members = [{ user: { id: 'u2' }, role: 'ADMIN' }];
     } else m.props.ownerId = 'o2';
     await settle();
     release({ ok: false, status: 401, body: { error: 'Unauthorized' } });

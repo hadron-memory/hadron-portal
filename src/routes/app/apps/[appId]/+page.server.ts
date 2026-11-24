@@ -159,7 +159,7 @@ type InstallableAgent = { id: string; name: string; urn: string };
 
 /**
  * What this loader puts on `data.org` (#851): the chrome three, plus the
- * members the AI-config manager's `canManage` reads.
+ * members the AI-config section's `canManage` is read from (`orgRoleCanManage`, org-owned Apps only).
  *
  * A SLICE of Organization rather than Organization, for the reason `OrgChrome`
  * in `/app/orgs/[id]/+layout.server.ts` is one: a consumer that starts reading
@@ -714,7 +714,7 @@ export async function _loadAppPage(
     // subscriptions, exchangeConnections and the full AgentFields to draw a
     // breadcrumb and one permission check; all are non-null lists, so any one of
     // them refusing nulled the org and 404'd this page over data it never shows.
-    // `members` stays (AiServiceConfigSection's canManage). `agents` is NOT in
+    // `members` stays (the AI-config section's canManage for an org App, `orgRoleCanManage`). `agents` is NOT in
     // this document: the install picker draws it, and it is asked for below as
     // a request of its own.
     org = await loadOrgDetail<AppOrg>(

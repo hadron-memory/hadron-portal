@@ -68,7 +68,8 @@ export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
   agents: ['availableAgents', 'bootPointers', 'installMarks', 'canManage'],
   memory: ['appNodes', 'memoryScope', 'appMemories', 'canManage'],
   keys: ['appKeys', 'keyScopes'],
-  'ai-configs': ['aiConfigs'],
+  // portal#2567: the AI section shows its controls to the owner of a person's App, which the canManage read says.
+  'ai-configs': ['aiConfigs', 'canManage'],
   settings: ['staff', 'chatbotConfig', 'wakeRoles', 'chatConfigs', 'canManage', 'memoryScope'],
   'node-role-templates': ['templates'],
   // The Client tab's plugin grid (canManage) and its key status (appKeys).
