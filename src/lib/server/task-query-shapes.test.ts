@@ -14,6 +14,11 @@ import { MEMORY_ASSETS_QUERY } from '$lib/server/assetQueries';
 import {
   CANCEL_APP_RUN_MUTATION,
   CREATE_SCOPE_MUTATION,
+  DELETE_NODE_REVISION_MUTATION,
+  NODE_REVISION_PROVENANCE_QUERY,
+  NODE_REVISION_QUERY,
+  RESTORE_NODE_REVISION_MUTATION,
+  UPDATE_NODE_REVISION_MUTATION,
   APP_RUNS_QUERY,
   DELETE_SCOPE_MUTATION,
   ORG_APP_RUNS_QUERY,
@@ -167,5 +172,35 @@ describe('#2588 appRuns never sends the renamed `parentRunId` argument', () => {
     const drifted = doc.replace(/appRuns\(/, 'appRuns(parentRunId: $p, ');
     expect(drifted).not.toBe(doc);
     expect(errors(drifted).join('\n')).toContain('Unknown argument "parentRunId" on field "Query.appRuns"');
+  });
+});
+
+// #2476 — hadron-server#4766 (#4138) renamed the node-revision calls' `revisionId`
+// argument to `nodeRevRef`, a hard rename with no alias, and declared it
+// `String!` (the ref family's default scalar is `ID!`, so the variable type is
+// taken from the snapshot, not from the family: an `ID!` variable passed to a
+// `String!` argument fails validation). A stale document passes every handler
+// test (the mock answers whatever it is sent) and fails only on a live stack
+// with an unknown-argument error, so each of the five calls the portal makes is
+// pinned against the snapshot, and its drifted form is asserted REFUSED.
+// `nodeRevisions` and `nodeRevisionsPage` take `nodeRef` and are unchanged.
+describe('#2476 the node-revision calls take `nodeRevRef`', () => {
+  it.each([
+    ['NODE_REVISION_QUERY', NODE_REVISION_QUERY, 'nodeRevision', 'Query'],
+    ['NODE_REVISION_PROVENANCE_QUERY', NODE_REVISION_PROVENANCE_QUERY, 'nodeRevision', 'Query'],
+    ['RESTORE_NODE_REVISION_MUTATION', RESTORE_NODE_REVISION_MUTATION, 'restoreNodeRevision', 'Mutation'],
+    ['DELETE_NODE_REVISION_MUTATION', DELETE_NODE_REVISION_MUTATION, 'deleteNodeRevision', 'Mutation'],
+    ['UPDATE_NODE_REVISION_MUTATION', UPDATE_NODE_REVISION_MUTATION, 'updateNodeRevision', 'Mutation'],
+  ])('%s validates, passes `nodeRevRef: $nodeRevRef` typed String!, never `revisionId`', (_name, doc, field, root) => {
+    expect(errors(doc)).toEqual([]);
+    expect(doc).toContain('$nodeRevRef: String!');
+    expect(doc).toContain(`${field}(nodeRevRef: $nodeRevRef`);
+    expect(doc).not.toContain('revisionId');
+    const drifted = doc.replace('nodeRevRef: $nodeRevRef', 'revisionId: $nodeRevRef');
+    expect(drifted).not.toBe(doc);
+    expect(errors(drifted).join('\n')).toContain(`Unknown argument "revisionId" on field "${root}.${field}"`);
+    const wrongType = doc.replace('$nodeRevRef: String!', '$nodeRevRef: ID!');
+    expect(wrongType).not.toBe(doc);
+    expect(errors(wrongType).join('\n')).toContain('$nodeRevRef');
   });
 });
