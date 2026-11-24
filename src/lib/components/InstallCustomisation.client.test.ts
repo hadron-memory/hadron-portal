@@ -913,3 +913,70 @@ describe('empty-list note live region', () => {
     expect(region.getAttribute('role')).toBe('status');
   });
 });
+
+describe('focus survives the list controls unmounting (#2549)', () => {
+  const listOf = (total: number, nodes = [node]) => ({
+    list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes, total, offset: 0 } },
+    replacement: { state: 'not-shown' },
+    original: { state: 'not-shown' },
+  });
+  const serve = (body: unknown) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body))));
+  const two = [node, { ...node, id: 'n2', loc: 'other', name: 'Other' }];
+  const settle = async () => { await new Promise((r) => setTimeout(r, 0)); await tick(4); };
+  const search = (root: HTMLElement) =>
+    root.querySelector<HTMLInputElement>('input[aria-label="Search the customisations on this page"]');
+
+  it('pager: Next that lands on a one-row page leaves focus on the heading, not body', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    const next = button(root, 'Next');
+    next.focus();
+    expect(document.activeElement).toBe(next);
+    serve(listOf(1));
+    next.click();
+    await settle();
+    expect(button(root, 'Next')).toBeUndefined();
+    expect(document.activeElement).toBe(root.querySelector('h3'));
+  });
+
+  it('search: backspacing a stranded filter to empty on a one-row list leaves focus on the heading', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    search(root)!.value = 'zzz';
+    search(root)!.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    serve(listOf(1));
+    button(root, 'Next').click();
+    await settle();
+    const box = search(root)!;
+    box.focus();
+    box.value = '';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(search(root)).toBeNull();
+    expect(document.activeElement).toBe(root.querySelector('h3'));
+  });
+
+  it('control: focus the reader did not have in the list is not stolen by a load', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    const start = button(root, 'Start customising');
+    start.focus();
+    serve(listOf(1));
+    button(root, 'Next').click();
+    await settle();
+    expect(document.activeElement).toBe(start);
+  });
+
+  it('control: a search box that stays mounted keeps its focus', async () => {
+    serve(listOf(25, two));
+    const root = await panel();
+    const box = search(root)!;
+    box.focus();
+    box.value = 'o';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(document.activeElement).toBe(search(root));
+  });
+});
