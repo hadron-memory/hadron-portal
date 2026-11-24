@@ -1812,18 +1812,18 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
   });
 
-  it('switching scope leaves a refusal that is not about the host in place', async () => {
+  it('switching scope drops only the host refusal and leaves another field error in place', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
     await chooseScope(dialog, 'host:operate');
     pickHost(dialog, 'h-2');
     const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
-    f.message = { type: 'error', text: 'Only the App’s managers can do this.' };
-    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
+    f.errors = { hostId: ['This key already operates as host h-1.'], keyId: ['This key was removed.'] };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 400, data: { form: f } });
     flushSync(); await tick(2);
     await chooseScope(dialog, 'attention:deliver');
     await tick(2);
-    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('Only the App’s managers can do this.');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('This key was removed.');
   });
 
   it('picking another host leaves a refusal that is not about the host in place', async () => {
