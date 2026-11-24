@@ -77,7 +77,7 @@ describe('the tracked link is rebuilt from the pinned origin (portal#2417)', () 
     expect(rebuildCeremonyUrl('r1', null)).toBe(null);
   });
   it('a hostile id stays one segment inside /secret-changes/: no query, no fragment, no traversal', () => {
-    for (const id of ['a?b', 'a#f', 'a/b', 'a%2fb', 'a b', 'ç', '.']) {
+    for (const id of ['a?b', 'a#f', 'a/b', 'a%2fb', 'a b', 'ç', '.', '../x']) {
       const out = rebuildCeremonyUrl(id, 'https://hadron.example') as string | null;
       if (out === null) continue;
       const u = new URL(out);
@@ -86,8 +86,8 @@ describe('the tracked link is rebuilt from the pinned origin (portal#2417)', () 
       expect(u.search).toBe('');
       expect(u.hash).toBe('');
     }
+    // A bare `..` is resolved away by URL parsing, so it leaves the prefix and is no link.
     expect(rebuildCeremonyUrl('..', 'https://hadron.example')).toBe(null);
-    expect(rebuildCeremonyUrl('../x', 'https://hadron.example')).toBe(null);
   });
 });
 

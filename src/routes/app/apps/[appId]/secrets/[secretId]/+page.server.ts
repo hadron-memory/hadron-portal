@@ -49,7 +49,7 @@ async function ownedSecret(client: ReturnType<typeof gqlClient>, params: { appId
 function outcome<D>(action: Action, r: SecretWrite<D>, secretId: string, cookies: import('@sveltejs/kit').Cookies) {
   if (r.kind === 'ok') return { action, ok: true as const };
   if (r.kind === 'staged') {
-    trackRequest(cookies, { secretId, requestId: r.requestId, ceremonyUrl: r.ceremonyUrl });
+    trackRequest(cookies, { secretId, requestId: r.requestId });
     return { action, staged: true as const };
   }
   return fail(r.kind === 'plain-protected' ? 403 : 400, { action, message: r.kind === 'plain-protected' ? PLAIN_PROTECTED_TEXT() : r.message });

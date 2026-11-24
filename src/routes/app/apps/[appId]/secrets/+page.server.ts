@@ -49,7 +49,7 @@ export const actions: Actions = {
     });
     if (r.kind === 'ok') return { action: 'create' as const, ok: true as const, name };
     if (r.kind === 'staged') {
-      trackRequest(cookies, { create: { appId: app.id, name }, requestId: r.requestId, ceremonyUrl: r.ceremonyUrl });
+      trackRequest(cookies, { create: { appId: app.id, name }, requestId: r.requestId });
       return { action: 'create' as const, staged: true as const, name };
     }
     return fail(r.kind === 'plain-protected' ? 403 : 400, { action: 'create' as const, name, message: r.kind === 'plain-protected' ? PLAIN_PROTECTED_TEXT() : r.message });

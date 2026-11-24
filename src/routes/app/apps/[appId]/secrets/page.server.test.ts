@@ -197,7 +197,7 @@ describe('list route', () => {
     const c = jar();
     const r = await actions.create(ev(c, { request: form({ name: 'stripe-key', value: 'sk', protected: 'on' }) }));
     expect(r).toEqual({ action: 'create', staged: true, name: 'stripe-key' });
-    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)).toEqual([{ create: { appId: 'app-1', name: 'stripe-key' }, requestId: 'r1', ceremonyUrl: URL_ }]);
+    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)).toEqual([{ create: { appId: 'app-1', name: 'stripe-key' }, requestId: 'r1' }]);
     expect(request).toHaveBeenCalledWith(CREATE_SECRET_MUTATION, expect.objectContaining({ ownerRef: 'app-1', kind: 'generic', protected: true }));
   });
   it('create rejects a bad name and an empty value before any call', async () => {

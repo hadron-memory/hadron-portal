@@ -46,7 +46,7 @@ describe('the cookie carries no URL (portal#2417)', () => {
   });
   it('a written cookie never contains a ceremonyUrl, and a rewrite drops one it read', () => {
     const out = serializeTracked(parseTracked(row('https://evil.example/secret-changes/a')));
-    expect(out).toBe(JSON.stringify([{ secretId: 's1', requestId: 'r1' }]));
+    expect(JSON.parse(out)).toEqual([{ secretId: 's1', requestId: 'r1' }]);
     expect(out).not.toContain('ceremonyUrl');
   });
 });
