@@ -28,7 +28,7 @@ describe('aiConfigCanManage (portal#2567)', () => {
   it('a person\'s thing while impersonating is read-only (cor:acl:100:02)', () => {
     expect(aiConfigCanManage({ ...person, canManageFlag: true, impersonating: true })).toBe(false);
   });
-  it('a platform admin on someone\'s personal Agent is read-only even when effectiveAccess says manage', () => {
+  it('a platform admin on a person\'s App or Agent is read-only even when effectiveAccess says manage', () => {
     expect(aiConfigCanManage({ ...person, canManageFlag: true, platformAdmin: true })).toBe(false);
   });
   it('an organization\'s App or Agent follows the viewer\'s org role whatever the flag says', () => {

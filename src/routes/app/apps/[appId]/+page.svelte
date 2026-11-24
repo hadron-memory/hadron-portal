@@ -455,6 +455,8 @@
     return read?.kind === 'known' ? 'shown' : 'unknown';
   });
   const impersonating = $derived(!!data.impersonation);
+  // Platform roles (ADMIN, OWNER), not the organization roles the same words name elsewhere on this page.
+  const viewerIsPlatformAdmin = $derived(!!(data.user?.roles?.includes('ADMIN') || data.user?.roles?.includes('OWNER')));
   const keysWithheldReason = $derived.by(() => {
     const seeAlso = keysState === 'hidden';
     if (impersonating) {
@@ -4666,7 +4668,7 @@
           ownerUrn={app.urn}
           pagination={tabData.configsPage}
           configs={tabData.appConfigs ?? []}
-          canManage={aiConfigCanManage({ ownerIsPerson: !app.organizationId, orgMembers: org?.members, userId: data.currentUserId, canManageFlag: tabData.canManageApp ?? null, impersonating })}
+          canManage={aiConfigCanManage({ ownerIsPerson: !app.organizationId, orgMembers: org?.members, userId: data.currentUserId, canManageFlag: tabData.canManageApp ?? null, impersonating, platformAdmin: viewerIsPlatformAdmin })}
           ownerIsPerson={!app.organizationId}
           currentUserId={data.currentUserId}
           configsError={tabData.configsError}

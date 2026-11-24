@@ -39,8 +39,8 @@ describe('a personal Agent, AI tab', () => {
     expect(hasAdd(p)).toBe(false);
     expect(p.textContent).toContain(OWNER_ONLY);
   });
-  it('a platform admin who is not the owner (effectiveAccess says manage, the gate refuses) is read-only', async () => {
-    const p = await mountAi({ canManageAgent: true, user: { roles: ['ADMIN'] } });
+  it.each(['ADMIN', 'OWNER'])('a platform %s (effectiveAccess says manage, the gate refuses) is read-only', async (role) => {
+    const p = await mountAi({ canManageAgent: true, user: { roles: [role] } });
     expect(hasAdd(p)).toBe(false);
     expect(p.textContent).toContain(OWNER_ONLY);
   });

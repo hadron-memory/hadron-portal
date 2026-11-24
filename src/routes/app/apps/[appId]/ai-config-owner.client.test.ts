@@ -46,12 +46,10 @@ describe('a person\'s App, AI tab', () => {
     expect(p.textContent).toContain(OWNER_ONLY);
     expect(p.textContent).not.toContain('organization');
   });
-  it('a platform admin is decided by the server flag like anyone else: a person\'s App has no platform-admin term, and effectiveAccess gives manage to its owner and nobody else', async () => {
-    const p = await mountAi({ canManageApp: false, user: { roles: ['ADMIN'] } });
+  it.each(['ADMIN', 'OWNER'])('a platform %s is read-only even when the flag says manage: they may only clear a key (cor:dmo:050:12)', async (role) => {
+    const p = await mountAi({ canManageApp: true, user: { roles: [role] } });
     expect(hasAdd(p)).toBe(false);
     expect(p.textContent).toContain(OWNER_ONLY);
-    const owner = await mountAi({ canManageApp: true, user: { roles: ['ADMIN'] } });
-    expect(hasAdd(owner)).toBe(true);
   });
   it('an impersonated session is read-only even for the owner', async () => {
     const p = await mountAi({ canManageApp: true, impersonation: { sessionId: 's', actorUserId: 'admin', orgId: 'o', expiresAt: Date.now() + 60_000 } });

@@ -30,11 +30,10 @@ export function aiConfigCanManage(input: {
    */
   impersonating?: boolean;
   /**
-   * Agent only. `effectiveAccess` reports manage to a platform admin on someone's personal Agent, and the
-   * AI-config gate refuses them; the Agent has no owner field here to tell an admin who is also the owner
-   * apart, so an admin is read-only (the CLI still works for them). An App needs no such term: for a
-   * person's App `effectiveAccess` gives manage to the owner and to nobody else, and the drift there runs
-   * the safe way (an owner-role member reads false), see `selfCanManage` in `boot-prompt-pointer.ts`.
+   * A platform admin is never shown the controls on a person's App or Agent (cor:dmo:050:12 and :13: they may
+   * only clear a key). `effectiveAccess` can report manage to one on a personal Agent, and the AI-config gate
+   * refuses them, so this term does not lean on the flag. Neither the App nor the Agent has an owner field
+   * here to tell an admin who is also the owner apart, so such an admin is read-only (the CLI still works).
    */
   platformAdmin?: boolean;
 }): boolean {
