@@ -20,6 +20,13 @@ import type {
 
 type Entry = readonly [path: string, ext: PortalExtension];
 
+/** Plain code-point order, so "id order" does not depend on ICU or the locale. */
+function compareCodePoints(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+const SLUG = /^[a-z0-9][a-z0-9-]*$/;
+
 /**
  * An extension's id is its directory name. `path` is the glob key, e.g.
  * `./alpha/index.ts`. Directory names are unique, so this also keeps ids unique;
@@ -38,14 +45,17 @@ export function assertIdsMatchPaths(entries: readonly Entry[]): void {
 
 const found = import.meta.glob<{ default: PortalExtension }>('./*/index.ts', { eager: true });
 const foundEntries = Object.entries(found)
-  .sort(([a], [b]) => a.localeCompare(b))
-  .map(([path, m]): Entry => [path, m.default]);
+  .sort(([a], [b]) => compareCodePoints(a, b))
+  .map(([path, m]): Entry => {
+    if (!m.default) throw new Error(`Extension module ${path} has no default export; it must default-export a PortalExtension.`);
+    return [path, m.default];
+  });
 assertIdsMatchPaths(foundEntries);
 
 export const installedExtensions: readonly PortalExtension[] = foundEntries.map(([, ext]) => ext);
 
 function byId(exts: readonly PortalExtension[]): PortalExtension[] {
-  return [...exts].sort((a, b) => a.id.localeCompare(b.id));
+  return [...exts].sort((a, b) => compareCodePoints(a.id, b.id));
 }
 
 const NO_ORG_CTX = { orgId: '', basePath: '', viewerOrgRole: null } satisfies OrgTabContext;
@@ -56,8 +66,9 @@ const NO_ACCOUNT_CTX = { basePath: '' } satisfies AccountTabContext;
  * command id or a command trigger, naming both. A build-time failure, never a
  * silent overwrite.
  *
- * Tabs are read with an empty context: which tabs exist, and where they point,
- * must not depend on who is looking.
+ * Tabs are read once with an empty context, so their ids and hrefs must not
+ * depend on who is looking: a tab that varies by role or organization is judged
+ * only by what it returns for no one. The README says so.
  */
 export function assertNoClashes(exts: readonly PortalExtension[]): void {
   const owners = new Map<string, string>();
@@ -70,23 +81,37 @@ export function assertNoClashes(exts: readonly PortalExtension[]): void {
     owners.set(key, owner);
   };
   for (const ext of byId(exts)) {
+    if (!SLUG.test(ext.id)) throw new Error(`Extension id "${ext.id}" must be a lowercase slug (a-z, 0-9, hyphen).`);
     claim('extension id', ext.id, ext.id);
-    const tabs = [...(ext.orgTabs?.(NO_ORG_CTX) ?? []), ...(ext.accountTabs?.(NO_ACCOUNT_CTX) ?? [])];
-    for (const t of tabs) {
-      claim('tab id', t.id, ext.id);
-      claim('tab href', t.href, ext.id);
+    // Org tabs and account tabs live on different pages, so each kind has its own
+    // namespace: one extension may use one id (and one relative href) in both.
+    for (const t of ext.orgTabs?.(NO_ORG_CTX) ?? []) {
+      claim('org tab id', t.id, ext.id);
+      claim('org tab href', t.href, ext.id);
+    }
+    for (const t of ext.accountTabs?.(NO_ACCOUNT_CTX) ?? []) {
+      claim('account tab id', t.id, ext.id);
+      claim('account tab href', t.href, ext.id);
     }
     for (const c of ext.commands ?? []) {
       claim('command id', c.id, ext.id);
-      for (const trigger of c.triggers) claim('command trigger', trigger, ext.id);
+      for (const trigger of c.triggers) {
+        if (trigger !== trigger.toLowerCase()) throw new Error(`Command trigger "${trigger}" in extension "${ext.id}" must be lowercase.`);
+        claim('command trigger', trigger, ext.id);
+      }
     }
   }
 }
 
 assertNoClashes(installedExtensions);
 
+/** `installedExtensions` was checked when this module loaded; check a list handed in. */
+function checkSupplied(exts: readonly PortalExtension[]): void {
+  if (exts !== installedExtensions) assertNoClashes(exts);
+}
+
 export function extensionOrgTabs(ctx: OrgTabContext, exts: readonly PortalExtension[] = installedExtensions): ExtTab[] {
-  assertNoClashes(exts);
+  checkSupplied(exts);
   return byId(exts).flatMap((e) => e.orgTabs?.(ctx) ?? []);
 }
 
@@ -94,12 +119,12 @@ export function extensionAccountTabs(
   ctx: AccountTabContext,
   exts: readonly PortalExtension[] = installedExtensions,
 ): ExtTab[] {
-  assertNoClashes(exts);
+  checkSupplied(exts);
   return byId(exts).flatMap((e) => e.accountTabs?.(ctx) ?? []);
 }
 
 export function extensionCommands(exts: readonly PortalExtension[] = installedExtensions): ExtCommand[] {
-  assertNoClashes(exts);
+  checkSupplied(exts);
   return byId(exts).flatMap((e) => e.commands ?? []);
 }
 

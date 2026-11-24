@@ -19,11 +19,20 @@ does without this directory.
   Extensions are ordered by `id`; within one extension, tabs and commands keep
   the order it returns.
 - A duplicate extension id, tab id, tab href, command id or command trigger
-  across extensions throws when the registry loads. It is a build failure, never
-  a silent overwrite.
+  throws when the registry loads. It is a build failure, never a silent
+  overwrite. Org tabs and account tabs are separate lists: one extension may use
+  the same tab id in both. An id must be a lowercase slug and a trigger lowercase.
+- Tab ids and hrefs are checked once, with an empty context, so they must not
+  depend on the viewer or the organization. What a tab shows may.
+- An extension function that throws breaks every page that renders its tabs;
+  keep them total.
 - `index.ts` is bundled for the browser, so it must not import `$lib/server/*`
   or `$env/dynamic/private`.
-- Routes are ordinary files under `src/routes/`.
+- Routes are ordinary files under `src/routes/`. Those are **not** git-ignored,
+  so every file of an extension outside `src/lib/ext/<id>/` (route files
+  included) must carry the marker that `scripts/check-no-private-ext.mjs`
+  defines, in a comment. That marker is what makes the guard fail if such a file
+  is ever staged; without it the file is invisible to the guard.
 - A tab or command an extension adds is **display only**. Every route it adds
   gates in its own loader, through the server; the server decides what a viewer
   may see or do.
