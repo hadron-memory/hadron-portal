@@ -49,7 +49,8 @@
     { accessorKey: 'triggerKind', header: t('runs.col.trigger', 'Trigger'), enableSorting: false, size: 180 },
     { accessorKey: 'entryNodeUrn', header: t('runs.col.entry', 'Entry node'), enableSorting: false, size: 300, minSize: 220 },
     { accessorKey: 'startedAt', header: t('runs.col.started', 'Started'), size: 200 },
-    { id: 'duration', header: t('runs.col.duration', 'Duration'), size: 110 },
+    // TanStack only treats a column as sortable when it has an accessor; the server does the ordering (manualSorting), this one just makes the header a control.
+    { id: 'duration', accessorFn: r => (r.startedAt && r.finishedAt ? Date.parse(r.finishedAt) - Date.parse(r.startedAt) : undefined), header: t('runs.col.duration', 'Duration'), size: 110 },
     { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 140, minSize: 140 },
   ];

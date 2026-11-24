@@ -87,7 +87,8 @@
   let globalFilter = $state('');
 
   // portal#1499: Duration is the one column the server orders. Choosing it (or leaving it) rewrites `?sort=&dir=` so the loader
-  // fetches the window in that order; every other column sorts inside whatever window is loaded.
+  // fetches the window in that order; every other column sorts inside whatever window is loaded. A sort click replaces the history
+  // entry (it refines the page the reader is on, like the filters), so the effect below only has to follow external navigation.
   const initialSorting = () => (data.sort ? [{ id: 'duration', desc: data.dir === 'desc' }] : []);
   let sorting = $state<{ id: string; desc: boolean }[]>(initialSorting());
   // Back and forward change the URL without a click, so the header follows what the server was asked for.
@@ -152,7 +153,7 @@
       const was = sorting[0]?.id === 'duration' ? sorting[0] : undefined;
       sorting = next;
       const now = next[0]?.id === 'duration' ? next[0] : undefined;
-      if (was?.desc === now?.desc && !!was === !!now) return;
+      if (was?.desc === now?.desc) return; // undefined (no Duration sort) differs from true/false
       const search = orgRunsSortSearch(new URLSearchParams(location.search), next);
       void goto(search || location.pathname, { keepFocus: true, noScroll: true, replaceState: true });
     },

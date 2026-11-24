@@ -82,17 +82,48 @@ describe('org runs page: the Duration order is the server\'s (portal#1499)', () 
 
   beforeEach(() => { resetNavigationCalls(); });
 
-  it('asks the server for Duration when the header is chosen, flips it, and leaves the order when another column is chosen', async () => {
+  it('asks the server for Duration desc then asc, and clears the pair when another column is chosen', async () => {
     const m = await mountPage([finished('a', 1000), finished('b', 5000), run('open')]);
-    durationHeader(m).click();
-    for (let i = 0; i < 6; i++) await tick();
-    durationHeader(m).click();
-    for (let i = 0; i < 6; i++) await tick();
+    const header = (label: string) => { const th = [...m.target.querySelectorAll('thead th')].find(h => h.textContent?.includes(label))!; return (th.querySelector('button') ?? th) as HTMLElement; };
+    for (const label of ['Duration', 'Duration', 'Started']) {
+      header(label).click();
+      for (let i = 0; i < 6; i++) await tick();
+    }
     const calls = gotos();
-    expect(calls.length).toBe(2);
+    expect(calls).toHaveLength(3);
+    expect(new URL(calls[0], 'https://t').searchParams.get('dir')).toBe('desc');
     expect(calls[0]).toContain('sort=duration');
     expect(calls[1]).toContain('sort=duration');
-    expect(calls[0]).not.toEqual(calls[1]);
+    expect(new URL(calls[1], 'https://t').searchParams.get('dir')).toBe('asc');
+    expect(calls[2]).not.toContain('sort=');
+  });
+
+  it('moves the header when the URL changes without a click (back and forward)', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...data([finished('a', 1000)]), sort: null, dir: 'desc' } });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    const aria = () => durationHeader(m).closest('th')?.getAttribute('aria-sort') ?? null;
+    for (let i = 0; i < 8; i++) await tick();
+    expect(aria()).toBeNull();
+    props.data = { ...data([finished('a', 1000)]), sort: 'duration', dir: 'asc' };
+    for (let i = 0; i < 8; i++) await tick();
+    expect(aria()).toBe('ascending');
+    props.data = { ...data([finished('a', 1000)]), sort: null, dir: 'desc' };
+    for (let i = 0; i < 8; i++) await tick();
+    expect(aria()).toBeNull();
+    expect(gotos()).toEqual([]);
+  });
+
+  it('goes back to the most-recent truncation note when the Duration order is left', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...data([finished('a', 1000)]), total: 900, truncated: true, sort: 'duration', dir: 'asc' } });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    for (let i = 0; i < 8; i++) await tick();
+    expect(m.target.textContent).toContain('shortest of 900 runs by Duration');
+    props.data = { ...data([finished('a', 1000)]), total: 900, truncated: true, sort: null, dir: 'desc' };
+    for (let i = 0; i < 8; i++) await tick();
+    expect(m.target.textContent).toContain('most recent of 900 runs');
+    expect(m.target.textContent).not.toContain('by Duration');
   });
 
   it('puts unfinished runs last in both directions', async () => {
