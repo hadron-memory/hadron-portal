@@ -4672,8 +4672,8 @@ export const APP_RUNS_QUERY = /* GraphQL */ `
 // differs, and `orgRef` accepts an org id or URN.
 export const ORG_APP_RUNS_QUERY = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  query OrgAppRuns($orgRef: String, $status: AppRunStatus, $limit: Int, $offset: Int) {
-    appRuns(orgRef: $orgRef, status: $status, limit: $limit, offset: $offset) {
+  query OrgAppRuns($orgRef: String, $status: AppRunStatus, $sortBy: AppRunSortField, $sortDir: SortDirection, $limit: Int, $offset: Int) {
+    appRuns(orgRef: $orgRef, status: $status, sortBy: $sortBy, sortDir: $sortDir, limit: $limit, offset: $offset) {
       items { ...AppRunFields }
       total
     }

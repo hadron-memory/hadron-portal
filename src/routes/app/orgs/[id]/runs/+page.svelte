@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { goto } from '$app/navigation';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   // "App Runs" — every headless (LLM) run in the active org, across all its
   // apps. Same shape as the Task Nodes page: the shared DataTable chrome
@@ -11,6 +13,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import { runSearchExtras } from './run-search';
+  import { orgRunsSortSearch } from '$lib/flow/org-runs-sort';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
@@ -83,6 +86,22 @@
 
   let globalFilter = $state('');
 
+  // portal#1499: Duration is the one column the server orders. Choosing it (or leaving it) rewrites `?sort=&dir=` so the loader
+  // fetches the window in that order; every other column sorts inside whatever window is loaded.
+  const initialSorting = () => (data.sort ? [{ id: 'duration', desc: data.dir === 'desc' }] : []);
+  let sorting = $state<{ id: string; desc: boolean }[]>(initialSorting());
+  // Back and forward change the URL without a click, so the header follows what the server was asked for.
+  $effect(() => {
+    const serverSort = data.sort;
+    const desc = data.dir === 'desc';
+    const current = untrack(() => sorting[0]);
+    if (serverSort) {
+      if (current?.id !== 'duration' || current.desc !== desc) sorting = [{ id: 'duration', desc }];
+    } else if (current?.id === 'duration') {
+      sorting = [];
+    }
+  });
+
   const columns: PortalColumnDef<RunRow>[] = [
     // Identity column: when it ran. Numeric accessor sorts chronologically;
     // `started` carries the rendered string for display and search.
@@ -105,7 +124,8 @@
     { accessorKey: 'app', header: t('org-runs.column.app', 'App'), size: 160 },
     { accessorKey: 'trigger', header: t('org-runs.column.trigger', 'Trigger'), size: 170 },
     { accessorKey: 'entry', header: t('org-runs.column.entry', 'Entry node'), size: 280 },
-    { accessorFn: (row) => row.durationMs, id: 'duration', header: t('org-runs.column.duration', 'Duration'), size: 100 },
+    // Unfinished runs have no duration: `undefined` (not null) so they sort last in both directions, as the server does.
+    { accessorFn: (row) => row.durationMs ?? undefined, id: 'duration', header: t('org-runs.column.duration', 'Duration'), sortUndefined: 'last', size: 100 },
     { accessorKey: 'failure', header: t('org-runs.column.failure', 'Failure'), size: 200 },
     // Hiding the only way into a run's detail (and its kill switch) is a trap.
     { id: 'actions', header: t('org-runs.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
@@ -123,6 +143,18 @@
       get globalFilter() {
         return globalFilter;
       },
+      get sorting() {
+        return sorting;
+      },
+    },
+    onSortingChange: (u) => {
+      const next = typeof u === 'function' ? u(sorting) : u;
+      const was = sorting[0]?.id === 'duration' ? sorting[0] : undefined;
+      sorting = next;
+      const now = next[0]?.id === 'duration' ? next[0] : undefined;
+      if (was?.desc === now?.desc && !!was === !!now) return;
+      const search = orgRunsSortSearch(new URLSearchParams(location.search), next);
+      void goto(search || location.pathname, { keepFocus: true, noScroll: true, replaceState: true });
     },
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
@@ -222,7 +254,15 @@
   {:else}
     {#if data.truncated}
       <p class="text-sm text-amber-600 dark:text-amber-400">
-        {t('org-runs.truncated', 'Showing the {shown} most recent of {total} runs. Filters apply to these {shown}.', { shown: rows.length, total: data.total })}
+        {data.sort
+          ? t(
+              data.dir === 'asc' ? 'org-runs.truncated.duration-asc' : 'org-runs.truncated.duration-desc',
+              data.dir === 'asc'
+                ? 'Showing the {shown} shortest of {total} runs by Duration. Filters apply to these {shown}.'
+                : 'Showing the {shown} longest of {total} runs by Duration. Filters apply to these {shown}.',
+              { shown: rows.length, total: data.total },
+            )
+          : t('org-runs.truncated', 'Showing the {shown} most recent of {total} runs. Filters apply to these {shown}.', { shown: rows.length, total: data.total })}
       </p>
     {/if}
 
@@ -241,7 +281,9 @@
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
         <span class="font-medium text-zinc-600 dark:text-zinc-300">
           {data.truncated
-            ? t('org-runs.empty.filtered-truncated', 'No runs match the current filters — and only the {shown} most recent runs were searched.', { shown: rows.length })
+            ? data.sort
+              ? t('org-runs.empty.filtered-truncated-duration', 'No runs match the current filters — and only the {shown} runs in this Duration order were searched.', { shown: rows.length })
+              : t('org-runs.empty.filtered-truncated', 'No runs match the current filters — and only the {shown} most recent runs were searched.', { shown: rows.length })
             : t('org-runs.empty.filtered', 'No runs match the current filters.')}
         </span>
         <button

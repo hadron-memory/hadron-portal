@@ -3,6 +3,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { ORG_APP_RUNS_QUERY, ORG_APP_INSTALLS_QUERY } from '$lib/server/queries';
 import type { AppRun } from '$lib/flow/runs';
 import { isAppRunRow } from '$lib/flow/app-runs-page';
+import { parseOrgRunsSort } from '$lib/flow/org-runs-sort';
 import type { PageServerLoad } from './$types';
 
 // "App Runs" — every headless run (AppRun) across the ACTIVE org's apps, the
@@ -28,8 +29,12 @@ const WINDOW = 200; // the appRuns hard cap for one request
 /** One org app, as the App column's id→name map consumes it. */
 type AppInstall = { id: string; name: string; agentId: string | null };
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
+  // portal#1499: Duration is the first column the server orders (the ruled end state is every column, in steps). The window is
+  // the 200 runs in that order, so the longest run in the org leads even when it is older than the latest 200; the other
+  // columns still sort inside the window. Anything but `sort=duration` keeps the default most-recent window.
+  const { sort, dir } = parseOrgRunsSort(url.searchParams);
 
   const [runsResult, apps] = await Promise.all([
     // The list itself. A failure is reported as `failed` rather than an empty
@@ -41,6 +46,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
         status: null,
         limit: WINDOW,
         offset: 0,
+        ...(sort ? { sortBy: sort, sortDir: dir } : {}),
       })
       .then((d) => {
         // Refuse a malformed page before any formatter or table sees it: the per-app sibling does the same
@@ -77,6 +83,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     // rather than silently capping.
     truncated: runsResult.total > runsResult.items.length,
     windowSize: WINDOW,
+    sort,
+    dir,
     appNames,
   };
 };

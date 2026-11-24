@@ -3,7 +3,8 @@
  * same way as the per-app table and the run detail page: `Unknown: {raw}` in a
  * neutral chip that borrows no known state's colour or label.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Page from './+page.svelte';
@@ -67,5 +68,49 @@ describe('org runs page: the zero-match banner (portal#2378)', () => {
     for (let i = 0; i < 8; i++) await tick();
     expect(region()).toBe(before);
     expect(before!.textContent).toContain('No runs match the current filters');
+  });
+});
+
+describe('org runs page: the Duration order is the server\'s (portal#1499)', () => {
+  const finished = (id: string, ms: number) => run(id, { startedAt: '2026-11-01T00:00:00Z', finishedAt: new Date(Date.parse('2026-11-01T00:00:00Z') + ms).toISOString() });
+  const durationHeader = (m: Mounted<Record<string, unknown>>) => {
+    const th = [...m.target.querySelectorAll('thead th')].find(h => h.textContent?.includes('Duration'))!;
+    return (th.querySelector('button') ?? th) as HTMLElement;
+  };
+  const gotos = () => navigationCalls.filter(c => c.fn === 'goto').map(c => String(c.args[0]));
+  const ids = (m: Mounted<Record<string, unknown>>) => [...m.target.querySelectorAll('tbody tr')].map(r => r.textContent ?? '');
+
+  beforeEach(() => { resetNavigationCalls(); });
+
+  it('asks the server for Duration when the header is chosen, flips it, and leaves the order when another column is chosen', async () => {
+    const m = await mountPage([finished('a', 1000), finished('b', 5000), run('open')]);
+    durationHeader(m).click();
+    for (let i = 0; i < 6; i++) await tick();
+    durationHeader(m).click();
+    for (let i = 0; i < 6; i++) await tick();
+    const calls = gotos();
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toContain('sort=duration');
+    expect(calls[1]).toContain('sort=duration');
+    expect(calls[0]).not.toEqual(calls[1]);
+  });
+
+  it('puts unfinished runs last in both directions', async () => {
+    const m = await mountPage([run('open'), finished('a', 1000), finished('b', 5000)]);
+    durationHeader(m).click();
+    for (let i = 0; i < 6; i++) await tick();
+    expect(ids(m).at(-1)).toContain('open');
+    durationHeader(m).click();
+    for (let i = 0; i < 6; i++) await tick();
+    expect(ids(m).at(-1)).toContain('open');
+  });
+
+  it('names the order in the truncation note and starts with the header on the served direction', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...data([finished('a', 1000)]), total: 900, truncated: true, sort: 'duration', dir: 'desc' } });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    for (let i = 0; i < 8; i++) await tick();
+    expect(m.target.textContent).toContain('longest of 900 runs by Duration');
+    expect(durationHeader(m).closest('th')?.getAttribute('aria-sort')).toBe('descending');
   });
 });
