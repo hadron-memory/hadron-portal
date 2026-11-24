@@ -1223,7 +1223,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
  // in the tables below must show its whole value, or at least CHIP_VALUE_MIN_PX of it (about 26 characters of the chip's
  // 0.6rem mono, the shape "e2e-alpha:team:bartholomew"), at every width, and must still carry the full URN as its title.
  const CHIP_VALUE_MIN_PX = 150;
- const CHIP_READABLE_ROWS = ['app-tasks:roster', 'app-tasks:composition-workers', 'app-tasks:composition-lanes', 'task-review-slots'];
+ const CHIP_READABLE_ROWS = ['app-tasks:roster', 'app-tasks:composition-workers', 'app-tasks:composition-lanes', 'task-review-slots', 'app-tasks:alarms', 'app-tasks:board'];
  const chipReadable = scope => async (page, leg) => {
   const chips = await page.locator(`${scope}tbody td span[title^="hrn:"].line-clamp-1`).evaluateAll(els => els.map(el => ({ urn: el.title, titled: /^hrn:worker:example\.test:fixture:[a-z0-9]+$/.test(el.title), px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 })));
   if (!chips.length) failures.push(`${leg}: no compact URN chip found to measure`);

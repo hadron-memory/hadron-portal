@@ -10,6 +10,8 @@ import TaskClones from '$lib/components/agent-tasks/TaskClones.svelte';
 import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
 import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
 import TasksComposition from '$lib/components/agent-tasks/TasksComposition.svelte';
+import TasksAlarms from '$lib/components/agent-tasks/TasksAlarms.svelte';
+import TaskBoardHarness from './TaskBoardHarness.svelte';
 import TasksRoster from '$lib/components/agent-tasks/TasksRoster.svelte';
 import { LONG_WORKER_NAME } from './party-label-cell-harness';
 
@@ -27,6 +29,8 @@ export const AGENT_TASK_CELL_ROWS = [
   // The Composition view mounts two tables; `scope` keeps each row's cells to its own table.
   { listKey: 'app-tasks:composition-workers', measured: false, scope: 'section[aria-labelledby="composition-workers"] ' },
   { listKey: 'app-tasks:roster', measured: false, scope: '' },
+  { listKey: 'app-tasks:alarms', measured: false, scope: '' },
+  { listKey: 'app-tasks:board', measured: false, scope: '' },
   { listKey: 'tasks:immutable-findings', measured: false, scope: '' },
   { listKey: 'app-tasks:composition-lanes', measured: false, scope: 'section[aria-labelledby="composition-lanes"] ' },
 ] as const;
@@ -38,6 +42,9 @@ const LONG_TITLE = 'LongTaskTitleWithSixtyUnbrokenCharactersABCDEFGHIJKLMNOPQRST
 // PartyLabel (shared by 25 callers) is judged at a realistic name; the long-name containment
 // limit is #2506, pinned by the party-label battery and this roster row's reportsTo cell.
 const LONG_NAME = 'GabrielaTheEngineer';
+// portal#2597: a roster row whose own worker name is too long to fit whole, so the chip floor
+// (CHIP_VALUE_MIN_PX in the harness) is what the readability pin measures, not the name's length.
+const ROSTER_LONG_NAME = 'BartholomewTheLongNamedWorker';
 const LONG_ROLE = 'a-very-long-role-token-with-no-spaces-in-it-at-all-0123456789';
 const LONG_STATE = 'A_STATE_THE_SERVER_ADDED_AFTER_THIS_PORTAL_SHIPPED';
 const time = '2026-11-01T02:04:36Z';
@@ -88,6 +95,31 @@ export function mountAgentTaskCell(target: HTMLElement, row: AgentTaskCellRow) {
     const instance = mount(TasksComposition, { target, props: { basePath: '/app/apps/fixture', composition: { kind: 'ok', value: { appId: 'fixture', asOf: time, lanes: [lane] } } } as never });
     return () => unmount(instance);
   }
+  if (row === 'app-tasks:alarms') {
+    // portal#2597: the Concerns cell. Only a start-failing alarm shows the worker's chip (showUrn), so the
+    // fixture raises that type with a name too long to fit whole, and the floor is what the pin measures.
+    const alarm = (i: number) => ({
+      id: `alarm-${i}`, type: 'alarm.start-failing', severity: 'ALARM' as const, taskId: null, createdAt: time,
+      subjectWorker: worker(`${ROSTER_LONG_NAME}${i}`), acknowledgedAt: null, acknowledgedBy: null, wakes: [],
+    });
+    const instance = mount(TasksAlarms, { target, props: { alarms: { kind: 'ok', value: { alarms: [alarm(1), alarm(2)], nextBefore: null } }, filter: 'all', refs: {}, basePath: '/app/apps/fixture' } as never });
+    return () => unmount(instance);
+  }
+  if (row === 'app-tasks:board') {
+    // portal#2597: the Owner and Assignee cells of the App task board (the real page, through its test harness).
+    const task = (i: number) => ({
+      id: `t${i}`, handle: `AT0.${i}`, parentTaskId: null, title: 'Task', status: 'STARTED', queued: false, waitingOnChildren: false,
+      priority: null, blocked: null, source: null, owner: worker(`${ROSTER_LONG_NAME}Owner${i}`), assignee: worker(`${ROSTER_LONG_NAME}Assignee${i}`),
+      startBy: null, finishBy: null, overdue: false, createdAt: time, updatedAt: null, tags: [],
+    });
+    const initial = {
+      app: { id: 'fixture', name: 'Team', urn: 'hrn:app:example.test:fixture', organizationId: null },
+      view: 'board', filter: 'all', text: '', boardLimit: 200, loadedAt: time, impersonating: null,
+      board: { kind: 'ok', value: { capped: false, tasks: [task(1), task(2)] } },
+    };
+    const instance = mount(TaskBoardHarness, { target, props: { initial } as never });
+    return () => unmount(instance);
+  }
   if (row !== 'app-tasks:roster') throw new Error(`agent-tasks-cell-harness: no fixture for row ${String(row)}`);
   const entry = (state: string, name: string, reportsTo: ReturnType<typeof worker> | null = null) => ({
     worker: worker(name), role: LONG_ROLE, state, family: 'claude', freeFamilies: [], launchableFamilies: [], unavailableFamilies: [],
@@ -96,6 +128,6 @@ export function mountAgentTaskCell(target: HTMLElement, row: AgentTaskCellRow) {
   });
   // portal#2506: Ada's reportsTo is a 27-character worker, so the real caller's
   // defeating wrapper (`inline-flex flex-wrap`, no max-w-full/min-w-0) is judged.
-  const instance = mount(TasksRoster, { target, props: { basePath: '/app/apps/fixture', refs: {}, roster: { kind: 'ok', value: { asOf: time, workers: [entry(LONG_STATE, 'Ada', worker(LONG_WORKER_NAME)), entry('WORKING', 'Bea')] } } } as never });
+  const instance = mount(TasksRoster, { target, props: { basePath: '/app/apps/fixture', refs: {}, roster: { kind: 'ok', value: { asOf: time, workers: [entry(LONG_STATE, ROSTER_LONG_NAME, worker(LONG_WORKER_NAME)), entry('WORKING', `${ROSTER_LONG_NAME}Second`)] } } } as never });
   return () => unmount(instance);
 }

@@ -27,6 +27,7 @@
     partySearchText,
     taskDisplayState,
     taskStateLabel,
+    URN_CHIP_COLUMN_PX,
     waitingOnSubtasksLabel,
     type BoardFilter,
   } from '$lib/agent-tasks/status';
@@ -123,8 +124,8 @@
     // default for fresh views.
     { id: 'startBy', accessorFn: (r) => r.startByMs, header: t('app.tasks.col.start-by', 'Start by'), size: 200 },
     { id: 'finishBy', accessorFn: (r) => r.finishByMs, header: t('app.tasks.col.finish-by', 'Finish by'), size: 200 },
-    { id: 'owner', accessorFn: (r) => r.ownerText, header: t('app.tasks.col.owner', 'Owner'), size: 200 },
-    { id: 'assignee', accessorFn: (r) => r.assigneeText, header: t('app.tasks.col.assignee', 'Assignee'), size: 200 },
+    { id: 'owner', accessorFn: (r) => r.ownerText, header: t('app.tasks.col.owner', 'Owner'), size: URN_CHIP_COLUMN_PX },
+    { id: 'assignee', accessorFn: (r) => r.assigneeText, header: t('app.tasks.col.assignee', 'Assignee'), size: URN_CHIP_COLUMN_PX },
     { id: 'subtasks', accessorFn: () => '', header: t('app.tasks.col.subtasks', 'Subtasks'), enableSorting: false, enableGlobalFilter: false, size: 120 },
     { id: 'updated', accessorFn: (r) => r.updatedMs, header: t('app.tasks.col.updated', 'Updated'), size: 170 },
     { id: 'created', accessorFn: (r) => r.createdMs, header: t('app.tasks.col.created', 'Created'), size: 170 },
