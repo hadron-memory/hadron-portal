@@ -84,8 +84,8 @@ export function probeSrOnlyAnchors() {
       const anchor = el.offsetParent;
       if (!anchor || !td.contains(anchor)) {
         const col = td.closest('table')?.querySelectorAll('thead th')[td.cellIndex]?.textContent?.trim() ?? String(td.cellIndex);
-        // 'page' = no positioned ancestor inside the cell, so the page (or something outside the table) anchors the label.
-        unanchored.push({ col, what: (el.textContent ?? '').trim().slice(0, 40), anchoredBy: anchor ? anchor.tagName.toLowerCase() : 'page' });
+        // anchoredBy: the element that anchors the label outside its cell; 'none' when nothing does (position:fixed labels have no offsetParent either, named apart).
+        unanchored.push({ col, what: (el.textContent ?? '').trim().slice(0, 40), anchoredBy: anchor ? anchor.tagName.toLowerCase() : getComputedStyle(el).position === 'fixed' ? 'fixed' : 'none' });
       }
     }
   }

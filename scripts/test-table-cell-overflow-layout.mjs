@@ -15,7 +15,7 @@ import { probeCellEscapes, probeUntitledEllipsis, probeSrOnlyAnchors, ESCAPE_PX 
 const appShellSource = await readFile(new URL('../src/lib/layout/app-shell.ts', import.meta.url), 'utf8');
 const shellClass = name => {
   // The quote may be ' " or `: a harmless reformat of the constant must not break the harness.
-  const found = new RegExp('export const ' + name + '\\s*=\\s*[\'"`]([^\'"`]+)[\'"`]').exec(appShellSource)?.[1];
+  const found = new RegExp('export const ' + name + '\\s*=\\s*([\'"`])([^\'"`]+)\\1').exec(appShellSource)?.[2];
   if (!found) throw new Error(`test-table-cell-overflow-layout: ${name} was not found in src/lib/layout/app-shell.ts`);
   return found;
 };
@@ -290,7 +290,9 @@ try {
  }
  if (process.env.CELL_SHOTS) await mkdir(process.env.CELL_SHOTS, { recursive: true });
  const cellWidth = env.cellWidth;
- const widths = cellWidth !== null ? [cellWidth] : [390, 1280];
+ // The phone width every battery runs: also where an exempt kind is expected to still widen the document (DOC_WIDTH_EXEMPT_KINDS).
+const PHONE_WIDTH = 390;
+const widths = cellWidth !== null ? [cellWidth] : [PHONE_WIDTH, 1280];
  // The component battery's kinds come from the one routing table above — never
  // a hand-written list (blind review, #2507): a page kind belongs to the pages
  // battery below, findings and agent-tasks to their own.
@@ -1048,12 +1050,16 @@ async function loadNodePageData(devServer, tab) {
     if (srOnly.unanchored.length) failures.push(`${leg}/${sizing}: an sr-only label is not anchored inside its cell ${JSON.stringify(srOnly.unanchored)}`);
     if (SR_ONLY_KINDS.includes(kind)) {
      if (srOnly.seen === 0) failures.push(`${leg}/${sizing}: no sr-only label rendered in a cell, the anchor check measured nothing`);
-     // Negative control, on the effect and not only the anchor: with the cells made static (what DataTable did before #2548) the label must
-     // be anchored by the page, and the probe must say so. Restored straight after.
      else {
-      await page.evaluate(() => document.querySelectorAll('tbody td').forEach(td => { td.dataset.prevPosition = td.style.position; td.style.position = 'static'; }));
-      const control = await page.evaluate(probeSrOnlyAnchors);
-      await page.evaluate(() => document.querySelectorAll('tbody td').forEach(td => { td.style.position = td.dataset.prevPosition ?? ''; delete td.dataset.prevPosition; }));
+      // Negative control, on the effect and not only the anchor: with the cells made static (what DataTable did before #2548) the label must
+      // be anchored by the page and the probe must say so. The cells are restored in a finally, so a throw cannot leave them static.
+      let control;
+      try {
+       await page.evaluate(() => document.querySelectorAll('tbody td').forEach(td => { td.dataset.prevPosition = td.style.position; td.style.position = 'static'; }));
+       control = await page.evaluate(probeSrOnlyAnchors);
+      } finally {
+       await page.evaluate(() => document.querySelectorAll('tbody td').forEach(td => { td.style.position = td.dataset.prevPosition ?? ''; delete td.dataset.prevPosition; }));
+      }
       if (control.unanchored.length === 0) failures.push(`${leg}/${sizing}: the sr-only probe did not flag a label in a static cell (the negative control)`);
      }
     }
@@ -1067,7 +1073,7 @@ async function loadNodePageData(devServer, tab) {
     const widens = docWidth.scroll > docWidth.client;
     if (!DOC_WIDTH_EXEMPT_KINDS.includes(kind) && widens) failures.push(`${leg}/${sizing}: the table widens the document to ${docWidth.scroll}px in a ${docWidth.client}px viewport`);
     // An exemption that no longer applies must go: the fix it waits for has landed.
-    if (DOC_WIDTH_EXEMPT_KINDS.includes(kind) && !widens && width <= 390) failures.push(`${leg}/${sizing}: ${kind} no longer widens the document at ${width}px: remove it from DOC_WIDTH_EXEMPT_KINDS (hadron-portal#2591)`);
+    if (DOC_WIDTH_EXEMPT_KINDS.includes(kind) && !widens && width === PHONE_WIDTH) failures.push(`${leg}/${sizing}: ${kind} no longer widens the document at ${PHONE_WIDTH}px: remove it from DOC_WIDTH_EXEMPT_KINDS (hadron-portal#2591)`);
     // portal#2514: the Role select has no measured minSize any more (it is w-full min-w-0 and shrinks with its column), so a
     // collapsed select would pass every containment check above. Pin a usable floor: at the narrowest column this harness sets
     // (120px) the select must still show its value, and no select may be hidden or zero-width.
