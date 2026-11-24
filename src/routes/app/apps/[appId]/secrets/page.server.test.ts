@@ -37,14 +37,14 @@ const confirmed = form({ confirm: 'yes' });
 beforeEach(() => { request.mockReset(); env.PUBLIC_SERVER_URL = 'https://hadron.example'; });
 
 describe('a staged edit (acceptance 1)', () => {
-  it('is staged, not saved and not a generic error; the request is remembered with its link', async () => {
+  it('is staged, not saved and not a generic error; the request is remembered without any URL', async () => {
     const { actions } = await import('./[secretId]/+page.server');
     request.mockImplementation(owned((q) => { if (q === UPDATE_SECRET_VALUE_MUTATION) throw staged(); }));
     const c = jar();
     const r = (await actions.update(ev(c, { request: form({ value: 'new' }) }))) as Record<string, unknown>;
     expect(r).toEqual({ action: 'update', staged: true });
     expect(r).not.toHaveProperty('ok');
-    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)).toEqual([{ secretId: 's1', requestId: 'r1', ceremonyUrl: URL_ }]);
+    expect(c.store.get(TRACKED_COOKIE)).toBe(JSON.stringify([{ secretId: 's1', requestId: 'r1' }]));
   });
 
   it('a refused caller (no request) is a plain refusal and nothing is remembered', async () => {
@@ -137,12 +137,20 @@ describe('the secret page load', () => {
     expect(d.pending).toEqual([{ requestId: 'r1', secretId: 's1', createName: null, ceremonyUrl: URL_, state: 'open', operation: 'STORE', expiresAt: open.expiresAt }]);
     expect(c.store.has(TRACKED_COOKIE)).toBe(true);
   });
-  it('a cookie edited to another host shows no link and no row (portal#2417)', async () => {
+  it('a cookie edited to another host is ignored: the row keeps the rebuilt link (portal#2417)', async () => {
     const { load } = await import('./[secretId]/+page.server');
     request.mockImplementation(base('on', open));
-    const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: 'https://evil.example/secret-changes/r1' }]));
-    const d = (await load(ev(c))) as { pending: unknown[] };
-    expect(d.pending).toEqual([]);
+    const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: 'https://evil.example/secret-changes/ATTACK' }]));
+    const d = (await load(ev(c))) as { pending: Array<{ ceremonyUrl: string }> };
+    expect(d.pending).toEqual([{ requestId: 'r1', secretId: 's1', createName: null, ceremonyUrl: URL_, state: 'open', operation: 'STORE', expiresAt: open.expiresAt }]);
+  });
+  it('with no configured origin the row still shows, with no link, never a guess (portal#2417)', async () => {
+    const { load } = await import('./[secretId]/+page.server');
+    request.mockImplementation(base('on', open));
+    env.PUBLIC_SERVER_URL = '';
+    const c = jar(JSON.stringify([{ secretId: 's1', requestId: 'r1', ceremonyUrl: URL_ }]));
+    const d = (await load(ev(c))) as { pending: Array<{ ceremonyUrl: string | null }> };
+    expect(d.pending).toEqual([{ requestId: 'r1', secretId: 's1', createName: null, ceremonyUrl: null, state: 'open', operation: 'STORE', expiresAt: open.expiresAt }]);
   });
   it('an ended request shows once; one the server does not show the viewer is dropped', async () => {
     const { load } = await import('./[secretId]/+page.server');

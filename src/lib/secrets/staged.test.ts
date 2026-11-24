@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readStagedChange, safeCeremonyUrl, requestStateText, isOpenState } from './staged';
+import { readStagedChange, rebuildCeremonyUrl, safeCeremonyUrl, requestStateText, isOpenState } from './staged';
 
 const ORIGIN = 'https://hadron.example';
 const wire = (extensions: Record<string, unknown>, message = 'x') => ({
@@ -66,6 +66,28 @@ describe('the link is pinned to the server public origin (portal#2417)', () => {
   });
   it('the exact origin still passes, and a port is part of the origin', () => {
     expect(safeCeremonyUrl('https://hadron.example:8443/secret-changes/r1', 'https://hadron.example:8443')).not.toBeNull();
+  });
+});
+
+describe('the tracked link is rebuilt from the pinned origin (portal#2417)', () => {
+  it("is the server's own shape: origin + /secret-changes/ + id, no query or fragment", () => {
+    expect(rebuildCeremonyUrl('r1', 'https://hadron.example')).toBe('https://hadron.example/secret-changes/r1');
+  });
+  it('an unconfigured origin is no link, never a guess', () => {
+    expect(rebuildCeremonyUrl('r1', null)).toBe(null);
+  });
+  it('a hostile id stays one segment inside /secret-changes/: no query, no fragment, no traversal', () => {
+    for (const id of ['a?b', 'a#f', 'a/b', 'a%2fb', 'a b', 'ç', '.']) {
+      const out = rebuildCeremonyUrl(id, 'https://hadron.example') as string | null;
+      if (out === null) continue;
+      const u = new URL(out);
+      expect(u.origin).toBe('https://hadron.example');
+      expect(u.pathname.startsWith('/secret-changes/')).toBe(true);
+      expect(u.search).toBe('');
+      expect(u.hash).toBe('');
+    }
+    expect(rebuildCeremonyUrl('..', 'https://hadron.example')).toBe(null);
+    expect(rebuildCeremonyUrl('../x', 'https://hadron.example')).toBe(null);
   });
 });
 
