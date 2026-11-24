@@ -10,6 +10,8 @@
   import { page } from '$app/stores';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
+  import { extensionAccountNavTabs } from '$lib/ext/registry';
+  import { tabIsActive } from '$lib/ext/tab-match';
 
   let { children }: { children: import('svelte').Snippet } = $props();
 
@@ -20,6 +22,8 @@
     { id: 'invite', label: t('app.account.tab.invite', 'Invite'), href: '/app/account/invite' },
     { id: 'api-keys', label: t('app.account.tab.api-keys', 'API Keys'), href: '/app/account/api-keys' },
     { id: 'grants', label: t('app.account.tab.grants', 'Grants'), href: '/app/account/grants' },
+    // C2 (#2568): extension tabs last.
+    ...extensionAccountNavTabs({ basePath: '/app/account' }),
   ];
   const activeTab = $derived(
     $page.url.pathname.startsWith('/app/account/node-role-templates')
@@ -32,7 +36,7 @@
         ? 'organization'
         : $page.url.pathname.startsWith('/app/account/invite')
           ? 'invite'
-          : 'account',
+          : (tabs.find((tb) => tb.id.startsWith('ext:') && tabIsActive($page.url.pathname, tb))?.id ?? 'account'),
   );
 </script>
 

@@ -79,7 +79,7 @@ describe('account layout extension tabs (C2, #2568)', () => {
   });
 
   it('renders a fixture tab whose id is "account" beside the built-in (C2-R1)', () => {
-    fx.exts = [{ id: 'fx', accountTabs: (c) => [{ id: 'account', label: 'Mine', href: `${c.basePath}/fx` }] }];
+    fx.exts = [{ id: 'fx', accountTabs: (c: { basePath: string }) => [{ id: 'account', label: 'Mine', href: `${c.basePath}/fx` }] }];
     const labels = links('/app/account').map(([l]) => l);
     expect(labels.at(-1)).toBe('Mine');
     expect(labels.filter((l) => l === 'Account')).toHaveLength(1);

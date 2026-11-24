@@ -92,7 +92,7 @@ function renderAt(path: string, isConsumerMode = false, role: string = 'OWNER') 
         user,
         activeOrgId: org.id,
         activeOrg: org,
-        navOrgs: [{ ...org, members: [{ id: 'm1', role, user: { id: user.id } }] }],
+        navOrgs: [{ ...org, members: [{ id: 'm1', role, canInvite: false, createdAt: '1789430400000', user: { ...user } }] }],
         nodeAdvice: [],
         impersonation: null,
         isConsumerMode,
@@ -240,7 +240,7 @@ describe('org layout extension tabs (C2, #2568)', () => {
   });
 
   it('renders a fixture tab whose id is "profile" beside the built-in Profile (C2-R1)', () => {
-    fx.exts = [{ id: 'fx', orgTabs: (c) => [{ id: 'profile', label: 'Mine', href: `${c.basePath}/fx` }] }];
+    fx.exts = [{ id: 'fx', orgTabs: (c: { basePath: string }) => [{ id: 'profile', label: 'Mine', href: `${c.basePath}/fx` }] }];
     const labels = strip(renderAt('/app/orgs/org-1')).map(([l]) => l);
     expect(labels.filter((l) => l === 'Profile')).toHaveLength(1);
     expect(labels.at(-1)).toBe('Mine');
