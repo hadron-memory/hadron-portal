@@ -68,7 +68,7 @@ describe('create-memory offer on a user-owned App', () => {
   });
 });
 
-it('loader carries the scope and reuses it for a user-owned App creation panel without a duplicate read (#1043)', async () => {
+it('loader carries the scope and lists it, for a user-owned App too, without a duplicate read (#1043)', async () => {
  const { fetchAllItems }=await import('$lib/server/paginate');
  const { APP_MEMORY_SCOPE_QUERY }=await import('./app-memories');
  const rows=[{memoryId:'team',memoryUrn:'hrn:mem:example.com:team',name:'Team',class:'app',viewerCanWrite:true,sources:[{kind:'TEAM_SPACE',agentId:null}]},{memoryId:'free',memoryUrn:'hrn:mem:example.com:free',name:'Free',class:'app',viewerCanWrite:true,sources:[{kind:'APP_MEMORY',agentId:null}]}];
@@ -77,28 +77,21 @@ it('loader carries the scope and reuses it for a user-owned App creation panel w
  try {
   const result=await loadAs(true);
   expect(result.appMemoryScope).toEqual(rows);
-  expect(result.appMemories).toEqual([{id:'free',urn:'hrn:mem:example.com:free',name:'Free',description:null,appId:'app-1'}]);
+  expect(result.appMemories).toEqual([{id:'team',urn:'hrn:mem:example.com:team',name:'Team',class:'app',appId:'app-1'},{id:'free',urn:'hrn:mem:example.com:free',name:'Free',class:'app',appId:'app-1'}]);
   expect(vi.mocked(fetchAllItems).mock.calls.filter(c=>c[1]===APP_MEMORY_SCOPE_QUERY)).toHaveLength(1);
  }finally { vi.mocked(fetchAllItems).mockResolvedValue([]); }
 });
 
-// #1552: an org App's creation panel keeps the descriptions the org memory list
-// carries, while appMemoryScope stays the complete authorized scope. The two
-// sets differ on purpose here (a described app memory the scope lacks, and
-// scope rows the org list lacks), so substituting either for the other fails.
-it('org-App loader keeps creation-panel description rows distinct from the full scope (#1552)', async () => {
+// The list is the whole authorized scope for an org App too: no separate org read, nothing filtered out.
+it('org-App loader lists the whole scope, class included, from one read', async () => {
   const { fetchAllItems } = await import('$lib/server/paginate');
-  const { APP_MEMORIES_QUERY, APP_MEMORY_SCOPE_QUERY } = await import('./app-memories');
-  const orgRows = [
-    { id: 'described', urn: 'hrn:mem:example.com:described', name: 'Described', description: 'Shared notes', appId: 'app-1' },
-    { id: 'elsewhere', urn: 'hrn:mem:example.com:elsewhere', name: 'Elsewhere', description: 'Other App', appId: 'app-2' },
-  ];
+  const { APP_MEMORY_SCOPE_QUERY } = await import('./app-memories');
   const scopeRows = [
     { memoryId: 'team', memoryUrn: 'hrn:mem:example.com:team', name: 'Team', class: 'app', viewerCanWrite: true, sources: [{ kind: 'TEAM_SPACE', agentId: null }] },
-    { memoryId: 'free', memoryUrn: 'hrn:mem:example.com:free', name: 'Free', class: 'app', viewerCanWrite: true, sources: [{ kind: 'APP_MEMORY', agentId: null }] },
+    { memoryId: 'own', memoryUrn: 'hrn:mem:example.com:own', name: 'Own', class: 'personal', viewerCanWrite: true, sources: [{ kind: 'AGENT_LINK', agentId: 'ag1' }] },
   ];
-  vi.mocked(fetchAllItems).mockImplementation(async (_client, query) =>
-    query === APP_MEMORIES_QUERY ? orgRows : query === APP_MEMORY_SCOPE_QUERY ? scopeRows : []);
+  vi.mocked(fetchAllItems).mockImplementation(async (_client, query) => query === APP_MEMORY_SCOPE_QUERY ? scopeRows : []);
+  vi.mocked(fetchAllItems).mockClear();
   try {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === APP_QUERY) return { app: { ...APP, organizationId: 'org-1' } };
@@ -115,10 +108,12 @@ it('org-App loader keeps creation-panel description rows distinct from the full 
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1?tab=memory'),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
-    // description rows: this App's org memories only, descriptions intact
-    expect(result.appMemories).toEqual([orgRows[0]]);
-    // full scope: exactly the authorized leaves, not the org list
+    expect(result.appMemories).toEqual([
+      { id: 'team', urn: 'hrn:mem:example.com:team', name: 'Team', class: 'app', appId: 'app-1' },
+      { id: 'own', urn: 'hrn:mem:example.com:own', name: 'Own', class: 'personal', appId: 'app-1' },
+    ]);
     expect(result.appMemoryScope).toEqual(scopeRows);
+    expect(vi.mocked(fetchAllItems).mock.calls.filter(c => c[1] === APP_MEMORY_SCOPE_QUERY)).toHaveLength(1);
   } finally {
     vi.mocked(fetchAllItems).mockReset();
     vi.mocked(fetchAllItems).mockResolvedValue([]);

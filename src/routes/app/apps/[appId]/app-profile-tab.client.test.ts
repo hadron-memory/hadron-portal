@@ -122,9 +122,10 @@ describe('App Profile tab (#2241)', () => {
     }
   });
 
-  it('leaves the default tab alone: no ?tab= still opens Chats (default-tab item is pending Holger)', async () => {
+  it('is the default tab: no ?tab= opens Profile, not Chats (Holger, 2026-11-23)', async () => {
     const target = await mountProfile({ tab: null, data: { initialTab: null } });
-    expect(target.querySelector('#tab-chats')?.getAttribute('aria-selected')).toBe('true');
-    expect(panel(target)).toBeNull();
+    expect(target.querySelector('#tab-profile')?.getAttribute('aria-selected')).toBe('true');
+    expect(target.querySelector('#tab-chats')?.getAttribute('aria-selected')).toBe('false');
+    expect(panel(target)).not.toBeNull();
   });
 });

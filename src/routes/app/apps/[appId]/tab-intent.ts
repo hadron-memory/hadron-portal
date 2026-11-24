@@ -19,8 +19,8 @@ import { lookupOwn } from '$lib/lookup';
  *  their own tabs now, so each is linkable on its own. #1005/#1006: so are
  *  `members` (the former /members page) and `agents` (Settings' Agent section). */
 export const APP_TAB_IDS = [
-  // portal#2241: the App's own identity, read-only. Left-most; the page's DEFAULT stays `chats`
-  // (Profile-as-default is a Proposed item pending Holger, not built).
+  // portal#2241: the App's own identity, read-only. Left-most and the page's default: a URL with no
+  // `?tab=` opens it (Holger, 2026-11-23).
   'profile',
   'chats',
   'worklog',
@@ -77,12 +77,15 @@ export interface TabIntent {
 export function resolveTabIntent(searchParams: URLSearchParams): TabIntent {
   const rawTab = searchParams.get('tab');
   const alias = lookupOwn(RETIRED_TAB_ALIASES, rawTab);
-  const initialTab = alias
+  const namedTab = alias
     ? alias.tab
     : (APP_TAB_IDS as readonly string[]).includes(rawTab ?? '') ? rawTab : null;
   // An explicit ?chat= wins over the one a retired tab id implies, so a link
   // carrying both is not silently overridden by the alias.
   const requestedChat = searchParams.get('chat') ?? alias?.chat ?? null;
+  // A link that names a conversation but no tab means the Chats tab, as it did while Chats was the page default;
+  // Profile is the default only for a link that names neither.
+  const initialTab = namedTab ?? (requestedChat !== null ? 'chats' : null);
   return { initialTab, requestedChat };
 }
 

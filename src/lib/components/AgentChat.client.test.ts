@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { startNewChat } from '$lib/test/startNewChat';
 import { captureUnhandledRejections, mountComponent, tick, wait } from '$lib/test/mountComponent';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import AgentChat from './AgentChat.svelte';
@@ -129,8 +130,7 @@ describe('AgentChat: a refused start or send is shown once and never replayed (#
     stub({ start: 'refuse' });
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
-    const startButton = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!;
-    startButton.click();
+    startNewChat();
     await wait(30);
     await tick();
     // portal#2088: a refused start is rendered in both panes, the list's copy
@@ -151,7 +151,7 @@ describe('AgentChat: a refused start or send is shown once and never replayed (#
     stub({ turn: 'refuse' });
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
-    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    startNewChat();
     await wait(30);
     await tick();
     const box = document.querySelector('textarea') as HTMLTextAreaElement;
@@ -221,7 +221,7 @@ describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (
   async function startChat() {
     const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
     await wait(20);
-    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    startNewChat();
     await wait(30);
     await tick();
     return m;
@@ -659,5 +659,99 @@ describe('AgentChat: pending-delete listeners at unmount (#2165)', () => {
     await tick();
     expect(live()).toEqual([]);
     m.unmount();
+  });
+});
+
+// The way to start a chat is a quiet icon under the list, not a banner above it.
+describe('AgentChat: the New chat button', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  it('is an icon-only button named New chat, last in the chat column, below the list', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ chats: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    try {
+      await wait(20);
+      const button = [...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'New chat')!;
+      expect(button).toBeDefined();
+      expect(button.textContent?.trim()).toBe('');
+      expect(button.querySelector('svg')).not.toBeNull();
+      const aside = button.closest('aside')!;
+      // under the list and the scope picker, and nothing follows it in the column
+      const list = aside.querySelector('ul, p.p-3');
+      expect(list!.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(button.parentElement!.nextElementSibling).toBeNull();
+      expect(aside.lastElementChild).toBe(button.parentElement);
+    } finally { m.unmount(); }
+  });
+  const stubStart = (bodies: Record<string, unknown>[]) => vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (url.includes('/api/agent-chat/start')) { const b = JSON.parse(String(init?.body)); bodies.push(b); return json({ chatId: 'chats:c1', conversationName: 'c', stageName: 's', welcomeMessage: null, welcomeError: null, scope: b.scope }); }
+    return json({ chats: [] });
+  }));
+  it('has no scope picker beside the list; the choice is made at the + button', async () => {
+    stubStart([]);
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    try {
+      await wait(20);
+      expect(document.querySelector('[role=group][aria-label="Chat scope"]')).toBeNull();
+      expect(document.body.textContent).not.toContain('Shared with App members');
+      expect(document.querySelector('[role=menu]')).toBeNull();
+    } finally { m.unmount(); }
+  });
+  it('the + opens a two-choice menu, and starts the chat in the place chosen', async () => {
+    for (const [scope, label] of [['shared', 'Save to the shared app memory'], ['private', 'Save to my private memory']] as const) {
+      const bodies: Record<string, unknown>[] = [];
+      stubStart(bodies);
+      const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+      try {
+        await wait(20);
+        const plus = document.querySelector<HTMLElement>('button[aria-label="New chat"]')!;
+        expect(plus.getAttribute('aria-haspopup')).toBe('menu');
+        expect(plus.getAttribute('aria-expanded')).toBe('false');
+        plus.click(); await tick();
+        expect(plus.getAttribute('aria-expanded')).toBe('true');
+        const items = [...document.querySelectorAll('[role=menuitem]')];
+        expect(items.map((i) => i.querySelector('span')?.textContent)).toEqual(['Save to my private memory', 'Save to the shared app memory']);
+        // The private choice comes first and takes focus, so Enter or Space on the + never starts a shared chat
+        // (spec 017 D3: the removed picker defaulted to private).
+        await tick(2);
+        expect(document.activeElement).toBe(items[0]);
+        // nothing is created by opening the menu
+        expect(bodies).toHaveLength(0);
+        items.find((i) => i.querySelector('span')?.textContent === label)!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await wait(30);
+        expect(bodies).toHaveLength(1);
+        expect(bodies[0].scope).toBe(scope);
+        expect(document.querySelector('[role=menu]')).toBeNull();
+      } finally { m.unmount(); vi.unstubAllGlobals(); }
+    }
+  });
+  it('Escape closes the menu without starting a chat and returns focus to the +', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    stubStart(bodies);
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    try {
+      await wait(20);
+      const plus = document.querySelector<HTMLElement>('button[aria-label="New chat"]')!;
+      plus.click(); await tick(2);
+      expect(document.querySelector('[role=menu]')).not.toBeNull();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await tick();
+      expect(document.querySelector('[role=menu]')).toBeNull();
+      expect(document.activeElement).toBe(plus);
+      expect(bodies).toHaveLength(0);
+    } finally { m.unmount(); }
+  });
+  it('a press outside the menu closes it', async () => {
+    stubStart([]);
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    try {
+      await wait(20);
+      document.querySelector<HTMLElement>('button[aria-label="New chat"]')!.click(); await tick(2);
+      expect(document.querySelector('[role=menu]')).not.toBeNull();
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      await tick();
+      expect(document.querySelector('[role=menu]')).toBeNull();
+    } finally { m.unmount(); }
   });
 });

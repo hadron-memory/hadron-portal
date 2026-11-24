@@ -417,11 +417,11 @@ try {
       await page.getByRole('button', { name: 'Rename chat Renamed chat', exact: true }).waitFor({ state: 'detached' });
       assert.equal(await page.evaluate(() => window.__chat.calls.delete), 1, `${leg}: confirm should delete once`);
       await page.waitForFunction((b) => document.activeElement?.matches('[data-chat-row]') && document.activeElement.textContent.includes(b), B);
-      // The last chat: focus falls back to "+ New chat".
+      // The last chat: focus falls back to the New chat button.
       await page.getByRole('button', { name: `Delete chat ${B}`, exact: true }).click();
       await dialog.waitFor();
       await page.getByRole('button', { name: 'Delete', exact: true }).click();
-      await page.waitForFunction(() => document.activeElement?.textContent?.trim() === '+ New chat');
+      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'New chat');
 
       // ── Selected row (two panes): revealed, readable ──────────────────
       assert.deepEqual(errors, [], `${leg}: page errors`);

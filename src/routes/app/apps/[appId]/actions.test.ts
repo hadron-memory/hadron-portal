@@ -126,6 +126,14 @@ const validSettings = {
   anonymousTtlDays: '14',
 };
 
+// The page opens on Profile when the URL names no tab. These loads exercise the Chats reads, so they ask for that tab,
+// unless the case already names its own.
+function atTab(href: string, tab = 'chats'): URL {
+  const url = new URL(href);
+  if (!url.searchParams.has('tab')) url.searchParams.set('tab', tab);
+  return url;
+}
+
 describe('load', () => {
   it('seeds the link-agent form with an explicit empty choice', async () => {
     // mockResolvedValue (not …Once): the loader makes SEVERAL paginated calls —
@@ -196,7 +204,7 @@ describe('load', () => {
       // #785 removed the route's use of it; the stub stays because the next
       // param to be added will need this comment more than the churn is worth.
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=chats'),
     } as unknown as Parameters<typeof load>[0])) as { addAgentForm: { data: { agentId: string } } };
 
     expect(result.addAgentForm.data.agentId).toBe('');
@@ -312,7 +320,7 @@ describe('load', () => {
       // #785 removed the route's use of it; the stub stays because the next
       // param to be added will need this comment more than the churn is worth.
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=chats'),
     } as unknown as Parameters<typeof load>[0])) as { staff: unknown; staffError: boolean };
 
     expect(result.staff).toBeNull();
@@ -358,7 +366,7 @@ describe('load', () => {
       // #785 removed the route's use of it; the stub stays because the next
       // param to be added will need this comment more than the churn is worth.
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=chats'),
     } as unknown as Parameters<typeof load>[0])) as { staff: unknown[]; staffError: boolean };
 
     expect(result.staff).toEqual([]);
@@ -390,7 +398,7 @@ describe('load', () => {
       // #785 removed the route's use of it; the stub stays because the next
       // param to be added will need this comment more than the churn is worth.
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=chats'),
     } as unknown as Parameters<typeof load>[0])) as {
       teamChatMessages: unknown[];
       teamChatError: boolean;
@@ -429,7 +437,7 @@ describe('load', () => {
       // #785 removed the route's use of it; the stub stays because the next
       // param to be added will need this comment more than the churn is worth.
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=chats'),
     } as unknown as Parameters<typeof load>[0])) as {
       teamChatMessages: unknown[];
       teamChatTotal: number;
@@ -461,7 +469,7 @@ describe('load', () => {
         locals: { token: 'tok', user: { id: 'user-1' } },
         parent: async () => ({}),
         depends: () => {},
-        url: new URL(`http://localhost/app/apps/app-1${search}`),
+        url: atTab(`http://localhost/app/apps/app-1${search}`),
       } as unknown as Parameters<typeof load>[0])) as Record<string, any>;
     }
     const teamChatCalls = () => mockRequest.mock.calls.filter((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY);
@@ -554,7 +562,7 @@ describe('load', () => {
       // #785 removed the route's use of it; the stub stays because the next
       // param to be added will need this comment more than the churn is worth.
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=chats'),
     } as unknown as Parameters<typeof load>[0])) as {
       teamChatMessages: unknown[];
       teamChatTotal: number;
@@ -590,7 +598,7 @@ describe('load', () => {
       // #785 removed the route's use of it; the stub stays because the next
       // param to be added will need this comment more than the churn is worth.
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=chats'),
     } as unknown as Parameters<typeof load>[0]);
 
     const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY);
@@ -2174,7 +2182,7 @@ describe('worklog loading (#733)', () => {
 
   it('distinguishes a failed chat-root discovery from an App with one chat', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 }, appChatRoots: new Error('down') });
-    const r = await loadWithUrl('');
+    const r = await loadWithUrl('?tab=chats');
     expect(r.chatsError).toBe(true);
     // The team chat is still offered — it always is, bootstrapped or not.
     expect((r.appChats as { key: string }[]).some((c) => c.key === 'chats:team')).toBe(true);
@@ -2208,7 +2216,7 @@ describe('team chat tail paging (#1536)', () => {
       // #785 removed the route's use of it; the stub stays because the next
       // param to be added will need this comment more than the churn is worth.
       depends: () => {},
-      url: new URL('http://localhost/app/apps/app-1'),
+      url: new URL('http://localhost/app/apps/app-1?tab=chats'),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
   }
 
@@ -2373,7 +2381,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
           locals: { token: 'tok', user: { id: 'user-1' } },
           parent: async () => ({}),
           depends: () => {},
-          url: new URL(`http://localhost/app/apps/app-1${search}`),
+          url: atTab(`http://localhost/app/apps/app-1${search}`),
         } as unknown as Parameters<typeof load>[0]),
       };
     } catch (e) {

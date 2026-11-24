@@ -29,6 +29,12 @@ export const chatScopeStrings = {
   pickerSharedFallback: (): string =>
     t('chat-scope.picker.shared-fallback', 'Shared with App members'),
 
+  /** New chat menu: save the chat into the App's shared memory. */
+  newChatShared: (): string => t('chat-scope.new-chat.shared', 'Save to the shared app memory'),
+
+  /** New chat menu: save the chat into the user's own private memory. */
+  newChatPrivate: (): string => t('chat-scope.new-chat.private', 'Save to my private memory'),
+
   /** Tooltip / help under the Private option. */
   pickerHelpPrivate: (): string =>
     t('chat-scope.picker.help.private', 'Only you can see this chat.'),

@@ -44,8 +44,8 @@ export const READ_GROUP_KEYS = {
   canManage: ['canManageApp'],
   appNodes: ['appNodes', 'appNodesPage'],
   memoryScope: ['appMemoryScope'],
-  // The Memory tab's inventory and create offer: an org App's memories are a
-  // read of their own; an org-less App's come from the scope.
+  // The Memory tab's list and create offer. The list is derived from the `memoryScope` group's read (every Memory
+  // tab load takes both); this group owns the payload keys, and `canCreateMemory` is computed from the org read.
   appMemories: ['appMemories', 'canCreateMemory'],
   appKeys: ['appKeys'],
   keyScopes: ['keyScopes'],
@@ -76,7 +76,7 @@ export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
 };
 
 /** The tab a URL without a (valid) `?tab=` opens on; the page's own default. */
-export const DEFAULT_TAB: AppTabId = 'chats';
+export const DEFAULT_TAB: AppTabId = 'profile';
 
 /**
  * The read groups for one load.

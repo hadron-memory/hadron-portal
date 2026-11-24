@@ -56,8 +56,11 @@ describe('resolveTabIntent', () => {
     });
   });
 
-  it('keeps ?chat= without a ?tab=', () => {
-    expect(intent('chat=custom')).toEqual({ initialTab: null, requestedChat: 'custom' });
+  // Profile is the default only for a link naming neither: a conversation with no tab still means Chats, as it did
+  // while Chats was the default, so an old shared link keeps landing on its chat.
+  it('keeps ?chat= without a ?tab=, and opens it on Chats', () => {
+    expect(intent('chat=custom')).toEqual({ initialTab: 'chats', requestedChat: 'custom' });
+    expect(intent('')).toEqual({ initialTab: null, requestedChat: null });
   });
 
   // #835 — the reason this route was in the sweep at all. `?tab=` is the

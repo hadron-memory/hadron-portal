@@ -102,9 +102,36 @@
   type ProgressNote = { tone: 'good' | 'neutral'; text: string };
   let progressNotice = $state<{ chatId: string; notes: ProgressNote[] } | null>(null);
 
-  // Spec 017 — composer-header scope picker. The user's pending choice
-  // for the NEXT chat they start. Defaults to 'private' per FR-003.
-  let nextChatScope = $state<'private' | 'shared'>('private');
+  // Spec 017 — where the next chat is saved is chosen at the New chat button, one of the two scopes the server has.
+  // A third home (a personal memory, shareable later) waits on hadron-server#5027.
+  let newChatMenuOpen = $state(false);
+  let newChatMenuEl = $state<HTMLElement | null>(null);
+  // Close on a press outside the menu, and on Escape, handing focus back to the button.
+  $effect(() => {
+    if (!newChatMenuOpen) return;
+    const away = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!newChatMenuEl?.contains(target) && !newChatButton?.contains(target)) newChatMenuOpen = false;
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      newChatMenuOpen = false;
+      newChatButton?.focus();
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc, true); };
+  });
+  // The first choice takes focus when the menu opens, and Up/Down move between the choices.
+  $effect(() => { if (newChatMenuOpen) newChatMenuEl?.querySelector<HTMLElement>('[role=menuitem]')?.focus(); });
+  function menuKeys(e: KeyboardEvent) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = [...(newChatMenuEl?.querySelectorAll<HTMLElement>('[role=menuitem]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+  }
   let messages = $state<ChatMessage[]>([]);
   let loadingChat = $state(false);
 
@@ -458,7 +485,8 @@
   }
 
   // ── Starting / resuming chats ────────────────────────────────────────
-  async function startNewChat() {
+  async function startNewChat(scope: 'private' | 'shared') {
+    newChatMenuOpen = false;
     loadingChat = true;
     setTurnError(null);
     partialTurnNotice = null;
@@ -476,7 +504,7 @@
       const res = await fetch('/api/agent-chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, scope: nextChatScope, appId, ...aiConfigFields() }),
+        body: JSON.stringify({ agentId, scope, appId, ...aiConfigFields() }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -505,11 +533,6 @@
         scope: body.scope === 'shared' ? 'shared' : 'private',
         completed: [],
       };
-      // Spec 017 D3 (safety > collaboration): reset the picker to
-      // 'private' after a successful chat creation so the user makes a
-      // deliberate choice for every shared chat, instead of inheriting
-      // the previous chat's audience.
-      nextChatScope = 'private';
       // Spec 016 — welcome turn is best-effort. Only render the
       // welcome bubble when the server actually produced one; on
       // welcomeError, surface a soft hint and leave the transcript
@@ -916,55 +939,6 @@
     class="w-full min-w-0 flex-col border-zinc-200 @2xl:w-64 @2xl:shrink-0 @2xl:border-r dark:border-zinc-800
       {phonePane === 'list' ? 'flex' : 'hidden @2xl:flex'}"
   >
-    <div class="border-b border-zinc-200 p-3 dark:border-zinc-800">
-      <!-- Spec 017 — segmented scope picker. The user's choice here
-           dictates the next chat's tier when they click "+ New chat".
-           Default = Private per FR-003. Hidden Shared option (per
-           FR-006/SC-005) would need an AppMember check that isn't yet
-           plumbed into this component — the server still rejects an
-           unqualified Shared request and the rejection surfaces inline
-           below as a turnError. -->
-      <div
-        class="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-[11px] font-medium dark:border-zinc-800 dark:bg-zinc-950"
-        role="group"
-        aria-label={t('agent-chat.scope-picker.label', 'Chat scope')}
-      >
-        <button
-          type="button"
-          onclick={() => (nextChatScope = 'private')}
-          class="rounded-md px-2 py-1 transition
-            {nextChatScope === 'private'
-              ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white'
-              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'}"
-          title={chatScopeStrings.pickerHelpPrivate()}
-          aria-pressed={nextChatScope === 'private'}
-        >
-          {chatScopeStrings.pickerPrivate()}
-        </button>
-        <button
-          type="button"
-          onclick={() => (nextChatScope = 'shared')}
-          class="rounded-md px-2 py-1 transition
-            {nextChatScope === 'shared'
-              ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white'
-              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'}"
-          title={chatScopeStrings.pickerHelpShared()}
-          aria-pressed={nextChatScope === 'shared'}
-        >
-          {chatScopeStrings.pickerSharedFallback()}
-        </button>
-      </div>
-      <button
-        bind:this={newChatButton}
-        type="button"
-        onclick={startNewChat}
-        class="w-full rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        style="background: #fb8500;"
-        disabled={loadingChat}
-      >
-        + New chat
-      </button>
-    </div>
     <!-- portal#2088: on a phone a refused or failed start leaves the person on
          the list, so its message shows here. From `@2xl` (panel width) up the conversation
          pane's copy below shows instead; only one is ever displayed. After Back
@@ -981,7 +955,7 @@
       {:else if listError}
         <p class="p-3 text-xs text-red-500">{listError}</p>
       {:else if chats.length === 0}
-        <p class="p-3 text-xs text-zinc-500">No chats yet. Start a new one above.</p>
+        <p class="p-3 text-xs text-zinc-500">{t('agent-chat.no-chats', 'No chats yet. Start a new one with the + button below.')}</p>
       {:else}
         <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
           {#each chats as chat (chat.loc)}
@@ -1092,13 +1066,54 @@
         </ul>
       {/if}
     </div>
+    <!-- The way to start a chat sits under the list, quiet: an icon, not a banner above the chats it competes with.
+         It opens the choice of where the chat is saved. -->
+    <div class="relative border-t border-zinc-200 p-2 dark:border-zinc-800">
+      {#if newChatMenuOpen}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <div
+          bind:this={newChatMenuEl}
+          role="menu"
+          tabindex="-1"
+          aria-label={t('agent-chat.new-chat', 'New chat')}
+          onkeydown={menuKeys}
+          class="absolute bottom-full left-2 z-20 mb-1 w-60 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          {#each [{ scope: 'private', label: chatScopeStrings.newChatPrivate(), help: chatScopeStrings.pickerHelpPrivate() }, { scope: 'shared', label: chatScopeStrings.newChatShared(), help: chatScopeStrings.pickerHelpShared() }] as const as choice (choice.scope)}
+            <button
+              type="button"
+              role="menuitem"
+              data-new-chat-scope={choice.scope}
+              onclick={() => startNewChat(choice.scope)}
+              class="block w-full rounded-md px-3 py-2 text-left hover:bg-zinc-100 focus-visible:bg-zinc-100 focus-visible:outline-none pointer-coarse:min-h-11 dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800"
+            >
+              <span class="block text-sm font-medium text-zinc-900 dark:text-white">{choice.label}</span>
+              <span class="block text-xs text-zinc-500 dark:text-zinc-400">{choice.help}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+      <button
+        bind:this={newChatButton}
+        type="button"
+        onclick={() => (newChatMenuOpen = !newChatMenuOpen)}
+        disabled={loadingChat}
+        aria-label={t('agent-chat.new-chat', 'New chat')}
+        title={t('agent-chat.new-chat', 'New chat')}
+        aria-haspopup="menu"
+        aria-expanded={newChatMenuOpen}
+        class="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-200 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-50 pointer-coarse:h-11 pointer-coarse:w-11 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+      >
+        <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
+      </button>
+    </div>
   </aside>
 
   <!-- ── Active chat ─────────────────────────────────────────────────── -->
   <main class="min-h-0 min-w-0 flex-1 flex-col {phonePane === 'chat' ? 'flex' : 'hidden @2xl:flex'}">
     {#if !activeChatId && !loadingChat}
       <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-sm text-zinc-500">
-        <p>Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.</p>
+        <p>{t('agent-chat.select-chat', 'Select a chat from the list, or press the + under it to start a new one.')}</p>
         <!-- portal#1611: a refused or failed start has no chat pane to show its
              error in; without this the user saw nothing at all. -->
         {#if turnError}

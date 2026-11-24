@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { startNewChat } from '$lib/test/startNewChat';
 import type { ComponentProps } from 'svelte';
 import { mountComponent, tick, wait, type Mounted } from '$lib/test/mountComponent';
 import AgentChat from './AgentChat.svelte';
@@ -45,7 +46,7 @@ function stub(stored: string | null = null) {
   }));
 }
 const select = () => document.querySelector('select#agent-chat-ai-config') as HTMLSelectElement | null;
-const clickButton = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))!.click();
+const clickButton = (re: RegExp) => [...document.querySelectorAll('button')].find((b) => re.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`))!.click();
 async function send(text: string) {
   const box = document.querySelector('textarea') as HTMLTextAreaElement;
   box.value = text;
@@ -57,7 +58,7 @@ async function send(text: string) {
 }
 async function newChat() {
   const before = calls('/api/agent-chat/start');
-  clickButton(/New chat/);
+  startNewChat();
   await until(() => calls('/api/agent-chat/start') > before, 'the new chat to start');
   // The start RESPONSE has landed once the composer is usable (it needs an active chat id).
   await until(() => (document.querySelector('textarea') as HTMLTextAreaElement | null)?.disabled === false, 'the new chat to become active');

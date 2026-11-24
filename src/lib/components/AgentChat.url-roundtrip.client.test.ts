@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { startNewChat } from '$lib/test/startNewChat';
 import { mountComponent, wait, tick, captureUnhandledRejections } from '$lib/test/mountComponent';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, buildAppChatList, resolveSelectedChat } from '$lib/app-chats';
@@ -31,8 +32,7 @@ describe('portal#2107: App AgentChat URL round trip', () => {
     window.history.replaceState({}, '', '/app/apps/app?tab=settings&chat=agent+chat&keep=yes');
     const m = mountComponent(AgentChat, { agentId: 'agent', appId: 'app' });
     await vi.waitFor(() => expect(document.body.textContent).toContain('Personal'));
-    const button = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('New chat'))!;
-    button.click();
+    startNewChat();
     await vi.waitFor(() => expect(navigationCalls.some(c => c.fn === 'replaceState')).toBe(true));
     const emitted = navigationCalls.filter(c => c.fn === 'replaceState').at(-1);
     expect(emitted).toBeDefined();
@@ -173,8 +173,7 @@ describe('portal#2107: App AgentChat URL round trip', () => {
     const m = mountComponent(AgentChat, { agentId: 'agent' });
     try {
       await vi.waitFor(() => expect(m.target.textContent).toContain('Personal'));
-      const start = [...m.target.querySelectorAll('button')].find(b => b.textContent?.includes('New chat'));
-      expect(start).toBeDefined(); start!.click();
+      expect(m.target.querySelector('button[aria-label="New chat"]')).not.toBeNull(); startNewChat('private', m.target);
       await vi.waitFor(() => expect(navigationCalls.some(c => c.fn === 'replaceState')).toBe(true));
       const call = navigationCalls.filter(c => c.fn === 'replaceState').at(-1)!;
       const url = new URL(String(call.args[0]));
