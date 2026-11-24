@@ -1,0 +1,28 @@
+
+        Ctrl K     Home Docs Contact About         DashboardSearchMemoriesMy memoriesAgentsAppsApp RunsTask NodesFiles  Organization e2e-alpha    User Account  @alpha-admin    Apps / e2e-alpha team / Secrets  Secrets: e2e-alpha team Values are stored encrypted and can be replaced, never read back.   unlinked-hint-wrap Waiting for your passkey signature Pending: creating this secret. Nothing has been saved yet.  Expires Nov 24, 2026, 22:04:25 Open the signing page(opens in a new tab)↗  Withdraw  unlinked-hint-wrap was not created yet. It waits for your passkey signature. No secrets yet. New secret Name  Starts with a lowercase letter or digit, then lowercase letters, digits and hyphens, up to 64 characters. Value  Stored as typed, with line breaks kept as new lines. A JSON object or array is stored as JSON.  Require a passkey signature to change it Create  Secrets · e2e-alpha team · Hadron
+			
+			
+				{
+					__sveltekit_dev = {
+						base: new URL("../../..", location).pathname.slice(0, -1),
+						env: {"PUBLIC_SERVER_URL":"http://localhost:18416"}
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("/node_modules/.pnpm/@sveltejs+kit@2.55.0_@opentelemetry+api@1.9.0_@sveltejs+vite-plugin-svelte@5.1.1_svelte_d63344f6fedb2060592b4fc816e6943f/node_modules/@sveltejs/kit/src/runtime/client/entry.js"),
+						import("/@fs/home/orca/scratch/caspian/wt-portal-2621/.svelte-kit/generated/client/app.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 2, 42],
+							data: [{type:"data",data:{user:{id:"a71550056030bc7b303f33ad7688fb0a",handle:"alpha-admin",urn:"hrn:user:alpha-admin",githubUsername:null,name:"alpha-admin (synthetic)",avatarUrl:null,email:"alpha-admin@e2e.test",roles:["READER"]}},uses:{}},(function(a){a.id="dc98cae7b6f7fecdba4f0a3d4a3b365e";a.name="e2e-alpha";a.urn="hrn:org:e2e-alpha";a.githubInstallationId=null;a.githubAppId=null;a.hasGithubAppPrivateKey=false;a.createdAt="2026-11-24T21:00:53.746Z";a.updatedAt="2026-11-24T21:00:53.746Z";a.members=[{id:"7e62d15e6f0b22a436c327ad3b4ae563",role:"OWNER",user:{id:"54c25e0b0a25cb4cf69e56e0ce48f993"}},{id:"6bede3c6d8cd05a5bc3cd6e630a0113c",role:"ADMIN",user:{id:"a71550056030bc7b303f33ad7688fb0a"}},{id:"fafbb8b4c0a23ae6045d5d44fedce333",role:"CONTRIBUTOR",user:{id:"b1d62370aa8a41b4cfa1da6978de36a2"}},{id:"6a7e2d9adba388b47081f2891bce4926",role:"READER",user:{id:"1140a8e90341c25408dbc5a7b7da160a"}},{id:"5a13a1d5c5e929237dd3ab4d527aeda6",role:"CONTRIBUTOR",user:{id:"921b69867a0af2c28bff0e70a657ab52"}}];return {type:"data",data:{user:{id:"a71550056030bc7b303f33ad7688fb0a",githubUsername:null,email:"alpha-admin@e2e.test",name:"alpha-admin (synthetic)",avatarUrl:null,roles:["READER"],handle:"alpha-admin",urn:"hrn:user:alpha-admin"},impersonation:null,navOrgs:[a],isConsumerMode:false,activeOrgId:"dc98cae7b6f7fecdba4f0a3d4a3b365e",activeOrg:a},uses:{params:["id"],parent:1,url:1}}}({})),{type:"data",data:{app:{id:"0fcf657da155d267b1dccb17a2b92b2e",name:"e2e-alpha team",urn:"hrn:app:e2e-alpha:team",organizationId:"dc98cae7b6f7fecdba4f0a3d4a3b365e"},secrets:{kind:"ok",secrets:[],total:0},signing:"on",pending:[],pendingUnchecked:0,impersonating:null},uses:{params:["appId"]}}],
+							form: null,
+							error: null
+						});
+					});
+				}
+			
+		
+  
+

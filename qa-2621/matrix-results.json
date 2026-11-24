@@ -1,0 +1,98 @@
+[
+ {
+  "cell": "320-light",
+  "dark": false,
+  "viewport": 320,
+  "scrollWidth": 320,
+  "noHScroll": true,
+  "insideCard": true,
+  "overlap": false,
+  "withdrawBelowHint": true,
+  "hintWrapsOwnWidth": true,
+  "gap": 8
+ },
+ {
+  "cell": "320-dark",
+  "dark": true,
+  "viewport": 320,
+  "scrollWidth": 320,
+  "noHScroll": true,
+  "insideCard": true,
+  "overlap": false,
+  "withdrawBelowHint": true,
+  "hintWrapsOwnWidth": true,
+  "gap": 8
+ },
+ {
+  "cell": "360-light",
+  "dark": false,
+  "viewport": 360,
+  "scrollWidth": 360,
+  "noHScroll": true,
+  "insideCard": true,
+  "overlap": false,
+  "withdrawBelowHint": true,
+  "hintWrapsOwnWidth": true,
+  "gap": 8
+ },
+ {
+  "cell": "360-dark",
+  "dark": true,
+  "viewport": 360,
+  "scrollWidth": 360,
+  "noHScroll": true,
+  "insideCard": true,
+  "overlap": false,
+  "withdrawBelowHint": true,
+  "hintWrapsOwnWidth": true,
+  "gap": 8
+ },
+ {
+  "cell": "414-light",
+  "dark": false,
+  "viewport": 414,
+  "scrollWidth": 414,
+  "noHScroll": true,
+  "insideCard": true,
+  "overlap": false,
+  "withdrawBelowHint": true,
+  "hintWrapsOwnWidth": true,
+  "gap": 8
+ },
+ {
+  "cell": "414-dark",
+  "dark": true,
+  "viewport": 414,
+  "scrollWidth": 414,
+  "noHScroll": true,
+  "insideCard": true,
+  "overlap": false,
+  "withdrawBelowHint": true,
+  "hintWrapsOwnWidth": true,
+  "gap": 8
+ },
+ {
+  "cell": "768-light",
+  "dark": false,
+  "viewport": 768,
+  "scrollWidth": 768,
+  "noHScroll": true,
+  "insideCard": true,
+  "overlap": false,
+  "withdrawBelowHint": true,
+  "hintWrapsOwnWidth": true,
+  "gap": 8
+ },
+ {
+  "cell": "768-dark",
+  "dark": true,
+  "viewport": 768,
+  "scrollWidth": 768,
+  "noHScroll": true,
+  "insideCard": true,
+  "overlap": false,
+  "withdrawBelowHint": true,
+  "hintWrapsOwnWidth": true,
+  "gap": 8
+ }
+]
