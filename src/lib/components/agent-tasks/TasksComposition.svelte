@@ -23,7 +23,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
-  import { partySearchText } from '$lib/agent-tasks/status';
+  import { partySearchText, WORKER_CHIP_COLUMN_PX } from '$lib/agent-tasks/status';
   import { rosterStateChipClass, rosterStateLabel } from '$lib/agent-tasks/roster';
   import type { TaskRead, TeamComposition, TeamCompositionLane, TeamCompositionWorker } from '$lib/agent-tasks/types';
   import NotParticipant from './NotParticipant.svelte';
@@ -96,7 +96,7 @@
   let workerFilter = $state('');
 
   const laneColumns: PortalColumnDef<LaneRow>[] = [
-    { id: 'coordinator', accessorFn: (r) => r.coordinator, header: t('app.tasks.composition.col.coordinator', 'Coordinator'), enableHiding: false, enableSorting: false, size: 260 },
+    { id: 'coordinator', accessorFn: (r) => r.coordinator, header: t('app.tasks.composition.col.coordinator', 'Coordinator'), enableHiding: false, enableSorting: false, size: WORKER_CHIP_COLUMN_PX },
     { id: 'roles', accessorFn: (r) => r.roles, header: t('app.tasks.composition.col.roles', 'Headcount by role'), enableSorting: false, size: 300 },
     { id: 'roleFamilies', accessorFn: (r) => r.roleFamilies, header: t('app.tasks.composition.col.role-families', 'Headcount by role and family'), enableSorting: false, size: 380 },
   ];
@@ -113,7 +113,7 @@
   });
 
   const workerColumns: PortalColumnDef<WorkerRow>[] = [
-    { id: 'worker', accessorFn: (r) => r.worker, header: t('app.tasks.composition.col.worker', 'Worker'), enableHiding: false, enableSorting: false, size: 240 },
+    { id: 'worker', accessorFn: (r) => r.worker, header: t('app.tasks.composition.col.worker', 'Worker'), enableHiding: false, enableSorting: false, size: WORKER_CHIP_COLUMN_PX },
     { id: 'coordinator', accessorFn: (r) => r.coordinator, header: t('app.tasks.composition.col.reports-to', 'Reports to'), enableSorting: false, size: 190 },
     { id: 'role', accessorFn: (r) => r.role, header: t('app.tasks.composition.col.role', 'Role'), enableSorting: false, size: 150 },
     { id: 'family', accessorFn: (r) => r.family, header: t('app.tasks.composition.col.family', 'Family'), enableSorting: false, size: 120 },

@@ -1179,6 +1179,21 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   } finally { await page.close(); }
  };
 
+ // portal#2541: containment alone passed while the compact Urn chip painted "example.te…" — the clamp's
+ // [overflow-wrap:anywhere] lets an auto-sized column squeeze the value to a stub. The chip cannot fix that (a
+ // min-width on it trades against containment, #2538); the caller's column floor does. Every compact worker chip
+ // in the tables below must show its whole value, or at least CHIP_VALUE_MIN_PX of it (about 26 characters of the chip's
+ // 0.6rem mono, the shape "e2e-alpha:team:bartholomew"), at every width, and must still carry the full URN as its title.
+ const CHIP_VALUE_MIN_PX = 150;
+ const CHIP_READABLE_ROWS = ['app-tasks:roster', 'app-tasks:composition-workers', 'app-tasks:composition-lanes', 'task-review-slots'];
+ const chipReadable = scope => async (page, leg) => {
+  const chips = await page.locator(`${scope}tbody td span[title^="hrn:"].line-clamp-1`).evaluateAll(els => els.map(el => ({ urn: el.title, px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 })));
+  if (!chips.length) failures.push(`${leg}: no compact URN chip found to measure`);
+  const narrow = chips.filter(c => c.px < CHIP_VALUE_MIN_PX && !c.whole);
+  if (narrow.length) failures.push(`${leg}: compact URN chip value narrower than ${CHIP_VALUE_MIN_PX}px ${JSON.stringify(narrow)}`);
+  else console.log(`${leg}: ${chips.length} compact URN chip(s), narrowest value ${Math.min(...chips.map(c => c.px))}px`);
+ };
+
  // portal#2487 (#1962 slice 1): the agent-tasks tables. One case per row of the issue, real components and
  // legal synthetic data, default column sizes. A cell passes when no element inside it paints outside its
  // box, and an ellipsized value has its full text reachable (a title). The control appends a nowrap string
@@ -1202,7 +1217,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
   } finally { await rowsPage.close(); }
   assert.ok(taskRows.length >= 7, 'the fixture lists every #2487 row');
   const fixture = { module: '/src/lib/test/fixtures/agent-tasks-cell-harness.ts', mount: 'mountAgentTaskCell' };
-  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) await runCellLeg({ name: 'agent-tasks', listKey, width, dark, scope, fixture, measured });
+  for (const width of widths) for (const dark of [false, true]) for (const { listKey, measured, scope } of taskRows) await runCellLeg({ name: 'agent-tasks', listKey, width, dark, scope, fixture, measured, extra: CHIP_READABLE_ROWS.includes(listKey) ? chipReadable(scope) : null });
  }
 
 

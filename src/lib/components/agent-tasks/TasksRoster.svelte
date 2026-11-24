@@ -13,7 +13,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
-  import { partyName, partySearchText } from '$lib/agent-tasks/status';
+  import { partyName, partySearchText, WORKER_CHIP_COLUMN_PX } from '$lib/agent-tasks/status';
   import {
     rosterAttentionRank,
     rosterSessionLabel,
@@ -121,7 +121,7 @@
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<RosterRow>[] = [
-    { id: 'worker', accessorFn: (r) => r.worker, header: t('app.tasks.roster.col.worker', 'Worker'), enableHiding: false, size: 240 },
+    { id: 'worker', accessorFn: (r) => r.worker, header: t('app.tasks.roster.col.worker', 'Worker'), enableHiding: false, size: WORKER_CHIP_COLUMN_PX },
     { id: 'role', accessorFn: (r) => r.role, header: t('app.tasks.roster.col.role', 'Role'), size: 150 },
     {
       id: 'state',

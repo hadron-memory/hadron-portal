@@ -170,3 +170,12 @@ export function sourceKind(source: string): 'url' | 'urn' | 'text' {
   if (/^hrn:\S+$/.test(s)) return 'urn';
   return 'text';
 }
+
+/**
+ * portal#2541: the width of a table column that carries a PartyLabel with its compact URN chip.
+ * The chip's value clamps with [overflow-wrap:anywhere], so it takes whatever the column leaves after the
+ * cell padding, the chip padding and the copy buttons (two 44px touch targets on a phone). 320 leaves about
+ * 150px of value there: one line of "e2e-alpha:team:bartholomew". Pinned at 390px and 1280px by
+ * scripts/test-table-cell-overflow-layout.mjs (CHIP_VALUE_MIN_PX).
+ */
+export const WORKER_CHIP_COLUMN_PX = 320;
