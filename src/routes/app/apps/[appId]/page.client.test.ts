@@ -1793,6 +1793,39 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(hostGroup(reopened)!.getAttribute('aria-invalid')).not.toBe('true');
   });
 
+  // #2420 (BLIND, unverified until now): the host refusal names the host that was refused, so it must not
+  // outlive the host field. Switching to a scope that takes no host removes the field, and the alert
+  // beside it would go on blaming a host the form no longer asks for.
+  it('switching to a scope with no host clears the host refusal', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.errors = { hostId: ['This key already operates as host h-1.'] };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 409, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeTruthy();
+    await chooseScope(dialog, 'attention:deliver');
+    await tick(2);
+    expect(hostGroup(dialog)).toBeNull();
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')).toBeNull();
+  });
+
+  it('switching scope leaves a refusal that is not about the host in place', async () => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.message = { type: 'error', text: 'Only the App’s managers can do this.' };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
+    flushSync(); await tick(2);
+    await chooseScope(dialog, 'attention:deliver');
+    await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('Only the App’s managers can do this.');
+  });
+
   it('picking another host leaves a refusal that is not about the host in place', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
