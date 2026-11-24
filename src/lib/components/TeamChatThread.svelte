@@ -148,6 +148,8 @@
       (failedSubmission<PostTeamChatMessageForm>(matchingSubmission, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
       (draft ? { ...postForm, data: { ...postForm.data, body: draft.body, replyToSeq: draft.replyToSeq } } : postForm),
   );
+  // The largest delay `setTimeout` accepts; a larger one fires at once.
+  const NEVER_TIMEOUT_MS = 2 ** 31 - 1;
   const {
     form: postFormData,
     errors: postErrors,
@@ -167,9 +169,9 @@
       // Submitting or Delayed, and after `timeoutMs` (8 s by default) the state is
       // Timeout, which it no longer counts as in flight. That is long before the
       // stalled note shows at 30 s, so without this "Stop waiting" would abort the
-      // request and leave the form `submitting` for good. The largest timer
-      // delay keeps the state at Delayed for as long as the post is open.
-      timeoutMs: 2 ** 31 - 1,
+      // request and leave the form `submitting` for good. This form reads no
+      // `$timeout` or `$delayed`, so nothing else loses its Timeout state.
+      timeoutMs: NEVER_TIMEOUT_MS,
       // #2542: keep the in-flight request's controller and superforms' own
       // cancel, so "Stop waiting" can abort the request itself.
       onSubmit: ({ controller, cancel }) => {
@@ -232,8 +234,12 @@
     const request = postRequest;
     postRequest = null;
     if (!request) return;
-    request.controller.abort();
-    request.cancel();
+    // `cancel` must run even if the abort throws: it is what unlocks the form.
+    try {
+      request.controller.abort();
+    } finally {
+      request.cancel();
+    }
     // The button that held focus is gone with the note: hand focus to the composer.
     void tick().then(() => composerEl?.focus());
   }
@@ -248,6 +254,8 @@
     const submitting = $postSubmitting;
     if (!submitting) {
       postStalled = false;
+      // A settled request is not one to abort later.
+      postRequest = null;
       untrack(() => onSubmittingChange?.(false));
       return;
     }

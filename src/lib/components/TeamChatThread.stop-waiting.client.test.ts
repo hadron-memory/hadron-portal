@@ -101,7 +101,8 @@ describe('TeamChatThread — Stop waiting (#2542)', () => {
     vi.useFakeTimers();
     const busy = vi.fn();
     const { target } = await mountComposer(busy);
-    const { composer, pending } = await startPost(target, 'abandoned');
+    const { composer, form, pending } = await startPost(target, 'abandoned');
+    const first = lastRequestSignal(form);
     await stall();
     stopButton(target)!.click();
     await tick(3);
@@ -111,6 +112,8 @@ describe('TeamChatThread — Stop waiting (#2542)', () => {
     await tick(4);
     await vi.advanceTimersByTimeAsync(POST_PENDING_BOUND_MS * 2);
     await tick(2);
+    // The first request stays aborted, and the late result neither re-locks the thread nor re-shows the note.
+    expect(first.aborted).toBe(true);
     expect(busy).toHaveBeenLastCalledWith(false);
     expect(note(target)).toBeNull();
     expect(stopButton(target)).toBeNull();
@@ -127,7 +130,7 @@ describe('TeamChatThread — Stop waiting (#2542)', () => {
     await tick(3);
     const second = await submitEnhancedDeferred(first.form);
     await tick(2);
-    expect(second).toBeTruthy();
+    // The second Post click is a new request with its own signal, still open.
     const secondSignal = lastRequestSignal(first.form);
     expect(secondSignal).not.toBe(firstSignal);
     expect(firstSignal.aborted).toBe(true);
@@ -147,6 +150,38 @@ describe('TeamChatThread — Stop waiting (#2542)', () => {
     const back = await mountComposer();
     expect(postButton(back.target).textContent?.trim()).toBe('Post');
     expect(back.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!.disabled).toBe(false);
+  });
+
+  it('Stop waiting unlocks the form even if the abort throws', async () => {
+    vi.useFakeTimers();
+    const { target } = await mountComposer();
+    const { composer } = await startPost(target, 'abort throws');
+    await stall();
+    const abort = vi.spyOn(AbortController.prototype, 'abort').mockImplementation(() => {
+      throw new Error('abort failed');
+    });
+    const swallow = (e: ErrorEvent) => e.preventDefault();
+    window.addEventListener('error', swallow);
+    try {
+      stopButton(target)!.click();
+      await tick(3);
+      // Kills: running `cancel` after the abort without try/finally, which leaves the form submitting.
+      expect(composer.disabled).toBe(false);
+      expect(postButton(target).textContent?.trim()).toBe('Post');
+    } finally {
+      window.removeEventListener('error', swallow);
+      abort.mockRestore();
+    }
+  });
+
+  it('leaving a stalled post releases the parent page lock', async () => {
+    vi.useFakeTimers();
+    const busy = vi.fn();
+    const m = await mountComposer(busy);
+    await startPost(m.target, 'parent lock');
+    await stall();
+    mounted.pop()!.unmount();
+    expect(busy).toHaveBeenLastCalledWith(false);
   });
 
   it('leaving while the post is still young does not abort it', async () => {
