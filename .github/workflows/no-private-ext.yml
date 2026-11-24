@@ -1,0 +1,29 @@
+# #2566 — fail when a private extension lands in this public repository.
+#
+# Fails if a directory under src/lib/ext/ is tracked, or a tracked file holds
+# the private-extension marker (scripts/check-no-private-ext.mjs).
+#
+# Shaped like grid-filters: one small job, reports separately from `ci`. It uses
+# only Node built-ins and git, so there is no install step. Advisory until it is
+# made a required check; that is a settings decision, not part of this change.
+name: no-private-ext
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  no-private-ext:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: No private extension in the public tree
+        run: node scripts/check-no-private-ext.mjs

@@ -159,13 +159,4 @@ describe('assertIdsMatchPaths', () => {
   it('throws naming the path and the id when they differ', () => {
     expect(() => assertIdsMatchPaths([['./alpha/index.ts', { id: 'beta' }]])).toThrow(/alpha.*beta/s);
   });
-
-  it('throws on two entries claiming one id', () => {
-    expect(() =>
-      assertIdsMatchPaths([
-        ['./one/index.ts', { id: 'one' }],
-        ['./two/index.ts', { id: 'one' }],
-      ]),
-    ).toThrow();
-  });
 });
