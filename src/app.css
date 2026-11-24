@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+/* Tailwind skips git-ignored paths, so an untracked extension under src/lib/ext/ is named here. Inert while the directory holds none. #2566 */
+@source "./lib/ext";
 
 /* Class-based dark mode — add `dark` class to <html> to activate */
 @custom-variant dark (&:where(.dark, .dark *));

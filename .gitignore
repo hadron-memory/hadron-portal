@@ -22,3 +22,8 @@ design/screenshots/
 
 # #1979 live-provider test output (ledger, summary, redacted local diagnostic)
 .live-provider/
+
+# #2566 — a deployment's own extension lives untracked in src/lib/ext/<id>/.
+# The registry, its types, README and test sit directly in src/lib/ext/ and stay
+# tracked; scripts/check-no-private-ext.mjs fails if a directory is tracked.
+/src/lib/ext/*/
