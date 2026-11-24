@@ -13,7 +13,7 @@ describe('task planning authorized reads', () => {
   it('scopes bare handles before the authorized exact read', async () => {
     const c = client({ agentTask: task });
     expect(await taskChoices(c.api, app, 0, 'AT1.2')).toMatchObject({ kind: 'ok', value: { items: [task], hasMore: false } });
-    expect(c.request.mock.calls[0][1]).toEqual({ id: 'hrn:agenttask:acme.com:team:AT1.2' });
+    expect(c.request.mock.calls[0][1]).toEqual({ ref: 'hrn:agenttask:acme.com:team:AT1.2' });
   });
   it.each([null, { ...task, appId: 'foreign' }, { ...task, status: 'FINISHED' }, { ...task, handle: 'AT0' }])('conceals unavailable exact results without exposing metadata', async (agentTask) => {
     const c = client({ agentTask });

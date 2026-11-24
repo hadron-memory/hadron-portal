@@ -12,8 +12,8 @@ function event(fields: Record<string, string | string[]>, impersonation: unknown
 }
 beforeEach(() => {
   // portal#1349: a write first resolves the route's task to its canonical id for this App.
-  request.mockReset().mockImplementation(async (q: string, v?: { id: string }) =>
-    q === AGENT_TASKS_APP_QUERY ? { app } : q === AGENT_TASK_REF_QUERY ? { agentTask: { id: v!.id, appId: app.id } } : {});
+  request.mockReset().mockImplementation(async (q: string, v?: { ref: string }) =>
+    q === AGENT_TASKS_APP_QUERY ? { app } : q === AGENT_TASK_REF_QUERY ? { agentTask: { id: v!.ref, appId: app.id } } : {});
   rawRequest.mockReset().mockResolvedValue({ data: { createAgentTask: { id: 't9' } } });
 });
 async function create(fields: Record<string, string | string[]>) {

@@ -13,7 +13,7 @@ const delegate = async (q: string, v: unknown) => ({ data: await request(q, v), 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const gated = async (q: string, v?: unknown) => {
   if (q === AGENT_TASKS_APP_QUERY) return { app };
-  if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: ((v as { id: string }).id === 'AT3.405' || (v as { id: string }).id.endsWith(':AT3.405')) ? 'canon-1' : (v as { id: string }).id, appId: 'app-1' } };
+  if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: ((v as { ref: string }).ref === 'AT3.405' || (v as { ref: string }).ref.endsWith(':AT3.405')) ? 'canon-1' : (v as { ref: string }).ref, appId: 'app-1' } };
   return request(q, v);
 };
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: gated, rawRequest }) }));
@@ -42,15 +42,15 @@ describe('edit action: the call', () => {
   it('sends the route’s canonical task and only the changed fields', async () => {
     request.mockResolvedValue({ updateAgentTask: { id: 'canon-1' } });
     expect(await edit(event({ title: 'Ship it now', description: 'More' }, null, 'AT3.405'))).toEqual({ action: 'edit', ok: true, committedWithError: false, warnings: [], more: 0 });
-    expect(rawRequest).toHaveBeenLastCalledWith(UPDATE_AGENT_TASK_MUTATION, { taskId: 'canon-1', input: { title: 'Ship it now', description: 'More' } });
-    expect(UPDATE_AGENT_TASK_MUTATION).toContain('updateAgentTask(taskId: $taskId, input: $input)');
+    expect(rawRequest).toHaveBeenLastCalledWith(UPDATE_AGENT_TASK_MUTATION, { taskRef: 'canon-1', input: { title: 'Ship it now', description: 'More' } });
+    expect(UPDATE_AGENT_TASK_MUTATION).toContain('updateAgentTask(taskRef: $taskRef, input: $input)');
   });
 
   it('a posted taskId, owner, assignee, status or source never reaches the call', async () => {
     request.mockResolvedValue({});
     await edit(event({ title: 'Changed', taskId: 'other', owner: 'worker:x', assignee: 'worker:y', status: 'FINISHED', source: 'http://x' }));
     const [, vars] = rawRequest.mock.calls.at(-1)!;
-    expect(vars).toEqual({ taskId: 't1', input: { title: 'Changed' } });
+    expect(vars).toEqual({ taskRef: 't1', input: { title: 'Changed' } });
   });
 
   it('a save with nothing changed calls nothing and says so', async () => {
@@ -62,7 +62,7 @@ describe('edit action: the call', () => {
   it('clearing the description sends an explicit null', async () => {
     request.mockResolvedValue({});
     await edit(event({ description: '', descriptionBase: 'was here' }));
-    expect(rawRequest.mock.calls.at(-1)![1]).toEqual({ taskId: 't1', input: { description: null } });
+    expect(rawRequest.mock.calls.at(-1)![1]).toEqual({ taskRef: 't1', input: { description: null } });
   });
 });
 

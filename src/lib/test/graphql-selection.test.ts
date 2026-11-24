@@ -37,7 +37,7 @@ const propertiesCases: Case[] = [
   ['in an inline fragment', q => edit(q, /^      properties\n/m, '      ... on AgentTask { properties }\n'), true],
   [
     'in a named fragment with a directive',
-    q => edit(movePropertiesToRowFields(q), 'agentTask(id: $id) {\n      ...AgentTaskRowFields', 'agentTask(id: $id) {\n      ...AgentTaskRowFields @include(if: false)'),
+    q => edit(movePropertiesToRowFields(q), 'agentTask(ref: $ref) {\n      ...AgentTaskRowFields', 'agentTask(ref: $ref) {\n      ...AgentTaskRowFields @include(if: false)'),
     false,
   ],
   ['in an inline fragment with a directive', q => edit(q, /^      properties\n/m, '      ... on AgentTask @include(if: false) { properties }\n'), false],

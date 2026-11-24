@@ -313,7 +313,7 @@ describe('task loader: handles', () => {
   it('a bare handle is qualified with THIS route’s App and forwarded to the server resolver', async () => {
     request.mockImplementation(async (q: string) => asked(q, detail({ handle: 'AT3.405' })));
     const r = await loadDetail('AT3.405');
-    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { ref: 'hrn:agenttask:acme.com:team:AT3.405' });
     expect(r.task).toMatchObject({ id: 't1', handle: 'AT3.405' });
   });
 
@@ -324,17 +324,17 @@ describe('task loader: handles', () => {
       return asked(q, detail({ handle: 'AT3.405' }));
     });
     await loadDetail('AT3.405');
-    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { ref: 'hrn:agenttask:acme.com:team:AT3.405' });
     // The first load asks no relations; the section does, by the canonical id.
     expect(request.mock.calls.some((c) => c[0] === TASK_DEPENDENCIES_QUERY)).toBe(false);
     expect(await loadSection('dependencies', 'AT3.405')).toEqual({ kind: 'ok', value: { blockedBy: page, blocks: page } });
-    expect(request).toHaveBeenCalledWith(TASK_DEPENDENCIES_QUERY, { id: 't1', offset: 0 });
+    expect(request).toHaveBeenCalledWith(TASK_DEPENDENCIES_QUERY, { ref: 't1', offset: 0 });
   });
 
   it('a raw id is forwarded unchanged (bookmarks keep working)', async () => {
     request.mockImplementation(async (q: string) => asked(q, detail()));
     await loadDetail('t1');
-    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { id: 't1' });
+    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { ref: 't1' });
   });
 
   it('another App’s qualified handle is a 404 BEFORE any task read — no redirect, same words as unknown', async () => {
@@ -346,7 +346,7 @@ describe('task loader: handles', () => {
   it('this App’s qualified handle is forwarded as written', async () => {
     request.mockImplementation(async (q: string) => asked(q, detail({ handle: 'AT3' })));
     await loadDetail('hrn:agenttask:acme.com:team:AT3');
-    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3' });
+    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { ref: 'hrn:agenttask:acme.com:team:AT3' });
   });
 
   it('an unknown, malformed or unreadable handle answers exactly like an unknown id', async () => {

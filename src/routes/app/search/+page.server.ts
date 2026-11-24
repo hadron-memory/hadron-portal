@@ -39,8 +39,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   if (taskId) {
     const { agentTask } = await gqlClient(locals.token).request<{
       agentTask: { id: string; appId: string } | null;
-    }>(AGENT_TASK_REF_QUERY, { id: taskId });
-    // Contract (schema/schema.graphql): `Query.agentTask(id: ID!): AgentTask` is
+    }>(AGENT_TASK_REF_QUERY, { ref: taskId });
+    // Contract (schema/schema.graphql): `Query.agentTask(ref: ID!): AgentTask` is
     // nullable, `AgentTask.id` and `appId` are `ID!`. graphql-request returns
     // `data` as sent, so a missing key is `undefined`, distinct from `null`.
     // portal#2177: only an explicit null means "not found or unavailable", and

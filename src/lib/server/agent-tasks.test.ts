@@ -105,7 +105,7 @@ describe('loadHistory', () => {
     const r = await loadHistory(client, 'app-1', 't1');
     expect(r).toMatchObject({ kind: 'ok', value: { capped: false } });
     expect(r.kind === 'ok' && r.value.events).toHaveLength(203);
-    expect(request.mock.calls[0]).toEqual([AGENT_TASK_EVENTS_QUERY, { appRef: 'app-1', taskId: 't1', after: undefined, limit: 200 }]);
+    expect(request.mock.calls[0]).toEqual([AGENT_TASK_EVENTS_QUERY, { appRef: 'app-1', taskRef: 't1', after: undefined, limit: 200 }]);
     expect(request.mock.calls[1][1]).toMatchObject({ after: 'e199' });
   });
 
@@ -173,7 +173,7 @@ describe('loadAncestors', () => {
       ancestors: [{ id: 'g', title: 'Grand' }, { id: 'p', title: 'Parent' }],
       truncated: false,
     });
-    expect(request).toHaveBeenCalledWith(AGENT_TASK_ANCESTOR_QUERY, { id: 'p' });
+    expect(request).toHaveBeenCalledWith(AGENT_TASK_ANCESTOR_QUERY, { ref: 'p' });
   });
 
   it('a root task has none, and asks nothing', async () => {
@@ -270,10 +270,10 @@ describe('hydrateTaskRefs', () => {
   const task = (id: string, over: Record<string, unknown> = {}) => ({ agentTask: { id, appId: 'app-1', handle: `AT${id}`, title: `T ${id}`, ...over } });
 
   it('reads each distinct id once, by id, through agentTask — terminal children included, no open-list scan', async () => {
-    request.mockImplementation(async (_q: string, v: { id: string }) => task(v.id));
+    request.mockImplementation(async (_q: string, v: { ref: string }) => task(v.ref));
     const refs = await hydrateTaskRefs(client, 'app-1', ['1', '2', '1', null, undefined, '']);
     expect(refs).toEqual({ 1: { id: '1', handle: 'AT1', title: 'T 1' }, 2: { id: '2', handle: 'AT2', title: 'T 2' } });
-    expect(request.mock.calls.map((c) => c[1])).toEqual([{ id: '1' }, { id: '2' }]);
+    expect(request.mock.calls.map((c) => c[1])).toEqual([{ ref: '1' }, { ref: '2' }]);
     expect(request.mock.calls.every((c) => c[0] === AGENT_TASK_REF_QUERY)).toBe(true);
   });
 
@@ -283,11 +283,11 @@ describe('hydrateTaskRefs', () => {
   });
 
   it('missing, unreadable and failed reads are all the same null, and one failure does not cost the rest', async () => {
-    request.mockImplementation(async (_q: string, v: { id: string }) => {
-      if (v.id === 'missing') return { agentTask: null };
-      if (v.id === 'denied') throw gqlError('FORBIDDEN');
-      if (v.id === 'down') throw new Error('ECONNRESET');
-      return task(v.id);
+    request.mockImplementation(async (_q: string, v: { ref: string }) => {
+      if (v.ref === 'missing') return { agentTask: null };
+      if (v.ref === 'denied') throw gqlError('FORBIDDEN');
+      if (v.ref === 'down') throw new Error('ECONNRESET');
+      return task(v.ref);
     });
     expect(await hydrateTaskRefs(client, 'app-1', ['missing', 'denied', 'down', 'ok'])).toEqual({
       missing: null, denied: null, down: null, ok: { id: 'ok', handle: 'ATok', title: 'T ok' },
@@ -297,11 +297,11 @@ describe('hydrateTaskRefs', () => {
   it('concurrency is bounded', async () => {
     let live = 0;
     let peak = 0;
-    request.mockImplementation(async (_q: string, v: { id: string }) => {
+    request.mockImplementation(async (_q: string, v: { ref: string }) => {
       peak = Math.max(peak, ++live);
       await new Promise((r) => setTimeout(r, 1));
       live--;
-      return task(v.id);
+      return task(v.ref);
     });
     const ids = Array.from({ length: HYDRATE_CONCURRENCY * 3 }, (_, i) => String(i));
     expect(Object.keys(await hydrateTaskRefs(client, 'app-1', ids))).toHaveLength(ids.length);
@@ -322,12 +322,12 @@ describe('canonicalTaskId (the identity a write uses)', () => {
   it('a handle is qualified with the route App and resolves to the server’s canonical id', async () => {
     answer({ id: 'canon-1', appId: 'app-1' });
     expect(await canonicalTaskId(client, 'app-1', 'AT3.405')).toBe('canon-1');
-    expect(request).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+    expect(request).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { ref: 'hrn:agenttask:acme.com:team:AT3.405' });
   });
   it('a raw id is forwarded unchanged', async () => {
     answer({ id: 'abc', appId: 'app-1' });
     await canonicalTaskId(client, 'app-1', 'abc');
-    expect(request).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'abc' });
+    expect(request).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { ref: 'abc' });
   });
   // portal#2202 gate: every task-surface 404 carries the bare "Task not
   // found" message — exact wording pinned per throw site, so reverting any
@@ -375,7 +375,7 @@ describe('loadReview (portal#1697)', () => {
   it('asks about the frozen head from the task’s own events, once', async () => {
     answer([frozen]);
     expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness, seat: null } });
-    expect(request).toHaveBeenCalledWith(TASK_REVIEW_EVENTS_QUERY, expect.objectContaining({ appRef: 'app-1', taskId: 't1', types: ['pr.frozen', 'review.seat.assigned'] }));
+    expect(request).toHaveBeenCalledWith(TASK_REVIEW_EVENTS_QUERY, expect.objectContaining({ appRef: 'app-1', taskRef: 't1', types: ['pr.frozen', 'review.seat.assigned'] }));
     expect(readinessCalls()).toEqual([[PULL_REQUEST_READINESS_QUERY, { taskRef: 't1', head: H }]]);
   });
 
