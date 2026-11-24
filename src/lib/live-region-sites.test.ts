@@ -1,37 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { parse } from 'svelte/compiler';
 import baseline from './live-region-sites.baseline.json';
+import { conditionalStatusRegions, nextBaseline, ratchetDiff, scanStatusSites } from './live-region-sites.scan';
 
 /**
- * portal#2344, hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted
+ * portal#2344, portal#2391, hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted
  *
  * Screen readers announce a CHANGE inside a live region that already exists. A
- * `role="status"` element that is the ONLY child of its own `{#if}` / `{:else}`
- * branch is inserted already populated and removed when the condition clears, so
- * it may never be announced. The fix is `LiveRegion`
+ * `role="status"` element that is mounted by an `{#if}` / `{:else}` branch is inserted already
+ * populated and removed when the condition clears, so it may never be announced. The fix is `LiveRegion`
  * (hrn:node:hadronmemory.com:hadron-portal:components:live-region): the region is
  * always mounted and the `{#if}` moves inside it.
  *
- * This scan finds the remaining sole-child regions per file. It is a RATCHET over
- * the sites not yet converted, and the checked-in baseline is the inventory of
- * what is left: a file may not gain a sole-child region, and when one is
- * converted the baseline must come down with it (so the number only falls).
+ * This scan finds the remaining such regions. It is a RATCHET over the sites not yet converted, and the
+ * checked-in baseline is the inventory of what is left, as `file: [site identity, ...]`. A site's identity is
+ * its `data-testid`, else a hash of its opening tag and enclosing branch condition (see
+ * `conditionalStatusIdentities`), never a line number. A site may not be added, and when one is converted the
+ * baseline must come down with it. Because sites are tracked one by one, fixing one site and adding another in
+ * the same file is an addition plus a removal, reported separately, and no longer passes as "no change".
  *
  * It counts a `role="status"` region, or a `role={expression}` alert/status hybrid
- * (`LiveOutcome`'s case, portal#2379), that is a child of an `{#if}`/`{:else}` branch,
- * alone or among others, directly or through a `{#key}`. One limit, on the
- * conservative side: it does not see an already-live ancestor container, so a listed
- * site can be a false positive. Reviewed non-defects are named in `reviewedNotDefects`
- * below and stay counted.
+ * (`LiveOutcome`'s case, portal#2379), that is a child of an `{#if}`/`{:else}` branch, alone or among others,
+ * directly, through a `{#key}`, or nested in plain elements. One limit, on the conservative side: it does not
+ * see an already-live ancestor container, so a listed site can be a false positive. Reviewed non-defects are
+ * named by site identity in `reviewedNotDefects` below and stay counted.
  *
  * The baseline is derived from the scan, never merged by hand: run
  * `UPDATE_LIVE_REGION_BASELINE=1 pnpm vitest run --project node live-region-sites`
- * after merging main (it only lowers, and lists any addition it did not accept), then run
- * the suite again. Counts are per file, as the ratchet was designed (#2374): a swap within
- * one file keeps its count, so a new site can inherit a fixed site's slot. That gap is
- * disclosed and tracked as hadron-portal#2391 (a per-site-identity ratchet).
+ * after merging main (it only lowers, and lists additions it did not accept and removals it applied), then run
+ * the suite again. `UPDATE_LIVE_REGION_BASELINE=accept-additions` takes additions, and each needs a reason in
+ * `reviewedNotDefects` or a conversion tracked elsewhere.
  */
 const SRC = join(process.cwd(), 'src');
 
@@ -44,123 +43,78 @@ function svelteFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-type Node = { type: string; start?: number; data?: string; attributes?: Attr[]; fragment?: Fragment; consequent?: Fragment; alternate?: Fragment | null; body?: Fragment; fallback?: Fragment; pending?: Fragment; then?: Fragment; catch?: Fragment; children?: Node[]; nodes?: Node[] };
-type Expr = { type: string; value?: unknown; name?: string; quasis?: Array<{ value: { cooked?: string | null } }>; consequent?: Expr; alternate?: Expr; left?: Expr; right?: Expr; operator?: string; expressions?: Expr[]; start: number; end: number };
-type Attr = { type: string; name?: string; value?: true | Array<{ type: string; data?: string; expression?: Expr }> | { type: string; expression?: Expr } };
-type Fragment = { nodes: Node[] };
 
-/**
- * Whether a `role={expression}` can resolve to `status`, judged on the branches the expression can take,
- * not on the words in its source. A conditional is checked branch by branch; a string literal is `status` or
- * it is not; `undefined`, `null` and other literals are known not to be; anything opaque (an identifier, a
- * member such as `notice.role`, a call) is UNKNOWN and counts, since it may be `status`.
- */
-function canBeStatus(e: Expr | undefined): boolean {
-  if (!e) return true;
-  switch (e.type) {
-    case 'ConditionalExpression': return canBeStatus(e.consequent) || canBeStatus(e.alternate);
-    // `a && b` is a falsy `a` or `b`; `a || b` and `a ?? b` can be either side.
-    case 'LogicalExpression': return e.operator === '&&' ? canBeStatus(e.right) : canBeStatus(e.left) || canBeStatus(e.right);
-    case 'Literal': return e.value === 'status';
-    // A static template is its cooked text; one with substitutions is unknown, so it counts.
-    case 'TemplateLiteral': return e.expressions?.length ? true : e.quasis?.[0]?.value.cooked === 'status';
-    case 'Identifier': return e.name !== 'undefined';
-    default: return true;
-  }
-}
-
-/**
- * The role attribute of an element: a literal string; null for a `role={expression}` that can yield `status`
- * (see `canBeStatus`); 'other' for an expression that cannot (`full ? 'dialog' : undefined`); undefined when absent.
- */
-function roleOf(node: Node): string | null | undefined {
-  const attr = (node.attributes ?? []).find((a) => a.type === 'Attribute' && a.name === 'role');
-  if (!attr) return undefined;
-  if (Array.isArray(attr.value) && attr.value.length === 1 && attr.value[0].type === 'Text') return attr.value[0].data?.trim();
-  // `role={x}` is one expression tag; `role="{x}"` is a one-chunk array holding the same expression tag. A quoted
-  // attribute mixing text and expressions (`role="a{b}"`) is unknown, so it counts.
-  const only = Array.isArray(attr.value) ? (attr.value.length === 1 ? attr.value[0] : undefined) : attr.value !== true ? attr.value : undefined;
-  const expression = only && only.type === 'ExpressionTag' ? (only as { expression?: Expr }).expression : undefined;
-  return only && !expression ? null : canBeStatus(expression) ? null : 'other';
-}
-
-/**
- * How many status regions are mounted by an `{#if}`/`{:else}` branch itself: a `role="status"`, or a
- * `role={expression}` (an alert/status hybrid, whose status half is inserted already populated), that is a
- * child of the branch, alone or among others, directly or through a `{#key}`. An element that is always
- * rendered with the `{#if}` INSIDE it is not a child of the branch, so it is never counted.
- */
-export function conditionalStatusRegions(src: string): number {
-  return conditionalStatusSites(src).length;
-}
-
-/** The 1-based line of each region counted by `conditionalStatusRegions`. */
-export function conditionalStatusSites(src: string): number[] {
-  const ast = parse(src, { modern: true }) as unknown as { fragment: Fragment };
-  const sites: number[] = [];
-  const direct = (nodes: Node[]): Node[] =>
-    nodes.flatMap((n) => (n.type === 'KeyBlock' ? direct((n.fragment?.nodes ?? [])) : [n]));
-  const branch = (f: Fragment | null | undefined) => {
-    if (!f) return;
-    for (const n of direct(f.nodes)) {
-      if (n.type !== 'RegularElement' && n.type !== 'SvelteElement') continue;
-      const role = roleOf(n);
-      if (role === 'status' || role === null) sites.push(src.slice(0, n.start ?? 0).split('\n').length);
-    }
-  };
-  const walk = (n: unknown) => {
-    if (!n || typeof n !== 'object') return;
-    if (Array.isArray(n)) return n.forEach(walk);
-    const node = n as Node;
-    if (node.type === 'IfBlock') {
-      branch(node.consequent);
-      if (node.alternate && !(node.alternate.nodes.length === 1 && node.alternate.nodes[0].type === 'IfBlock')) branch(node.alternate);
-    }
-    for (const v of Object.values(node)) if (v && typeof v === 'object') walk(v);
-  };
-  walk(ast.fragment);
-  return sites;
-}
-
-/** Sole-child sites reviewed and left alone on purpose. They stay counted here. */
+/** Sites reviewed and left alone on purpose, keyed `file#identity`. They stay counted here. */
 const reviewedNotDefects: Record<string, string> = {
-  'src/lib/components/SelectMemory.svelte': 'the guard is the static `keepOpen` mode flag; the region it renders is already persistent inside that mode',
-  'src/lib/components/tickers/ApplyAgentTickers.svelte': 'the result container is an aria-live region mounted before any result, so the child is announced by it',
-  // portal#2379: seen by the wider scan, reviewed, left alone. Each is a region that is already mounted
-  // (the {#if} sits inside it, and the outer branch mounts the region with the view), so the content comes and
-  // goes in an existing region. (A probe that mounts the page and changes it, not a read of the markup, is the
-  // test of "present at load": the signing drifted/too-many notes and the customisation empty-list note looked
-  // present at load and are not, so they are converted.)
-  'src/lib/components/AgentChat.svelte': 'counted only because both notices are children of the active-chat branch of `{#if !activeChatId && !loadingChat}`; the region element mounts with the chat view and its own {#if} is INSIDE it, so a notice that arrives while the chat is open comes in an existing region. Residual: switching to a chat that already has a notice inserts the region with it, as opening that chat does',
-  'src/lib/components/NodeList.svelte': 'counted only because node-columns-status is a child of the rows branch (`{#if nodes.length === 0}` ... `{:else}`); its own {#if} is INSIDE it, so loading and failed text that arrives while rows are shown comes in an existing region. Residual: rows returning after an empty result insert the region with its loading text; moving it out would reserve its min-h in the empty state',
-  'src/routes/app/apps/[appId]/tasks/+page.svelte': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it'
+  'src/lib/components/SelectMemory.svelte#p:d503ccea': 'the guard is the static `keepOpen` mode flag; the region it renders is already persistent inside that mode',
+  'src/lib/components/tickers/ApplyAgentTickers.svelte#testid:apply-receipt': 'the result container is an aria-live region mounted before any result, so the child is announced by it',
+  'src/lib/components/tickers/ApplyAgentTickers.svelte#testid:apply-refresh-failed': 'the result container is an aria-live region mounted before any result, so the child is announced by it',
+  'src/lib/components/AgentChat.svelte#testid:chat-progress-notice': 'counted only because both notices are children of the active-chat branch of `{#if !activeChatId && !loadingChat}`; the region element mounts with the chat view and its own {#if} is INSIDE it, so a notice that arrives while the chat is open comes in an existing region. Residual: switching to a chat that already has a notice inserts the region with it, as opening that chat does',
+  'src/lib/components/AgentChat.svelte#testid:partial-turn-notice': 'counted only because both notices are children of the active-chat branch of `{#if !activeChatId && !loadingChat}`; the region element mounts with the chat view and its own {#if} is INSIDE it, so a notice that arrives while the chat is open comes in an existing region. Residual: switching to a chat that already has a notice inserts the region with it, as opening that chat does',
+  'src/lib/components/NodeList.svelte#testid:node-columns-status': 'counted only because node-columns-status is a child of the rows branch (`{#if nodes.length === 0}` ... `{:else}`); its own {#if} is INSIDE it, so loading and failed text that arrives while rows are shown comes in an existing region. Residual: rows returning after an empty result insert the region with its loading text; moving it out would reserve its min-h in the empty state',
+  'src/routes/app/apps/[appId]/tasks/+page.svelte#testid:open-by-handle': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it',
+  'src/routes/app/apps/[appId]/tasks/+page.svelte#div:3f0d1e2f': 'counted only because both regions are children of the loaded-board branch; open-by-handle has its {#if} INSIDE it, and the Tasks-shown region is one live region per loaded board (portal#1403) whose count changes inside it'
 };
 
+/**
+ * Sites the wrapper-nested scan added (portal#2391) that nobody has reviewed yet: neither converted nor judged a
+ * non-defect, so they are NOT in `reviewedNotDefects`. Triage and conversion are tracked in hadron-portal#2581; a
+ * site comes off this list when it is converted (its baseline entry goes too) or moves to `reviewedNotDefects`
+ * with a reason. A baseline site must be on one of the two lists.
+ */
+const unreviewedSites: string[] = [
+  'src/lib/components/ErrorPage.svelte#span:924f805e',
+  'src/lib/components/InstallCustomisation.svelte#p:9e6346f9',
+  'src/lib/components/MemoryBrowser.svelte#testid:property-filter-status',
+  'src/lib/components/flow/ConversationInfoPanel.svelte#div:f5ed1424',
+  'src/lib/components/memory-config/BulkApply.svelte#p:93003cab',
+  'src/lib/components/memory-config/TemplatesManager.svelte#div:5211f6ab',
+  'src/lib/components/tickers/TickerEnabledControl.svelte#testid:ticker-enabled-result',
+  'src/routes/app/agents/[id]/+page.svelte#p:20d9c2e3',
+  'src/routes/app/agents/[id]/AgentMemberRolesEditor.svelte#p:776e5737',
+  'src/routes/app/apps/[appId]/+page.svelte#p:a50b08d0',
+  'src/routes/app/apps/[appId]/+page.svelte#testid:cast-refresh-status',
+  'src/routes/app/apps/[appId]/+page.svelte#p:1de6106a',
+  'src/routes/app/apps/[appId]/+page.svelte#p:e97eaf13',
+  'src/routes/app/apps/[appId]/+page.svelte#testid:key-copy-status',
+  'src/routes/app/apps/[appId]/grants/+page.svelte#p:da6f65da',
+  'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte#span:7ed159ba'
+];
+
+const BASELINE_PATH = join(process.cwd(), 'src/lib/live-region-sites.baseline.json');
+
 describe('portal#2344: status regions are persistent, not mounted by an {#if} branch', () => {
-  const counts = new Map<string, number>();
+  const now = new Map<string, string[]>();
+  const lineOf = new Map<string, number>();
   for (const file of svelteFiles(SRC)) {
-    const n = conditionalStatusRegions(readFileSync(file, 'utf8'));
-    if (n) counts.set(relative(process.cwd(), file), n);
+    const rel = relative(process.cwd(), file);
+    const sites = scanStatusSites(readFileSync(file, 'utf8'));
+    if (sites.length) now.set(rel, sites.map((x) => x.identity));
+    for (const x of sites) lineOf.set(`${rel}#${x.identity}`, x.line);
   }
-  const base = baseline as Record<string, number>;
+  const where = (site: string) => `${site.split('#')[0]}:${lineOf.get(site) ?? '?'}#${site.split('#').slice(1).join('#')}`;
+  const base = baseline as Record<string, string[]>;
+  const diff = () => {
+    const added: string[] = [];
+    const removed: string[] = [];
+    for (const f of new Set([...now.keys(), ...Object.keys(base)])) {
+      const d = ratchetDiff(base[f] ?? [], now.get(f) ?? []);
+      added.push(...d.added.map((i) => `${f}#${i}`));
+      removed.push(...d.removed.map((i) => `${f}#${i}`));
+    }
+    return { added, removed };
+  };
   // Regenerate the checked-in inventory from the scan. `UPDATE_LIVE_REGION_BASELINE=1` only LOWERS it (a
   // converted site comes off) and REPORTS every addition without accepting it, so rerunning cannot quietly
-  // accept a regression: the "no file gains" test keeps failing until a person accepts the additions with
-  // `UPDATE_LIVE_REGION_BASELINE=accept-additions` (and the reason goes in `reviewedNotDefects`).
+  // accept a regression: the "no site is added" test keeps failing until a person accepts the additions with
+  // `UPDATE_LIVE_REGION_BASELINE=accept-additions`.
   if (process.env.UPDATE_LIVE_REGION_BASELINE) {
     const accept = process.env.UPDATE_LIVE_REGION_BASELINE === 'accept-additions';
-    const files = new Set([...counts.keys(), ...Object.keys(base)]);
-    const next: Record<string, number> = {};
-    const additions: string[] = [];
-    for (const f of [...files].sort()) {
-      const now = counts.get(f) ?? 0;
-      const was = base[f] ?? 0;
-      if (now > was) additions.push(`${f}: ${was} -> ${now}`);
-      const keep = accept ? now : Math.min(now, was);
-      if (keep > 0) next[f] = keep;
-    }
-    writeFileSync(join(process.cwd(), 'src/lib/live-region-sites.baseline.json'), `${JSON.stringify(next, null, 2)}\n`);
-    if (additions.length) console.warn(`live-region baseline: ${accept ? 'ACCEPTED' : 'NOT accepted'} ${additions.length} addition(s):\n  ${additions.join('\n  ')}`);
+    const { added, removed } = diff();
+    const next = nextBaseline(base, now, accept);
+    writeFileSync(BASELINE_PATH, `${JSON.stringify(next, null, 2)}\n`);
+    if (removed.length) console.warn(`live-region baseline: removed ${removed.length} site(s):\n  ${removed.map(where).join('\n  ')}`);
+    if (added.length) console.warn(`live-region baseline: ${accept ? 'ACCEPTED' : 'NOT accepted'} ${added.length} addition(s):\n  ${added.map(where).join('\n  ')}`);
   }
 
   it('recognises the wrong shape and the right one', () => {
@@ -200,20 +154,28 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
     expect(conditionalStatusRegions('<p role="status">{#if a}x{/if}</p>')).toBe(0);
   });
 
-  it('no file gains a status region mounted by an {#if} branch', () => {
-    const grew = [...counts].filter(([f, n]) => n > (base[f] ?? 0)).map(([f, n]) => `${f}: ${n} (baseline ${base[f] ?? 0})`);
-    expect(grew, 'wrap the {#if} in <LiveRegion> instead of putting role="status" on the conditional element').toEqual([]);
+  it('no site is added: a status region mounted by an {#if} branch', () => {
+    expect(diff().added.map(where), 'wrap the {#if} in <LiveRegion> instead of putting role="status" on the conditional element').toEqual([]);
   });
 
-  it('the baseline comes down when a site is converted', () => {
-    const stale = Object.entries(base).filter(([f, n]) => (counts.get(f) ?? 0) < n).map(([f, n]) => `${f}: baseline ${n}, now ${counts.get(f) ?? 0}`);
-    expect(stale, 'lower live-region-sites.baseline.json to the new count').toEqual([]);
+  it('the baseline comes down when a site is converted or removed', () => {
+    expect(diff().removed.map(where), 'run UPDATE_LIVE_REGION_BASELINE=1 to lower live-region-sites.baseline.json').toEqual([]);
   });
 
-  it('every reviewed non-defect is still a counted site with a reason', () => {
-    for (const [f, why] of Object.entries(reviewedNotDefects)) {
-      expect(counts.has(f), f).toBe(true);
+  it('every reviewed non-defect is a counted site with a reason', () => {
+    const counted = new Set([...now].flatMap(([f, ids]) => ids.map((i) => `${f}#${i}`)));
+    for (const [site, why] of Object.entries(reviewedNotDefects)) {
+      expect(counted.has(site), site).toBe(true);
       expect(why.length).toBeGreaterThan(20);
     }
+  });
+
+  it('every baseline site is reviewed or on the unreviewed list, and neither list holds a stale site', () => {
+    const inBaseline = new Set(Object.entries(base).flatMap(([f, l]) => l.map((i) => `${f}#${i}`)));
+    const reviewed = new Set(Object.keys(reviewedNotDefects));
+    const unreviewed = new Set(unreviewedSites);
+    expect([...inBaseline].filter((s) => !reviewed.has(s) && !unreviewed.has(s)), 'record the site in reviewedNotDefects (with a reason) or unreviewedSites (tracked in #2581)').toEqual([]);
+    expect([...unreviewed].filter((s) => !inBaseline.has(s)), 'a converted site comes off unreviewedSites').toEqual([]);
+    expect([...unreviewed].filter((s) => reviewed.has(s)), 'a site is reviewed or unreviewed, not both').toEqual([]);
   });
 });
