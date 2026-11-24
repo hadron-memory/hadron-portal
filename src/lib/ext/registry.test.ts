@@ -125,6 +125,21 @@ describe('clashes throw, naming both extensions', () => {
     expect(() => extensionCommands(exts)).toThrow(/command id.*same.*one.*two/s);
   });
 
+  it('an extension may use one tab id and href in its org tabs and its account tabs', () => {
+    const both: PortalExtension = {
+      id: 'both',
+      orgTabs: (ctx) => [{ id: 'settings', label: 'S', href: `${ctx.basePath}/settings` }],
+      accountTabs: (ctx) => [{ id: 'settings', label: 'S', href: `${ctx.basePath}/settings` }],
+    };
+    expect(() => assertNoClashes([both])).not.toThrow();
+  });
+
+  it('two tabs of one extension with one id in one list still throw', () => {
+    expect(() =>
+      assertNoClashes([withTabs('one', tab('same', '/p'), tab('same', '/q'))]),
+    ).toThrow(/tab id.*same/s);
+  });
+
   it('a duplicate extension id', () => {
     expect(() => assertNoClashes([{ id: 'dup' }, { id: 'dup' }])).toThrow(/extension id.*dup/s);
   });
@@ -143,6 +158,16 @@ describe('extensionLimitAction', () => {
       limitAction: (ctx) => ({ label: ctx.limitKey, href: `/${String(ctx.ownerId)}` }),
     };
     expect(extensionLimitAction(limitCtx, [e])).toEqual({ label: 'memories', href: '/o1' });
+  });
+});
+
+describe('lowercase slugs', () => {
+  it('rejects an id that is not a lowercase slug', () => {
+    expect(() => assertNoClashes([{ id: 'Billing' }])).toThrow(/Billing/);
+  });
+
+  it('rejects an uppercase command trigger', () => {
+    expect(() => assertNoClashes([{ id: 'one', commands: [cmd('c', 'Go')] }])).toThrow(/trigger.*Go/s);
   });
 });
 
