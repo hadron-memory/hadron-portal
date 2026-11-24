@@ -75,4 +75,16 @@ describe('SelectHost (portal#2311)', () => {
     const plain = mountHost({ state: { kind: 'ok', hosts } });
     expect(plain.querySelector('[role="radiogroup"]')?.getAttribute('aria-invalid')).toBeNull();
   });
+
+  // portal#2576 (#2565 BLIND F1): the callback is named for its intent and is handed the picked id, so a caller never
+  // has to read the bound value, which Svelte 5 does not promise is updated when a change handler runs.
+  it('onpick is called once with the picked host id, and not on mount', () => {
+    const onpick = vi.fn();
+    const el = mountHost({ state: { kind: 'ok', hosts }, onpick });
+    expect(onpick).not.toHaveBeenCalled();
+    el.querySelector<HTMLInputElement>('input[type="radio"][value="h-b"]')!.click();
+    flushSync();
+    expect(onpick).toHaveBeenCalledTimes(1);
+    expect(onpick).toHaveBeenCalledWith('h-b');
+  });
 });

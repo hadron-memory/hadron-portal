@@ -1840,6 +1840,53 @@ describe('App key scope grant dialog (portal#1487)', () => {
     expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('Only the App’s managers can do this.');
   });
 
+  // portal#2576 (#2565 LOCAL P3-1, BLIND F3): the existing "not about the host" test uses a form MESSAGE, which a
+  // mutant that clears the whole errors store on a host change does not touch. A non-host FIELD error is what
+  // that mutant would drop, so it is pinned here: the host error goes, the other field's error stays and is shown.
+  it.each([
+    ['scope', 'That scope cannot be granted to this key.'],
+    ['_kind', 'The request was malformed.'],
+  ] as const)('picking another host clears only the host error and keeps a %s field error shown', async (field, text) => {
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.errors = { hostId: ['This key already operates as host h-1.'], [field]: [text] };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 400, data: { form: f } });
+    flushSync(); await tick(2);
+    // The host error is the one shown first, and the group is marked invalid.
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe('This key already operates as host h-1.');
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    pickHost(dialog, 'h-1');
+    await tick(2);
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).not.toBe('true');
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(text);
+  });
+
+  // portal#2576 (#2565 BLIND F2): a reply that carries BOTH errors.hostId and a form message. The message wins the
+  // alert (it is shown first), and a host change drops only the host error: the group stops being invalid, the
+  // message and its alert stay, because the message is not about the host.
+  it('a reply with both a host error and a message: a host change keeps the message and clears the invalid mark', async () => {
+    const message = 'Only the App’s managers can do this.';
+    const panel = await mountKeys();
+    const dialog = await openGrant(panel);
+    await chooseScope(dialog, 'host:operate');
+    pickHost(dialog, 'h-2');
+    const f = await superValidate({ _kind: 'grantKeyScope', keyId: 'k1', scope: 'host:operate', hostId: 'h-2' }, zod4(grantAppKeyScopeSchema));
+    f.errors = { hostId: ['This key already operates as host h-1.'] };
+    f.message = { type: 'error', text: message };
+    await submitEnhancedWithResult(grantForm(dialog), { type: 'failure', status: 403, data: { form: f } });
+    flushSync(); await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(message);
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).toBe('true');
+    pickHost(dialog, 'h-1');
+    await tick(2);
+    expect(dialog.querySelector('[data-testid="grant-scope-error"]')?.textContent).toBe(message);
+    expect(hostGroup(dialog)!.getAttribute('aria-invalid')).not.toBe('true');
+    expect(hostGroup(dialog)!.getAttribute('aria-describedby')).toBe('grant-host-help grant-scope-error');
+  });
+
   it('a success closes the dialog and announces the granted scope', async () => {
     const panel = await mountKeys();
     const dialog = await openGrant(panel);
