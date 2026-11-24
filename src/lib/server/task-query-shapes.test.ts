@@ -10,13 +10,17 @@
 import { readFileSync } from 'node:fs';
 import { buildSchema, Kind, parse, validate, type FieldNode } from 'graphql';
 import { describe, expect, it } from 'vitest';
+import { MEMORY_ASSETS_QUERY } from '$lib/server/assetQueries';
 import {
   CANCEL_APP_RUN_MUTATION,
   CREATE_SCOPE_MUTATION,
+  APP_RUNS_QUERY,
   DELETE_SCOPE_MUTATION,
+  ORG_APP_RUNS_QUERY,
   ORG_SYSTEM_MEMORY_IDS_QUERY,
   RUNNABLE_NODES_QUERY,
   SKILL_PLAN_EXPORT_QUERY,
+  USAGE_EVENTS_QUERY,
 } from '$lib/server/queries';
 
 const schema = buildSchema(readFileSync('schema/schema.graphql', 'utf8'));
@@ -113,5 +117,55 @@ describe('#2498 CancelAppRun matches the server snapshot', () => {
     const drifted = CANCEL_APP_RUN_MUTATION.replace('cancelAppRun(ref: $ref)', 'cancelAppRun(id: $ref)');
     expect(drifted).not.toBe(CANCEL_APP_RUN_MUTATION);
     expect(errors(drifted).join('\n')).toContain('Unknown argument "id" on field "Mutation.cancelAppRun"');
+  });
+});
+
+// #2588 — hadron-server#4142 S6 chunk A (PR #4822) renamed the memory reads'
+// `memoryId` / `nodeId` arguments to `memoryRef` / `nodeRef`, a hard rename with
+// no alias (hrn:node:hadronmemory.com:specs:cor:api:140:01). A stale document
+// would pass every handler test (the mock answers whatever shape it is sent)
+// and fail only on a live stack with an unknown-argument error. One pin per
+// renamed operation the portal calls; the drifted form of each is asserted
+// REFUSED so the pin cannot go green on a validator that accepts everything.
+// `usageEventsPage` and `memoryLocSegments` are renamed by the same PR but the
+// portal sends neither (no document names them).
+describe('#2588 the S6 chunk A reads match the server snapshot', () => {
+  it('usageEvents is called with `memoryRef`, never `memoryId`', () => {
+    expect(errors(USAGE_EVENTS_QUERY)).toEqual([]);
+    expect(USAGE_EVENTS_QUERY).toContain('memoryRef: $memoryRef');
+    expect(USAGE_EVENTS_QUERY).toContain('$memoryRef: ID');
+    expect(USAGE_EVENTS_QUERY).not.toMatch(/usageEvents\([^)]*memoryId:/);
+    const drifted = USAGE_EVENTS_QUERY.replace('memoryRef: $memoryRef', 'memoryId: $memoryRef');
+    expect(drifted).not.toBe(USAGE_EVENTS_QUERY);
+    expect(errors(drifted).join('\n')).toContain('Unknown argument "memoryId" on field "Query.usageEvents"');
+  });
+
+  it('memoryAssets is called with `memoryRef`, never `memoryId`', () => {
+    expect(errors(MEMORY_ASSETS_QUERY)).toEqual([]);
+    expect(MEMORY_ASSETS_QUERY).toContain('memoryAssets(memoryRef: $memoryRef');
+    expect(MEMORY_ASSETS_QUERY).toContain('$memoryRef: ID!');
+    expect(MEMORY_ASSETS_QUERY).not.toMatch(/memoryAssets\(\s*memoryId:/);
+    const drifted = MEMORY_ASSETS_QUERY.replace('memoryAssets(memoryRef: $memoryRef', 'memoryAssets(memoryId: $memoryRef');
+    expect(drifted).not.toBe(MEMORY_ASSETS_QUERY);
+    expect(errors(drifted).join('\n')).toContain('Unknown argument "memoryId" on field "Query.memoryAssets"');
+  });
+});
+
+// #2588 blind P2: the snapshot at the #4822 head also carries `appRuns(parentRunId)`
+// -> `parentRunRef` (hadron-server#4141, picked up by the same snapshot refresh,
+// not by #4822). Grepped: no portal document sends that argument (the only
+// `parentRunId` in a document is the AppRun response FIELD, which the server
+// keeps), so there is nothing to rename. This pins that, so a future caller that
+// filters by parent run has to use the new name.
+describe('#2588 appRuns never sends the renamed `parentRunId` argument', () => {
+  it.each([
+    ['APP_RUNS_QUERY', APP_RUNS_QUERY],
+    ['ORG_APP_RUNS_QUERY', ORG_APP_RUNS_QUERY],
+  ])('%s validates and passes no parentRunId argument', (_name, doc) => {
+    expect(errors(doc)).toEqual([]);
+    expect(doc).not.toMatch(/appRuns\([^)]*parentRun(Id|Ref):/);
+    const drifted = doc.replace(/appRuns\(/, 'appRuns(parentRunId: $p, ');
+    expect(drifted).not.toBe(doc);
+    expect(errors(drifted).join('\n')).toContain('Unknown argument "parentRunId" on field "Query.appRuns"');
   });
 });
