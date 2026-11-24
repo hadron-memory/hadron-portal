@@ -13,7 +13,7 @@
 <script module lang="ts">
   import type { AgentTaskParty } from '$lib/agent-tasks/types';
 
-  export type PartyLabelDefeatRow = { id: string; party: AgentTaskParty | null; note: string };
+  export type PartyLabelUnboundedWrapperRow = { id: string; party: AgentTaskParty | null; note: string };
 </script>
 
 <script lang="ts">
@@ -22,15 +22,15 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
 
-  let { rows }: { rows: PartyLabelDefeatRow[] } = $props();
+  let { rows }: { rows: PartyLabelUnboundedWrapperRow[] } = $props();
 
-  const columns: PortalColumnDef<PartyLabelDefeatRow>[] = [
+  const columns: PortalColumnDef<PartyLabelUnboundedWrapperRow>[] = [
     { id: 'party', accessorFn: (r) => r.party?.name ?? '', header: 'Party', enableHiding: false, size: 200 },
     { id: 'detail', accessorFn: (r) => r.note, header: 'Detail', enableSorting: false, size: 400 },
     { id: 'refs', accessorFn: (r) => r.id, header: 'Refs', size: 400 },
     { id: 'since', accessorFn: (r) => r.id, header: 'Since', size: 400 },
   ];
-  const table = createSvelteTable<PartyLabelDefeatRow>({
+  const table = createSvelteTable<PartyLabelUnboundedWrapperRow>({
     get data() {
       return rows;
     },

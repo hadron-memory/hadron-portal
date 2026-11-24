@@ -1410,7 +1410,7 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
  // ══ portal#2506: the PartyLabel containment battery ═════════════════════════
  // The shared component's own pin, independent of any one caller: a real DataTable whose
  // Party cell carries the defeating caller wrapper verbatim (TasksRoster's reportsTo span,
- // `inline-flex flex-wrap` with no max-w-full/min-w-0 — see fixtures/PartyLabelDefeatTable.svelte),
+ // `inline-flex flex-wrap` with no max-w-full/min-w-0 — see fixtures/PartyLabelUnboundedWrapperTable.svelte),
  // a ~27-character worker name with its AI-worker badge and compact Urn chip, a person of
  // the same shape, a short worker name, and a long name with no urn. Judged by
  // the same escape oracle as agent-tasks
