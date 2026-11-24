@@ -6361,5 +6361,5 @@ export const TEAM_METRICS_QUERY = /* GraphQL */ `
       flow { completed { ...TeamMetricsCountFields } started { ...TeamMetricsCountFields } }
     }
   }
-  fragment TeamMetricsCountFields on TeamMetricsCount { total ids truncated }
+  fragment TeamMetricsCountFields on TeamMetricsCount { total ids truncated named { id name } }
 `;

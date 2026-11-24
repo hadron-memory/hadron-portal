@@ -3,7 +3,10 @@ import { render } from 'svelte/server';
 import TeamMetricsPanel from './TeamMetricsPanel.svelte';
 import type { MetricsCount, TeamMetrics, TeamMetricsView } from '$lib/team-metrics/types';
 
-const count = (total: number, o: Partial<MetricsCount> = {}): MetricsCount => ({ total, ids: Array.from({ length: Math.min(total, 3) }, (_, i) => `id${i}abcdefgh`), truncated: false, ...o });
+const count = (total: number, o: Partial<MetricsCount> = {}): MetricsCount => {
+  const ids = o.ids ?? Array.from({ length: Math.min(total, 3) }, (_, i) => `id${i}abcdefgh`);
+  return { total, ids, truncated: false, named: ids.map((id) => ({ id, name: null })), ...o };
+};
 const base: TeamMetrics = {
   appId: 'app1', asOf: '2026-11-22T10:00:00Z', window: { since: '2026-11-15T00:00:00Z', until: '2026-11-22T00:00:00Z' },
   startedOwned: {
@@ -164,5 +167,39 @@ describe('TeamMetricsPanel states', () => {
     } finally {
       if (prev === undefined) delete process.env.TZ; else process.env.TZ = prev;
     }
+  });
+
+  // portal#2535 item 3: a drill chip names what it points at, with the id below the name.
+  describe('drill chip names', () => {
+    const chips = (c: MetricsCount) => html(ok({ workers: { ...base.workers, active: c } }));
+
+    it('shows the name with the first 8 characters of the id below it', () => {
+      const h = chips(count(1, { ids: ['abcdef0123456789'], named: [{ id: 'abcdef0123456789', name: 'Build the drill chips' }] }));
+      expect(h).toMatch(/data-testid="metrics-chip-name"[^>]*>Build the drill chips<\/span>\s*<span[^>]*>abcdef01<\/span>/);
+    });
+
+    it('an id with no readable name keeps the type and id chip, no empty name', () => {
+      const h = chips(count(2, { ids: ['aaaaaaaa1111', 'bbbbbbbb2222'], named: [{ id: 'aaaaaaaa1111', name: 'Gil' }, { id: 'bbbbbbbb2222', name: null }] }));
+      expect(h.match(/data-testid="metrics-chip-name"/g)).toHaveLength(1);
+      expect(h).toMatch(/worker<\/span> bbbbbbbb/);
+      expect(h).not.toMatch(/data-testid="metrics-chip-name"[^>]*><\/span>/);
+    });
+
+    it('links each chip by its id, in the server order', () => {
+      const h = chips(count(2, { ids: ['id-b', 'id-a'], named: [{ id: 'id-b', name: 'B' }, { id: 'id-a', name: 'A' }] }));
+      expect(h.indexOf('/app/workers/id-b')).toBeGreaterThan(-1);
+      expect(h.indexOf('/app/workers/id-b')).toBeLessThan(h.indexOf('/app/workers/id-a'));
+    });
+
+    it('still says a cut-short list is cut short', () => {
+      const ids = Array.from({ length: 200 }, (_, i) => `w${i}`);
+      const h = chips(count(450, { ids, truncated: true, named: ids.map((id) => ({ id, name: `n${id}` })) }));
+      expect(h).toContain('First 200 of 450');
+    });
+
+    it('a count with no named list still renders the ids', () => {
+      const h = chips({ total: 1, ids: ['solo1234567'], truncated: false } as unknown as MetricsCount);
+      expect(h).toMatch(/worker<\/span> solo1234/);
+    });
   });
 });

@@ -173,7 +173,7 @@
           {:else if cell.column.id === 'target'}
             {@const target = targetOf(row.s, data.workers)}
             <div class="flex min-w-0 flex-col">
-              <span class="truncate">{row.scope}{#if target}{' · '}{target.name ?? target.id}{/if}</span>
+              <span class="truncate" title="{row.scope}{target ? ` · ${target.name ?? target.id}` : ''}">{row.scope}{#if target}{' · '}{target.name ?? target.id}{/if}</span>
               {#if target?.urn}<Urn value={target.urn} type="worker" size={9} compact linked label={t('app.stops.target-label', 'target worker')} />{/if}
             </div>
           {:else if cell.column.id === 'setBy'}
