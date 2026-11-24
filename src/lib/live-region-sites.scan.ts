@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { parse } from 'svelte/compiler';
 
 // The live-region ratchet's scanner (portal#2344). The ratchet itself is live-region-sites.test.ts.
@@ -42,11 +43,16 @@ function roleOf(node: Node): string | null | undefined {
   return only && !expression ? null : canBeStatus(expression) ? null : 'other';
 }
 
+/** One counted region: its 1-based line (for messages only) and its identity (what the ratchet tracks). */
+export type StatusSite = { line: number; identity: string };
+
 /**
  * How many status regions are mounted by an `{#if}`/`{:else}` branch itself: a `role="status"`, or a
  * `role={expression}` (an alert/status hybrid, whose status half is inserted already populated), that is a
- * child of the branch, alone or among others, directly or through a `{#key}`. An element that is always
- * rendered with the `{#if}` INSIDE it is not a child of the branch, so it is never counted.
+ * child of the branch, alone or among others, directly, through a `{#key}`, or nested in plain elements
+ * (portal#2391: `{#if a}<div><p role="status">` inserts the populated region just the same). An element that is
+ * always rendered with the `{#if}` INSIDE it is not a child of the branch, so it is never counted, and the
+ * scan does not look inside a component, which may render its own persistent region.
  */
 export function conditionalStatusRegions(src: string): number {
   return conditionalStatusSites(src).length;
@@ -54,25 +60,64 @@ export function conditionalStatusRegions(src: string): number {
 
 /** The 1-based line of each region counted by `conditionalStatusRegions`. */
 export function conditionalStatusSites(src: string): number[] {
+  return scanStatusSites(src).map((s) => s.line);
+}
+
+/**
+ * A stable identity per counted region, in source order, so the ratchet can tell a swap within one file from no
+ * change. It is `testid:<value>` when the element has a literal `data-testid`, else `<tag>:<hash>`, the hash being
+ * the first 8 hex digits of a SHA-1 over the whitespace-normalised opening tag and the enclosing branch condition
+ * (`if <test>` or `else <test>`). It holds no line number, so it survives edits elsewhere in the file. Identical
+ * tag and condition twice get a `~2`, `~3` ordinal so the two stay distinct.
+ */
+export function conditionalStatusIdentities(src: string): string[] {
+  return scanStatusSites(src).map((s) => s.identity);
+}
+
+/** What changed between a baseline's identities and the scan's: separately, so a swap is not invisible. */
+export function ratchetDiff(baseline: readonly string[], now: readonly string[]): { added: string[]; removed: string[] } {
+  const was = new Set(baseline);
+  const is = new Set(now);
+  return { added: now.filter((i) => !was.has(i)), removed: baseline.filter((i) => !is.has(i)) };
+}
+
+function scanStatusSites(src: string): StatusSite[] {
   const ast = parse(src, { modern: true }) as unknown as { fragment: Fragment };
-  const sites: number[] = [];
+  const sites: StatusSite[] = [];
+  const seen = new Map<string, number>();
+  const squash = (t: string) => t.replace(/\s+/g, ' ').trim();
   const direct = (nodes: Node[]): Node[] =>
     nodes.flatMap((n) => (n.type === 'KeyBlock' ? direct((n.fragment?.nodes ?? [])) : [n]));
-  const branch = (f: Fragment | null | undefined) => {
-    if (!f) return;
-    for (const n of direct(f.nodes)) {
+  const identify = (n: Node, condition: string): string => {
+    const testid = (n.attributes ?? []).find((a) => a.type === 'Attribute' && a.name === 'data-testid');
+    const literal = testid && Array.isArray(testid.value) && testid.value.length === 1 && testid.value[0].type === 'Text' ? testid.value[0].data?.trim() : undefined;
+    const base = literal
+      ? `testid:${literal}`
+      : `${(n as { name?: string }).name ?? 'element'}:${createHash('sha1')
+          .update(`${squash(src.slice(n.start ?? 0, n.fragment?.nodes[0]?.start ?? (n as { end?: number }).end ?? 0))}|${condition}`)
+          .digest('hex')
+          .slice(0, 8)}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count === 1 ? base : `${base}~${count}`;
+  };
+  // Descend through plain elements only: a nested block is walked on its own, a component is opaque.
+  const collect = (nodes: Node[], condition: string) => {
+    for (const n of direct(nodes)) {
       if (n.type !== 'RegularElement' && n.type !== 'SvelteElement') continue;
       const role = roleOf(n);
-      if (role === 'status' || role === null) sites.push(src.slice(0, n.start ?? 0).split('\n').length);
+      if (role === 'status' || role === null) sites.push({ line: src.slice(0, n.start ?? 0).split('\n').length, identity: identify(n, condition) });
+      else collect(n.fragment?.nodes ?? [], condition);
     }
   };
   const walk = (n: unknown) => {
     if (!n || typeof n !== 'object') return;
     if (Array.isArray(n)) return n.forEach(walk);
-    const node = n as Node;
+    const node = n as Node & { test?: { start: number; end: number } };
     if (node.type === 'IfBlock') {
-      branch(node.consequent);
-      if (node.alternate && !(node.alternate.nodes.length === 1 && node.alternate.nodes[0].type === 'IfBlock')) branch(node.alternate);
+      const test = squash(src.slice(node.test?.start ?? 0, node.test?.end ?? 0));
+      collect(node.consequent?.nodes ?? [], `if ${test}`);
+      if (node.alternate && !(node.alternate.nodes.length === 1 && node.alternate.nodes[0].type === 'IfBlock')) collect(node.alternate.nodes, `else ${test}`);
     }
     for (const v of Object.values(node)) if (v && typeof v === 'object') walk(v);
   };
