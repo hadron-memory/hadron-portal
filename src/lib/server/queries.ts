@@ -4011,8 +4011,8 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
 // owns the format — full:true is the canonical file (byte-identical to
 // `hadron node export`), full:false renders the selected presentation sections.
 export const NODE_EXPORT_QUERY = /* GraphQL */ `
-  query NodeExport($id: ID!, $format: NodeExportFormat, $full: Boolean, $sections: [NodeExportSection!]) {
-    nodeExport(id: $id, format: $format, full: $full, sections: $sections) {
+  query NodeExport($ref: ID!, $format: NodeExportFormat, $full: Boolean, $sections: [NodeExportSection!]) {
+    nodeExport(ref: $ref, format: $format, full: $full, sections: $sections) {
       format
       mimeType
       filename
