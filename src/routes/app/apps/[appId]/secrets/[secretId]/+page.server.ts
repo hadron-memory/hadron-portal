@@ -24,7 +24,8 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
     app,
     secret: read.kind === 'ok' ? read.secret : null,
     signing,
-    pending,
+    pending: pending.rows,
+    pendingUnread: pending.unread,
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
   };
 };

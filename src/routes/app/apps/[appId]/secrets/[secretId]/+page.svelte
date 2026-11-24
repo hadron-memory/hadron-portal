@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import PendingChange from '$lib/components/secrets/PendingChange.svelte';
+  import PendingUnread from '$lib/components/secrets/PendingUnread.svelte';
   import { fmtRunTime } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
@@ -59,6 +60,7 @@
       <p class="rounded-lg border border-zinc-300 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{t('secrets.impersonating', 'Impersonation sessions are read-only.')}</p>
     {/if}
 
+    <PendingUnread count={data.pendingUnread} />
     {#each data.pending as p (p.requestId)}
       <PendingChange {...p} impersonating={ro} />
     {/each}

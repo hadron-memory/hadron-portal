@@ -41,16 +41,18 @@ export async function loadPending(
   match: (t: Tracked) => boolean,
   /** An impersonated visit reads as someone else, so the server answers null for the admin's own requests: never write the cookie then. */
   readOnly = false,
-): Promise<PendingRow[]> {
+): Promise<{ rows: PendingRow[]; unread: number }> {
   const all = readTracked(cookies);
   const mine = all.filter(match);
   const rows: PendingRow[] = [];
+  // portal#2436 item 6: reads that failed. Kept in the cookie and counted, so the page can say so.
+  let unread = 0;
   let kept = all;
   // One round trip per tracked request, made together; rows keep the cookie's order.
   const reads = await Promise.all(mine.map((tr) => loadChangeRequest(client, tr.requestId)));
   for (const [i, tr] of mine.entries()) {
     const r = reads[i];
-    if (r === 'failed') continue;
+    if (r === 'failed') { unread++; continue; }
     if (r === null) { if (!readOnly) kept = removeTracked(kept, tr.requestId); continue; }
     // The server stages a protected create as a STORE; the tracked create says which it was.
     const operation = r.operation.toUpperCase() === 'STORE' && tr.create ? 'CREATE' : r.operation;
@@ -58,7 +60,7 @@ export async function loadPending(
     if (!readOnly && isTerminalState(r.state)) kept = removeTracked(kept, tr.requestId);
   }
   if (!readOnly && kept.length !== all.length) writeTracked(cookies, kept);
-  return rows;
+  return { rows, unread };
 }
 
 /** The withdraw action both pages share: sends once, and forgets the request only when it is gone. */
