@@ -18,7 +18,7 @@ vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: (q: string, v?:
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const gated = async (q: string, v?: unknown) => {
   if (q === AGENT_TASKS_APP_QUERY) return { app };
-  if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: (v as { id: string }).id, appId: app.id } };
+  if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: (v as { ref: string }).ref, appId: app.id } };
   return request(q, v);
 };
 const gqlError = (code: string, message: string) => ({ response: { errors: [{ message, extensions: { code } }] } });
@@ -103,7 +103,7 @@ function provider(opts: { rows?: ReturnType<typeof rowsOf>; task?: 'null' | 'oth
     expect(doc).toBe(AGENT_TASK_FINDING_DISPOSITIONS_QUERY);
     if (opts.task === 'null') return { agentTask: null };
     const out = await graphql({ schema, source: doc, variableValues: vars, rootValue: { agentTask: () => ({
-      id: vars.id, appId: opts.task === 'other-app' ? 'other' : app.id,
+      id: vars.ref, appId: opts.task === 'other-app' ? 'other' : app.id,
       findingDispositions: ({ limit, offset }: { limit: number; offset: number }) => {
         const items = rows.slice(offset, offset + limit);
         return { items, total: rows.length, hasMore: offset + items.length < rows.length };

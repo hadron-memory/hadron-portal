@@ -161,4 +161,14 @@ describe('the signing link (portal#2417)', () => {
     expect(m.target.textContent).toContain('cannot offer its signing page');
     m.unmount();
   });
+  // portal#2583. Kills: the row reusing the staging-time sentence. This row is the notice re-read on a later
+  // visit, so "was staged" (a moment that has passed) reads wrong; it says the change still waits.
+  it('the unlinked hint on a revisit row says the change still needs a signature, not that it was just staged', () => {
+    const m = mountComponent(PendingChange as never, { ...props, ceremonyUrl: null });
+    const text = m.target.textContent ?? '';
+    expect(text).toContain('still needs your signature');
+    expect(text).not.toContain('was staged');
+    expect(text).toContain('Nothing has been changed yet');
+    m.unmount();
+  });
 });

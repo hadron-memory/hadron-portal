@@ -34,20 +34,11 @@
   "src/lib/components/tickers/TickerEnabledControl.svelte": [
     "testid:ticker-enabled-result"
   ],
-  "src/routes/app/agents/[id]/+page.svelte": [
-    "p:20d9c2e3"
-  ],
   "src/routes/app/agents/[id]/AgentMemberRolesEditor.svelte": [
     "p:776e5737"
   ],
   "src/routes/app/apps/[appId]/+page.svelte": [
-    "p:a50b08d0",
-    "testid:cast-refresh-status",
-    "p:1de6106a",
-    "p:e97eaf13"
-  ],
-  "src/routes/app/apps/[appId]/grants/+page.svelte": [
-    "p:da6f65da"
+    "testid:cast-refresh-status"
   ],
   "src/routes/app/apps/[appId]/tasks/+page.svelte": [
     "testid:open-by-handle",

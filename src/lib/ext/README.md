@@ -40,6 +40,23 @@ does without this directory.
   `src/lib/ext/<id>/`, not only in route files. `src/app.css` names this
   directory with `@source` because Tailwind skips git-ignored paths; a class used
   only in an ignored route file may be missing from the built CSS.
+- The layouts show an extension's tabs after the built-in ones, in extension id
+  order, and the command bar lists its commands after the built-ins.
+- **Tab ids are namespaced.** The layouts show a tab under `ext:<extId>:<tabId>`
+  (`extensionOrgNavTabs`, `extensionAccountNavTabs`), so a tab id equal to a
+  built-in's (`profile`, `account`) cannot collide with it. Keep an extension's
+  hrefs under a path segment named after the extension (`<base>/<extId>/…`): an
+  href equal to a built-in's would mark two tabs current.
+- `match: 'prefix'` keeps a tab current on every path below its href (on a `/`
+  boundary, so `<href>-x` does not count) and keeps the organization chrome
+  (breadcrumb and tab bar) on those sub-pages. Without it only the href itself
+  is current, and a path below it renders without the chrome.
+- An extension's org page supplies its own `<h1>`; the layout adds one only on
+  the Profile tab.
+- A command's `href` must return an internal path starting with `/` (not `//`),
+  or `null` for "no active organization". Anything else answers the command
+  bar's "Don't know how to run" error rather than navigating. A command whose id
+  or trigger equals a built-in's fails when the command bar loads.
 - `OrgTabContext` carries no platform-admin flag and no consumer-mode flag.
 
 ## Modules extensions rely on

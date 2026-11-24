@@ -139,3 +139,29 @@ export function extensionLimitAction(
   }
   return null;
 }
+
+/**
+ * C2 (#2568, ruling C2-R1(a)): the layouts key their tab lists by tab id, and a
+ * repeated key throws at render. So the tabs the layouts show carry the
+ * extension's id in their own: `ext:<extId>:<tabId>`. An extension tab named
+ * `profile` then sits beside the built-in Profile tab instead of taking down
+ * every org page. An extension id is a slug without ':', so the id parses back
+ * unambiguously at its first two colons. C1's four helpers above are unchanged
+ * and return the raw ids; the layouts call these.
+ */
+function namespaced(exts: readonly PortalExtension[], read: (e: PortalExtension) => ExtTab[] | undefined): ExtTab[] {
+  return byId(exts).flatMap((e) => (read(e) ?? []).map((tab) => ({ ...tab, id: `ext:${e.id}:${tab.id}` })));
+}
+
+export function extensionOrgNavTabs(ctx: OrgTabContext, exts: readonly PortalExtension[] = installedExtensions): ExtTab[] {
+  checkSupplied(exts);
+  return namespaced(exts, (e) => e.orgTabs?.(ctx));
+}
+
+export function extensionAccountNavTabs(
+  ctx: AccountTabContext,
+  exts: readonly PortalExtension[] = installedExtensions,
+): ExtTab[] {
+  checkSupplied(exts);
+  return namespaced(exts, (e) => e.accountTabs?.(ctx));
+}

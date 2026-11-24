@@ -136,7 +136,7 @@ describe('task click redirect precedence', () => {
     expect(outcome).toMatchObject({ status: 307, location: '/app/apps/canonical-app/tasks/canonical-task' });
     expect(fetch).toHaveBeenCalledTimes(1);
     const init = fetch.mock.calls[0][1] as RequestInit;
-    expect(JSON.parse(init.body as string).variables).toEqual({ id: 'input-reference' });
+    expect(JSON.parse(init.body as string).variables).toEqual({ ref: 'input-reference' });
     expect(new Headers(init.headers).get('authorization')).toBe('Bearer synthetic-test-token');
   });
 });

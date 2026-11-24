@@ -354,7 +354,7 @@ async function taskPath(id: string, token: string | null | undefined, urn: strin
   try {
     ({ agentTask } = await gqlClient(token).request<{
       agentTask: { id: string; appId: string; handle: string | null } | null;
-    }>(AGENT_TASK_REF_QUERY, { id }));
+    }>(AGENT_TASK_REF_QUERY, { ref: id }));
   } catch (err) {
     // Only the refusals that mean "you cannot read it" are the 404; anything else stays a 500.
     const code =

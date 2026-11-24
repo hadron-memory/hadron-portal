@@ -24,7 +24,7 @@ export async function taskDispositions(client: GraphQLClient, appId: string, tas
   for (let page = 0; page < DISPOSITIONS_MAX_PAGES; page++) {
     let response: Response;
     try {
-      response = await client.request<Response>(AGENT_TASK_FINDING_DISPOSITIONS_QUERY, { id: taskId, limit: DISPOSITIONS_PROVIDER_MAX, offset: page * DISPOSITIONS_PROVIDER_MAX });
+      response = await client.request<Response>(AGENT_TASK_FINDING_DISPOSITIONS_QUERY, { ref: taskId, limit: DISPOSITIONS_PROVIDER_MAX, offset: page * DISPOSITIONS_PROVIDER_MAX });
     } catch {
       console.warn('[task-dispositions] read failed');
       return { kind: 'failed' };

@@ -179,7 +179,7 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
       expect(r.status).toBe(307);
       expect(r.location).toBe('/app/apps/app-9/tasks/AT0.10249');
       expect(mockRequest).toHaveBeenNthCalledWith(1, RESOLVE_URN_QUERY, { urn: URN });
-      expect(mockRequest).toHaveBeenNthCalledWith(2, AGENT_TASK_REF_QUERY, { id: 't-1' });
+      expect(mockRequest).toHaveBeenNthCalledWith(2, AGENT_TASK_REF_QUERY, { ref: 't-1' });
     });
 
     it('carries the query string through', async () => {

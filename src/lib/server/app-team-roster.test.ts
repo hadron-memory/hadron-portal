@@ -19,7 +19,7 @@ const client = (impl: () => unknown) => ({ request: vi.fn(async () => impl()) })
 // The grid's handle is hydrated per current task (portal#1349): answer the roster, then each task ref.
 const refClient = (workers: unknown[], refs: Record<string, unknown>) =>
   ({
-    request: vi.fn(async (q: string, v?: { id: string }) => (q.includes('AgentTaskRef') ? { agentTask: refs[v!.id] ?? null } : { teamRoster: { workers } })),
+    request: vi.fn(async (q: string, v?: { ref: string }) => (q.includes('AgentTaskRef') ? { agentTask: refs[v!.ref] ?? null } : { teamRoster: { workers } })),
   }) as never;
 const gqlErr = (code: string) => ({ response: { errors: [{ extensions: { code } }] } });
 
@@ -61,10 +61,10 @@ describe('loadAppTeamRoster (#1168)', () => {
       entry('w4'),
     ];
     const c = {
-      request: vi.fn(async (q: string, v?: { id: string }) => {
+      request: vi.fn(async (q: string, v?: { ref: string }) => {
         if (!q.includes('AgentTaskRef')) return { teamRoster: { workers } };
-        if (v!.id === 't-boom') throw new Error('socket hang up');
-        if (v!.id === 't-foreign') return { agentTask: { id: 't-foreign', appId: 'app-2', handle: 'AT9', title: 'Foreign' } };
+        if (v!.ref === 't-boom') throw new Error('socket hang up');
+        if (v!.ref === 't-foreign') return { agentTask: { id: 't-foreign', appId: 'app-2', handle: 'AT9', title: 'Foreign' } };
         return { agentTask: null };
       }),
     } as never;

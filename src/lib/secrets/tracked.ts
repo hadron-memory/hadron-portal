@@ -10,13 +10,19 @@
 export const TRACKED_COOKIE = 'hadron_secret_requests';
 export const TRACKED_MAX = 10;
 /**
+ * How many loads in a row may fail to read one tracked request before it is dropped (portal#2578).
+ * Without a bound a request the server keeps failing on is re-read on every page load until the
+ * cookie expires. The count rides in the cookie, so it is a count and nothing else.
+ */
+export const READ_FAILURE_LIMIT = 5;
+/**
  * What a request is about: an existing secret (`secretId`), or a secret that does not exist yet
  * because its create is staged (`create`: the App's id and the name asked for). Exactly one is set.
  * A request cookie written before this shape keyed creates by a `create:<app>:<name>` string in
  * `secretId`, or carried the ceremony URL (portal#2417 dropped it); neither is read, and a
  * rewrite drops both (the cookie lives two hours).
  */
-export type Tracked = { requestId: string } & (
+export type Tracked = { requestId: string; /** Failed reads in a row; absent means none. */ misses?: number } & (
   | { secretId: string; create?: undefined }
   | { create: { appId: string; name: string }; secretId?: undefined }
 );
@@ -32,13 +38,15 @@ export function parseTracked(raw: string | undefined): Tracked[] {
     for (const x of v) {
       if (!x || typeof x !== 'object') continue;
       // A `ceremonyUrl` key (any value) is ignored, not validated: it is never a link source.
-      const { requestId, secretId, create } = x as Record<string, unknown>;
+      const { requestId, secretId, create, misses } = x as Record<string, unknown>;
       if (!ok(requestId)) continue;
+      // A browser-editable count: only a small positive whole number is believed, anything else reads as none.
+      const m = typeof misses === 'number' && Number.isInteger(misses) && misses > 0 && misses <= READ_FAILURE_LIMIT ? { misses } : {};
       if (create !== undefined) {
         const c = create as Record<string, unknown> | null;
-        if (secretId === undefined && c && typeof c === 'object' && ok(c.appId) && ok(c.name)) out.push({ requestId, create: { appId: c.appId, name: c.name } });
+        if (secretId === undefined && c && typeof c === 'object' && ok(c.appId) && ok(c.name)) out.push({ requestId, create: { appId: c.appId, name: c.name }, ...m });
       } else if (ok(secretId) && !secretId.startsWith('create:')) {
-        out.push({ requestId, secretId });
+        out.push({ requestId, secretId, ...m });
       }
     }
     return out.slice(-TRACKED_MAX);

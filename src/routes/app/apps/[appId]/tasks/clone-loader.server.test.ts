@@ -27,7 +27,7 @@ let parent: Record<string, unknown> | null = { id: 'parent-1', handle: 'AT3', ti
 const request = vi.fn(async (q: string, v?: unknown) => {
   if (q === AGENT_TASK_DETAIL_QUERY) {
     // Only the source resolves; anything else (an unknown `from`) answers null.
-    return { agentTask: (v as { id: string }).id === 'src-1' ? src : null };
+    return { agentTask: (v as { ref: string }).ref === 'src-1' ? src : null };
   }
   if (q === AGENT_TASK_CLONE_PARENT_QUERY) return { agentTask: parent };
   if (q === MEMORIES_QUERY) return { memories: { items: [], hasMore: false } };

@@ -5431,8 +5431,8 @@ export const SET_APP_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
 
 /** portal#1357 (hadron-server#2645): a strict patch of a task's descriptive fields. */
 export const UPDATE_AGENT_TASK_MUTATION = /* GraphQL */ `
-  mutation UpdateAgentTask($taskId: ID!, $input: UpdateAgentTaskInput!) {
-    updateAgentTask(taskId: $taskId, input: $input) { id }
+  mutation UpdateAgentTask($taskRef: ID!, $input: UpdateAgentTaskInput!) {
+    updateAgentTask(taskRef: $taskRef, input: $input) { id }
   }
 `;
 
@@ -5643,8 +5643,8 @@ export const AGENT_TASKS_BOARD_QUERY = /* GraphQL */ `
 export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
   ${AGENT_TASK_PARTY_FIELDS}
   ${AGENT_TASK_ROW_FIELDS}
-  query AgentTaskDetail($id: ID!) {
-    agentTask(id: $id) {
+  query AgentTaskDetail($ref: ID!) {
+    agentTask(ref: $ref) {
       ...AgentTaskRowFields
       appId
       # #1914 (hadron-server#3878): the served address, hrn:agenttask:<root>:<app-slug>:<handle>.
@@ -5685,15 +5685,15 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
 
 /** A breadcrumb ancestor: its title and its own parent, nothing else. */
 export const AGENT_TASK_ANCESTOR_QUERY = /* GraphQL */ `
-  query AgentTaskAncestor($id: ID!) {
-    agentTask(id: $id) { id handle title parentTaskId }
+  query AgentTaskAncestor($ref: ID!) {
+    agentTask(ref: $ref) { id handle title parentTaskId }
   }
 `;
 
 /** portal#2161 (hadron-server#3244): a clone source's parent — everything the pre-fill rule reads. */
 export const AGENT_TASK_CLONE_PARENT_QUERY = /* GraphQL */ `
-  query AgentTaskCloneParent($id: ID!) {
-    agentTask(id: $id) { id handle title status }
+  query AgentTaskCloneParent($ref: ID!) {
+    agentTask(ref: $ref) { id handle title status }
   }
 `;
 
@@ -5710,8 +5710,8 @@ export const AGENT_TASK_TREE_QUERY = /* GraphQL */ `
  * never from the `pr.*` / `review.*` property mirrors.
  */
 export const TASK_REVIEW_EVENTS_QUERY = /* GraphQL */ `
-  query TaskReviewEvents($appRef: ID!, $taskId: ID!, $types: [String!], $after: ID, $limit: Int) {
-    agentTeamEvents(appRef: $appRef, taskId: $taskId, types: $types, after: $after, limit: $limit) {
+  query TaskReviewEvents($appRef: ID!, $taskRef: ID!, $types: [String!], $after: ID, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, taskRef: $taskRef, types: $types, after: $after, limit: $limit) {
       id
       type
       payload
@@ -5732,8 +5732,8 @@ export const PULL_REQUEST_READINESS_QUERY = /* GraphQL */ `
 
 export const AGENT_TASK_EVENTS_QUERY = /* GraphQL */ `
   ${AGENT_TASK_PARTY_FIELDS}
-  query AgentTaskEvents($appRef: ID!, $taskId: ID!, $after: ID, $limit: Int) {
-    agentTeamEvents(appRef: $appRef, taskId: $taskId, after: $after, limit: $limit) {
+  query AgentTaskEvents($appRef: ID!, $taskRef: ID!, $after: ID, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, taskRef: $taskRef, after: $after, limit: $limit) {
       id
       type
       severity
@@ -5843,8 +5843,8 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
  * `appId` is selected only so the caller can refuse a task of another App.
  */
 export const AGENT_TASK_REF_QUERY = /* GraphQL */ `
-  query AgentTaskRef($id: ID!) {
-    agentTask(id: $id) { id appId handle title }
+  query AgentTaskRef($ref: ID!) {
+    agentTask(ref: $ref) { id appId handle title }
   }
 `;
 
@@ -5907,38 +5907,38 @@ export const CREATE_AGENT_TASK_MUTATION = /* GraphQL */ `
  * an optional field emptied as an explicit empty value. A refusal changes nothing.
  */
 export const CLONE_AGENT_TASK_MUTATION = /* GraphQL */ `
-  mutation CloneAgentTask($taskId: ID!, $input: CloneAgentTaskInput!) {
-    cloneAgentTask(taskId: $taskId, input: $input) { id handle }
+  mutation CloneAgentTask($taskRef: ID!, $input: CloneAgentTaskInput!) {
+    cloneAgentTask(taskRef: $taskRef, input: $input) { id handle }
   }
 `;
 
 export const ASSIGN_AGENT_TASK_MUTATION = /* GraphQL */ `
-  mutation AssignAgentTask($taskId: ID!, $assignee: AgentTaskPartyInput!, $closeSessionWhenDone: Boolean) {
-    assignAgentTask(taskId: $taskId, assignee: $assignee, closeSessionWhenDone: $closeSessionWhenDone) { id }
+  mutation AssignAgentTask($taskRef: ID!, $assignee: AgentTaskPartyInput!, $closeSessionWhenDone: Boolean) {
+    assignAgentTask(taskRef: $taskRef, assignee: $assignee, closeSessionWhenDone: $closeSessionWhenDone) { id }
   }
 `;
 
 export const REASSIGN_AGENT_TASK_MUTATION = /* GraphQL */ `
-  mutation ReassignAgentTask($taskId: ID!, $assignee: AgentTaskPartyInput!, $closeSessionWhenDone: Boolean) {
-    reassignAgentTask(taskId: $taskId, assignee: $assignee, closeSessionWhenDone: $closeSessionWhenDone) { id }
+  mutation ReassignAgentTask($taskRef: ID!, $assignee: AgentTaskPartyInput!, $closeSessionWhenDone: Boolean) {
+    reassignAgentTask(taskRef: $taskRef, assignee: $assignee, closeSessionWhenDone: $closeSessionWhenDone) { id }
   }
 `;
 
 export const CANCEL_AGENT_TASK_MUTATION = /* GraphQL */ `
-  mutation CancelAgentTask($taskId: ID!) {
-    cancelAgentTask(taskId: $taskId) { id }
+  mutation CancelAgentTask($taskRef: ID!) {
+    cancelAgentTask(taskRef: $taskRef) { id }
   }
 `;
 
 export const MAKE_AGENT_TASK_READY_MUTATION = /* GraphQL */ `
-  mutation MakeAgentTaskReady($taskId: ID!) {
-    makeAgentTaskReady(taskId: $taskId) { id }
+  mutation MakeAgentTaskReady($taskRef: ID!) {
+    makeAgentTaskReady(taskRef: $taskRef) { id }
   }
 `;
 
 export const PARK_AGENT_TASK_MUTATION = /* GraphQL */ `
-  mutation ParkAgentTask($taskId: ID!) {
-    parkAgentTask(taskId: $taskId) { id }
+  mutation ParkAgentTask($taskRef: ID!) {
+    parkAgentTask(taskRef: $taskRef) { id }
   }
 `;
 
@@ -6067,11 +6067,11 @@ export const TASK_REFERENCE_PICKER_QUERY = /* GraphQL */ `
   }
 `;
 export const TASK_PICKER_EXACT_QUERY = /* GraphQL */ `
-  query TaskPickerExact($id: ID!) { agentTask(id: $id) { id appId title handle status } }
+  query TaskPickerExact($ref: ID!) { agentTask(ref: $ref) { id appId title handle status } }
 `;
 export const TASK_DEPENDENCIES_QUERY = /* GraphQL */ `
-  query TaskDependencies($id: ID!, $offset: Int!) {
-    agentTask(id: $id) {
+  query TaskDependencies($ref: ID!, $offset: Int!) {
+    agentTask(ref: $ref) {
       id appId
       blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore }
       blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore }
@@ -6081,8 +6081,8 @@ export const TASK_DEPENDENCIES_QUERY = /* GraphQL */ `
 
 // portal#1393: one bounded direction per request; the other page is untouched.
 export const TASK_BLOCKED_BY_PAGE_QUERY = /* GraphQL */ `
-  query TaskBlockedByPage($id: ID!, $offset: Int!) {
-    agentTask(id: $id) { id appId blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
+  query TaskBlockedByPage($ref: ID!, $offset: Int!) {
+    agentTask(ref: $ref) { id appId blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
   }
 `;
 /**
@@ -6091,8 +6091,8 @@ export const TASK_BLOCKED_BY_PAGE_QUERY = /* GraphQL */ `
  * appId rides along so the answer can be refused if it is not this App's task.
  */
 export const AGENT_TASK_FINDINGS_QUERY = /* GraphQL */ `
-  query AgentTaskFindings($id: ID!, $limit: Int!, $offset: Int!) {
-    agentTask(id: $id) { id appId result { findings(limit: $limit, offset: $offset) { items { id severity text } total hasMore } } }
+  query AgentTaskFindings($ref: ID!, $limit: Int!, $offset: Int!) {
+    agentTask(ref: $ref) { id appId result { findings(limit: $limit, offset: $offset) { items { id severity text } total hasMore } } }
   }
 `;
 
@@ -6102,8 +6102,8 @@ export const AGENT_TASK_FINDINGS_QUERY = /* GraphQL */ `
  * App's task is refused rather than shown.
  */
 export const AGENT_TASK_FINDING_DISPOSITIONS_QUERY = /* GraphQL */ `
-  query AgentTaskFindingDispositions($id: ID!, $limit: Int!, $offset: Int!) {
-    agentTask(id: $id) { id appId findingDispositions(limit: $limit, offset: $offset) { items { findingId disposition reference { kind target label } } total hasMore } }
+  query AgentTaskFindingDispositions($ref: ID!, $limit: Int!, $offset: Int!) {
+    agentTask(ref: $ref) { id appId findingDispositions(limit: $limit, offset: $offset) { items { findingId disposition reference { kind target label } } total hasMore } }
   }
 `;
 
@@ -6115,8 +6115,8 @@ export const DISPOSE_AGENT_TASK_FINDING_MUTATION = /* GraphQL */ `
 `;
 
 export const TASK_BLOCKS_PAGE_QUERY = /* GraphQL */ `
-  query TaskBlocksPage($id: ID!, $offset: Int!) {
-    agentTask(id: $id) { id appId blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
+  query TaskBlocksPage($ref: ID!, $offset: Int!) {
+    agentTask(ref: $ref) { id appId blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
   }
 `;
 
@@ -6126,8 +6126,8 @@ export const TASK_BLOCKS_PAGE_QUERY = /* GraphQL */ `
  * read. total rides along so the list can say how many there are, not just that more exist.
  */
 export const TASK_CLONES_PAGE_QUERY = /* GraphQL */ `
-  query TaskClonesPage($id: ID!, $offset: Int!) {
-    agentTask(id: $id) { id appId clones(limit: 200, offset: $offset) { items { id appId title handle status } total hasMore } }
+  query TaskClonesPage($ref: ID!, $offset: Int!) {
+    agentTask(ref: $ref) { id appId clones(limit: 200, offset: $offset) { items { id appId title handle status } total hasMore } }
   }
 `;
 

@@ -22,7 +22,7 @@ export async function taskChoices(client: GraphQLClient, app: { id: string; urn:
         if (parsed.type !== 'app' || parsed.segments.length !== 1) return { kind: 'failed' };
         ref = composeAgentTaskUrnV2(parsed.root, parsed.segments[0], exact.toUpperCase());
       }
-      const { agentTask } = await client.request<{ agentTask: TaskChoice | null }>(TASK_PICKER_EXACT_QUERY, { id: ref });
+      const { agentTask } = await client.request<{ agentTask: TaskChoice | null }>(TASK_PICKER_EXACT_QUERY, { ref });
       if (!agentTask || agentTask.appId !== app.id || !statuses.includes(agentTask.status) || agentTask.handle === 'AT0') return { kind: 'ok', value: { items: [], hasMore: false } };
       return { kind: 'ok', value: { items: [agentTask], hasMore: false } };
     }
@@ -37,7 +37,7 @@ export async function taskChoices(client: GraphQLClient, app: { id: string; urn:
 
 export async function taskDependencies(client: GraphQLClient, appId: string, taskId: string): Promise<TaskRead<{ blockedBy: TaskDependencyPage; blocks: TaskDependencyPage }>> {
   try {
-    const { agentTask } = await client.request<{ agentTask: { id: string; appId: string; blockedBy: TaskDependencyPage; blocks: TaskDependencyPage } | null }>(TASK_DEPENDENCIES_QUERY, { id: taskId, offset: 0 });
+    const { agentTask } = await client.request<{ agentTask: { id: string; appId: string; blockedBy: TaskDependencyPage; blocks: TaskDependencyPage } | null }>(TASK_DEPENDENCIES_QUERY, { ref: taskId, offset: 0 });
     if (!agentTask || agentTask.id !== taskId || agentTask.appId !== appId) return { kind: 'failed' };
     if ([...agentTask.blockedBy.items, ...agentTask.blocks.items].some((task) => task.appId !== appId)) return { kind: 'failed' };
     return { kind: 'ok', value: { blockedBy: agentTask.blockedBy, blocks: agentTask.blocks } };
@@ -49,8 +49,8 @@ export async function taskDependencyPage(client: GraphQLClient, appId: string, t
   try {
     type PageResponse = { agentTask: { id: string; appId: string; blockedBy?: TaskDependencyPage; blocks?: TaskDependencyPage } | null };
     const { agentTask } = direction === 'blockedBy'
-      ? await client.request<PageResponse>(TASK_BLOCKED_BY_PAGE_QUERY, { id: taskId, offset })
-      : await client.request<PageResponse>(TASK_BLOCKS_PAGE_QUERY, { id: taskId, offset });
+      ? await client.request<PageResponse>(TASK_BLOCKED_BY_PAGE_QUERY, { ref: taskId, offset })
+      : await client.request<PageResponse>(TASK_BLOCKS_PAGE_QUERY, { ref: taskId, offset });
     const page = agentTask?.[direction];
     if (!agentTask || agentTask.id !== taskId || agentTask.appId !== appId || !page || !Array.isArray(page.items) || typeof page.hasMore !== 'boolean' || page.items.length > 200 || page.items.some((task) => task.appId !== appId)) return { kind: 'failed' };
     return { kind: 'ok', value: page };
@@ -65,7 +65,7 @@ export async function taskDependencyPage(client: GraphQLClient, appId: string, t
 export async function taskClonesPage(client: GraphQLClient, appId: string, taskId: string, offset: number): Promise<TaskRead<TaskClonesPage>> {
   try {
     type PageResponse = { agentTask: { id: string; appId: string; clones?: TaskClonesPage } | null };
-    const { agentTask } = await client.request<PageResponse>(TASK_CLONES_PAGE_QUERY, { id: taskId, offset });
+    const { agentTask } = await client.request<PageResponse>(TASK_CLONES_PAGE_QUERY, { ref: taskId, offset });
     const page = agentTask?.clones;
     if (!agentTask || agentTask.id !== taskId || agentTask.appId !== appId || !page || !Array.isArray(page.items) || typeof page.hasMore !== 'boolean' || typeof page.total !== 'number' || page.total < 0 || page.items.length > 200 || page.items.some((task) => task.appId !== appId)) return { kind: 'failed' };
     return { kind: 'ok', value: page };

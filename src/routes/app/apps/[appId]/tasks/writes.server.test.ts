@@ -26,10 +26,10 @@ const delegate = async (q: string, v: unknown) => ({ data: await request(q, v), 
 // portal#1349: a write first resolves the route's task to its canonical id (the App
 // read, then the readable-task gate). That resolution answers here; everything else
 // reaches `request`, so the assertions about mutations are unchanged.
-const resolver = vi.fn(async (_q: string, v: { id: string }) => ({ agentTask: { id: v.id === 'AT3.405' || v.id.endsWith(':AT3.405') ? 'canon-1' : v.id, appId: 'app-1' } }));
+const resolver = vi.fn(async (_q: string, v: { ref: string }) => ({ agentTask: { id: v.ref === 'AT3.405' || v.ref.endsWith(':AT3.405') ? 'canon-1' : v.ref, appId: 'app-1' } }));
 const gated = async (q: string, v?: unknown) => {
   if (q === AGENT_TASKS_APP_QUERY) return { app };
-  if (q === AGENT_TASK_REF_QUERY) return resolver(q, v as { id: string });
+  if (q === AGENT_TASK_REF_QUERY) return resolver(q, v as { ref: string });
   return request(q, v);
 };
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: gated, rawRequest }) }));
@@ -111,8 +111,8 @@ describe('task page actions', () => {
   it('park calls parkAgentTask with the route’s task id', async () => {
     request.mockResolvedValue({});
     expect(await (await taskActions()).park(event({}))).toEqual({ action: 'park', ok: true });
-    expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskId: 't1' });
-    expect(PARK_AGENT_TASK_MUTATION).toContain('parkAgentTask(taskId: $taskId) { id }');
+    expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskRef: 't1' });
+    expect(PARK_AGENT_TASK_MUTATION).toContain('parkAgentTask(taskRef: $taskRef) { id }');
   });
 
   it.each([
@@ -143,13 +143,13 @@ describe('task page actions', () => {
     request.mockResolvedValue({});
     const a = await taskActions();
     expect(await a.ready(event({}))).toEqual({ action: 'ready', ok: true });
-    expect(request).toHaveBeenLastCalledWith(MAKE_AGENT_TASK_READY_MUTATION, { taskId: 't1' });
+    expect(request).toHaveBeenLastCalledWith(MAKE_AGENT_TASK_READY_MUTATION, { taskRef: 't1' });
     expect(await a.cancel(event({}))).toEqual({ action: 'cancel', ok: true });
-    expect(request).toHaveBeenLastCalledWith(CANCEL_AGENT_TASK_MUTATION, { taskId: 't1' });
+    expect(request).toHaveBeenLastCalledWith(CANCEL_AGENT_TASK_MUTATION, { taskRef: 't1' });
     await a.assign(event({ assignee: 'worker:w1' }));
-    expect(request).toHaveBeenLastCalledWith(ASSIGN_AGENT_TASK_MUTATION, { taskId: 't1', assignee: { worker: 'w1' } });
+    expect(request).toHaveBeenLastCalledWith(ASSIGN_AGENT_TASK_MUTATION, { taskRef: 't1', assignee: { worker: 'w1' } });
     await a.reassign(event({ assignee: 'other', assigneeOther: '@rae' }));
-    expect(request).toHaveBeenLastCalledWith(REASSIGN_AGENT_TASK_MUTATION, { taskId: 't1', assignee: { user: 'rae' } });
+    expect(request).toHaveBeenLastCalledWith(REASSIGN_AGENT_TASK_MUTATION, { taskRef: 't1', assignee: { user: 'rae' } });
   });
 
   it('sends closeSessionWhenDone only when the reader changed it', async () => {
@@ -351,7 +351,7 @@ describe('task page actions: warnings (portal#1214)', () => {
       warning(path, 'task.future.code', { register: { state: 'unmapped' } }),
     ]));
     const r = await (await taskActions())[action](event({ assignee: 'worker:w1' }));
-    expect(rawRequest).toHaveBeenLastCalledWith(doc, { taskId: 't1', assignee: { worker: 'w1' } });
+    expect(rawRequest).toHaveBeenLastCalledWith(doc, { taskRef: 't1', assignee: { worker: 'w1' } });
     expect(r).toEqual({
       action, ok: true, committedWithError: false, more: 0,
       warnings: [
@@ -468,8 +468,8 @@ describe('task page actions: handle routes', () => {
   it('a write from a handle URL sends the canonical id, never the URL segment', async () => {
     request.mockResolvedValue({});
     await (await taskActions()).park(at('AT3.405'));
-    expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskId: 'canon-1' });
-    expect(resolver).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+    expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskRef: 'canon-1' });
+    expect(resolver).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { ref: 'hrn:agenttask:acme.com:team:AT3.405' });
   });
 
   it('a planning write from a handle URL sends the canonical id as its taskRef', async () => {
