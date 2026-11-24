@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import baseline from './live-region-sites.baseline.json';
-import { conditionalStatusRegions, nextBaseline, ratchetDiff, scanStatusSites } from './live-region-sites.scan';
+import { countConditionalStatusRegions, nextBaseline, ratchetDiff, scanStatusSites } from './live-region-sites.scan';
 
 /**
  * portal#2344, portal#2391, hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted
@@ -31,6 +31,11 @@ import { conditionalStatusRegions, nextBaseline, ratchetDiff, scanStatusSites } 
  * after merging main (it only lowers, and lists additions it did not accept and removals it applied), then run
  * the suite again. `UPDATE_LIVE_REGION_BASELINE=accept-additions` takes additions, and each needs a reason in
  * `reviewedNotDefects` or a conversion tracked elsewhere.
+ *
+ * Every baseline site is on exactly one of two lists below. `reviewedNotDefects` holds sites someone has judged and
+ * left alone, each with its reason. `unreviewedSites` holds sites nobody has reviewed yet, neither converted nor
+ * judged: listing a site there records it as open inventory with a tracking issue, never as acceptable, and it comes
+ * off when the site is converted or moves to `reviewedNotDefects`. It is empty when nothing is outstanding.
  */
 const SRC = join(process.cwd(), 'src');
 
@@ -124,40 +129,40 @@ describe('portal#2344: status regions are persistent, not mounted by an {#if} br
   }
 
   it('recognises the wrong shape and the right one', () => {
-    expect(conditionalStatusRegions('{#if saved}<p role="status" class="x">{saved}</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}\n  <div role="status">\n  <b>x</b></div>\n{:else}\n  y\n{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}x{:else}<p role="status">y</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('<LiveRegion>{#if saved}<p class="x">{saved}</p>{/if}</LiveRegion>')).toBe(0);
-    expect(conditionalStatusRegions('<p role="status">{message}</p>')).toBe(0);
-    expect(conditionalStatusRegions("{#if saved}<p role='status'>{saved}</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p title=\'role="status"\'>x</p>{/if}')).toBe(0);
-    expect(conditionalStatusRegions('<!-- {#if a}<p role="status">x</p>{/if} -->')).toBe(0);
+    expect(countConditionalStatusRegions('{#if saved}<p role="status" class="x">{saved}</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}\n  <div role="status">\n  <b>x</b></div>\n{:else}\n  y\n{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}x{:else}<p role="status">y</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('<LiveRegion>{#if saved}<p class="x">{saved}</p>{/if}</LiveRegion>')).toBe(0);
+    expect(countConditionalStatusRegions('<p role="status">{message}</p>')).toBe(0);
+    expect(countConditionalStatusRegions("{#if saved}<p role='status'>{saved}</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p title=\'role="status"\'>x</p>{/if}')).toBe(0);
+    expect(countConditionalStatusRegions('<!-- {#if a}<p role="status">x</p>{/if} -->')).toBe(0);
     // portal#2379: one among several, through a {#key}, and the dynamic-role hybrids.
-    expect(conditionalStatusRegions('{#if a}<h3>t</h3><p role="status">{a}</p><button>b</button>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}{#key a.role}<div role={a.role}>{a.text}</div>{/key}{/if}')).toBe(1);
-    expect(conditionalStatusRegions("{#if m}<p role={m.type === 'error' ? 'alert' : 'status'}>{m.text}</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if ok}<p role={ok ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if a}<div role={full ? 'dialog' : undefined}>x</div>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions('{#if a}<h3>t</h3><p role="status">{a}</p><button>b</button>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}{#key a.role}<div role={a.role}>{a.text}</div>{/key}{/if}')).toBe(1);
+    expect(countConditionalStatusRegions("{#if m}<p role={m.type === 'error' ? 'alert' : 'status'}>{m.text}</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if ok}<p role={ok ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<div role={full ? 'dialog' : undefined}>x</div>{/if}")).toBe(0);
     // The branches decide, not the words: an opaque branch may be 'status'; a name containing the word may not.
-    expect(conditionalStatusRegions("{#if a}<p role={failed ? 'alert' : successRole}>x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if a}<p role={statusReady ? 'dialog' : undefined}>x</p>{/if}")).toBe(0);
-    expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'dialog' : 'alert'}>x</p>{/if}")).toBe(0);
-    expect(conditionalStatusRegions("{#if a}<p role={a && 'alert'}>x</p>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role={failed ? 'alert' : successRole}>x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<p role={statusReady ? 'dialog' : undefined}>x</p>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'status' : 'alert'}>x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<p role={a ? 'alert' : b ? 'dialog' : 'alert'}>x</p>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role={a && 'alert'}>x</p>{/if}")).toBe(0);
     // A quoted expression is the same expression: judged by its branches, in either spelling.
-    expect(conditionalStatusRegions("{#if a}<div role=\"{full ? 'dialog' : undefined}\">x</div>{/if}")).toBe(0);
-    expect(conditionalStatusRegions("{#if a}<p role=\"{failed ? 'alert' : 'status'}\">x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p role="{notice.role}">x</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p role="x{kind}">x</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<div role=\"{full ? 'dialog' : undefined}\">x</div>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role=\"{failed ? 'alert' : 'status'}\">x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p role="{notice.role}">x</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p role="x{kind}">x</p>{/if}')).toBe(1);
     // Templates: static ones are judged by their text, interpolated ones are unknown.
-    expect(conditionalStatusRegions('{#if a}<p role={`status`}>x</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p role={`dialog`}>x</p>{/if}')).toBe(0);
-    expect(conditionalStatusRegions("{#if a}<p role={a ? `alert` : `status`}>x</p>{/if}")).toBe(1);
-    expect(conditionalStatusRegions("{#if a}<p role={a ? `alert` : `dialog`}>x</p>{/if}")).toBe(0);
-    expect(conditionalStatusRegions('{#if a}<p role={`${kind}`}>x</p>{/if}')).toBe(1);
-    expect(conditionalStatusRegions('{#if a}<p role="alert">x</p>{/if}')).toBe(0);
-    expect(conditionalStatusRegions('<LiveOutcome failed={f}>{#if m}<p>{m}</p>{/if}</LiveOutcome>')).toBe(0);
-    expect(conditionalStatusRegions('<p role="status">{#if a}x{/if}</p>')).toBe(0);
+    expect(countConditionalStatusRegions('{#if a}<p role={`status`}>x</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p role={`dialog`}>x</p>{/if}')).toBe(0);
+    expect(countConditionalStatusRegions("{#if a}<p role={a ? `alert` : `status`}>x</p>{/if}")).toBe(1);
+    expect(countConditionalStatusRegions("{#if a}<p role={a ? `alert` : `dialog`}>x</p>{/if}")).toBe(0);
+    expect(countConditionalStatusRegions('{#if a}<p role={`${kind}`}>x</p>{/if}')).toBe(1);
+    expect(countConditionalStatusRegions('{#if a}<p role="alert">x</p>{/if}')).toBe(0);
+    expect(countConditionalStatusRegions('<LiveOutcome failed={f}>{#if m}<p>{m}</p>{/if}</LiveOutcome>')).toBe(0);
+    expect(countConditionalStatusRegions('<p role="status">{#if a}x{/if}</p>')).toBe(0);
   });
 
   it('no site is added: a status region mounted by an {#if} branch', () => {

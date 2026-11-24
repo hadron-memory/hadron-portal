@@ -43,12 +43,7 @@
   "src/routes/app/apps/[appId]/+page.svelte": [
     "p:a50b08d0",
     "testid:cast-refresh-status",
-    "p:1de6106a",
-    "p:e97eaf13",
     "testid:key-copy-status"
-  ],
-  "src/routes/app/apps/[appId]/grants/+page.svelte": [
-    "p:da6f65da"
   ],
   "src/routes/app/apps/[appId]/tasks/+page.svelte": [
     "testid:open-by-handle",

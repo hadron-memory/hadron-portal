@@ -3873,18 +3873,24 @@
             </div>
           </div>
         {/if}
-        {#if teamRoster?.kind === 'failed'}
-          <div class="flex items-center gap-2 text-xs text-zinc-500">
-            <p role="status">{t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}</p>
+        <!-- portal#2581: the notice text lives in a region that is mounted before the read answers, so it is
+             announced as a change. The row hides while that region is idle; the retry control and the sign-in
+             link stay OUTSIDE the region. -->
+        <div class="flex items-center gap-2 text-xs text-zinc-500 has-[>:is(:empty,[data-idle])]:hidden">
+          <LiveRegion>
+            {#if teamRoster?.kind === 'failed'}
+              <p>{t('app.staff.roster.failed', 'Task and pause state could not be loaded.')}</p>
+            {:else if teamRoster?.kind === 'signedOut'}
+              <p>{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
+            {/if}
+          </LiveRegion>
+          {#if teamRoster?.kind === 'failed'}
             <!-- portal#2246 item 1: a failed read is final for the visit unless asked again. -->
             <button type="button" onclick={retryRoster} class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.staff.roster.retry', 'Try again')}</button>
-          </div>
-        {:else if teamRoster?.kind === 'signedOut'}
-          <div class="flex items-center gap-2 text-xs text-zinc-500">
-            <p role="status">{t('app.staff.roster.signed-out', 'Your session has ended, so task and pause state could not be loaded.')}</p>
+          {:else if teamRoster?.kind === 'signedOut'}
             <a href="/signin" onpointerenter={signInHref} onfocus={signInHref} onpointerdown={signInHref} oncontextmenu={signInHref} onauxclick={signInHref} onclick={signInHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.staff.roster.sign-in', 'Sign in')}</a>
-          </div>
-        {/if}
+          {/if}
+        </div>
         <LiveRegion>
           {#if teamRoster?.kind === 'hidden'}
             <p class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>

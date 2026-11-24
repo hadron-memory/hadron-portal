@@ -54,7 +54,7 @@ export type StatusSite = { line: number; identity: string };
  * branch's own children are not searched through a component (`{#if a}<LiveRegion><p role="status">` is not a
  * wrapper-nested site), though a branch inside a component's slot is a branch like any other and is walked.
  */
-export function conditionalStatusRegions(src: string): number {
+export function countConditionalStatusRegions(src: string): number {
   return scanStatusSites(src).length;
 }
 
@@ -68,7 +68,9 @@ export function conditionalStatusRegions(src: string): number {
  * distinct, but the ordinal follows source order: replacing one of two identical sites with another identical one is
  * invisible, as is a swap between two sites that share tag and condition. And any edit to the opening tag (a `class`
  * tweak) changes the hash, which shows as one removal plus one addition: regenerate, and accept the addition only
- * after checking it is the same site.
+ * after checking it is the same site. Then re-key the site's identity in `reviewedNotDefects` and in
+ * `unreviewedSites` (both live in `live-region-sites.test.ts`) as well as the baseline, or the ratchet reports the
+ * old key as stale.
  */
 export function conditionalStatusIdentities(src: string): string[] {
   return scanStatusSites(src).map((s) => s.identity);

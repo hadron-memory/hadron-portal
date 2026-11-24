@@ -392,7 +392,9 @@
     <div class="text-sm">{data.app.name}</div>
     <div class="mt-1"><Urn value={data.app.urn} linked /></div>
   </div>
-  <LiveRegion>{#if !current}<p>{t("grants.loading", "Loading…")}</p>{/if}</LiveRegion>
+  <!-- portal#2581: "Grant created." is spoken from this region, which exists before the create; the visible
+       confirmation inside the result section is hidden from assistive technology so it is not read twice. -->
+  <LiveRegion>{#if !current}<p>{t("grants.loading", "Loading…")}</p>{:else if returned}<p class="sr-only">{t("grants.created-confirmation", "Grant created.")}</p>{/if}</LiveRegion>
   {#if current}
     {#if feedback && !(form && "operation" in form && form.operation === "create")}<p
         role="alert"
@@ -405,7 +407,7 @@
         aria-label={t("grants.result", "Request result")}
         class="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-950"
       >
-        <p role="status" class="mb-3">
+        <p aria-hidden="true" class="mb-3">
           {t("grants.created-confirmation", "Grant created.")}
         </p>
         <GrantRecord
