@@ -4950,7 +4950,7 @@
       </CollapsibleSection>
 
       <!-- portal#2380: the former /secrets page, in place. Read when the section unfolds; its writes are the page's own actions. -->
-      <CollapsibleSection id="secrets" title={t('app.tabs.secrets', 'Secrets')} bind:open={openSections['secrets']}>
+      <CollapsibleSection id="secrets" title={t('app.settings.section.secrets', 'Secrets store')} bind:open={openSections['secrets']}>
         {#if tabData.secretsPanel}
           <AppSecrets appId={app.id} panel={tabData.secretsPanel} {form} />
         {:else}
