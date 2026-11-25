@@ -164,7 +164,7 @@
     <div>
       <label for="secret-name" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.name', 'Name')}</label>
       <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={retypedName} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
-      <p id="secret-name-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.name.help', 'All lowercase. Use only letters, digits and hyphens, start with a letter or digit, and keep it to 64 characters or fewer. For example: stripe-api-key.')}</p>
+      <p id="secret-name-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.name.help', 'Starts with a lowercase letter or digit, then lowercase letters, digits and hyphens, up to 64 characters.')}</p>
     </div>
     <div>
       <label for="secret-value" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.value', 'Value')}</label>
