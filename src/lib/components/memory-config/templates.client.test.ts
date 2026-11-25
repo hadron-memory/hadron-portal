@@ -61,7 +61,9 @@ describe('template management states', () => {
     expect(alert.nextElementSibling?.textContent).toContain('Reload template');
     expect(alert.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const sent = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(sent).toMatchObject({ op: 'update', ref: 't1', revision: 9, input: { name: 'my-retained-name', required: true } });
+    expect(sent).toMatchObject({ op: 'update', ref: 't1', revision: 9, input: { name: 'my-retained-name' } });
+    // required is sent only when it changed (portal#1743): the server re-validates references whenever it is present.
+    expect((sent as { input: object }).input).not.toHaveProperty('required');
     expect(sent.input).not.toHaveProperty('rules');
   });
   it('states required-template lock consequences before saving, without disabling Save', () => {

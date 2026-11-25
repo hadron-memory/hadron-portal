@@ -6,13 +6,14 @@
   import { t } from '$lib/i18n/t';
   import type { Rule } from '$lib/memory-config/types';
   import type { ConfigFailure } from '$lib/memory-config/client';
-  let { rule = null, templateDraft = false, memories, memoriesFailed = false, oncancel, onsave, onreload, fallbackFocus }: {
-    rule?: Rule | null; templateDraft?: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean;
+  let { rule = null, seedRole = null, templateDraft = false, memories, memoriesFailed = false, oncancel, onsave, onreload, fallbackFocus }: {
+    rule?: Rule | null; /** A create that starts from a role the caller fixed (the skipped-defaults list). */ seedRole?: string | null; templateDraft?: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean;
     oncancel: () => void; onsave: (input: Record<string, unknown>) => Promise<ConfigFailure | null>; onreload?: () => Promise<ConfigFailure | null | undefined>; fallbackFocus?: HTMLElement;
   } = $props();
   const uid = $props.id();
   const seed = untrack(() => rule);
-  let role = $state(seed?.role ?? ''), enabled = $state(seed?.enabled ?? true), strictSubRoles = $state(seed?.strictSubRoles ?? false);
+  const roleSeed = untrack(() => seedRole);
+  let role = $state(seed?.role ?? roleSeed ?? ''), enabled = $state(seed?.enabled ?? true), strictSubRoles = $state(seed?.strictSubRoles ?? false);
   let writers = $state(seed?.writers ?? 'ALL'), validateBy = $state(seed?.validateBy ?? '');
   const fields = ['authorTask', 'validationTask', 'descriptionNode'] as const;
   type Field = typeof fields[number];
@@ -64,7 +65,7 @@
   <form onsubmit={save} class="space-y-4">
     <fieldset disabled={pending} class="space-y-4">
     <h2 class="text-xl font-semibold">{seed ? t('config.edit-rule', 'Edit rule') : t('config.create-rule', 'Create rule')}</h2>
-    <label class="block">{t('config.role', 'Role / sub-role')}<input required maxlength="64" readonly={!!seed} bind:value={role} class="mt-1 w-full rounded border border-zinc-300 p-2 dark:border-zinc-700 dark:bg-zinc-950" /></label>
+    <label class="block">{t('config.role', 'Role / sub-role')}<input required maxlength="64" readonly={!!seed || !!roleSeed} bind:value={role} class="mt-1 w-full rounded border border-zinc-300 p-2 dark:border-zinc-700 dark:bg-zinc-950" /></label>
     {#if failure?.field === 'role'}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
     <label class="flex items-center gap-2"><input type="checkbox" bind:checked={enabled} />{t('config.enabled', 'Enabled')}</label>
     <label class="flex items-center gap-2"><input type="checkbox" bind:checked={strictSubRoles} />{t('config.strict', 'Require declared sub-roles')}</label>

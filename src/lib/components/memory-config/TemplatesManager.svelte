@@ -31,7 +31,7 @@
   const formId = `${uid}-template-form`;
   const fields = ['authorTask', 'validationTask', 'descriptionNode'] as const;
   const labels = { authorTask: t('config.author', 'Author task'), validationTask: t('config.validator', 'Validation task'), descriptionNode: t('config.description-node', 'Description node') };
-  let name = $state(''), description = $state(''), required = $state(false), rules = $state<Rule[]>([]), rulesChanged = $state(false);
+  let name = $state(''), description = $state(''), required = $state(false), orgDefault = $state(false), rules = $state<Rule[]>([]), rulesChanged = $state(false);
   let ruleIndex = $state<number | null>(null), pending = $state(false), failure = $state<ConfigFailure | null>(null), notice = $state('');
   let chosen = $state<Template | null>(null), memory = $state<{ id: string; name: string; urn: string } | null>(null), memoryPicker = $state(false);
   let preview = $state<ApplyPreview | null>(null), previewStale = $state(false);
@@ -50,7 +50,9 @@
   });
   $effect(() => { if (editing !== undefined && nameInput?.isConnected) nameInput.focus(); });
   const writable = $derived(canManage && !readOnly);
-  const columns: PortalColumnDef<Template>[] = [{ accessorKey: 'name', header: t('config.name', 'Name'), size: 220 }, { accessorKey: 'description', header: t('config.description', 'Description'), size: 260 }, { accessorKey: 'required', header: t('config.required', 'Required'), size: 100 }, { id: 'actions', header: t('config.actions', 'Actions'), size: 240 }];
+  // The switch exists only on an organization-owned template; the server refuses it anywhere else (ORG_DEFAULT_ORG_ONLY).
+  const isOrg = untrack(() => ownerType === 'ORGANIZATION');
+  const columns: PortalColumnDef<Template>[] = [{ accessorKey: 'name', header: t('config.name', 'Name'), size: 220 }, { accessorKey: 'description', header: t('config.description', 'Description'), size: 260 }, { accessorKey: 'required', header: t('config.required', 'Required'), size: 100 }, ...(isOrg ? [{ id: 'orgDefault', header: t('config.org-default-column', 'Default'), size: 170 }] : []), { id: 'actions', header: t('config.actions', 'Actions'), size: 240 }];
   let templateFilter = $state('');
   // Boolean accessors are not reliably eligible for global filtering, so the
   // name column also carries the rendered Required text.
@@ -62,7 +64,7 @@
   let previewFilter = $state('');
   const previewTable = createSvelteTable<ApplyPreview['entries'][number]>({ get data() { return preview?.entries ?? []; }, columns: previewColumns, state: { get globalFilter() { return previewFilter; } }, onGlobalFilterChange: value => { previewFilter = typeof value === 'function' ? value(previewFilter) : value; }, globalFilterFn: makeGlobalFilterFn<ApplyPreview['entries'][number]>({ outcome: value => outcomeCopy(String(value), !!preview?.dryRun) }) });
   function edit(template: Template | null) {
-    editing = template; name = template?.name ?? ''; description = template?.description ?? ''; required = template?.required ?? false;
+    editing = template; name = template?.name ?? ''; description = template?.description ?? ''; required = template?.required ?? false; orgDefault = isOrg && (template?.orgDefault ?? false);
     rules = (template?.rules ?? []).map(rule => ({ ...rule })); rulesChanged = false; failure = null; notice = ''; chosen = null; preview = null;
   }
   async function reload() { templates = (await configCall<{ value: Template[] }>({ kind: 'templates', op: 'read', ownerType, ownerRef })).value; }
@@ -77,13 +79,26 @@
   async function save(event: SubmitEvent) {
     event.preventDefault(); if (!writable || pending) return;
     pending = true; failure = null; notice = '';
+    // Whether THIS save turns it on decides the wording of a refusal; a rename of an existing default does not.
+    const turningOn = isOrg && orgDefault && !editing?.orgDefault;
     try {
-      const input = { name, description: description || null, required, ...(!editing || rulesChanged ? { rules: rules.map(ruleInput) } : {}) };
+      // Sent only when it changes: a rename of a default does not re-ask the server to validate it again.
+      const orgDefaultChanged = isOrg && (editing ? orgDefault !== (editing.orgDefault ?? false) : orgDefault);
+      // The server re-validates every reference whenever `required` is present, so an update sends it only when it changed.
+      const requiredChanged = !editing || required !== editing.required;
+      const input = { name, description: description || null, ...(requiredChanged ? { required } : {}), ...(orgDefaultChanged ? { orgDefault } : {}), ...(!editing || rulesChanged ? { rules: rules.map(ruleInput) } : {}) };
       await configCall({ kind: 'templates', op: editing ? 'update' : 'create', ownerType, ownerRef, ref: editing?.id, revision: editing?.revision, input });
       editing = undefined; notice = t('config.saved', 'Saved.');
       try { await reload(); } catch { failure = { error: t('config.template-reload-failed', 'Saved, but the templates could not be reloaded.') }; }
-    } catch (e) { failure = e as ConfigFailure; }
+    } catch (e) { failure = failureText(e as ConfigFailure, turningOn); }
     finally { pending = false; }
+  }
+  // The refusals of turning it on, in words. The server's own text stands for everything else, so the cap is never ours to state.
+  // Decided where the save fails, so no later error can borrow this wording.
+  function failureText(f: ConfigFailure, switchOn: boolean): ConfigFailure {
+    if (f.reason === 'ORG_DEFAULT_LIMIT') return { ...f, error: `${f.error} ${t('config.org-default-limit-pointer', 'The current defaults are marked in the template list.')}` };
+    if (f.code === 'NODE_NOT_FOUND' && switchOn && !f.field) return { ...f, error: t('config.org-default-not-available', 'A task or node this template names isn’t available to the whole organization.') };
+    return f;
   }
   async function remove(template: Template) {
     if (!writable || pending || !window.confirm(t('config.template-delete-confirm', 'Delete template “{name}”? Rules already copied into memories remain.', { name: template.name }))) return;
@@ -128,6 +143,7 @@
       {#if cell.column.id === 'actions'}
         {#if writable}<div class="flex flex-wrap gap-2"><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.edit', 'Edit')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => remove(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.delete', 'Delete')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { chosen = row; memory = null; preview = null; editing = undefined; previewStale = false; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-memory', 'Apply to a memory…')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { bulk = row; chosen = null; preview = null; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-several', 'Apply to several memories…')}</button></div>{/if}
       {:else if cell.column.id === 'required'}{row.required ? t('config.yes', 'Yes') : t('config.no', 'No')}
+      {:else if cell.column.id === 'orgDefault'}{#if row.orgDefault}<span class="rounded bg-indigo-50 px-2 py-0.5 text-sm text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">{t('config.org-default', 'Organization default')}</span>{/if}
       {:else}<!-- portal#2492: a 64-character name or a long description token has no break opportunity, so wrap anywhere inside the cell. --><span class="block min-w-0 max-w-full [overflow-wrap:anywhere]">{String(cell.getValue() ?? '')}</span>{/if}
     {/snippet}
   </DataTable>
@@ -137,8 +153,11 @@
         <svelte:element this={embedded ? 'h3' : 'h2'} class="text-xl font-semibold">{editing ? t('config.edit-template', 'Edit template') : t('config.create-template', 'Create template')}</svelte:element>
         <form id={formId} onsubmit={save} class="space-y-4"><label class="block">{t('config.name', 'Name')}<input bind:this={nameInput} required maxlength="64" bind:value={name} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950" /></label>
         <label class="block">{t('config.description', 'Description')}<textarea bind:value={description} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950"></textarea></label>
-        <label class="flex items-center gap-2"><input type="checkbox" bind:checked={required} />{t('config.required', 'Required')}</label></form>
-        {#if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
+        <label class="flex items-center gap-2"><input type="checkbox" bind:checked={required} />{t('config.required', 'Required')}</label>
+        {#if isOrg}<div><label class="flex items-center gap-2"><input type="checkbox" bind:checked={orgDefault} aria-describedby={`${uid}-org-default-help`} />{t('config.org-default', 'Organization default')}</label>
+        <p id={`${uid}-org-default-help`} class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{t('config.org-default-help', 'Every new knowledge or group memory in this organization starts with these rules. Memories created by cloning, extracting, an App, an agent or a chat do not. Changing or turning off a default does not change memories that already exist.')}</p></div>{/if}</form>
+        {#if required && isOrg && orgDefault}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-default-warning', 'New memories get these rules locked, and only an org admin can unlock them on an org memory. If a rule’s task is unavailable when a memory is created, the rule arrives locked with no task, which blocks writes of that role until it is fixed.')}</p>
+        {:else if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
         <button type="button" onclick={() => ruleIndex = rules.length} class="min-h-11 rounded border px-3">{t('config.add-rule', 'Add rule')}</button>
         <DataTable table={ruleTable} listKey="template-draft-rules" bind:globalFilter={draftRuleFilter} searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
           {#snippet cell(cell, row)}
