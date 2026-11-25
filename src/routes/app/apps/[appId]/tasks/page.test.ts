@@ -519,5 +519,7 @@ describe('task page: Review section (portal#1697)', () => {
     // in the browser (LiveRegion deferFirst; pinned in first-read-announcement-2388.client.test.ts), so the
     // markup holds the region and no text.
     expect(html).not.toContain('Loading review…');
+    // ...and the region itself IS in the markup: a regression that stops rendering it must fail here too (#2641 blind P2).
+    expect(html).toMatch(/<div[^>]*data-testid="lazy-section-region-review"[^>]*role="status"[^>]*>(<!--[^>]*-->|\s)*<\/div>/);
   });
 });

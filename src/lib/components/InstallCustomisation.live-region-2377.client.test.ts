@@ -40,8 +40,8 @@ describe('InstallCustomisation loading lines are persistent live regions (#2377)
     const first = [...m.target.querySelectorAll('[role="status"]')];
     await firstPaint();
     const during = loadingRegions(m.target);
-    expect(first).toContain(during[0]);
     expect(during).toHaveLength(1);
+    expect(first).toContain(during[0]);
     resolve(json());
     await settle();
     expect(during[0].isConnected).toBe(true);

@@ -30,7 +30,10 @@
   region is inserted EMPTY and takes its content after the first paint of the frame it was inserted in,
   so the first read is a change inside a region that already exists (portal#2388). It is opt-in: a
   region whose text is already visible content at mount (an error shown on load) must not wait.
-  The wrapper is in the DOM, and as tall as when idle, from the first frame, so layout does not move.
+  The wrapper is in the DOM from the first frame and grows to its text one frame after the first paint, so
+  the page does not shift beyond that one frame. The text is absent from server-rendered markup: no-JS and
+  pre-hydration readers see nothing there, so do not defer where the server-rendered text matters. The fill
+  waits on requestAnimationFrame, so a hidden tab fills when it becomes visible. `deferFirst` is read once, at mount.
 
   Convention: hrn:node:hadronmemory.com:hadron-portal:components:live-region
   Check: hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted
