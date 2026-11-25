@@ -52,7 +52,6 @@
   const writable = $derived(canManage && !readOnly);
   // The switch exists only on an organization-owned template; the server refuses it anywhere else (ORG_DEFAULT_ORG_ONLY).
   const isOrg = untrack(() => ownerType === 'ORGANIZATION');
-  let attemptedOrgDefault = $state(false);
   const columns: PortalColumnDef<Template>[] = [{ accessorKey: 'name', header: t('config.name', 'Name'), size: 220 }, { accessorKey: 'description', header: t('config.description', 'Description'), size: 260 }, { accessorKey: 'required', header: t('config.required', 'Required'), size: 100 }, ...(isOrg ? [{ id: 'orgDefault', header: t('config.org-default-column', 'Default'), size: 170 }] : []), { id: 'actions', header: t('config.actions', 'Actions'), size: 240 }];
   let templateFilter = $state('');
   // Boolean accessors are not reliably eligible for global filtering, so the
@@ -65,7 +64,7 @@
   let previewFilter = $state('');
   const previewTable = createSvelteTable<ApplyPreview['entries'][number]>({ get data() { return preview?.entries ?? []; }, columns: previewColumns, state: { get globalFilter() { return previewFilter; } }, onGlobalFilterChange: value => { previewFilter = typeof value === 'function' ? value(previewFilter) : value; }, globalFilterFn: makeGlobalFilterFn<ApplyPreview['entries'][number]>({ outcome: value => outcomeCopy(String(value), !!preview?.dryRun) }) });
   function edit(template: Template | null) {
-    editing = template; name = template?.name ?? ''; description = template?.description ?? ''; required = template?.required ?? false; orgDefault = isOrg && (template?.orgDefault ?? false); attemptedOrgDefault = false;
+    editing = template; name = template?.name ?? ''; description = template?.description ?? ''; required = template?.required ?? false; orgDefault = isOrg && (template?.orgDefault ?? false);
     rules = (template?.rules ?? []).map(rule => ({ ...rule })); rulesChanged = false; failure = null; notice = ''; chosen = null; preview = null;
   }
   async function reload() { templates = (await configCall<{ value: Template[] }>({ kind: 'templates', op: 'read', ownerType, ownerRef })).value; }
@@ -81,19 +80,22 @@
     event.preventDefault(); if (!writable || pending) return;
     pending = true; failure = null; notice = '';
     try {
-      attemptedOrgDefault = isOrg && orgDefault;
-      const input = { name, description: description || null, required, ...(isOrg ? { orgDefault } : {}), ...(!editing || rulesChanged ? { rules: rules.map(ruleInput) } : {}) };
+      // Sent only when it changes: a rename of a default does not re-ask the server to validate it again.
+      const turningOn = isOrg && orgDefault && !editing?.orgDefault;
+      const orgDefaultChanged = isOrg && (editing ? orgDefault !== (editing.orgDefault ?? false) : orgDefault);
+      const input = { name, description: description || null, required, ...(orgDefaultChanged ? { orgDefault } : {}), ...(!editing || rulesChanged ? { rules: rules.map(ruleInput) } : {}) };
       await configCall({ kind: 'templates', op: editing ? 'update' : 'create', ownerType, ownerRef, ref: editing?.id, revision: editing?.revision, input });
       editing = undefined; notice = t('config.saved', 'Saved.');
       try { await reload(); } catch { failure = { error: t('config.template-reload-failed', 'Saved, but the templates could not be reloaded.') }; }
-    } catch (e) { failure = e as ConfigFailure; }
+    } catch (e) { failure = failureText(e as ConfigFailure, isOrg && orgDefault); }
     finally { pending = false; }
   }
   // The refusals of turning it on, in words. The server's own text stands for everything else, so the cap is never ours to state.
-  function failureText(f: ConfigFailure): string {
-    if (f.reason === 'ORG_DEFAULT_LIMIT') return `${f.error} ${t('config.org-default-limit-pointer', 'The current defaults are marked in the template list.')}`;
-    if (f.code === 'NODE_NOT_FOUND' && attemptedOrgDefault && !f.field) return t('config.org-default-not-available', 'A task or node this template names isn’t available to the whole organization.');
-    return f.error;
+  // Decided where the save fails, so no later error can borrow this wording.
+  function failureText(f: ConfigFailure, switchOn: boolean): ConfigFailure {
+    if (f.reason === 'ORG_DEFAULT_LIMIT') return { ...f, error: `${f.error} ${t('config.org-default-limit-pointer', 'The current defaults are marked in the template list.')}` };
+    if (f.code === 'NODE_NOT_FOUND' && switchOn && !f.field) return { ...f, error: t('config.org-default-not-available', 'A task or node this template names isn’t available to the whole organization.') };
+    return f;
   }
   async function remove(template: Template) {
     if (!writable || pending || !window.confirm(t('config.template-delete-confirm', 'Delete template “{name}”? Rules already copied into memories remain.', { name: template.name }))) return;
@@ -130,7 +132,7 @@
   <LiveRegion>
     {#if notice}<p class="text-green-700 dark:text-green-300">{notice}</p>{/if}
   </LiveRegion>
-  {#if failure && editing === undefined && !chosen}<p role="alert" class="text-red-700 dark:text-red-300">{failureText(failure)}</p>{/if}
+  {#if failure && editing === undefined && !chosen}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
   {#if writable}<button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{t('config.create-template', 'Create template')}</button>{/if}
   {#if !templates.length}<p class="text-zinc-500 dark:text-zinc-400">{writable ? t('config.no-templates-yet', 'No templates yet. Create a template to get started.') : t('config.no-visible-templates', 'No templates are available to you for this owner.')}</p>{/if}
   <DataTable {table} listKey={`node-role-templates:${ownerType}`} bind:globalFilter={templateFilter} searchPlaceholder={t('config.search-templates', 'Search templates…')} searchAriaLabel={t('config.search-templates', 'Search templates…')}>
@@ -162,7 +164,7 @@
             {:else}<div class="flex flex-wrap gap-2"><button type="button" onclick={() => ruleIndex = rules.indexOf(row)} class="min-h-11 rounded border px-3">{t('config.edit', 'Edit')}</button><button type="button" onclick={() => { rules = rules.filter(r => r !== row); rulesChanged = true; }} class="min-h-11 rounded border px-3">{t('config.remove', 'Remove')}</button></div>{/if}
           {/snippet}
         </DataTable>
-        {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failureText(failure)}</p>{/if}
+        {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
         {#if failure?.code === 'CONFLICT'}<button type="button" onclick={async () => { try { await reload(); const current = templates.find(v => v.id === editing?.id); if (current) edit(current); } catch { /* Preserve draft. */ } }} class="min-h-11 rounded border px-3">{t('config.reload-template', 'Reload template (discards your changes)')}</button>{/if}
         <div class="flex gap-3"><button type="submit" form={formId} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.save', 'Save')}</button><button type="button" onclick={() => editing = undefined} class="min-h-11 rounded border px-4">{t('config.cancel', 'Cancel')}</button></div>
       </fieldset>
@@ -185,7 +187,7 @@
   {#if chosen && writable}
     <section class="space-y-4 rounded-xl border p-5 dark:border-zinc-700">
       <svelte:element this={embedded ? 'h3' : 'h2'} class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: chosen.name })}</svelte:element>
-      {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failureText(failure)}</p>{/if}
+      {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
       {#if memory}<p>{memory.name}</p><Urn value={memory.urn} linked />{/if}
       <button type="button" disabled={pending} onclick={() => memoryPicker = true} aria-haspopup="dialog" aria-expanded={memoryPicker} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.choose-memory', 'Choose memory…')}</button>
       {#if memoryPicker}<SelectMemory {memories} bind:open={memoryPicker} onselect={(m) => { memory = m; preview = null; previewStale = false; }} />{/if}

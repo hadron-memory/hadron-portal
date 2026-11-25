@@ -15,6 +15,15 @@ function mountTemplates(opts: { ownerType?: OwnerType; canManage?: boolean; read
 const button = (root: HTMLElement, text: string) => [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!;
 const switchOf = (root: HTMLElement) => [...root.querySelectorAll<HTMLInputElement>('input[type=checkbox]')].find(i => i.closest('label')?.textContent?.includes('Organization default'));
 beforeEach(() => { localStorage.clear(); resetNavigationGuards(); fetcher.mockReset(); vi.stubGlobal('fetch', fetcher); vi.spyOn(window, 'confirm').mockReturnValue(true); });
+// jsdom has no showModal; the stub is put back after each test so no other file sees it.
+const dialogOriginals: [string, unknown][] = [];
+function stubDialog() {
+  const proto = HTMLDialogElement.prototype as unknown as Record<string, unknown>;
+  dialogOriginals.push(['showModal', proto.showModal], ['close', proto.close]);
+  proto.showModal = function (this: HTMLDialogElement) { this.setAttribute('open', ''); };
+  proto.close = function (this: HTMLDialogElement) { this.removeAttribute('open'); };
+}
+afterEach(() => { for (const [k, v] of dialogOriginals.splice(0)) (HTMLDialogElement.prototype as unknown as Record<string, unknown>)[k] = v; });
 afterEach(() => { cleanup.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 function openEditor(m: { target: HTMLElement }, create = false) { button(m.target, create ? 'Create template' : 'Edit').click(); flushSync(); }
 function lastBody() { return JSON.parse(fetcher.mock.calls.at(-1)![1].body); }
@@ -91,7 +100,7 @@ describe('refusals on turning it on (portal#1743 item 2)', () => {
   });
   it('the portal never states the cap itself', async () => {
     const { m } = await refuse({ code: 'BAD_USER_INPUT', reason: 'ORG_DEFAULT_LIMIT', error: 'Too many defaults.' });
-    expect(m.target.querySelector('[role=alert]')!.textContent).not.toMatch(/\b10\b/);
+    expect(m.target.querySelector('[role=alert]')!.textContent).toBe('Too many defaults. The current defaults are marked in the template list.');
   });
   it('NODE_NOT_FOUND on turning it on: the whole-organization wording, naming nothing', async () => {
     const { m } = await refuse({ code: 'NODE_NOT_FOUND', error: 'Node not found.', field: null });
@@ -137,8 +146,7 @@ describe('skipped defaults in the memory rules (portal#1743 item 4)', () => {
     expect(mountRules(null).target.textContent).not.toContain('Not applied when this memory was created');
   });
   it('offers the existing add-rule action for that role, with the role fixed', async () => {
-    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
-    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+    stubDialog();
     const m = mountRules({ id: 'c', rules: [], defaultSkips: [skip()] });
     button(m.target, 'Add rule for review').click(); flushSync();
     const role = m.target.querySelector<HTMLInputElement>('input[maxlength="64"][required]')!;
@@ -148,5 +156,62 @@ describe('skipped defaults in the memory rules (portal#1743 item 4)', () => {
     const m = mountRules({ id: 'c', rules: [], defaultSkips: [skip()] }, true);
     expect(m.target.textContent).toContain('Not applied when this memory was created');
     expect(button(m.target, 'Add rule for review')).toBeUndefined();
+  });
+  it('submitting the seeded add-rule is a create for that role, with no ref and no revision', async () => {
+    stubDialog();
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ saved: true, value: { id: 'c', rules: [] } }) });
+    const m = mountRules({ id: 'c', rules: [], defaultSkips: [skip()] });
+    button(m.target, 'Add rule for review').click(); flushSync();
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+    const body = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(body).toMatchObject({ kind: 'rules', op: 'create', memoryRef: 'm', input: { role: 'review' } });
+    expect(body.ref).toBeUndefined(); expect(body.revision).toBeUndefined();
+  });
+  it('once a rule for the role exists, the row offers no add action', () => {
+    const rule = { id: 'r', role: 'review', revision: 1, enabled: true, strictSubRoles: false, writers: 'ALL', validateBy: null, locked: false, sourceTemplate: null, authorTask: null, authorTaskId: null, authorTaskState: 'NONE', validationTask: null, validationTaskId: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeId: null, descriptionNodeState: 'NONE' } as never;
+    const m = mountRules({ id: 'c', rules: [rule], defaultSkips: [skip()] });
+    expect(button(m.target, 'Add rule for review')).toBeUndefined();
+    expect(m.target.textContent).toContain('A rule for this role exists now.');
+  });
+  it('two skips for one role give add buttons with different accessible names', () => {
+    const m = mountRules({ id: 'c', rules: [], defaultSkips: [skip(), skip({ field: 'validationTask' })] });
+    const names = [...m.target.querySelectorAll('button')].filter(b => b.textContent?.trim() === 'Add rule for review').map(b => b.getAttribute('aria-label'));
+    expect(new Set(names).size).toBe(2);
+  });
+});
+describe('what the save sends (portal#1743 blind review)', () => {
+  it('turning it off sends orgDefault false', async () => {
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ saved: true, value: [] }) });
+    const m = mountTemplates({ initial: [tpl({ orgDefault: true })] }); openEditor(m);
+    const sw = switchOf(m.target)!; sw.checked = false; sw.dispatchEvent(new Event('change', { bubbles: true })); flushSync();
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+    expect(lastBody().input.orgDefault).toBe(false);
+  });
+  it('a rename of a default does not resend the switch', async () => {
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ saved: true, value: [] }) });
+    const m = mountTemplates({ initial: [tpl({ orgDefault: true })] }); openEditor(m);
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+    expect(lastBody().input).not.toHaveProperty('orgDefault');
+  });
+  it.each(['USER', 'APP'] as const)('a %s-owned save never carries orgDefault', async (ownerType) => {
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ saved: true, value: [] }) });
+    const m = mountTemplates({ ownerType, initial: [tpl({ orgDefault: true })] }); openEditor(m);
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+    expect(lastBody().input).not.toHaveProperty('orgDefault');
+  });
+  it('a later refusal with the switch off keeps the server text, not the on-switch wording', async () => {
+    fetcher.mockResolvedValueOnce({ ok: false, json: async () => ({ code: 'NODE_NOT_FOUND', error: 'Node not found.' }) });
+    const m = mountTemplates(); openEditor(m);
+    const sw = switchOf(m.target)!; sw.checked = true; sw.dispatchEvent(new Event('change', { bubbles: true })); flushSync();
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('[role=alert]')?.textContent).toContain('whole organization'); });
+    sw.checked = false; sw.dispatchEvent(new Event('change', { bubbles: true })); flushSync();
+    fetcher.mockResolvedValueOnce({ ok: false, json: async () => ({ code: 'NODE_NOT_FOUND', error: 'Node not found.' }) });
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('[role=alert]')?.textContent).toBe('Node not found.'); });
   });
 });

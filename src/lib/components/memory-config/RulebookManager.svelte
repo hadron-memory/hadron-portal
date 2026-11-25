@@ -44,7 +44,6 @@
   // The role an "Add rule" from the skipped list fixes in the editor; null for an ordinary create or edit.
   let seedRole = $state<string | null>(null);
   function edit(next: Rule | null | undefined, role: string | null = null) { editorVersion++; seedRole = role; editing = next; }
-  const blankRule = (role: string): Rule => ({ role, enabled: true, strictSubRoles: false, writers: 'ALL', validateBy: null, authorTask: null, authorTaskId: null, authorTaskState: 'NONE', validationTask: null, validationTaskId: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeId: null, descriptionNodeState: 'NONE' });
   // Every operation starts here: both counters advance together and the
   // feedback slate is cleared. Completions bump feedbackSequence alone, so a
   // completion can retire a notice but never a persisted write's advisory.
@@ -245,13 +244,14 @@
             {:else if cell.column.id === 'source'}<span class="whitespace-normal">{r.sourceTemplate && !r.sourceTemplate.deleted ? r.sourceTemplate.name : t('config.template-deleted', 'template deleted')}</span>
             {:else if cell.column.id === 'now'}<div class="whitespace-normal"><RuleReference state={r.refState} urn={r.ref} /></div>
             {:else if cell.column.id === 'reason'}<span class="whitespace-normal">{skipReason(r.reason)}</span>
-            {:else if !readOnly}<button type="button" disabled={busy} onclick={() => edit(null, r.role)} class="min-h-11 rounded border px-3">{t('config.add-rule-for', 'Add rule for {role}', { role: r.role })}</button>{/if}
+            {:else if book?.rules.some(x => x.role === r.role)}<span>{t('config.rule-exists', 'A rule for this role exists now.')}</span>
+            {:else if !readOnly}<button type="button" disabled={busy} aria-label={`${t('config.add-rule-for', 'Add rule for {role}', { role: r.role })}, ${labels[r.field] ?? r.field}`} onclick={() => edit(null, r.role)} class="min-h-11 rounded border px-3">{t('config.add-rule-for', 'Add rule for {role}', { role: r.role })}</button>{/if}
           {/snippet}
         </DataTable>
       </section>
     {/if}
     {#if editing !== undefined && !readOnly}
-      {#key editorVersion}<RuleEditor fallbackFocus={heading} rule={editing ?? (seedRole ? blankRule(seedRole) : null)} {memories} {memoriesFailed} oncancel={() => edit(undefined)} onsave={save} onreload={reloadEditor} />{/key}
+      {#key editorVersion}<RuleEditor fallbackFocus={heading} rule={editing} seedRole={editing === null ? seedRole : null} {memories} {memoriesFailed} oncancel={() => edit(undefined)} onsave={save} onreload={reloadEditor} />{/key}
     {/if}
   </section>
 {/if}
