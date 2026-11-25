@@ -42,6 +42,8 @@ export const READ_GROUP_KEYS = {
   bootPointers: ['bootPointers'],
   installMarks: ['installMarks'],
   canManage: ['canManageApp'],
+  // portal#1718: the org's members (the viewer's role), for the Memory tab's create offer and the AI Config section.
+  orgMembers: ['orgMembers'],
   appNodes: ['appNodes', 'appNodesPage'],
   memoryScope: ['appMemoryScope'],
   // The Memory tab's list and create offer. The list is derived from the `memoryScope` group's read (every Memory
@@ -66,10 +68,10 @@ export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
   staff: ['staff', 'roster', 'installMarks'],
   members: ['members'],
   agents: ['availableAgents', 'bootPointers', 'installMarks', 'canManage'],
-  memory: ['appNodes', 'memoryScope', 'appMemories', 'canManage'],
+  memory: ['appNodes', 'memoryScope', 'appMemories', 'canManage', 'orgMembers'],
   keys: ['appKeys', 'keyScopes'],
   // portal#2567: the AI section shows its controls to the owner of a person's App, which the canManage read says.
-  'ai-configs': ['aiConfigs', 'canManage'],
+  'ai-configs': ['aiConfigs', 'canManage', 'orgMembers'],
   settings: ['staff', 'chatbotConfig', 'wakeRoles', 'chatConfigs', 'canManage', 'memoryScope'],
   'node-role-templates': ['templates'],
   // The Client tab's plugin grid (canManage) and its key status (appKeys).

@@ -28,6 +28,7 @@ import {
   GRANT_APP_KEY_SCOPE_MUTATION,
   REVOKE_APP_KEY_SCOPE_MUTATION,
   APP_DETAIL_ORG_QUERY,
+  APP_ORG_MEMBERS_QUERY,
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
   UNINSTALL_AGENT_FROM_APP_MUTATION,
@@ -2574,7 +2575,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
         }
         // The other direction: a document that selected nothing would pass the
         // check above and break the breadcrumb on every org-owned App.
-        for (const rendered of ['id', 'name', 'urn', 'members']) {
+        for (const rendered of ['id', 'name', 'urn']) {
           expect(doc).toMatch(new RegExp(`\\b${rendered}\\b`));
         }
       }
@@ -2587,6 +2588,13 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       expect(APP_ORG_AGENTS_QUERY).toMatch(/\bagents\b/);
       expect(APP_ORG_AGENTS_QUERY).not.toMatch(/agentOrgGrants/);
       expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bagents\b/);
+    });
+
+    // portal#1718: the frame's org read is the breadcrumb (id, name, urn). The members are the Memory and AI Config tabs' own request.
+    it('the frame org document selects no members; the members document selects the role and user id only', () => {
+      expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bmembers\b/);
+      expect(APP_ORG_MEMBERS_QUERY).toMatch(/\bmembers\b/);
+      expect(APP_ORG_MEMBERS_QUERY).not.toMatch(/\bemail\b/);
     });
   });
 

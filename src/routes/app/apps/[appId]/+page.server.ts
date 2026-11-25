@@ -32,6 +32,7 @@ import { fetchOrgVisibleAgents, mergeInstallableAgents, type OrgAgentPool } from
 import { t } from '$lib/i18n/t';
 import {
   APP_DETAIL_ORG_QUERY,
+  APP_ORG_MEMBERS_QUERY,
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
   APP_QUERY,
@@ -158,8 +159,8 @@ type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
 type InstallableAgent = { id: string; name: string; urn: string };
 
 /**
- * What this loader puts on `data.org` (#851): the chrome three, plus the
- * members the AI-config section's `canManage` is read from (`orgRoleCanManage`, org-owned Apps only).
+ * What this loader puts on `data.org` (#851): the chrome three. The members the Memory tab's create offer and the
+ * AI-config section's `canManage` read are NOT on it (portal#1718): they are the `orgMembers` read group's own request.
  *
  * A SLICE of Organization rather than Organization, for the reason `OrgChrome`
  * in `/app/orgs/[id]/+layout.server.ts` is one: a consumer that starts reading
@@ -174,7 +175,9 @@ type InstallableAgent = { id: string; name: string; urn: string };
  * The compiler is an exhaustive census; a regex is a guess about spelling
  * (`hrn:node:hadronmemory.com:hadron-portal:findings:a-measurement-is-only-as-good-as-its-question`).
  */
-type AppOrg = Pick<Organization, 'id' | 'name' | 'urn' | 'members'>;
+type AppOrg = Pick<Organization, 'id' | 'name' | 'urn'>;
+/** portal#1718: the viewer's role reads, for the two tabs that need them (see APP_ORG_MEMBERS_QUERY). */
+type AppOrgMembers = Pick<Organization, 'members'>['members'];
 
 // Route-local, but a `/* GraphQL */` const rather than an inline string so
 // `pnpm gql:validate` sees it — an inline document is invisible to the gate
@@ -700,7 +703,7 @@ export async function _loadAppPage(
   let subscribedAgentsError = false;
   // portal#2240: the org is the frame's (the breadcrumb), and the Memory tab's
   // create offer; the install pickers below are the Agents tab's only.
-  if (app.organizationId && (mode.frame || wants('appMemories'))) {
+  if (app.organizationId && mode.frame) {
     // #851: `loadOrgDetail` rather than a bare `.catch(() => ({ organization:
     // null }))`. That catch took no argument, so nothing was classified: a
     // connection failure, a bad gateway, a resolver crash and a genuine refusal
@@ -714,7 +717,8 @@ export async function _loadAppPage(
     // subscriptions, exchangeConnections and the full AgentFields to draw a
     // breadcrumb and one permission check; all are non-null lists, so any one of
     // them refusing nulled the org and 404'd this page over data it never shows.
-    // `members` stays (the AI-config section's canManage for an org App, `orgRoleCanManage`). `agents` is NOT in
+    // portal#1718: `members` is NOT in this document either: only the Memory and AI Config tabs read the viewer's
+    // role, and they ask for it below as the `orgMembers` group. `agents` is NOT in
     // this document: the install picker draws it, and it is asked for below as
     // a request of its own.
     org = await loadOrgDetail<AppOrg>(
@@ -722,6 +726,12 @@ export async function _loadAppPage(
       app.organizationId,
       APP_DETAIL_ORG_QUERY,
     );
+  }
+  // portal#1718: the viewer's org role, for the tabs that read it (Memory's create offer, AI Config's canManage).
+  // loadOrgDetail classifies as the frame's org read did: a failure is the tab's error, never an empty list.
+  let orgMembers: AppOrgMembers | null = null;
+  if (app.organizationId && wants('orgMembers')) {
+    orgMembers = (await loadOrgDetail<{ members: AppOrgMembers }>(locals.token, app.organizationId, APP_ORG_MEMBERS_QUERY)).members;
   }
   if (app.organizationId && wants('availableAgents')) {
     // #1006: the Agents tab's install picker, asked for on its own so a refusal
@@ -1157,9 +1167,10 @@ export async function _loadAppPage(
     appMemories: appMemoriesFromScope(appMemoryScope, app.id),
     createMemoryForm,
     attachMemoryForm,
-    canCreateMemory: canCreateAppMemory(org, locals.user?.id ?? null, { userOwned: !app.organizationId, canManageApp: canManageApp as boolean | null }),
+    canCreateMemory: canCreateAppMemory({ members: orgMembers ?? [] }, locals.user?.id ?? null, { userOwned: !app.organizationId, canManageApp: canManageApp as boolean | null }),
     app,
     org,
+    orgMembers,
     availableAgents,
     availableAgentsError,
     subscribedAgentsError,

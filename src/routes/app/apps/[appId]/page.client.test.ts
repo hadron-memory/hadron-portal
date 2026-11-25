@@ -2510,7 +2510,7 @@ describe('App AI configuration readback lifecycle', () => {
           agents: [{ id: 'ag1', name: 'Bot' }], organizationId: 'o1',
         },
         appChats: [{ key: AGENT_CHAT_KEY, label: 'Bot' }],
-        org: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [{ user: { id: 'u1' }, role: 'ADMIN' }] },
+        org: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' }, orgMembers: [{ user: { id: 'u1' }, role: 'ADMIN' }],
       },
       form: null,
     }) as never) as Mounted<Record<string, unknown>>;

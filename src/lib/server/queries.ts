@@ -587,13 +587,6 @@ const APP_DETAIL_ORG_FIELDS = /* GraphQL */ `
     id
     name
     urn
-    members {
-      id
-      role
-      canInvite
-      createdAt
-      user { id handle githubUsername name avatarUrl email }
-    }
   }
 `;
 
@@ -602,6 +595,25 @@ export const APP_DETAIL_ORG_QUERY = /* GraphQL */ `
   query AppDetailOrg($ref: ID!) {
     organization(ref: $ref) {
       ...AppDetailOrgFields
+    }
+  }
+`;
+
+/**
+ * portal#1718: the org's members, as the viewer's own org role needs them: the Memory tab's create offer
+ * (`canCreateAppMemory`) and the AI Config section's `canManage` (`orgRoleCanManage`) read the viewer's row
+ * (role + user id) and nothing else. Its own request, asked for by those two tabs only, so the frame's org
+ * read (the breadcrumb: id, name, urn) no longer ships every member with their email on every open.
+ */
+export const APP_ORG_MEMBERS_QUERY = /* GraphQL */ `
+  query AppOrgMembers($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      members {
+        id
+        role
+        user { id }
+      }
     }
   }
 `;
