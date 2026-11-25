@@ -8,8 +8,10 @@ export type Rule = {
   revision?: number; locked?: boolean;
   sourceTemplate?: { id: string; name: string; deleted: boolean } | null;
 };
-export type Rulebook = { id?: string | null; rules: Rule[] };
-export type Template = { id: string; name: string; description: string | null; required: boolean; revision: number; rules: Rule[] };
+/** An org-default rule skipped when the memory was created (hadron-server#3426). `ref` and `refState` are the template rule's reference as the calling manager sees it now. */
+export type DefaultSkip = { role: string; field: 'authorTask' | 'validationTask' | 'descriptionNode'; reason: string; ref: string | null; refState: RefState; sourceTemplate: { id: string; name: string; deleted: boolean } | null; createdAt: string };
+export type Rulebook = { id?: string | null; rules: Rule[]; defaultSkips?: DefaultSkip[] };
+export type Template = { id: string; name: string; description: string | null; required: boolean; /** Organization-owned templates only; absent reads as off. */ orgDefault?: boolean; revision: number; rules: Rule[] };
 export type OwnerType = 'USER' | 'ORGANIZATION' | 'APP';
 /** An advisory the server attached to a save or apply (hadron-server#3502). Never a failure. */
 export type MemoryConfigWarning = { code: string; role: string; field: string | null; taskUrn: string | null; taskState: string | null };

@@ -59,7 +59,9 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
       : code === 'INVALID_NODE_ROLE' || code === 'NODE_ROLE_RULE_EXISTS' ? 'role'
       : code === 'NODE_NOT_FOUND' && typeof ext?.ref === 'string'
         ? ['authorTask', 'validationTask', 'descriptionNode'].find(key => input[`${key}Ref`] === ext.ref) ?? null : null;
+    // The server's own refusal reason (ORG_DEFAULT_LIMIT, ORG_DEFAULT_ORG_ONLY) rides along so the page can word its pointer.
+    const reason = typeof ext?.reason === 'string' ? ext.reason : undefined;
     return json({ error: extractGqlError(e, t('config.failed', 'Could not complete this change. Your input is kept.'), known, { transport: 'fallback' }), code,
-      field }, { status: code === 'CONFLICT' ? 409 : 400, headers });
+      field, reason }, { status: code === 'CONFLICT' ? 409 : 400, headers });
   }
 };

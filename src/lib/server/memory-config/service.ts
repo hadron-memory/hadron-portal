@@ -128,6 +128,7 @@ mutation CreateRoleTemplate($ownerType: MemoryConfigTemplateOwnerType!, $ownerRe
       name
       description
       required
+      orgDefault
       revision
       rules {
         role
@@ -166,6 +167,7 @@ mutation UpdateRoleTemplate($ref: ID!, $input: UpdateMemoryConfigTemplateInput!,
       name
       description
       required
+      orgDefault
       revision
       rules {
         role
@@ -239,6 +241,19 @@ query MemoryRoleConfig($ref: ID!) {
           name
           deleted
         }
+      }
+      defaultSkips {
+        role
+        field
+        reason
+        ref
+        refState
+        sourceTemplate {
+          id
+          name
+          deleted
+        }
+        createdAt
       }
     }
   }
@@ -368,6 +383,7 @@ query RoleTemplates($filter: MemoryConfigTemplateFilter!, $limit: Int!, $offset:
       name
       description
       required
+      orgDefault
       revision
       rules {
         role
