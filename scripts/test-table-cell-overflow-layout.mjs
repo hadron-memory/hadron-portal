@@ -205,9 +205,9 @@ const settlePage = page => page.evaluate(async () => {
 const ESCAPE_PX = 0.5;
 // portal#2548: the kinds whose fixture is built to carry an sr-only label in a cell (a vacuous pass fails for these).
 const SR_ONLY_KINDS = ['orgs-sessions'];
-// portal#2548: the document-width check runs for every kind in this battery except the one that widens the document today (hadron-portal#2591);
-// the exemption goes with that fix.
-const DOC_WIDTH_EXEMPT_KINDS = ['apps-channels'];
+// portal#2548: the document-width check runs for every kind in this battery. A kind that widens the document may be exempted here
+// only while a fix is pending; the check below fails an exempt kind that stops widening, so the entry cannot outlive its defect.
+const DOC_WIDTH_EXEMPT_KINDS = [];
 // portal#2514: the narrowest a members Role select may get while still showing its value (the harness's narrowest column is 120px).
 const ROLE_SELECT_FLOOR_PX = 72;
 // The strict no-clipping oracle applies from this measured width up (blind review, #2507, named):

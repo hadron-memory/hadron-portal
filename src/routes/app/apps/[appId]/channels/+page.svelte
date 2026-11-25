@@ -403,12 +403,12 @@
            so neither does this. -->
       <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('app.channels.create.no-host', 'This App’s shared memory, where its channels live, isn’t available to you.')}</p>
     {:else if !canCreate}
-      <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+      <p class="mt-1 break-words text-sm text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.no-write', 'Adding a channel needs write access to {memory}, where this App’s channels live.', { memory: shared.name })}
       </p>
       <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
     {:else}
-      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+      <p class="mt-1 break-words text-xs text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}
       </p>
       <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
