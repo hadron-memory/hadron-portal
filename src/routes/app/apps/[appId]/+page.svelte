@@ -182,6 +182,7 @@
   import { DEFAULT_TAB, READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import AppSecrets from './AppSecrets.svelte';
+  import AppTickers from './AppTickers.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -3017,7 +3018,6 @@
     ...tabs,
     { id: 'channels', label: t('app.tabs.channels', 'Channels'), href: `/app/apps/${app.id}/channels` },
     { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
-    { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
     { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
     { id: 'metrics', label: t('app.tabs.metrics', 'Team metrics'), href: `/app/apps/${app.id}/metrics` },
@@ -4955,6 +4955,15 @@
           <AppSecrets appId={app.id} panel={tabData.secretsPanel} {form} />
         {:else}
           {@render tabArriving('secrets')}
+        {/if}
+      </CollapsibleSection>
+
+      <!-- portal#1099: the former /tickers list, in place. Read when the section unfolds; its writes are the page's own actions. -->
+      <CollapsibleSection id="tickers" title={t('app.tabs.tickers', 'Tickers')} bind:open={openSections['tickers']}>
+        {#if tabData.tickersPanel}
+          <AppTickers appId={app.id} {app} panel={tabData.tickersPanel} />
+        {:else}
+          {@render tabArriving('tickers')}
         {/if}
       </CollapsibleSection>
 

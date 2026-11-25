@@ -13,7 +13,9 @@ vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false
 // portal#1497: the on/off control reads the page store (its refresh fence), the
 // same one-line store the other node-lane table tests use.
 vi.mock('$app/stores', () => ({ page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://x/') }), () => {}) } }));
-import List from './+page.svelte';
+import List from '../AppTickers.svelte';
+import { sectionProps } from '$lib/test/ticker-section-props';
+
 import Detail from './[tickerId]/+page.svelte';
 import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
 
@@ -40,7 +42,7 @@ const readView = (html: string) => html.replace(WRITE_SECTION, '');
 
 function listFull(over: Record<string, unknown> = {}) {
   return render(List as never, {
-    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
+    props: sectionProps({ app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over }),
   } as never).body;
 }
 const list = (over: Record<string, unknown> = {}) => readView(listFull(over));
@@ -122,7 +124,7 @@ describe('Tickers list', () => {
   it('offers exactly one form, the Delivery one; the ticker settings stay read-only', () => {
     const html = list();
     expect(html.match(/<form/g)).toHaveLength(1);
-    expect(html).toContain('action="?/delivery"');
+    expect(html).toContain('action="/app/apps/app-1?tab=settings&amp;section=tickers&amp;/setDeliverySettings"');
     expect(html).toContain('Save delivery settings');
     expect(html).toContain('Only whoever manages the App can change these settings.');
     expect(html).toContain('data-testid="ticker-settings"');

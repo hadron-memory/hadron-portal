@@ -224,7 +224,7 @@
   <Breadcrumb items={[
     { label: t('app.tickers.crumb.apps', 'Apps'), href: appsHref },
     { label: data.app.name, href: basePath },
-    { label: t('app.tickers.crumb.tickers', 'Tickers'), href: `${basePath}/tickers` },
+    { label: t('app.tickers.crumb.tickers', 'Tickers'), href: `${basePath}?tab=settings&section=tickers` },
     { label: tk.name },
   ]} />
 

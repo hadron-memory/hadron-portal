@@ -33,11 +33,17 @@
     appId,
     ticker = null,
     impersonating = null,
+    createAction = '?/create',
+    reload = () => invalidateAll(),
   }: {
     appId: string;
     /** The ticker to edit; null creates one. */
     ticker?: Pick<Ticker, 'id' | 'name' | 'cadenceSeconds' | 'reasons'> | null;
     impersonating?: string | null;
+    /** The form action that creates; a host that is not the Tickers page names its own. */
+    createAction?: string;
+    /** Reads the host's data again after a write. Defaults to the page load. */
+    reload?: () => Promise<unknown>;
   } = $props();
 
   const editing = $derived(ticker !== null);
@@ -124,7 +130,7 @@
           const data = result.data && typeof result.data === 'object' ? result.data : {};
           const made = data.ticker as { id: string; name: string } | null | undefined;
           const committedWithError = data.committedWithError === true;
-          await invalidateAll();
+          await reload();
           if (mine !== generation) return;
           // Show the stored values, except where the reader has typed since the submit: that is theirs.
           const keptDraft = typedName !== sentName || typedCadence !== sentCadence || typedReasons !== sentReasons;
@@ -174,7 +180,7 @@
 {:else}
   <form
     method="POST"
-    action={editing ? '?/update' : '?/create'}
+    action={editing ? '?/update' : createAction}
     use:enhance={submitter()}
     class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900"
     data-testid={formId}

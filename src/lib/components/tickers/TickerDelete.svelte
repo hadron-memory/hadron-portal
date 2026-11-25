@@ -70,7 +70,7 @@
           // The ticker is gone: its own page would 404, so leave it rather than reload it. Delete
           // stays disabled until the navigation completes, so a second click cannot go out.
           try {
-            await goto(`/app/apps/${appId}/tickers`, { invalidateAll: true });
+            await goto(`/app/apps/${appId}?tab=settings&section=tickers`, { invalidateAll: true });
           } finally {
             // Arriving destroys this component (the fence above then holds); a navigation that fails
             // must not leave the control dead.
