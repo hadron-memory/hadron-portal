@@ -3,7 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { NODE_EXPORT_QUERY } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
-// Node export (#421). Browser → this endpoint → hadron-server `nodeExport`,
+// Node export (#421). The server's argument is `ref` (hadron-server#4763, portal#2472); the browser payload keeps `id`. Browser → this endpoint → hadron-server `nodeExport`,
 // which is the single source of truth for the file format (byte-identical to
 // `hadron node export`). The portal NEVER re-implements the codec — it forwards
 // the request and serves the rendered bytes back. GraphQL only runs server-side
@@ -54,7 +54,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     const data = await gqlClient(locals.token).request<{ nodeExport: NodeExportResult }>(
       NODE_EXPORT_QUERY,
-      { id, format, full, sections },
+      { ref: id, format, full, sections },
     );
     return json(data.nodeExport);
   } catch (e: unknown) {
