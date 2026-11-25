@@ -1,6 +1,6 @@
 import { t } from '$lib/i18n/t';
 import { makeGlobalFilterFn } from '$lib/table/global-filter';
-import type { RefState, Rule } from './types';
+import type { DefaultSkip, RefState, Rule } from './types';
 
 const fields = ['authorTask', 'validationTask', 'descriptionNode'] as const;
 const labels = {
@@ -45,3 +45,23 @@ function lockedText(rule: Rule): string {
 export const ruleGlobalFilterFn = makeGlobalFilterFn<Rule>({}, {
   role: rule => `${settingsText(rule)} ${referencesText(rule)} ${lockedText(rule)}`,
 });
+
+/** The reason a default was skipped, in the words a row shows; an unknown code is shown as sent. */
+export const skipReasonCopy = (reason: string): string =>
+  reason === 'REFERENCE_UNAVAILABLE' ? t('config.skip-unavailable', 'Its task or node wasn’t available to the organization.') : reason;
+
+/** Everything a skipped-defaults row displays: role, field label, template, the reference as now seen, and the reason. */
+function skipText(skip: DefaultSkip): string {
+  return [
+    skip.role,
+    labels[skip.field] ?? skip.field,
+    skip.sourceTemplate && !skip.sourceTemplate.deleted ? skip.sourceTemplate.name : t('config.template-deleted', 'template deleted'),
+    referenceStateCopy(skip.refState, !!skip.ref),
+    skip.refState === 'OK' ? skip.ref ?? '' : '',
+    skipReasonCopy(skip.reason),
+  ].join(' ');
+}
+
+// The skipped table has accessors for role and the raw field key only, so the
+// other displayed values ride on the role column, as the rule table's do.
+export const skipGlobalFilterFn = makeGlobalFilterFn<DefaultSkip>({}, { role: skipText });

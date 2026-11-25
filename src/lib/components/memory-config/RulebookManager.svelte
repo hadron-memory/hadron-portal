@@ -4,7 +4,7 @@
   import { t } from '$lib/i18n/t';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
-  import { ruleGlobalFilterFn } from '$lib/memory-config/rule-search';
+  import { ruleGlobalFilterFn, skipGlobalFilterFn, skipReasonCopy as skipReason } from '$lib/memory-config/rule-search';
   import type { PortalColumnDef } from '$lib/table/features';
   import RuleReference from './RuleReference.svelte';
   import RuleEditor from './RuleEditor.svelte';
@@ -76,8 +76,7 @@
     { id: 'actions', header: t('config.actions', 'Actions'), size: 180 },
   ];
   let skipFilter = $state('');
-  const skipTable = createSvelteTable<DefaultSkip>({ get data() { return book?.defaultSkips ?? []; }, columns: skipColumns, getRowId: (_r, i) => String(i), state: { get globalFilter() { return skipFilter; } }, onGlobalFilterChange: value => { skipFilter = typeof value === 'function' ? value(skipFilter) : value; } });
-  const skipReason = (reason: string) => reason === 'REFERENCE_UNAVAILABLE' ? t('config.skip-unavailable', 'Its task or node wasn’t available to the organization.') : reason;
+  const skipTable = createSvelteTable<DefaultSkip>({ get data() { return book?.defaultSkips ?? []; }, columns: skipColumns, getRowId: (_r, i) => String(i), state: { get globalFilter() { return skipFilter; } }, onGlobalFilterChange: value => { skipFilter = typeof value === 'function' ? value(skipFilter) : value; }, globalFilterFn: skipGlobalFilterFn });
   async function reload(owner: Owner): Promise<ReadResult> {
     if (!owner.current()) return { kind: 'stale' };
     // Only an issued read supersedes an earlier read. A refused mutation has
