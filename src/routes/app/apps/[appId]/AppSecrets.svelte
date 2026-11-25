@@ -111,7 +111,7 @@
 </script>
 
 <div class="space-y-4">
-  <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('secrets.intro', 'Values are stored encrypted and can be replaced, never read back.')}</p>
+  <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('secrets.intro', 'If this app needs a secret value, such as a password, to do its work while you are not there to supply it, you can store it in this app’s secrets store. Each secret is stored encrypted, and only this app can read it.')}</p>
 
   {#if impersonating}
     <p class="rounded-lg border border-zinc-300 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{t('secrets.impersonating', 'Impersonation sessions are read-only.')}</p>
@@ -160,11 +160,11 @@
   {/if}
 
   <form method="POST" action={actionUrl('createSecret')} use:enhance={submit} class="max-w-lg space-y-3">
-    <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.new.heading', 'New secret')}</h3>
+    <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.new.heading', 'Add a new secret to the store')}</h3>
     <div>
       <label for="secret-name" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.name', 'Name')}</label>
       <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={retypedName} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
-      <p id="secret-name-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.name.help', 'Starts with a lowercase letter or digit, then lowercase letters, digits and hyphens, up to 64 characters.')}</p>
+      <p id="secret-name-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.name.help', 'All lowercase. Use only letters, digits and hyphens, start with a letter or digit, and keep it to 64 characters or fewer. For example: stripe-api-key.')}</p>
     </div>
     <div>
       <label for="secret-value" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.value', 'Value')}</label>
