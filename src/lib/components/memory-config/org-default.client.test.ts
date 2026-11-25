@@ -135,6 +135,10 @@ describe('skipped defaults in the memory rules (portal#1743 item 4)', () => {
     expect(text).toContain('audit'); expect(text).toContain('Description node'); expect(text).toContain('template deleted'); expect(text).toContain('BROKEN');
     expect(text).toContain('wasn’t available to the organization');
   });
+  it('words only REFERENCE_UNAVAILABLE as unavailable; another reason shows the server\'s own string', () => {
+    const text = mountRules({ id: 'c', rules: [], defaultSkips: [skip({ reason: 'SOMETHING_NEW' })] }).target.textContent!;
+    expect(text).toContain('SOMETHING_NEW'); expect(text).not.toContain('wasn’t available to the organization');
+  });
   it('shows nothing when there are none or the field is absent', () => {
     for (const defaultSkips of [[], undefined]) expect(mountRules({ id: 'c', rules: [], defaultSkips }).target.textContent).not.toContain('Not applied when this memory was created');
   });
