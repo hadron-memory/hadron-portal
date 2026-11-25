@@ -7,7 +7,7 @@ const url = new URL('http://localhost/api/memory-config');
 function event(body: unknown, impersonation: unknown = null) {
   return { url, request: new Request(url, { method: 'POST', headers: { 'content-type': 'application/json', origin: url.origin }, body: JSON.stringify(body) }), locals: { token: 'caller', impersonation } } as Parameters<typeof POST>[0];
 }
-beforeEach(() => request.mockReset());
+beforeEach(() => { request.mockReset(); });
 describe('organization default on the template write (portal#1743)', () => {
   it('the template read, and both writes, select orgDefault', async () => {
     expect(TEMPLATES_QUERY).toContain('orgDefault');
@@ -30,7 +30,7 @@ describe('organization default on the template write (portal#1743)', () => {
     expect(response.status).toBe(403); expect(request).not.toHaveBeenCalled();
   });
   it('answers the server\'s own limit text with its reason, naming no cap of its own', async () => {
-    request.mockRejectedValueOnce({ response: { errors: [{ message: 'An organization can have at most 4 default templates.', extensions: { code: 'BAD_USER_INPUT', reason: 'ORG_DEFAULT_LIMIT' } }] } });
+    request.mockRejectedValue({ response: { errors: [{ message: 'An organization can have at most 4 default templates.', extensions: { code: 'BAD_USER_INPUT', reason: 'ORG_DEFAULT_LIMIT' } }] } });
     const res = await POST(event({ kind: 'templates', op: 'create', ownerType: 'ORGANIZATION', ownerRef: 'o', input: { name: 'a', required: false, orgDefault: true } }));
     const body = await res.json();
     expect(body).toMatchObject({ code: 'BAD_USER_INPUT', reason: 'ORG_DEFAULT_LIMIT', error: 'An organization can have at most 4 default templates.' });

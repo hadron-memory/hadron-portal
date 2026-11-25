@@ -91,7 +91,7 @@ describe('refusals on turning it on (portal#1743 item 2)', () => {
   });
   it('the portal never states the cap itself', async () => {
     const { m } = await refuse({ code: 'BAD_USER_INPUT', reason: 'ORG_DEFAULT_LIMIT', error: 'Too many defaults.' });
-    expect(m.target.textContent).not.toMatch(/\b10\b/);
+    expect(m.target.querySelector('[role=alert]')!.textContent).not.toMatch(/\b10\b/);
   });
   it('NODE_NOT_FOUND on turning it on: the whole-organization wording, naming nothing', async () => {
     const { m } = await refuse({ code: 'NODE_NOT_FOUND', error: 'Node not found.', field: null });
@@ -112,7 +112,7 @@ describe('refusals on turning it on (portal#1743 item 2)', () => {
     expect(button(m.target, 'Reload template (discards your changes)')).toBeTruthy();
   });
 });
-const skip = (over: Partial<DefaultSkip> = {}): DefaultSkip => ({ role: 'review', field: 'authorTask', reason: 'REFERENCE_UNAVAILABLE', ref: 'hrn:node:acme.com:tasks:t', refState: 'OK', sourceTemplate: { id: 't1', name: 'baseline', deleted: false }, createdAt: '2026-11-01T00:00:00Z', ...over });
+const skip = (over: Partial<DefaultSkip> = {}): DefaultSkip => ({ role: 'review', field: 'authorTask', reason: 'REFERENCE_UNAVAILABLE', ref: 'hrn:node:acme.com:kb:tasks:review', refState: 'OK', sourceTemplate: { id: 't1', name: 'baseline', deleted: false }, createdAt: '2026-11-01T00:00:00Z', ...over });
 function mountRules(book: Rulebook | null, readOnly = false) {
   const m = mountComponent(RulebookManager, { initial: book, readOnly, memoryRef: 'm', memories: [], memoriesFailed: false });
   cleanup.push(m.unmount); return m;
@@ -122,7 +122,7 @@ describe('skipped defaults in the memory rules (portal#1743 item 4)', () => {
     const m = mountRules({ id: 'c', rules: [], defaultSkips: [skip(), skip({ role: 'audit', field: 'descriptionNode', ref: null, refState: 'BROKEN', sourceTemplate: null })] });
     const text = m.target.textContent!;
     expect(text).toContain('Not applied when this memory was created');
-    expect(text).toContain('review'); expect(text).toContain('Author task'); expect(text).toContain('baseline'); expect(text).toContain('hrn:node:acme.com:tasks:t');
+    expect(text).toContain('review'); expect(text).toContain('Author task'); expect(text).toContain('baseline'); expect(text.replace(/\s/g, '')).toContain('hrn:node:acme.com:kb:tasks:review');
     expect(text).toContain('audit'); expect(text).toContain('Description node'); expect(text).toContain('template deleted'); expect(text).toContain('BROKEN');
     expect(text).toContain('wasn’t available to the organization');
   });

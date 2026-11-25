@@ -9,7 +9,7 @@
   import RuleReference from './RuleReference.svelte';
   import RuleEditor from './RuleEditor.svelte';
   import { configCall, type ConfigFailure } from '$lib/memory-config/client';
-  import type { MemoryConfigWarning, Rule, Rulebook } from '$lib/memory-config/types';
+  import type { DefaultSkip, MemoryConfigWarning, Rule, Rulebook } from '$lib/memory-config/types';
   import { normalizeWarnings, warningSearchText } from '$lib/memory-config/warnings';
   import TaskWarnings from './TaskWarnings.svelte';
   let { initial, memoryRef, readOnly, memories, memoriesFailed = false }: { initial: Rulebook | null; memoryRef: string; readOnly: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean } = $props();
@@ -41,7 +41,10 @@
     const view = viewEpoch, basedOn = initial;
     return { current: () => alive && view === viewEpoch && basedOn === initial && (editor === undefined || editor === editorVersion) };
   }
-  function edit(next: Rule | null | undefined) { editorVersion++; editing = next; }
+  // The role an "Add rule" from the skipped list fixes in the editor; null for an ordinary create or edit.
+  let seedRole = $state<string | null>(null);
+  function edit(next: Rule | null | undefined, role: string | null = null) { editorVersion++; seedRole = role; editing = next; }
+  const blankRule = (role: string): Rule => ({ role, enabled: true, strictSubRoles: false, writers: 'ALL', validateBy: null, authorTask: null, authorTaskId: null, authorTaskState: 'NONE', validationTask: null, validationTaskId: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeId: null, descriptionNodeState: 'NONE' });
   // Every operation starts here: both counters advance together and the
   // feedback slate is cleared. Completions bump feedbackSequence alone, so a
   // completion can retire a notice but never a persisted write's advisory.
@@ -64,6 +67,18 @@
   ];
   let ruleFilter = $state('');
   const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, state: { get globalFilter() { return ruleFilter; } }, onGlobalFilterChange: value => { ruleFilter = typeof value === 'function' ? value(ruleFilter) : value; }, globalFilterFn: ruleGlobalFilterFn, initialState: { sorting: [{ id: 'role', desc: false }] } });
+  // What the server recorded at creation (MemoryConfig.defaultSkips, managers only). Never worked out from the rules.
+  const skipColumns: PortalColumnDef<DefaultSkip>[] = [
+    { accessorKey: 'role', header: t('config.role', 'Role / sub-role'), size: 160 },
+    { accessorKey: 'field', header: t('config.skip-field', 'Reference'), size: 160 },
+    { id: 'source', header: t('config.skip-source', 'Template'), size: 180 },
+    { id: 'now', header: t('config.skip-now', 'Now'), size: 280 },
+    { id: 'reason', header: t('config.skip-reason', 'Why'), size: 260 },
+    { id: 'actions', header: t('config.actions', 'Actions'), size: 180 },
+  ];
+  let skipFilter = $state('');
+  const skipTable = createSvelteTable<DefaultSkip>({ get data() { return book?.defaultSkips ?? []; }, columns: skipColumns, getRowId: (_r, i) => String(i), state: { get globalFilter() { return skipFilter; } }, onGlobalFilterChange: value => { skipFilter = typeof value === 'function' ? value(skipFilter) : value; } });
+  const skipReason = (reason: string) => reason === 'REFERENCE_UNAVAILABLE' ? t('config.skip-unavailable', 'Its task or node wasn’t available to the organization.') : reason;
   async function reload(owner: Owner): Promise<ReadResult> {
     if (!owner.current()) return { kind: 'stale' };
     // Only an issued read supersedes an earlier read. A refused mutation has
@@ -220,8 +235,23 @@
         {/if}
       {/snippet}
     </DataTable>
+    {#if book.defaultSkips?.length}
+      <section class="space-y-3" aria-labelledby="default-skips-heading">
+        <h2 id="default-skips-heading" class="text-xl font-semibold text-zinc-900 dark:text-white">{t('config.skips-title', 'Not applied when this memory was created')}</h2>
+        <DataTable table={skipTable} listKey="memory-default-skips" bind:globalFilter={skipFilter} searchPlaceholder={t('config.search-skips', 'Search skipped rules…')} searchAriaLabel={t('config.search-skips', 'Search skipped rules…')}>
+          {#snippet cell(cell, r)}
+            {#if cell.column.id === 'role'}<span class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono">{r.role}</span>
+            {:else if cell.column.id === 'field'}{labels[r.field] ?? r.field}
+            {:else if cell.column.id === 'source'}<span class="whitespace-normal">{r.sourceTemplate && !r.sourceTemplate.deleted ? r.sourceTemplate.name : t('config.template-deleted', 'template deleted')}</span>
+            {:else if cell.column.id === 'now'}<div class="whitespace-normal"><RuleReference state={r.refState} urn={r.ref} /></div>
+            {:else if cell.column.id === 'reason'}<span class="whitespace-normal">{skipReason(r.reason)}</span>
+            {:else if !readOnly}<button type="button" disabled={busy} onclick={() => edit(null, r.role)} class="min-h-11 rounded border px-3">{t('config.add-rule-for', 'Add rule for {role}', { role: r.role })}</button>{/if}
+          {/snippet}
+        </DataTable>
+      </section>
+    {/if}
     {#if editing !== undefined && !readOnly}
-      {#key editorVersion}<RuleEditor fallbackFocus={heading} rule={editing} {memories} {memoriesFailed} oncancel={() => edit(undefined)} onsave={save} onreload={reloadEditor} />{/key}
+      {#key editorVersion}<RuleEditor fallbackFocus={heading} rule={editing ?? (seedRole ? blankRule(seedRole) : null)} {memories} {memoriesFailed} oncancel={() => edit(undefined)} onsave={save} onreload={reloadEditor} />{/key}
     {/if}
   </section>
 {/if}

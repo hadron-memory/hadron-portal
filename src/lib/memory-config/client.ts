@@ -1,5 +1,5 @@
 import { t } from '$lib/i18n/t';
-export type ConfigFailure = { error: string; code?: string | null; field?: string | null };
+export type ConfigFailure = { error: string; code?: string | null; field?: string | null; reason?: string | null };
 export async function configCall<T>(body: Record<string, unknown>): Promise<T> {
   try {
     const response = await fetch('/api/memory-config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' });
