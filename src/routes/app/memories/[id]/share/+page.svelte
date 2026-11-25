@@ -12,6 +12,7 @@
   import SelectUser from '$lib/components/SelectUser.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
+  import { URN_CHIP_COLUMN_PX } from '$lib/agent-tasks/status';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { type ColumnFormatters, makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -104,7 +105,9 @@
     // portal#2509: 200, not 160. On a touch pointer the URN chip's reveal toggle and
     // two copy buttons are 44px targets (140px with gaps); 160 less the cell's 32px
     // padding cannot hold them.
-    { accessorKey: 'grantedBy', id: 'grantedBy', header: t('memory-share.col.granted-by', 'Shared by'), size: 200 },
+    // portal#2619: 200 still left the value 39px wide at 390 and 140px at 1280, under the 150px chip floor
+    // (scripts/test-table-cell-overflow-layout.mjs, CELL_KIND=memory-shares), so it takes the chip column width.
+    { accessorKey: 'grantedBy', id: 'grantedBy', header: t('memory-share.col.granted-by', 'Shared by'), size: URN_CHIP_COLUMN_PX },
     // @copilot on #839: an `accessorKey` on the raw string sorts by WALL CLOCK
     // and ignores the offset — the `DateTime` scalar only promises a
     // `Date.parse`-able value, so `23:00+02:00` sorts after `22:00Z` while being
