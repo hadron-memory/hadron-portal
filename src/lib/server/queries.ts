@@ -4661,7 +4661,7 @@ export const APP_RUN_FIELDS = /* GraphQL */ `
 // The runs audit list (org-READER gated server-side; limit hard-capped 200).
 export const APP_RUNS_QUERY = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  query AppRuns($appRef: String, $statuses: [AppRunStatus!], $sortBy: AppRunSortField, $sortDir: SortDirection, $limit: Int, $offset: Int) {
+  query AppRuns($appRef: ID, $statuses: [AppRunStatus!], $sortBy: AppRunSortField, $sortDir: SortDirection, $limit: Int, $offset: Int) {
     appRuns(appRef: $appRef, statuses: $statuses, sortBy: $sortBy, sortDir: $sortDir, limit: $limit, offset: $offset) {
       items { ...AppRunFields }
       total
@@ -4675,7 +4675,7 @@ export const APP_RUNS_QUERY = /* GraphQL */ `
 // differs, and `orgRef` accepts an org id or URN.
 export const ORG_APP_RUNS_QUERY = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  query OrgAppRuns($orgRef: String, $status: AppRunStatus, $sortBy: AppRunSortField, $sortDir: SortDirection, $limit: Int, $offset: Int) {
+  query OrgAppRuns($orgRef: ID, $status: AppRunStatus, $sortBy: AppRunSortField, $sortDir: SortDirection, $limit: Int, $offset: Int) {
     appRuns(orgRef: $orgRef, status: $status, sortBy: $sortBy, sortDir: $sortDir, limit: $limit, offset: $offset) {
       items { ...AppRunFields }
       total
