@@ -40,7 +40,7 @@
   <Breadcrumb items={[
     { label: t('secrets.crumb.apps', 'Apps'), href: appsHref },
     { label: data.app.name, href: basePath },
-    { label: t('secrets.crumb.secrets', 'Secrets'), href: `${basePath}/secrets` },
+    { label: t('secrets.crumb.secrets', 'Secrets'), href: `${basePath}?tab=settings&section=secrets` },
     { label: secret?.name ?? '…' },
   ]} />
 

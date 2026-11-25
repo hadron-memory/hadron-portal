@@ -85,6 +85,11 @@ import { chatMessageNodeTypes, loadChatMessages } from '$lib/server/team-chat';
 import { resolveSectionIntent, resolveTabIntent } from './tab-intent';
 import { liveStopsNameAWorker, pickPayload, readGroupsFor, type ReadGroup } from './first-screen';
 import { loadTemplatesPanel, TEMPLATES_TAB_ID } from './templates-panel';
+import { loadSecretsPanel } from './secrets-panel';
+import { loadTasksApp } from '$lib/server/agent-tasks';
+import { CREATE_SECRET_MUTATION, type AppSecret } from '$lib/server/secrets';
+import { PLAIN_PROTECTED_TEXT, parseSecretValue, secretWrite, validSecretName } from '$lib/server/secret-writes';
+import { trackRequest, withdrawRequest } from '$lib/server/secret-pending';
 import {
   addMember,
   addAppMemberFormAdapter,
@@ -563,7 +568,7 @@ const APP_CONCEALED_REFUSALS: readonly string[] = ['FORBIDDEN', 'NOT_FOUND', 'AP
 export const load: PageServerLoad = (event) => _loadAppPage(event, { frame: true });
 
 export async function _loadAppPage(
-  { params, locals, url, setHeaders }: Parameters<PageServerLoad>[0],
+  { params, locals, url, setHeaders, cookies }: Parameters<PageServerLoad>[0],
   mode: { frame: boolean; tab?: string | null },
 ) {
   // #785: this load no longer carries the team chat's refresh. The poll reads
@@ -1152,10 +1157,13 @@ export async function _loadAppPage(
     : [null, null, null, null];
   // #1936: the node-role templates tab's data, for that tab only.
   const templatesPanel = await loadTemplatesPanel(wants('templates') ? TEMPLATES_TAB_ID : null, locals, setHeaders, params.appId);
+  // portal#2380: the secrets section's data, when the section is asked for.
+  const secretsPanel = await loadSecretsPanel(wants('secrets'), client, app.id, locals, cookies, setHeaders);
   // The frame's stop banner named a worker: its names travel with the frame.
   if (staffLoaded) reads.add('staff');
   const full = {
     templatesPanel,
+    secretsPanel,
     runsPanel: runsSection && runsExtras && flowsData ? {
       ...runsSection,
       app,
@@ -1876,6 +1884,39 @@ export const actions: Actions = {
       const { status, text } = appKeyRefusal(e, 'Failed to revoke the scope');
       return message(form, { type: 'error', text }, { status });
     }
+  },
+
+  // portal#2380: the Secrets section's writes. The result names its action, so a section reads only its own answer.
+  createSecret: async ({ request, params, locals, cookies }) => {
+    if (locals.impersonation) return fail(403, { action: 'createSecret' as const, message: t('secrets.impersonating', 'Impersonation sessions are read-only.') });
+    const fd = await request.formData();
+    const name = String(fd.get('name') ?? '').trim();
+    const value = parseSecretValue(String(fd.get('value') ?? ''));
+    const protect = fd.get('protected') === 'on';
+    if (!validSecretName(name)) return fail(400, { action: 'createSecret' as const, name, message: t('secrets.name.invalid', 'Use lowercase letters, digits and hyphens, up to 64 characters.') });
+    if (value === undefined) return fail(400, { action: 'createSecret' as const, name, message: t('secrets.value.required', 'Enter a value.') });
+    const client = gqlClient(locals.token);
+    // The URL's app ref is an id or a handle; a staged create is remembered under the id.
+    const app = await loadTasksApp(client, params.appId);
+    if (!app) throw error(404, 'App not found');
+    const r = await secretWrite<{ createSecret: AppSecret }>(client, CREATE_SECRET_MUTATION, {
+      ownerRef: app.id, name, kind: 'generic', value, ...(protect ? { protected: true } : {}),
+    });
+    if (r.kind === 'ok') return { action: 'createSecret' as const, ok: true as const, name };
+    if (r.kind === 'staged') {
+      trackRequest(cookies, { create: { appId: app.id, name }, requestId: r.requestId });
+      return { action: 'createSecret' as const, staged: true as const, name };
+    }
+    return fail(r.kind === 'plain-protected' ? 403 : 400, { action: 'createSecret' as const, name, message: r.kind === 'plain-protected' ? PLAIN_PROTECTED_TEXT() : r.message });
+  },
+
+  withdrawSecret: async ({ request, locals, cookies }) => {
+    if (locals.impersonation) return fail(403, { action: 'withdrawSecret' as const, message: t('secrets.impersonating', 'Impersonation sessions are read-only.') });
+    const requestId = String((await request.formData()).get('requestId') ?? '');
+    if (!requestId) return fail(400, { action: 'withdrawSecret' as const, message: t('secrets.write.failed', "That didn't go through. Try again.") });
+    const r = await withdrawRequest(gqlClient(locals.token), cookies, requestId);
+    if (r.kind === 'ok') return { action: 'withdrawSecret' as const, ok: true as const };
+    return fail(400, { action: 'withdrawSecret' as const, message: r.kind === 'refused' ? r.message : PLAIN_PROTECTED_TEXT() });
   },
 
   deleteApp: async ({ request, params, locals }) => {

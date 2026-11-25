@@ -33,6 +33,7 @@ export const APP_TAB_IDS = [
   'ai-configs',
   'settings',
   'node-role-templates',
+  'secrets',
   'client',
 ] as const;
 
@@ -69,6 +70,7 @@ export const SETTINGS_SECTION_IDS = [
   'keys',
   'ai-configs',
   'node-role-templates',
+  'secrets',
   'danger-zone',
 ] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -81,6 +83,7 @@ export const SECTION_DATA_TAB: Partial<Record<SettingsSectionId, AppTabId>> = {
   keys: 'keys',
   'ai-configs': 'ai-configs',
   'node-role-templates': 'node-role-templates',
+  secrets: 'secrets',
 };
 
 /** Tabs that became Settings sections: the tab id, and the section it now is. */
@@ -88,6 +91,7 @@ const TAB_TO_SECTION: Record<string, SettingsSectionId> = {
   keys: 'keys',
   'ai-configs': 'ai-configs',
   'node-role-templates': 'node-role-templates',
+  secrets: 'secrets',
 };
 
 /** The Settings section a retired tab id became, or null. */

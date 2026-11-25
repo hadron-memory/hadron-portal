@@ -181,6 +181,7 @@
   import CollapsibleSection from '$lib/components/CollapsibleSection.svelte';
   import { DEFAULT_TAB, READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
+  import AppSecrets from './AppSecrets.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -3020,7 +3021,6 @@
     { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
     { id: 'metrics', label: t('app.tabs.metrics', 'Team metrics'), href: `/app/apps/${app.id}/metrics` },
-    { id: 'secrets', label: t('app.tabs.secrets', 'Secrets'), href: `/app/apps/${app.id}/secrets` },
     { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
@@ -4946,6 +4946,15 @@
           <AppNodeRoleTemplates embedded data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />
         {:else}
           {@render tabArriving('node-role-templates')}
+        {/if}
+      </CollapsibleSection>
+
+      <!-- portal#2380: the former /secrets page, in place. Read when the section unfolds; its writes are the page's own actions. -->
+      <CollapsibleSection id="secrets" title={t('app.tabs.secrets', 'Secrets')} bind:open={openSections['secrets']}>
+        {#if tabData.secretsPanel}
+          <AppSecrets appId={app.id} panel={tabData.secretsPanel} {form} />
+        {:else}
+          {@render tabArriving('secrets')}
         {/if}
       </CollapsibleSection>
 

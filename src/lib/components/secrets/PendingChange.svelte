@@ -18,8 +18,14 @@
    * portal#2583 — this row is the notice on a later visit too, so its unlinked hint says the change
    * still waits (its own key; `secrets.write.staged-unlinked` stays the staging-time sentence of a refused write).
    */
-  let { requestId, secretId = null, ceremonyUrl, state: requestState, operation, expiresAt, secretName = null, impersonating = false }: {
+  let { requestId, secretId = null, ceremonyUrl, state: requestState, operation, expiresAt, secretName = null, impersonating = false, action = '?/withdraw', reread: readAgain = () => invalidateAll(), focusFallback = 'h1' }: {
     requestId: string; secretId?: string | null; ceremonyUrl: string | null; state: string; operation: string; expiresAt: string; secretName?: string | null; impersonating?: boolean;
+    /** The form action that withdraws; a host that is not the secret's own page names its own. */
+    action?: string;
+    /** Reads the host's data again: after a withdraw, and when the person comes back to this tab. Defaults to the page load. */
+    reread?: () => Promise<unknown>;
+    /** Where focus lands when a withdrawn request's notice is gone. */
+    focusFallback?: string;
   } = $props();
   const open = $derived(isOpenState(requestState));
   let root: HTMLElement | undefined;
@@ -33,7 +39,7 @@
       // Coming back to a tab fires focus and visibilitychange together: one read for both.
       if (!alive || !open || reading || document.visibilityState === 'hidden') return;
       reading = true;
-      void invalidateAll().then(() => { if (alive) rereadFailed = false; }, () => { if (alive) rereadFailed = true; }).finally(() => { reading = false; });
+      void readAgain().then(() => { if (alive) rereadFailed = false; }, () => { if (alive) rereadFailed = true; }).finally(() => { reading = false; });
     };
     window.addEventListener('focus', reread);
     document.addEventListener('visibilitychange', reread);
@@ -78,11 +84,11 @@
       {:else}
         <p class="text-xs text-amber-800 dark:text-amber-300">{t('secrets.request.unlinked', "This change is staged on the server and still needs your signature, but this portal cannot offer its signing page. Open the request with the Hadron CLI or on the server's own page. Nothing has been changed yet.")}</p>
       {/if}
-      <form method="POST" action="?/withdraw" use:enhance={() => async ({ update }) => { await update();
+      <form method="POST" {action} use:enhance={() => async ({ update }) => { await update({ invalidateAll: false }); await readAgain().catch(() => { rereadFailed = true; });
           // The page re-renders after update(); read the notice's connection only once it has.
           await tick();
           // A withdrawn request is dropped from the page, so focus lands on the page title then.
-          const target = root?.isConnected ? root : document.querySelector<HTMLElement>('h1');
+          const target = root?.isConnected ? root : document.querySelector<HTMLElement>(focusFallback);
           target?.setAttribute('tabindex', '-1');
           target?.focus(); }}>
         <input type="hidden" name="requestId" value={requestId} />

@@ -82,6 +82,9 @@ const h = vi.hoisted(() => {
     // Node-role templates (already tab-gated before #2240; kept as it was).
     RoleTemplates: () => ({ memoryConfigTemplates: { total: 0, items: [] } }),
     ConfigMemoryChoices: () => ({ memories: { items: [], total: 0 } }),
+    // Secrets (a section of Settings, read when it is asked for): the list and the signing probe.
+    AppSecrets: () => ({ secrets: { total: 0, items: [] } }),
+    SecretChangeRequestState: () => ({ secretChangeRequest: null }),
   };
   return {
     ops,
@@ -115,6 +118,7 @@ async function loadPage(search: string) {
     params: { appId: 'a1' },
     locals: { token: 'tok', user: { id: 'u1' } },
     url: new URL(`http://localhost/app/apps/a1${search}`),
+    cookies: { get: () => undefined, set: () => {}, delete: () => {} },
     setHeaders: () => {},
   } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
 }
@@ -141,6 +145,7 @@ const TAB_OPS: Record<string, string[]> = {
   'ai-configs': ['AiServiceConfigs', 'SelfCanManage'],
   settings: ['Workers', 'AppChatbotAiConfig', 'AppSaturationAlarmWakeRoles', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'SelfCanManage', 'AppMemoryScope'],
   'node-role-templates': ['RoleTemplates', 'AppViewerManages', 'ConfigMemoryChoices'],
+  secrets: ['AppSecrets', 'SecretChangeRequestState'],
   client: ['SelfCanManage', 'AppKeys'],
 };
 
@@ -148,7 +153,7 @@ const opSet = () => [...new Set(h.ops)].sort();
 const expected = (tab: string) => [...new Set([...FRAME, ...TAB_OPS[tab]])].sort();
 /** App Keys, AI Service Configs and Node-role templates are sections of Settings. A link that still says `?tab=keys` opens Settings with that
  *  section open, so its first screen is Settings' reads plus the section's own. */
-const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates'];
+const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates', 'secrets'];
 const expectedOpening = (tab: string) => SECTION_TABS.includes(tab)
   ? [...new Set([...FRAME, ...TAB_OPS.settings, ...TAB_OPS[tab]])].sort()
   : expected(tab);
@@ -179,6 +184,7 @@ describe('App page loader: the first screen only (portal#2240)', () => {
     expect(opSet()).toEqual(expected('settings'));
     expect(opSet()).not.toContain('AppKeys');
     expect(opSet()).not.toContain('AiServiceConfigs');
+    expect(opSet()).not.toContain('AppSecrets');
   });
 
   it.each(SECTION_TABS)('?tab=settings&section=%s reads that section with Settings', async (section) => {

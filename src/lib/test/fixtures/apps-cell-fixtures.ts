@@ -4,7 +4,7 @@ import { mount, unmount } from 'svelte';
 import Detail from '../../../routes/app/apps/[appId]/+page.svelte';
 import { pageData } from '../../../routes/app/apps/[appId]/app-page.fixture';
 import Mine from '../../../routes/app/apps/+page.svelte';
-import Secrets from '../../../routes/app/apps/[appId]/secrets/+page.svelte';
+import Secrets from '../../../routes/app/apps/[appId]/AppSecrets.svelte';
 import Stops from '../../../routes/app/apps/[appId]/stops/+page.svelte';
 import Tasks from '../../../routes/app/apps/[appId]/tasks/+page.svelte';
 import Tickers from '../../../routes/app/apps/[appId]/tickers/+page.svelte';
@@ -70,7 +70,7 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => 
   if (kind === 'apps-staff' || kind === 'apps-agents' || kind === 'apps-keys') return mountAppDetail(target, kind.slice(5) as 'staff' | 'agents' | 'keys');
   if (kind === 'apps-secrets') {
     setStubPage('http://localhost/app/apps/fixture-app/secrets', { appId: app.id });
-    const instance = mount(Secrets as never, { target, props: { form: null, data: { app, secrets: { kind: 'ok', secrets, total: secrets.length }, signing: 'on', pending: [], impersonating: null } } } as never);
+    const instance = mount(Secrets as never, { target, props: { appId: app.id, panel: { secrets: { kind: 'ok', secrets, total: secrets.length }, signing: 'on', pending: [], pendingUnchecked: 0, impersonating: null } } } as never);
     return () => unmount(instance);
   }
   if (kind === 'apps-stops') {
