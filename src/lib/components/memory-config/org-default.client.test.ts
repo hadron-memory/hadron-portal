@@ -224,4 +224,19 @@ describe('what the save sends (portal#1743 blind review)', () => {
     button(m.target, 'Save').click();
     await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('[role=alert]')?.textContent).toBe('Node not found.'); });
   });
+  it('a rename sends neither required nor orgDefault, so the server does not re-validate the references', async () => {
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ saved: true, value: [] }) });
+    const m = mountTemplates({ initial: [tpl({ orgDefault: true, required: true })] }); openEditor(m);
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+    expect(lastBody().input).not.toHaveProperty('required'); expect(lastBody().input).not.toHaveProperty('orgDefault');
+  });
+  it('a create and a changed required still send required', async () => {
+    fetcher.mockResolvedValue({ ok: true, json: async () => ({ saved: true, value: [] }) });
+    const m = mountTemplates({ initial: [tpl({ required: false })] }); openEditor(m, true);
+    const nm = m.target.querySelector<HTMLInputElement>('input[maxlength="64"]')!; nm.value = 'fresh'; nm.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalled());
+    expect(lastBody()).toMatchObject({ op: 'create', input: { name: 'fresh', required: false } });
+  });
 });

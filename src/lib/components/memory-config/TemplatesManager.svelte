@@ -84,7 +84,9 @@
     try {
       // Sent only when it changes: a rename of a default does not re-ask the server to validate it again.
       const orgDefaultChanged = isOrg && (editing ? orgDefault !== (editing.orgDefault ?? false) : orgDefault);
-      const input = { name, description: description || null, required, ...(orgDefaultChanged ? { orgDefault } : {}), ...(!editing || rulesChanged ? { rules: rules.map(ruleInput) } : {}) };
+      // The server re-validates every reference whenever `required` is present, so an update sends it only when it changed.
+      const requiredChanged = !editing || required !== editing.required;
+      const input = { name, description: description || null, ...(requiredChanged ? { required } : {}), ...(orgDefaultChanged ? { orgDefault } : {}), ...(!editing || rulesChanged ? { rules: rules.map(ruleInput) } : {}) };
       await configCall({ kind: 'templates', op: editing ? 'update' : 'create', ownerType, ownerRef, ref: editing?.id, revision: editing?.revision, input });
       editing = undefined; notice = t('config.saved', 'Saved.');
       try { await reload(); } catch { failure = { error: t('config.template-reload-failed', 'Saved, but the templates could not be reloaded.') }; }
