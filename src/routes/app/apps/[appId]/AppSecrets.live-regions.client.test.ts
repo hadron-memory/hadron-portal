@@ -58,3 +58,20 @@ it('the withdraw and create result regions exist before a result and keep their 
   again.forEach((r, i) => expect(r === before[i]).toBe(true));
   expect(again.filter((r) => r.querySelector('[data-testid="withdraw-error"]'))).toHaveLength(1);
 });
+
+const row = (state: string, requestId = 'r1') => ({ requestId, secretId: null, createName: 'k', ceremonyUrl: null, state, operation: 'CREATE', expiresAt: '2026-11-21T01:00:00Z' });
+const notices = (t: HTMLElement) => t.querySelectorAll('[data-testid="pending-change"]').length;
+
+// A request that ended is carried by ONE response and then dropped from the cookie. A later response without it
+// (a re-read, a fresh page payload) must not take the notice away unseen. Open requests are not remembered.
+it('an ended request stays shown when a later response no longer carries it; an open one goes', async () => {
+  const props = reactiveProps({ appId: 'app-1', panel: { ...panel, pending: [row('completed', 'r1'), row('open', 'r2')] }, form: null } as Record<string, unknown>);
+  const m = mountComponent(List as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(6);
+  expect(notices(m.target)).toBe(2);
+
+  props.panel = { ...panel, pending: [] }; await tick(6);
+  expect(notices(m.target)).toBe(1); // the ended one stays; the open one is gone
+  expect(m.target.textContent).toContain('creating this secret');
+});

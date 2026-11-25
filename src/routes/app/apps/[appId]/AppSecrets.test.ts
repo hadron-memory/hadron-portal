@@ -79,7 +79,9 @@ describe('the pending notices', () => {
     expect(html({ pendingUnchecked: 3 })).toMatch(/Couldn.{1,8}t check 3 change requests/);
     expect(html()).not.toContain('data-testid="pending-unread"');
   });
-  it('the withdraw form posts to the App page\'s own action', () => {
-    expect(html({ pending: [pending] })).toContain('action="/app/apps/app-1?/withdrawSecret"');
+  // Without JavaScript the answer renders the page: the action URL must name the section so it opens and loads.
+  it('the create and withdraw forms post to the App page\'s actions, naming the Settings section', () => {
+    expect(html({ pending: [pending] })).toContain('action="/app/apps/app-1?tab=settings&amp;section=secrets&amp;/withdrawSecret"');
+    expect(html()).toContain('action="/app/apps/app-1?tab=settings&amp;section=secrets&amp;/createSecret"');
   });
 });

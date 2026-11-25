@@ -84,7 +84,7 @@
       {:else}
         <p class="text-xs text-amber-800 dark:text-amber-300">{t('secrets.request.unlinked', "This change is staged on the server and still needs your signature, but this portal cannot offer its signing page. Open the request with the Hadron CLI or on the server's own page. Nothing has been changed yet.")}</p>
       {/if}
-      <form method="POST" {action} use:enhance={() => async ({ update }) => { await update({ invalidateAll: false }); await readAgain();
+      <form method="POST" {action} use:enhance={() => async ({ update }) => { await update({ invalidateAll: false }); await readAgain().catch(() => { rereadFailed = true; });
           // The page re-renders after update(); read the notice's connection only once it has.
           await tick();
           // A withdrawn request is dropped from the page, so focus lands on the page title then.

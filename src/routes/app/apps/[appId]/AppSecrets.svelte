@@ -10,6 +10,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { updatedFilterText } from '$lib/secrets/format';
+  import { isOpenState } from '$lib/secrets/staged';
   import { t } from '$lib/i18n/t';
   import type { AppSecret } from '$lib/server/secrets';
   import type { loadSecretsPanel } from './secrets-panel';
@@ -24,11 +25,28 @@
   type Answer = { action: string; ok?: true; staged?: true; name?: string; message?: string };
   let { appId, panel: initial, form = null }: { appId: string; panel: Panel; form?: unknown } = $props();
 
+  // The panel shown. Every response goes through `accept`, whichever way it arrived: this section's own re-read, a
+  // PendingChange re-read, or a fresh read of the section from the page.
   let panel = $state.raw<Panel>(untrack(() => initial));
-  // A fresh payload from the page (a new read of the section) replaces what a re-read left here.
-  $effect(() => { panel = initial; });
+  // A request that ended is carried by ONE response and then dropped from the tracked cookie, so a later response no
+  // longer has it. Each such row is remembered the moment a response carries it, so an overwrite (an older or newer
+  // response landing after) cannot take a notice away before it was shown.
+  let ended = $state.raw<Panel['pending']>([]);
+  function accept(next: Panel, replace = true) {
+    const fresh = next.pending.filter((p) => !isOpenState(p.state));
+    if (fresh.length) ended = [...ended.filter((e) => !fresh.some((f) => f.requestId === e.requestId)), ...fresh];
+    if (replace) panel = next;
+  }
+  untrack(() => accept(initial));
+  // A fresh payload from the page (a new read of the section) is one more response.
+  $effect(() => { const next = initial; untrack(() => accept(next)); });
+  // What is shown: the response's own rows, then the ended ones it no longer carries.
+  const shownPending = $derived([...panel.pending, ...ended.filter((e) => !panel.pending.some((p) => p.requestId === e.requestId))]);
 
   const basePath = $derived(`/app/apps/${appId}`);
+  // The action URLs name the section: without JavaScript the answer renders the page, and it must open the section
+  // and load its panel to show the answer.
+  const actionUrl = (name: string) => `${basePath}?tab=settings&section=secrets&/${name}`;
   const signs = $derived(panel.signing === 'on');
   const list = $derived(panel.secrets.kind === 'ok' ? panel.secrets.secrets : []);
   const impersonating = $derived(panel.impersonating);
@@ -39,12 +57,16 @@
     return f && (f.action === 'createSecret' || f.action === 'withdrawSecret') ? f : null;
   });
 
-  /** Reads the section's slice again. A failed read keeps what is shown. */
+  let readSeq = 0;
+  /** Reads the section's slice again. A failed read keeps what is shown; an answer older than one already taken is
+   *  still scanned for ended requests (`accept`) but does not replace the panel. */
   async function reread(): Promise<void> {
+    const mine = ++readSeq;
     const res = await fetch(`${basePath}/tab?tab=secrets`, { headers: { accept: 'application/json' } });
     if (!res.ok) throw new Error(`secrets re-read ${res.status}`);
     const next = (await res.json()) as { secretsPanel?: Panel | null };
-    if (next.secretsPanel) panel = next.secretsPanel;
+    if (!next.secretsPanel) return;
+    accept(next.secretsPanel, mine === readSeq);
   }
 
   const submit: SubmitFunction = () => async ({ update }) => {
@@ -96,8 +118,8 @@
   {/if}
 
   <PendingUnread count={panel.pendingUnchecked} />
-  {#each panel.pending as p (p.requestId)}
-    <PendingChange {...p} secretName={pendingName(p)} impersonating={!!impersonating} action="{basePath}?/withdrawSecret" reread={reread} focusFallback="#section-secrets-toggle" />
+  {#each shownPending as p (p.requestId)}
+    <PendingChange {...p} secretName={pendingName(p)} impersonating={!!impersonating} action={actionUrl('withdrawSecret')} reread={reread} focusFallback="#section-secrets-toggle" />
   {/each}
   <div aria-live="polite">
     {#if answer?.action === 'withdrawSecret' && answer.message}
@@ -137,7 +159,7 @@
     {/if}
   {/if}
 
-  <form method="POST" action="{basePath}?/createSecret" use:enhance={submit} class="max-w-lg space-y-3">
+  <form method="POST" action={actionUrl('createSecret')} use:enhance={submit} class="max-w-lg space-y-3">
     <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.new.heading', 'New secret')}</h3>
     <div>
       <label for="secret-name" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.name', 'Name')}</label>
