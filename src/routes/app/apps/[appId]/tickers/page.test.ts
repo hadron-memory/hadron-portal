@@ -126,7 +126,7 @@ describe('Tickers list', () => {
     expect(html.match(/<form/g)).toHaveLength(1);
     expect(html).toContain('action="/app/apps/app-1?tab=settings&amp;section=tickers&amp;/setDeliverySettings"');
     expect(html).toContain('Save delivery settings');
-    expect(html).toContain('Only whoever manages the App can change these settings.');
+    expect(html).toContain('These settings are read-only here.');
     expect(html).toContain('data-testid="ticker-settings"');
     expect(html).not.toContain('name="standbyEnabled"');
   });
@@ -143,7 +143,7 @@ describe('Tickers list', () => {
     expect(html).toContain('Up to 20 tickers');
     expect(html).toContain('480 ticker wakes a day');
     expect(html).toContain('(set automatically from the team’s size)');
-    expect(html).toContain('Only whoever manages the App can change these settings.');
+    expect(html).toContain('These settings are read-only here.');
   });
 });
 
@@ -506,5 +506,19 @@ describe('Ticker page: the Task entry (portal#1384)', () => {
     expectReadOnly(detail());
     expectReadOnly(detail({ tickerTask: noLoc }));
     expectReadOnly(detail({ tickerTask: { kind: 'failed' } }));
+  });
+});
+
+describe('the copy says what the user can or must do', () => {
+  it('the empty state names the next step', () => {
+    expect(list()).toContain('Add one below to schedule wakes.');
+  });
+  it('says what happens at the limit, and only at the limit', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => ticker({ id: `tk-${i}`, name: `t${i}`, urn: `hrn:ticker:acme.com:team:t${i}` }));
+    expect(list({ tickers: { kind: 'ok', value: many(20) } })).toContain('data-testid="ticker-cap-reached"');
+    expect(list({ tickers: { kind: 'ok', value: many(19) } })).not.toContain('ticker-cap-reached');
+  });
+  it('the read-only settings say who can change them', () => {
+    expect(list()).toContain('owners and, for an organization’s App, that organization’s owners and admins');
   });
 });

@@ -161,6 +161,9 @@
             {t('app.tickers.count-nocap', '{n} tickers', { n: tickers.value.length })}
           {/if}
         {/if}
+        {#if tickers.kind === 'ok' && liveCap != null && tickers.value.length >= liveCap}
+          <span class="mt-0.5 block text-xs font-normal text-amber-800 dark:text-amber-300" data-testid="ticker-cap-reached">{t('app.tickers.cap-reached', 'You have reached the limit of {cap} tickers. A new ticker is refused until you delete one.', { cap: liveCap })}</span>
+        {/if}
       </p>
       <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
         {#if refreshFailed}<span role="alert" class="text-red-700 dark:text-red-400">{t('app.tickers.refresh-failed', 'Couldn’t refresh.')}</span>{/if}
@@ -183,7 +186,7 @@
       <!-- §7: the state everyone meets first. It must not claim a ticker wakes anyone today. -->
       <div class="space-y-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="tickers-empty">
         <p>
-          <span class="font-medium text-zinc-900 dark:text-white">{t('app.tickers.empty.lead', 'No tickers yet.')}</span>
+          <span class="font-medium text-zinc-900 dark:text-white">{t('app.tickers.empty.lead', 'No tickers yet. Add one below to schedule wakes.')}</span>
           {t('app.tickers.empty.body', 'A mention already makes a worker due at once, unless its mentions are off or it is paused. A ticker adds scheduled wakes: every so often, it makes the workers subscribed to it that have unread messages due.')}
         </p>
         <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.router', 'A router delivers the wakes. This page only decides who is due and when.')}</p>
