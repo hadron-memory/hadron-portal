@@ -26,7 +26,9 @@ const h = vi.hoisted(() => {
         installedAgentUrn: null, availableMemberRoles: ['MEMBER'], agentTools: [],
       },
     }),
-    AppDetailOrg: () => ({ organization: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [] } }),
+    AppOrgMembers: () => ({ organization: { id: 'o1', members: [] } }),
+    AiServiceConfigs: () => ({ aiServiceConfigs: { items: [], total: 0 } }),
+    AppDetailOrg: () => ({ organization: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' } }),
     AppMemories: () => ({ memories: { items: [], total: 0 } }),
     TeamWorkItems: () => ({ teamWorkItems: { items: [{ id: 'wi1' }], total: 1 } }),
     AppKeys: () => ({ appKeysPage: { items: [{ id: 'k1' }], total: 1, hasMore: false } }),
@@ -121,8 +123,17 @@ describe('GET /app/apps/[appId]/tab (portal#2240)', () => {
   it('reads an org App\'s org for the Memory tab\'s create offer', async () => {
     h.opts.orgApp = true;
     const r = await get('?tab=memory');
-    expect(h.ops).toContain('AppDetailOrg');
+    // portal#1718: the create offer reads the viewer's org role (its own request); the frame's org read is not the tab's.
+    expect(h.ops).toContain('AppOrgMembers');
+    expect(h.ops).not.toContain('AppDetailOrg');
     expect(r.body).toHaveProperty('canCreateMemory');
+  });
+
+  it('switching to AI Config on an org App delivers the viewer\'s org role in the tab payload (the first load no longer carries it)', async () => {
+    h.opts.orgApp = true;
+    const r = await get('?tab=ai-configs');
+    expect(h.ops).toContain('AppOrgMembers');
+    expect(r.body).toHaveProperty('orgMembers');
   });
 
   it.each(['', '?tab=', '?tab=nonsense', '?tab=constructor'])('refuses %j as a 400 with no read', async (search) => {

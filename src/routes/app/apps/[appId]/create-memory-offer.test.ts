@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parse, Kind, type FragmentDefinitionNode, type SelectionSetNode } from 'graphql';
-import { APP_QUERY, APP_DETAIL_ORG_QUERY, APP_MEMBERS_QUERY, SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
+import { APP_QUERY, APP_DETAIL_ORG_QUERY, APP_ORG_MEMBERS_QUERY, APP_MEMBERS_QUERY, SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -95,7 +95,8 @@ it('org-App loader lists the whole scope, class included, from one read', async 
   try {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === APP_QUERY) return { app: { ...APP, organizationId: 'org-1' } };
-      if (query === APP_DETAIL_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.com', members: [] } };
+      if (query === APP_DETAIL_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.com' } };
+      if (query === APP_ORG_MEMBERS_QUERY) return { organization: { id: 'org-1', members: [] } };
       if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
       if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
       return { appNodesPage: { items: [], total: 0, hasMore: false } };
@@ -121,10 +122,10 @@ it('org-App loader lists the whole scope, class included, from one read', async 
 });
 
 // portal#1391: the create offer is only as good as the member selection it reads. canCreateMemory comes from
-// APP_DETAIL_ORG_QUERY's members (role + user id); a query that stops selecting them fails the offer closed silently.
-describe('canCreateMemory follows APP_DETAIL_ORG_QUERY member selection (portal#1391)', () => {
+// APP_ORG_MEMBERS_QUERY's members (role + user id; portal#1718 moved them off the frame's org read); a query that stops selecting them fails the offer closed silently.
+describe('canCreateMemory follows APP_ORG_MEMBERS_QUERY member selection (portal#1391, #1718)', () => {
   it('the query document selects each member role and user id', () => {
-    const doc = parse(APP_DETAIL_ORG_QUERY);
+    const doc = parse(APP_ORG_MEMBERS_QUERY);
     const fragments = new Map(doc.definitions.filter((d): d is FragmentDefinitionNode => d.kind === Kind.FRAGMENT_DEFINITION).map((d) => [d.name.value, d]));
     const paths: string[] = [];
     const walk = (set: SelectionSetNode, path: string, seen: Set<string>) => {
@@ -140,7 +141,8 @@ describe('canCreateMemory follows APP_DETAIL_ORG_QUERY member selection (portal#
   it.each([['ADMIN', true], ['OWNER', true], ['CONTRIBUTOR', false], ['READER', false]])('the viewer as org %s: canCreateMemory is %s', async (role, expected) => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === APP_QUERY) return { app: { ...APP, organizationId: 'org-1' } };
-      if (query === APP_DETAIL_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.com', members: [{ id: 'mem-1', role, user: { id: 'user-1' } }, { id: 'mem-2', role: 'OWNER', user: { id: 'someone-else' } }] } };
+      if (query === APP_DETAIL_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.com' } };
+      if (query === APP_ORG_MEMBERS_QUERY) return { organization: { id: 'org-1', members: [{ id: 'mem-1', role, user: { id: 'user-1' } }, { id: 'mem-2', role: 'OWNER', user: { id: 'someone-else' } }] } };
       if (query === APP_MEMBERS_QUERY) return { app: { members: [] } };
       if (query === SELF_CAN_MANAGE_QUERY) return { effectiveAccess: { canManage: true } };
       return { appNodesPage: { items: [], total: 0, hasMore: false } };

@@ -1,6 +1,7 @@
 import { pageOf } from '$lib/test/pagedFixture';
 import { castWorkerSchema } from './schema';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse, Kind, type SelectionSetNode } from 'graphql';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
 import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
@@ -28,6 +29,7 @@ import {
   GRANT_APP_KEY_SCOPE_MUTATION,
   REVOKE_APP_KEY_SCOPE_MUTATION,
   APP_DETAIL_ORG_QUERY,
+  APP_ORG_MEMBERS_QUERY,
   APP_ORG_AGENTS_QUERY,
   APP_ORG_AGENT_GRANTS_QUERY,
   UNINSTALL_AGENT_FROM_APP_MUTATION,
@@ -2574,7 +2576,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
         }
         // The other direction: a document that selected nothing would pass the
         // check above and break the breadcrumb on every org-owned App.
-        for (const rendered of ['id', 'name', 'urn', 'members']) {
+        for (const rendered of ['id', 'name', 'urn']) {
           expect(doc).toMatch(new RegExp(`\\b${rendered}\\b`));
         }
       }
@@ -2587,6 +2589,23 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       expect(APP_ORG_AGENTS_QUERY).toMatch(/\bagents\b/);
       expect(APP_ORG_AGENTS_QUERY).not.toMatch(/agentOrgGrants/);
       expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bagents\b/);
+    });
+
+    // portal#1718: the frame's org read is the breadcrumb (id, name, urn). The members are the Memory and AI Config tabs' own request.
+    it('the frame org document selects no members; the members document selects the role and user id only', () => {
+      expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bmembers\b/);
+      expect(APP_ORG_MEMBERS_QUERY).toMatch(/\bmembers\b/);
+      const fields: string[] = [];
+      const walk = (set: SelectionSetNode, path: string) => {
+        for (const sel of set.selections) {
+          if (sel.kind !== Kind.FIELD) continue;
+          const here = path ? `${path}.${sel.name.value}` : sel.name.value;
+          if (sel.selectionSet) walk(sel.selectionSet, here);
+          else fields.push(here);
+        }
+      };
+      for (const def of parse(APP_ORG_MEMBERS_QUERY).definitions) if (def.kind === Kind.OPERATION_DEFINITION) walk(def.selectionSet, '');
+      expect(fields.sort()).toEqual(['organization.id', 'organization.members.id', 'organization.members.role', 'organization.members.user.id']);
     });
   });
 

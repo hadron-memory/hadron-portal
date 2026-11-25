@@ -21,7 +21,8 @@ import { APP_TAB_IDS } from './tab-intent';
 
 const h = vi.hoisted(() => {
   const ops: string[] = [];
-  const opts = { orgApp: false, liveWorkerStop: false };
+  const docs: Record<string, string> = {};
+  const opts = { orgApp: false, liveWorkerStop: false, membersFail: false };
   const operationOf = (document: string) => /\b(?:query|mutation)\s+([A-Za-z]\w*)/.exec(document)?.[1] ?? '(anonymous)';
   const emptyPage = { items: [], total: 0, hasMore: false };
   const appRow = () => ({
@@ -40,7 +41,11 @@ const h = vi.hoisted(() => {
     : []);
   const rows: Record<string, () => unknown> = {
     App: () => ({ app: appRow() }),
-    AppDetailOrg: () => ({ organization: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [] } }),
+    AppOrgMembers: () => {
+      if (opts.membersFail) throw Object.assign(new Error('boom'), { response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } });
+      return { organization: { id: 'o1', members: [{ id: 'm1', role: 'ADMIN', user: { id: 'u1' } }] } };
+    },
+    AppDetailOrg: () => ({ organization: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' } }),
     AiServiceConfigs: () => ({ aiServiceConfigs: emptyPage }),
     AppMembers: () => ({ app: { members: [] } }),
     MyAgents: () => ({ agents: emptyPage }),
@@ -80,10 +85,12 @@ const h = vi.hoisted(() => {
   };
   return {
     ops,
+    docs,
     opts,
     respond(document: string): Promise<unknown> {
       const op = operationOf(document);
       ops.push(op);
+      docs[op] = document;
       const row = rows[op];
       if (!row) throw new Error(`stub client: no dispatch row for operation "${op}" — the App page load grew a query; add a row and place it in the tab table`);
       return Promise.resolve(row());
@@ -99,6 +106,7 @@ beforeEach(() => {
   h.ops.length = 0;
   h.opts.orgApp = false;
   h.opts.liveWorkerStop = false;
+  h.opts.membersFail = false;
 });
 
 async function loadPage(search: string) {
@@ -187,6 +195,59 @@ describe('App page loader: the first screen only (portal#2240)', () => {
     expect(opSet()).toEqual(
       [...FRAME, 'AppDetailOrg', 'AppOrgAgents', 'AppOrgAgentGrants', 'AppBootPointers', 'AppInstallMarks', 'SelfCanManage'].sort(),
     );
+  });
+
+  // portal#1718 (ruling 0273): the org's members (every member with their email) were selected by the frame's org read on every open of an
+  // org-owned App, though only the Memory tab's create offer and the AI Config section read the viewer's role from them.
+  it('an org-owned App\'s frame org read selects no members, and no tab but Memory and AI Config asks for them', async () => {
+    h.opts.orgApp = true;
+    for (const tab of ['profile', 'worklog', 'chats', 'staff', 'members', 'agents', 'keys', 'client', 'runs', 'settings', 'node-role-templates']) {
+      h.ops.length = 0;
+      await loadPage(`?tab=${tab}`);
+      expect(h.docs.AppDetailOrg, `?tab=${tab}`).not.toMatch(/\bmembers\b/);
+      expect(opSet(), `?tab=${tab}`).not.toContain('AppOrgMembers');
+    }
+  });
+
+  it.each(['memory', 'ai-configs'])('an org-owned App opening ?tab=%s reads the viewer\'s org role (its own request), and only then', async (tab) => {
+    h.opts.orgApp = true;
+    await loadPage(`?tab=${tab}`);
+    expect(opSet()).toContain('AppOrgMembers');
+    expect(h.docs.AppOrgMembers).toMatch(/\bmembers\b/);
+  });
+
+  it('?tab=settings&section=ai-configs on an org-owned App reads the role for the open section', async () => {
+    h.opts.orgApp = true;
+    await loadPage('?tab=settings&section=ai-configs');
+    expect(opSet()).toContain('AppOrgMembers');
+  });
+
+  it('a personal App opening ?tab=memory or ?tab=ai-configs makes no members request', async () => {
+    for (const tab of ['memory', 'ai-configs']) {
+      h.ops.length = 0;
+      const payload = await loadPage(`?tab=${tab}`);
+      expect(opSet(), `?tab=${tab}`).not.toContain('AppOrgMembers');
+      expect(payload.orgMembers ?? null).toBeNull();
+    }
+  });
+
+  it('a failing members read fails the load (never an empty list that hides the controls)', async () => {
+    h.opts.orgApp = true;
+    h.opts.membersFail = true;
+    await expect(loadPage('?tab=memory')).rejects.toBeDefined();
+  });
+
+  it('the Memory tab\'s create offer still follows the viewer\'s org role, now from the members read', async () => {
+    h.opts.orgApp = true;
+    const payload = await loadPage('?tab=memory');
+    expect(payload.canCreateMemory).toBe(true);
+    expect(payload.orgMembers).toEqual([{ id: 'm1', role: 'ADMIN', user: { id: 'u1' } }]);
+  });
+
+  it('a first load that does not read the members does not carry the key (it would overwrite a tab payload that did)', async () => {
+    h.opts.orgApp = true;
+    const payload = await loadPage('?tab=worklog');
+    expect('orgMembers' in payload).toBe(false);
   });
 
   it('a live stop naming a worker brings the worker names into the frame, for the banner', async () => {

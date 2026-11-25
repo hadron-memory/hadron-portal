@@ -4685,7 +4685,7 @@
           ownerUrn={app.urn}
           pagination={tabData.configsPage}
           configs={tabData.appConfigs ?? []}
-          canManage={aiConfigCanManage({ ownerIsPerson: !app.organizationId, orgMembers: org?.members, userId: data.currentUserId, canManageFlag: tabData.canManageApp ?? null, impersonating, platformAdmin: viewerIsPlatformAdmin })}
+          canManage={aiConfigCanManage({ ownerIsPerson: !app.organizationId, orgMembers: tabData.orgMembers, userId: data.currentUserId, canManageFlag: tabData.canManageApp ?? null, impersonating, platformAdmin: viewerIsPlatformAdmin })}
           ownerIsPerson={!app.organizationId}
           currentUserId={data.currentUserId}
           configsError={tabData.configsError}

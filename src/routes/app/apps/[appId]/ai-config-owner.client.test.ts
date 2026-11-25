@@ -59,17 +59,18 @@ describe('a person\'s App, AI tab', () => {
 });
 
 describe('an organization\'s App, AI tab (unchanged)', () => {
-  const org = (role: string) => ({ id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [{ user: { id: 'u1' }, role }] });
+  // portal#1718: the org is the breadcrumb's three fields; the viewer's role rides the `orgMembers` read.
+  const org = (role: string) => ({ org: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' }, orgMembers: [{ user: { id: 'u1' }, role }] });
   it('an org ADMIN sees the controls whatever the manage flag says', async () => {
-    const p = await mountAi({ org: org('ADMIN'), canManageApp: null }, { organizationId: 'o1' });
+    const p = await mountAi({ ...org('ADMIN'), canManageApp: null }, { organizationId: 'o1' });
     expect(hasAdd(p)).toBe(true);
   });
   it('an org ADMIN while impersonating keeps today\'s org rule (the server refuses the writes, cor:acl:100:02)', async () => {
-    const p = await mountAi({ org: org('ADMIN'), canManageApp: null, impersonation: { sessionId: 's', actorUserId: 'admin', orgId: 'o1', expiresAt: Date.now() + 60_000 } }, { organizationId: 'o1' });
+    const p = await mountAi({ ...org('ADMIN'), canManageApp: null, impersonation: { sessionId: 's', actorUserId: 'admin', orgId: 'o1', expiresAt: Date.now() + 60_000 } }, { organizationId: 'o1' });
     expect(hasAdd(p)).toBe(true);
   });
   it('an org member below ADMIN keeps the admin line, even when the flag says manage', async () => {
-    const p = await mountAi({ org: org('CONTRIBUTOR'), canManageApp: true }, { organizationId: 'o1' });
+    const p = await mountAi({ ...org('CONTRIBUTOR'), canManageApp: true }, { organizationId: 'o1' });
     expect(hasAdd(p)).toBe(false);
     expect(p.textContent).toContain(ADMIN_ONLY);
   });
