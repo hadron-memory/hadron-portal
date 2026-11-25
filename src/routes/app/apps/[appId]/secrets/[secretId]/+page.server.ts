@@ -90,7 +90,7 @@ export const actions: Actions = {
     if (r.kind === 'ok') {
       // false means nothing was deleted (it is already gone, or not this caller's to delete): not a success.
       if (r.data.deleteSecret !== true) return fail(400, { action: 'delete' as const, message: t('secrets.delete.nothing', 'Nothing was deleted: the secret may already be gone. Reload to check.') });
-      throw redirect(303, `/app/apps/${params.appId}/secrets`);
+      throw redirect(303, `/app/apps/${params.appId}?tab=settings&section=secrets`);
     }
     return outcome('delete', r, params.secretId, cookies);
   },

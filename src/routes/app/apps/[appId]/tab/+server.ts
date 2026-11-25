@@ -25,7 +25,7 @@ import type { RequestHandler } from './$types';
 
 const headers = { 'cache-control': 'private, no-store' };
 
-export const GET: RequestHandler = async ({ params, locals, url }) => {
+export const GET: RequestHandler = async ({ params, locals, url, cookies }) => {
   if (!locals.token || !locals.user?.id) {
     return json({ kind: 'failed' }, { status: 401, headers });
   }
@@ -34,7 +34,7 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
   const pageUrl = new URL(`/app/apps/${encodeURIComponent(params.appId)}${url.search}`, url.origin);
   try {
     const payload = await _loadAppPage(
-      { params, locals, url: pageUrl, setHeaders: () => {} } as unknown as Parameters<typeof _loadAppPage>[0],
+      { params, locals, url: pageUrl, cookies, setHeaders: () => {} } as unknown as Parameters<typeof _loadAppPage>[0],
       { frame: false, tab },
     );
     return json(payload, { headers });

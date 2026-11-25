@@ -6,11 +6,10 @@
 import { afterEach, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import List from './+page.svelte';
+import List from './AppSecrets.svelte';
 import PendingUnread from '$lib/components/secrets/PendingUnread.svelte';
 
-const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
-const data = { app, secrets: { kind: 'ok', secrets: [] }, signing: 'on', pending: [], pendingUnchecked: 0, impersonating: null };
+const panel = { secrets: { kind: 'ok', secrets: [] }, signing: 'on', pending: [], pendingUnchecked: 0, impersonating: null };
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); document.body.innerHTML = ''; });
 
@@ -36,7 +35,7 @@ it('the pending notice region is mounted while quiet, and the same element carri
 });
 
 it('the withdraw and create result regions exist before a result and keep their element when one arrives', async () => {
-  const props = reactiveProps({ data, form: null } as Record<string, unknown>);
+  const props = reactiveProps({ appId: 'app-1', panel, form: null } as Record<string, unknown>);
   const m = mountComponent(List as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(6);
@@ -45,7 +44,7 @@ it('the withdraw and create result regions exist before a result and keep their 
   expect(before.length).toBeGreaterThanOrEqual(2);
   expect(before.every((r) => r.textContent?.trim() === '')).toBe(true);
 
-  props.form = { action: 'create', name: 'k', message: 'Use lowercase letters.' }; await tick(6);
+  props.form = { action: 'createSecret', name: 'k', message: 'Use lowercase letters.' }; await tick(6);
   const after = live(m.target).filter((r) => r.getAttribute('aria-live') === 'polite');
   expect(after).toHaveLength(before.length);
   after.forEach((r, i) => expect(r === before[i]).toBe(true)); // the same elements (identity, not structure), in the same order
@@ -53,7 +52,7 @@ it('the withdraw and create result regions exist before a result and keep their 
   expect(withText).toHaveLength(1);
   expect(withText[0].querySelector('[data-testid="create-error"]')).not.toBeNull();
 
-  props.form = { action: 'withdraw', message: 'Nothing was withdrawn.' }; await tick(6);
+  props.form = { action: 'withdrawSecret', message: 'Nothing was withdrawn.' }; await tick(6);
   const again = live(m.target).filter((r) => r.getAttribute('aria-live') === 'polite');
   expect(again).toHaveLength(before.length);
   again.forEach((r, i) => expect(r === before[i]).toBe(true));

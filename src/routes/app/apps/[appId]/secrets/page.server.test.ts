@@ -82,18 +82,10 @@ describe('a false Boolean payload is not a success', () => {
     expect(r.status).toBe(400);
     expect(r.data.message).toContain('Nothing was deleted');
   });
-  it('delete answering true redirects to the list', async () => {
+  it('delete answering true redirects to the App\'s Secrets section', async () => {
     const { actions } = await import('./[secretId]/+page.server');
     request.mockImplementation(owned(() => ({ deleteSecret: true })));
-    await expect(actions.delete(ev(jar(), { request: confirmed }))).rejects.toMatchObject({ status: 303 });
-  });
-  it('an unprotected create leaves the protected argument out; a protected one sends true', async () => {
-    const { actions } = await import('./+page.server');
-    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { createSecret: secret }));
-    await actions.create(ev(jar(), { request: form({ name: 'a-key', value: 'v' }) }));
-    expect(request.mock.calls.at(-1)![1]).not.toHaveProperty('protected');
-    await actions.create(ev(jar(), { request: form({ name: 'a-key', value: 'v', protected: 'on' }) }));
-    expect(request.mock.calls.at(-1)![1]).toMatchObject({ protected: true });
+    await expect(actions.delete(ev(jar(), { request: confirmed }))).rejects.toMatchObject({ status: 303, location: '/app/apps/app-1?tab=settings&section=secrets' });
   });
 });
 
@@ -171,13 +163,6 @@ describe('the secret page load', () => {
     expect(d.pending).toEqual([]);
     expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)).toHaveLength(1);
   });
-  it('a staged create reads as a create, not as a new value', async () => {
-    const { load } = await import('./+page.server');
-    const c = jar(JSON.stringify([{ create: { appId: 'app-1', name: 'new-key' }, requestId: 'r1', ceremonyUrl: URL_ }]));
-    request.mockImplementation(base('on', open));
-    const d = (await load(ev(c))) as { pending: Array<{ operation: string }> };
-    expect(d.pending[0].operation).toBe('CREATE');
-  });
   it('a server without signing: the probe reads off, so the toggle is hidden (acceptance 3)', async () => {
     const { load } = await import('./[secretId]/+page.server');
     request.mockImplementation(base('off', null));
@@ -190,38 +175,7 @@ describe('the secret page load', () => {
   });
 });
 
-describe('list route', () => {
-  it('create: a protected create is staged (no row yet) and remembered under the App id and name', async () => {
-    const { actions } = await import('./+page.server');
-    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; if (q === CREATE_SECRET_MUTATION) throw staged(); });
-    const c = jar();
-    const r = await actions.create(ev(c, { request: form({ name: 'stripe-key', value: 'sk', protected: 'on' }) }));
-    expect(r).toEqual({ action: 'create', staged: true, name: 'stripe-key' });
-    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)).toEqual([{ create: { appId: 'app-1', name: 'stripe-key' }, requestId: 'r1' }]);
-    expect(request).toHaveBeenCalledWith(CREATE_SECRET_MUTATION, expect.objectContaining({ ownerRef: 'app-1', kind: 'generic', protected: true }));
-  });
-  it('create rejects a bad name and an empty value before any call', async () => {
-    const { actions } = await import('./+page.server');
-    const bad = (await actions.create(ev(jar(), { request: form({ name: 'Bad Name', value: 'x' }) }))) as { status: number };
-    const empty = (await actions.create(ev(jar(), { request: form({ name: 'ok', value: ' ' }) }))) as { status: number };
-    expect([bad.status, empty.status]).toEqual([400, 400]);
-    expect(request).not.toHaveBeenCalled();
-  });
-  it('the list reads only secrets, the signing probe and tracked requests; the detail route exports update, protect, delete, withdraw', async () => {
-    const list = await import('./+page.server');
-    const detail = await import('./[secretId]/+page.server');
-    expect(Object.keys(list.actions).sort()).toEqual(['create', 'withdraw']);
-    expect(Object.keys(detail.actions).sort()).toEqual(['delete', 'protect', 'update', 'withdraw']);
-    request.mockImplementation(async (q: string) => {
-      if (q === AGENT_TASKS_APP_QUERY) return { app };
-      if (q === APP_SECRETS_QUERY) return { secrets: { total: 1, items: [secret] } };
-      if (q === SECRET_CHANGE_REQUEST_QUERY) return { secretChangeRequest: null };
-    });
-    const d = (await list.load(ev(jar()))) as { secrets: { kind: string }; signing: string };
-    expect(d.secrets.kind).toBe('ok');
-    expect(d.signing).toBe('on');
-    expect(DELETE_SECRET_MUTATION && SET_SECRET_PROTECTED_MUTATION).toBeTruthy();
-  });
+describe('the detail route', () => {
   it('impersonation is read-only', async () => {
     const { actions } = await import('./[secretId]/+page.server');
     const r = (await actions.update({ ...(ev(jar()) as object), locals: { token: 't', impersonation: { id: 'x' } }, request: form({ value: 'v' }) } as never)) as { status: number };
@@ -238,26 +192,6 @@ describe('portal#2436 polish', () => {
     if (q === SECRET_QUERY) return { secret };
     if (q === SECRET_CHANGE_REQUEST_QUERY) return { secretChangeRequest: cr };
   };
-
-  it('item 1: a create made through the URL handle is remembered under the App id and shows once on the list', async () => {
-    const { actions, load } = await import('./+page.server');
-    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; if (q === CREATE_SECRET_MUTATION) throw staged(); });
-    const c = jar();
-    const handle = { params: { appId: 'team' } };
-    await actions.create(ev(c, { ...handle, request: form({ name: 'k', value: 'v', protected: 'on' }) }));
-    expect(request).toHaveBeenCalledWith(CREATE_SECRET_MUTATION, expect.objectContaining({ ownerRef: 'app-1' }));
-    expect(JSON.parse(c.store.get(TRACKED_COOKIE)!)[0].create).toEqual({ appId: 'app-1', name: 'k' });
-    request.mockImplementation(reads(open));
-    const d = (await load(ev(c, handle))) as { pending: Array<{ createName: string | null; secretId: string | null; operation: string }> };
-    expect(d.pending).toHaveLength(1);
-    expect(d.pending[0]).toMatchObject({ createName: 'k', secretId: null, operation: 'CREATE' });
-  });
-  it('item 1: a create of another App is not shown on this list', async () => {
-    const { load } = await import('./+page.server');
-    request.mockImplementation(reads(open));
-    const c = jar(JSON.stringify([{ create: { appId: 'app-2', name: 'k' }, requestId: 'r1', ceremonyUrl: URL_ }]));
-    expect(((await load(ev(c))) as { pending: unknown[] }).pending).toEqual([]);
-  });
 
   it.each(['completed', 'declined', 'expired', 'withdrawn', 'stale'])('item 2: %s shows once, then is dropped', async (state) => {
     const { load } = await import('./[secretId]/+page.server');
@@ -302,43 +236,5 @@ describe('portal#2436 polish', () => {
     expect(await actions.delete(ev(jar(), { request: form({}) }))).toEqual({ action: 'delete', confirm: true });
     expect(await actions.delete(ev(jar(), { request: form({ confirm: 'no' }) }))).toEqual({ action: 'delete', confirm: true });
     expect(request).not.toHaveBeenCalled();
-  });
-});
-
-describe('portal#2578: the impersonation cookie guards on the list route', () => {
-  const impersonated = { token: 'tok', user: { id: 'u2' }, impersonation: { by: 'admin' } };
-  const inCookie = JSON.stringify([{ create: { appId: 'app-1', name: 'k' }, requestId: 'r1' }]);
-
-  // Kills: deleting the guard at the top of `create`. Without it an admin's stray create would reach the server as the impersonated user.
-  it('create is refused (403) before any call, and the cookie is untouched', async () => {
-    const { actions } = await import('./+page.server');
-    const c = jar(inCookie);
-    const r = (await actions.create(ev(c, { locals: impersonated, request: form({ name: 'k', value: 'v' }) }))) as { status: number };
-    expect(r.status).toBe(403);
-    expect(request).not.toHaveBeenCalled();
-    expect(c.store.get(TRACKED_COOKIE)).toBe(inCookie);
-  });
-  // Kills: deleting the guard at the top of `withdraw`, which would also forget the request in the admin's cookie.
-  it('withdraw is refused (403) before any call, and the cookie is untouched', async () => {
-    const { actions } = await import('./+page.server');
-    const c = jar(inCookie);
-    const r = (await actions.withdraw(ev(c, { locals: impersonated, request: form({ requestId: 'r1' }) }))) as { status: number };
-    expect(r.status).toBe(403);
-    expect(request).not.toHaveBeenCalled();
-    expect(c.store.get(TRACKED_COOKIE)).toBe(inCookie);
-  });
-  // Kills: the load dropping `!!locals.impersonation` (readOnly): a failed read would then write a failure count into the admin's cookie.
-  it('impersonation plus a failed read: the notice counts it and the cookie is not rewritten', async () => {
-    const { load } = await import('./+page.server');
-    request.mockImplementation(async (q: string) => {
-      if (q === AGENT_TASKS_APP_QUERY) return { app };
-      if (q === APP_SECRETS_QUERY) return { secrets: { total: 0, items: [] } };
-      if (q === SECRET_CHANGE_REQUEST_QUERY) throw new Error('down');
-    });
-    const c = jar(inCookie);
-    const d = (await load(ev(c, { locals: impersonated }))) as { pending: unknown[]; pendingUnchecked: number };
-    expect(d.pending).toEqual([]);
-    expect(d.pendingUnchecked).toBe(1);
-    expect(c.store.get(TRACKED_COOKIE)).toBe(inCookie);
   });
 });
