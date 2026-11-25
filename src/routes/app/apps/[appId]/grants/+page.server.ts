@@ -10,6 +10,8 @@ import {
   CREATE_GRANT,
   REVOKE_GRANT,
   REQUEST_GRANT_SIGNATURE,
+  REQUEST_GRANT_SELECTION_SIGNATURE,
+  WITHDRAW_GRANT_SIGNING_SELECTION,
   GRANTS_PAGE,
   grantChoices,
   grantOffset,
@@ -23,6 +25,7 @@ import {
   type Grant,
 } from "$lib/grants/types";
 import { t } from "$lib/i18n/t";
+import { selectionRefusalCodes, withdrawRefusalCodes } from "$lib/grants/selection";
 import { ceremonyOrigin, pinCeremonyUrl } from "$lib/ceremony-origin";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals, url }) => {
@@ -74,6 +77,16 @@ function refused(e: unknown) {
       ? grantError(e.status === 403 ? "GRANT_NOT_MANAGER" : null)
       : grantError(extractGqlErrorCode(e)),
   });
+}
+/** The server's own message for a refusal the contract names; anything else is the page's generic text. */
+function selectionFailure(e: unknown, known: readonly string[]): [number, string] {
+  if (isHttpError(e)) return [e.status, grantError(e.status === 403 ? "GRANT_NOT_MANAGER" : null)];
+  const code = extractGqlErrorCode(e);
+  if (e instanceof ClientError && known.includes(code ?? "")) {
+    const entry = e.response.errors?.find((r) => r.extensions?.code === code);
+    if (typeof entry?.message === "string") return [400, entry.message];
+  }
+  return [503, grantError(null)];
 }
 export const actions: Actions = {
   approve: async (event) => {
@@ -147,6 +160,50 @@ export const actions: Actions = {
           isHttpError(e) && e.status === 403 ? "GRANT_NOT_MANAGER" : null,
         ),
       );
+    }
+  },
+  // portal#2638: one request for a whole selection. The server owns every judgement (the cap, pending,
+  // expiry, one App, what is representable); the page sends the refs as given, states no number, and
+  // hands on the server's own link only when it is on the server's origin and under its selection path.
+  // The id comes back with the link so the person can withdraw while the selection is open.
+  signSelection: async (event) => {
+    const refused = (status: number, message: string) =>
+      fail(status, { error: message, operation: "signSelection" as const, appId: event.params.appId });
+    try {
+      if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
+      const app = await manage(event);
+      if (!(await deploymentOffersSigning(event.locals.token)))
+        return refused(403, t("grants.approve.unavailable", "Approval is unavailable on this deployment."));
+      const refs = (await event.request.formData()).getAll("ref").map(String);
+      const result = await gqlClient(event.locals.token).request<{
+        requestGrantSelectionSignature: { id: string; ceremonyUrl: string; expiresAt: string };
+      }>(REQUEST_GRANT_SELECTION_SIGNATURE, { grantRefs: refs });
+      const selection = result.requestGrantSelectionSignature;
+      const ceremonyUrl = pinCeremonyUrl(selection?.ceremonyUrl, ceremonyOrigin(), "/grant-selection-signing/");
+      if (!ceremonyUrl || typeof selection.id !== "string") return refused(503, grantError(null));
+      return {
+        operation: "signSelection" as const,
+        appId: app.id,
+        selection: { id: selection.id, ceremonyUrl, expiresAt: selection.expiresAt, refs },
+      };
+    } catch (e) {
+      if (isRedirect(e)) throw e;
+      return refused(...selectionFailure(e, selectionRefusalCodes));
+    }
+  },
+  withdrawSelection: async (event) => {
+    const refused = (status: number, message: string) =>
+      fail(status, { error: message, operation: "withdrawSelection" as const, appId: event.params.appId });
+    try {
+      if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
+      const app = await manage(event);
+      const id = String((await event.request.formData()).get("id") ?? "");
+      if (!id) return refused(400, grantError("GRANT_NOT_FOUND"));
+      await gqlClient(event.locals.token).request(WITHDRAW_GRANT_SIGNING_SELECTION, { id });
+      return { operation: "withdrawSelection" as const, appId: app.id, withdrawn: id };
+    } catch (e) {
+      if (isRedirect(e)) throw e;
+      return refused(...selectionFailure(e, withdrawRefusalCodes));
     }
   },
   revoke: async (event) => {

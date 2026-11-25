@@ -389,3 +389,21 @@ export const REQUEST_GRANT_SIGNATURE = /* GraphQL */ `
     }
   }
 `;
+
+export const REQUEST_GRANT_SELECTION_SIGNATURE = /* GraphQL */ `
+  mutation RequestGrantSelectionSignature($grantRefs: [ID!]!) {
+    requestGrantSelectionSignature(grantRefs: $grantRefs) {
+      id
+      ceremonyUrl
+      expiresAt
+    }
+  }
+`;
+export const WITHDRAW_GRANT_SIGNING_SELECTION = /* GraphQL */ `
+  mutation WithdrawGrantSigningSelection($id: ID!) {
+    withdrawGrantSigningSelection(id: $id) {
+      id
+      endedAt
+    }
+  }
+`;

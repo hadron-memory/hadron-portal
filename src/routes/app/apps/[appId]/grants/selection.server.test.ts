@@ -8,11 +8,11 @@ vi.mock("$lib/server/api", () => ({ gqlClient: () => ({ request }) }));
 vi.mock("$lib/server/signing-capability", () => ({ deploymentOffersSigning: (...a: unknown[]) => signing(...a) }));
 const app = grantsFixture().app;
 const ceremony = "https://signing.example.test/grant-selection-signing/abc123";
-const post = (refs: string[], impersonation: unknown = null, action = "approveSelection") => {
+const post = (refs: string[], impersonation: unknown = null, action = "signSelection") => {
   const body = new URLSearchParams(); for (const r of refs) body.append("ref", r);
   return { locals: { token: "synthetic", user: { id: "person-example" }, impersonation }, params: { appId: "hrn:app:example.test:team" }, url: new URL(`http://localhost/app/apps/app-example/grants?/${action}&offset=20`), request: new Request("http://localhost/x", { method: "POST", body }) };
 };
-const run = async (e: ReturnType<typeof post>, name: "approveSelection" | "withdrawSelection" = "approveSelection") => { const { actions } = await import("./+page.server"); return (actions as Record<string, (e: never) => Promise<unknown>>)[name]!(e as never); };
+const run = async (e: ReturnType<typeof post>, name: "signSelection" | "withdrawSelection" = "signSelection") => { const { actions } = await import("./+page.server"); return (actions as Record<string, (e: never) => Promise<unknown>>)[name]!(e as never); };
 const refusal = (code: string, message: string, extensions: Record<string, unknown> = {}) => new ClientError({ status: 400, headers: new Headers(), body: "", errors: [new GraphQLError(message, { extensions: { code, ...extensions } })] }, { query: "mutation SECRET_QUERY", variables: { secret: "PRIVATE_VARIABLE" } });
 const serve = (selection: unknown) => request.mockImplementation(async (q: string) => {
   if (q.includes("query AppGrantsApp")) return { app };
