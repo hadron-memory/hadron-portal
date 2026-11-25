@@ -8,8 +8,13 @@
    * portal#2564 — a name is unbounded and a 64-character one has no break
    * opportunity, so its min-content width set the page's width and dragged the
    * whole page sideways on a phone. `min-w-0` lets the heading shrink inside
-   * the flex row and `break-words` (overflow-wrap:anywhere would also do) wraps
-   * it, so the full name stays readable rather than being cut.
+   * the flex row and `overflow-wrap:anywhere` (the class in the markup) wraps it,
+   * so the full name stays readable rather than being cut. `break-words` was
+   * measured in the same harness (Chromium, 390 and 1280px) and also keeps the
+   * page in the viewport, so the harness does not tell the two apart: it fails
+   * only when the wrapping is removed altogether (its no-fix mutant). If you
+   * change the class, keep the name wrapping and run
+   * `pnpm test:worker-title-row-layout`.
    */
   let { name, children }: { name: string; children?: Snippet } = $props();
 </script>
