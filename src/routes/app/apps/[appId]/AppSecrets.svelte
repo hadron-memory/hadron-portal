@@ -133,7 +133,7 @@
   {#if panel.secrets.kind === 'failed'}
     <p role="alert" class="text-sm text-red-700 dark:text-red-400">{t('secrets.load-failed', "The secrets couldn't be loaded. Reload to try again.")}</p>
   {:else if list.length === 0}
-    <p class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="secrets-empty">{t('secrets.empty', 'No secrets yet.')}</p>
+    <p class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="secrets-empty">{t('secrets.empty', 'No secrets yet. Add one below if this app needs a value such as a password to do its work.')}</p>
   {:else}
     <DataTable
       {table}
@@ -172,10 +172,13 @@
       <p id="secret-value-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.value.help', 'Stored as typed, with line breaks kept as new lines. A JSON object or array is stored as JSON.')}</p>
     </div>
     {#if signs}
-      <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-        <input type="checkbox" name="protected" class="rounded border-zinc-300" />
-        {t('secrets.field.protected', 'Require a passkey signature to change it')}
-      </label>
+      <div>
+        <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+          <input type="checkbox" name="protected" aria-describedby="secret-protected-help" class="rounded border-zinc-300" />
+          {t('secrets.field.protected', 'Protect with my passkey')}
+        </label>
+        <p id="secret-protected-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.protected.help', 'Every change to this secret, including creating it, then waits until you approve it with your passkey.')}</p>
+      </div>
     {/if}
     <button type="submit" disabled={!!impersonating} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{t('secrets.create.submit', 'Create')}</button>
     <div aria-live="polite">
