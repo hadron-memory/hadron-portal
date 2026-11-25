@@ -70,11 +70,22 @@ describe("refusals show the server's answer (portal#2638 acceptance 3 and the FO
   });
 });
 describe("impersonation (portal#2638 gate addition)", () => {
-  it("is refused before any server call, for the request and the withdraw", async () => {
-    expect((await run(post(["g1"], { sessionId: "imp" })) as { status?: number }).status ?? 403).toBe(403);
-    request.mockClear();
-    await run(post(["sel1"], { sessionId: "imp" }, "withdrawSelection"), "withdrawSelection").catch(() => null);
-    expect(request).not.toHaveBeenCalled();
+  it("refuses the request with 403 before any selection call", async () => {
+    const r = await run(post(["g1"], { sessionId: "imp" })) as { status: number };
+    expect(r.status).toBe(403);
+    expect(sent("RequestGrantSelectionSignature")).toHaveLength(0);
+  });
+  it("refuses the withdraw with 403 before any server call", async () => {
+    const e = post([], { sessionId: "imp" }, "withdrawSelection");
+    (e as { request: Request }).request = new Request("http://localhost/x", { method: "POST", body: new URLSearchParams({ id: "sel1" }) });
+    const r = await run(e, "withdrawSelection") as { status: number };
+    expect(r.status).toBe(403);
+    expect(sent("WithdrawGrantSigningSelection")).toHaveLength(0);
+  });
+  it("shows the server's FORBIDDEN text like the page's other FORBIDDEN answers", async () => {
+    serve(refusal("FORBIDDEN", "You are viewing as another person."));
+    const r = await run(post(["g1"])) as { data: { error: string } };
+    expect(r.data.error).toBe("You are viewing as another person.");
   });
 });
 describe("withdrawing an open selection (acceptance 5)", () => {
