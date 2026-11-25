@@ -262,7 +262,7 @@
            guarantees the ellipsis lands at the END of whatever width it
            gets (pinned: first line fills the span). -->
       <span class="block min-w-0 max-w-full bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-        <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'line-clamp-1 [overflow-wrap:anywhere]'}" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{bareValue}{/if}</span>
+        <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'line-clamp-1 [overflow-wrap:anywhere]'}" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{displayFullUrn}{/if}</span>
       </span>
       {#if chipToggle}
         <!-- The cue that this chip opens (#1642 UX P2): a chevron that turns

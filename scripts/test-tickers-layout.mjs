@@ -197,7 +197,9 @@ try {
             // sibling making the line taller), so this reproduces the old markup.
             const mutant = await page.addStyleTag({ content: '[data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-announcement"], [data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-refresh-failed"] { display: inline !important; } [data-testid="ticker-remove-outcome-mounted"] button[aria-expanded] { display: none !important; }' });
             const runIn = await stacked();
-            assert.ok(runIn.ann.top < runIn.chip.bottom - 1, `${label}: the inline mutant must run the caveat into the chip, or this pin proves nothing ${JSON.stringify(runIn)}`);
+            // The chip now shows the whole URN, so it fills its line and inline text wraps BELOW it rather than running into
+            // it; what the mutant still shows is the two caveats joining into one line.
+            assert.ok(runIn.ann.top < runIn.chip.bottom - 1 || runIn.ref.top < runIn.ann.bottom - 1, `${label}: the inline mutant must run the caveat into the chip or join the two caveats, or this pin proves nothing ${JSON.stringify(runIn)}`);
             await mutant.evaluate((el) => el.remove());
             const again = await stacked();
             assert.ok(again.ann.top >= again.chip.bottom - 1, `${label}: the caveat must return to its own line after the mutant`);
