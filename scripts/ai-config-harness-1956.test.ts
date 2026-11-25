@@ -8,6 +8,25 @@ describe('#1956 harness entrypoint preservation', () => {
     expect(phone).not.toContain('networkidle');
     expect(phone).not.toContain('touchscreen.tap(2, 2)');
   });
+  // portal#1957 D2: a page error or console error on the phone/desktop pass failed nothing before. Source-text pin, like the rest of
+  // this file: the script itself needs a full stack, so the wiring is what is held here.
+  it('fails the run on a page or console error, as the cell-overflow harness does', () => {
+    const at = (needle: string) => {
+      const i = phone.indexOf(needle);
+      expect(i, needle).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    // On the context, so a second page is covered.
+    at("context.on('weberror'");
+    at("context.on('console'");
+    expect(phone).toMatch(/msg\.type\(\) === 'error'/);
+    at("context.route('**/favicon.ico'");
+    // Asserted after the flow, and printed in finally so an early failure still shows the cause.
+    const asserted = at('assert.deepEqual(errors, []');
+    const closed = at('await context.close()');
+    expect(asserted).toBeLessThan(closed);
+    expect(phone.slice(asserted, closed)).toContain('console.error(');
+  });
   it('creates the optional screenshots directory', () => {
     expect(phone).toMatch(/mkdir\(process\.env\.AI_CONFIG_TEST_SHOTS/);
   });

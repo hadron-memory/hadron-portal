@@ -21,6 +21,17 @@ try {
     // Independent contexts: widening a mobile page does not make its pointer fine.
     for (const desktop of [false, true]) {
         const context = await browser.newContext({ viewport: { width: desktop ? 1280 : 390, height: 1000 }, hasTouch: !desktop, isMobile: !desktop });
+        // portal#1957 D2: a page error or a browser console error fails the pass, as in the cell-overflow harness. Listeners sit on the
+        // context, so a popup or second tab is covered, and the list is read in `finally` too, so an early failure still shows its cause.
+        // The stack serves no favicon, so it is answered with an empty 204 rather than allow-listed: every other failure is real.
+        const errors = [];
+        await context.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
+        context.on('weberror', webError => { errors.push(webError.error().message); });
+        context.on('console', msg => {
+            if (msg.type() === 'error') {
+                errors.push(`console: ${msg.text()} (${msg.location().url})`);
+            }
+        });
         try {
             const page = await context.newPage();
             const activate = locator => desktop ? locator.click() : locator.tap();
@@ -99,8 +110,11 @@ try {
                     console.log(`saved width/order at ${width}: PASS`);
                 }
             });
+            assert.deepEqual(errors, [], `${desktop ? 'fine desktop' : 'coarse phone'}: page or console errors`);
         }
         finally {
+            if (errors.length)
+                console.error(`${desktop ? 'fine desktop' : 'coarse phone'}: page or console errors:\n${errors.join('\n')}`);
             await context.close();
         }
     }
