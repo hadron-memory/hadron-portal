@@ -1,6 +1,7 @@
 import { pageOf } from '$lib/test/pagedFixture';
 import { castWorkerSchema } from './schema';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse, Kind, type SelectionSetNode } from 'graphql';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
 import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
@@ -2594,7 +2595,17 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
     it('the frame org document selects no members; the members document selects the role and user id only', () => {
       expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bmembers\b/);
       expect(APP_ORG_MEMBERS_QUERY).toMatch(/\bmembers\b/);
-      expect(APP_ORG_MEMBERS_QUERY).not.toMatch(/\bemail\b/);
+      const fields: string[] = [];
+      const walk = (set: SelectionSetNode, path: string) => {
+        for (const sel of set.selections) {
+          if (sel.kind !== Kind.FIELD) continue;
+          const here = path ? `${path}.${sel.name.value}` : sel.name.value;
+          if (sel.selectionSet) walk(sel.selectionSet, here);
+          else fields.push(here);
+        }
+      };
+      for (const def of parse(APP_ORG_MEMBERS_QUERY).definitions) if (def.kind === Kind.OPERATION_DEFINITION) walk(def.selectionSet, '');
+      expect(fields.sort()).toEqual(['organization.id', 'organization.members.id', 'organization.members.role', 'organization.members.user.id']);
     });
   });
 

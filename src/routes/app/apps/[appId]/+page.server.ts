@@ -728,7 +728,8 @@ export async function _loadAppPage(
     );
   }
   // portal#1718: the viewer's org role, for the tabs that read it (Memory's create offer, AI Config's canManage).
-  // loadOrgDetail classifies as the frame's org read did: a failure is the tab's error, never an empty list.
+  // loadOrgDetail classifies as the frame's org read did, and a failure is NOT caught here: the page load fails as it did when the
+  // members rode on the frame's org read (never an empty list, which would silently hide the controls from an admin).
   let orgMembers: AppOrgMembers | null = null;
   if (app.organizationId && wants('orgMembers')) {
     orgMembers = (await loadOrgDetail<{ members: AppOrgMembers }>(locals.token, app.organizationId, APP_ORG_MEMBERS_QUERY)).members;

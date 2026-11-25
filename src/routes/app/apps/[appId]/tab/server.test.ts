@@ -28,7 +28,7 @@ const h = vi.hoisted(() => {
     }),
     AppOrgMembers: () => ({ organization: { id: 'o1', members: [] } }),
     AiServiceConfigs: () => ({ aiServiceConfigs: { items: [], total: 0 } }),
-    AppDetailOrg: () => ({ organization: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [] } }),
+    AppDetailOrg: () => ({ organization: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' } }),
     AppMemories: () => ({ memories: { items: [], total: 0 } }),
     TeamWorkItems: () => ({ teamWorkItems: { items: [{ id: 'wi1' }], total: 1 } }),
     AppKeys: () => ({ appKeysPage: { items: [{ id: 'k1' }], total: 1, hasMore: false } }),

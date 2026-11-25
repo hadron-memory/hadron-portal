@@ -22,7 +22,7 @@ import { APP_TAB_IDS } from './tab-intent';
 const h = vi.hoisted(() => {
   const ops: string[] = [];
   const docs: Record<string, string> = {};
-  const opts = { orgApp: false, liveWorkerStop: false };
+  const opts = { orgApp: false, liveWorkerStop: false, membersFail: false };
   const operationOf = (document: string) => /\b(?:query|mutation)\s+([A-Za-z]\w*)/.exec(document)?.[1] ?? '(anonymous)';
   const emptyPage = { items: [], total: 0, hasMore: false };
   const appRow = () => ({
@@ -41,8 +41,11 @@ const h = vi.hoisted(() => {
     : []);
   const rows: Record<string, () => unknown> = {
     App: () => ({ app: appRow() }),
-    AppOrgMembers: () => ({ organization: { id: 'o1', members: [{ id: 'm1', role: 'ADMIN', user: { id: 'u1' } }] } }),
-    AppDetailOrg: () => ({ organization: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com', members: [] } }),
+    AppOrgMembers: () => {
+      if (opts.membersFail) throw Object.assign(new Error('boom'), { response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } });
+      return { organization: { id: 'o1', members: [{ id: 'm1', role: 'ADMIN', user: { id: 'u1' } }] } };
+    },
+    AppDetailOrg: () => ({ organization: { id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' } }),
     AiServiceConfigs: () => ({ aiServiceConfigs: emptyPage }),
     AppMembers: () => ({ app: { members: [] } }),
     MyAgents: () => ({ agents: emptyPage }),
@@ -103,6 +106,7 @@ beforeEach(() => {
   h.ops.length = 0;
   h.opts.orgApp = false;
   h.opts.liveWorkerStop = false;
+  h.opts.membersFail = false;
 });
 
 async function loadPage(search: string) {
@@ -216,6 +220,21 @@ describe('App page loader: the first screen only (portal#2240)', () => {
     h.opts.orgApp = true;
     await loadPage('?tab=settings&section=ai-configs');
     expect(opSet()).toContain('AppOrgMembers');
+  });
+
+  it('a personal App opening ?tab=memory or ?tab=ai-configs makes no members request', async () => {
+    for (const tab of ['memory', 'ai-configs']) {
+      h.ops.length = 0;
+      const payload = await loadPage(`?tab=${tab}`);
+      expect(opSet(), `?tab=${tab}`).not.toContain('AppOrgMembers');
+      expect(payload.orgMembers ?? null).toBeNull();
+    }
+  });
+
+  it('a failing members read fails the load (never an empty list that hides the controls)', async () => {
+    h.opts.orgApp = true;
+    h.opts.membersFail = true;
+    await expect(loadPage('?tab=memory')).rejects.toBeDefined();
   });
 
   it('the Memory tab\'s create offer still follows the viewer\'s org role, now from the members read', async () => {
