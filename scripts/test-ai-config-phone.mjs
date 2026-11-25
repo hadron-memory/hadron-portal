@@ -23,6 +23,13 @@ try {
         const context = await browser.newContext({ viewport: { width: desktop ? 1280 : 390, height: 1000 }, hasTouch: !desktop, isMobile: !desktop });
         try {
             const page = await context.newPage();
+            // portal#1957 D2: a page error or a browser console error fails the pass, as in the cell-overflow harness. The stack
+            // serves no favicon, so it is answered with an empty 204 rather than allow-listed: every other failure is real.
+            const errors = [];
+            await page.route('**/favicon.ico', r => r.fulfill({ status: 204 }));
+            page.on('pageerror', e => errors.push(e.message));
+            page.on('console', m => { if (m.type() === 'error')
+                errors.push(`console: ${m.text()}`); });
             const activate = locator => desktop ? locator.click() : locator.tap();
             await page.goto(`${api}/auth/dev/login?email=alpha-admin@e2e.test&redirect=/app/dashboard`);
             await page.waitForURL(`${portal}/app/**`);
@@ -99,6 +106,7 @@ try {
                     console.log(`saved width/order at ${width}: PASS`);
                 }
             });
+            assert.deepEqual(errors, [], `${desktop ? 'fine desktop' : 'coarse phone'}: page or console errors`);
         }
         finally {
             await context.close();

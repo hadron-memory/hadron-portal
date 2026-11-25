@@ -8,6 +8,15 @@ describe('#1956 harness entrypoint preservation', () => {
     expect(phone).not.toContain('networkidle');
     expect(phone).not.toContain('touchscreen.tap(2, 2)');
   });
+  // portal#1957 D2: a page error or console error on the phone/desktop pass failed nothing before.
+  it('fails the run on a pageerror or a console error, as the cell-overflow harness does', () => {
+    expect(phone).toContain("page.on('pageerror'");
+    expect(phone).toMatch(/page\.on\('console', m => \{ if \(m\.type\(\) === 'error'\)/);
+    expect(phone).toMatch(/favicon/);
+    expect(phone).toMatch(/assert\.deepEqual\(errors, \[\]/);
+    // The check runs inside the context's own try, before the context closes.
+    expect(phone.indexOf('assert.deepEqual(errors')).toBeLessThan(phone.indexOf('await context.close()'));
+  });
   it('creates the optional screenshots directory', () => {
     expect(phone).toMatch(/mkdir\(process\.env\.AI_CONFIG_TEST_SHOTS/);
   });
