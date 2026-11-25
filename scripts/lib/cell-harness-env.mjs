@@ -21,7 +21,7 @@ export const ORGS_KINDS = ['orgs-mine', 'orgs-apps', 'orgs-members', 'orgs-runs'
 // non-empty `title` on the ellipsized element or an ancestor. portal#2561 turned it on for every apps and orgs kind
 // after adding the missing titles, so a new table of either family starts under the rule.
 export const TITLE_CHECKED_KINDS = [...APPS_KINDS, ...ORGS_KINDS];
-export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history'];
+export const PAGE_KINDS = ['agents-mine', 'memories-mine', 'memories-shared', 'agent-apps', 'agent-bundled', 'node-properties', 'node-history', 'memory-shares'];
 // portal#2492 (#1962 slice 6): the lib-rows kind mounts the real lib/route tables of slice 6 one case per row,
 // judged by the same escape oracle as agent-tasks.
 export const LIB_KINDS = ['lib-rows'];
