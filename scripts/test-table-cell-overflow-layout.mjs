@@ -278,6 +278,7 @@ try {
     import('/src/routes/app/agents/[id]/+page.svelte'),
     import('/src/routes/app/agents/[id]/page-fixture'),
     import('/src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte'),
+    import('/src/routes/app/memories/[id]/share/+page.svelte'),
     import('/src/lib/test/fixtures/table-cell-overflow-harness.ts'),
    ]);
    return rs.filter(r => r.status === 'rejected').map(r => String(r.reason));
@@ -892,6 +893,14 @@ async function loadNodePageData(devServer, tab) {
     return out;
    }, { kind });
    failures.push(...pinFailures.map(m => `${leg}: ${m}`));
+   if (kind === 'memory-shares') {
+    // portal#2619: the grantor ("Shared by") chip. Measured, then held to the chip floor the other tables hold (CHIP_VALUE_MIN_PX, below).
+    const chips = await page.locator('tbody td span[title^="hrn:user:"].line-clamp-1').evaluateAll(els => els.map(el => ({ urn: el.title, px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 })));
+    if (!chips.length) failures.push(`${leg}: no compact grantor chip found to measure`);
+    const narrow = chips.filter(c => c.px < 150 && !c.whole);
+    if (narrow.length) failures.push(`${leg}: grantor chip value narrower than 150px (CHIP_VALUE_MIN_PX) ${JSON.stringify(narrow)}`);
+    else if (chips.length) console.log(`${leg}: grantor chip value ${Math.min(...chips.map(c => c.px))}px`);
+   }
    if (kind === 'node-history') {
     // The ⋯ trigger must sit inside its cell at DEFAULT sizing (the audit's
     // remedy (e): a 28px control + its padding needs a 64px column), and the

@@ -58,6 +58,33 @@ export async function mountLoadedNodePage(
 }
 
 export async function mountOverflowFixture(target: HTMLElement, kind: string) {
+  if (kind === 'memory-shares') {
+    // portal#2619: the memory share table, which needs superforms (its three forms come from the loader). The $app/*
+    // imports superforms reaches are the same stubs the client lane aliases; the forms are built the way the loader builds them.
+    setStubPage('http://localhost/app/memories/mem-fixture/share', { id: 'mem-fixture' });
+    const [{ superValidate }, { zod4 }, { createShareSchema, revokeShareSchema, updateShareRoleSchema }] = await Promise.all([
+      import('sveltekit-superforms'),
+      import('sveltekit-superforms/adapters'),
+      import('../../../routes/app/memories/[id]/share/schema'),
+    ]);
+    const [createForm, roleForm, revokeForm] = await Promise.all([
+      superValidate({ granteeRef: '', role: 'reader' as const }, zod4(createShareSchema), { errors: false }),
+      superValidate(zod4(updateShareRoleSchema), { errors: false }),
+      superValidate(zod4(revokeShareSchema), { errors: false }),
+    ]);
+    const shares = [{
+      role: 'reader' as const, createdAt: '1789430400000', updatedAt: null,
+      grantee: { id: 'u-grantee', urn: 'hrn:user:example.test:fixture:grantee', handle: 'grantee', name: 'Grantee', email: null, avatarUrl: null },
+      grantor: { id: 'u-grantor', urn: 'hrn:user:example.test:fixture:grantor', handle: 'grantor', name: 'Grantor', email: null },
+    }];
+    const { default: Page } = await import('../../../routes/app/memories/[id]/share/+page.svelte');
+    const data = {
+      shareMemory: { id: 'mem-fixture', name: 'Fixture memory', urn: 'hrn:mem:example.test:fixture-memory', class: 'personal', userId: 'u-owner', shareable: true, shares },
+      shares, user: { id: 'u-owner', handle: 'owner', roles: [] }, createForm, roleForm, revokeForm,
+    };
+    const instance = mount(Page as never, { target, props: { data, form: null } as never });
+    return () => unmount(instance);
+  }
   if (kind === 'agents-mine' || kind === 'memories-mine' || kind === 'memories-shared') {
     setStubPage(`http://localhost/app/${kind === 'agents-mine' ? 'agents' : 'memories'}`, {});
     const { default: Page } =
