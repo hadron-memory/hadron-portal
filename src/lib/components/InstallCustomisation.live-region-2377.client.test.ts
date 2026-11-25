@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick } from '$lib/test/mountComponent';
+import { firstPaint } from '$lib/test/firstPaint';
 import { idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import Panel from './InstallCustomisation.svelte';
 
@@ -35,9 +36,12 @@ describe('InstallCustomisation loading lines are persistent live regions (#2377)
     const m = mountComponent(Panel, { appRef: 'app-a', agent, canManage: true });
     mounted.push(m);
     await tick(4);
-    // The list read starts at mount, so this region is populated from its first render: identity is what we pin.
+    // The list read starts at mount: the region is inserted empty and fills after the first paint (#2388).
+    const first = [...m.target.querySelectorAll('[role="status"]')];
+    await firstPaint();
     const during = loadingRegions(m.target);
     expect(during).toHaveLength(1);
+    expect(first).toContain(during[0]);
     resolve(json());
     await settle();
     expect(during[0].isConnected).toBe(true);
@@ -63,7 +67,9 @@ describe('InstallCustomisation loading lines are persistent live regions (#2377)
     open(root, 'Open');
     await tick(4);
     // The Original/Replacement grid only exists once a customisation is open (`{#if loc}`), so on the
-    // FIRST Open these regions are populated from their first render: identity is what we pin here.
+    // FIRST Open these regions are inserted by the Open itself: they fill after the first paint (#2388),
+    // and the same elements are what is left empty when the read lands.
+    await firstPaint();
     const during = loadingRegions(root);
     expect(during).toHaveLength(3); // list + original + replacement
     answerRead();
@@ -87,6 +93,7 @@ describe('InstallCustomisation loading lines are persistent live regions (#2377)
     const answerRead = deferred();
     open(root, 'Reload and discard draft');
     await tick(4);
+    await firstPaint();
     const during = loadingRegions(root);
     expect(during).toHaveLength(3);
     for (const r of during) expect(idle, 'each region existed, empty, before the reload').toContain(r);

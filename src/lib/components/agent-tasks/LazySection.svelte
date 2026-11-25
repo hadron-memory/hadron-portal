@@ -103,7 +103,7 @@
 </script>
 
 <div bind:this={host}>
-  <LiveRegion>{#if read === null && !placeholder}<p class="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>{/if}</LiveRegion>
+  <LiveRegion deferFirst data-testid="lazy-section-region-{section}">{#if read === null && !placeholder}<p class="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>{/if}</LiveRegion>
   {#if read !== null}
     {@render children(read as T)}
   {:else if placeholder}

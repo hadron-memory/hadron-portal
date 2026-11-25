@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { answerSnippet } from '$lib/test/answerSnippet.svelte';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { firstPaint } from '$lib/test/firstPaint';
 import LazySection from './LazySection.svelte';
 
 let fire: (() => void) | null = null;
@@ -32,7 +33,9 @@ it('the label lives in one persistent region: present while unread, gone once an
 
   const region = m.target.querySelector<HTMLElement>('[role="status"]');
   expect(region).not.toBeNull();
-  expect(region!.textContent).toContain('Loading'); // unread at mount: the label is the first content
+  expect(region!.textContent?.trim()).toBe(''); // inserted empty (#2388)...
+  await firstPaint();
+  expect(region!.textContent).toContain('Loading'); // ...and the label arrives after the first paint, in the same region
 
   fire!(); await tick(6);
   finish!('answer-A'); await tick(6);
