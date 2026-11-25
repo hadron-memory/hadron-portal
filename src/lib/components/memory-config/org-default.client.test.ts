@@ -23,7 +23,7 @@ function stubDialog() {
   proto.showModal = function (this: HTMLDialogElement) { this.setAttribute('open', ''); };
   proto.close = function (this: HTMLDialogElement) { this.removeAttribute('open'); };
 }
-afterEach(() => { for (const [k, v] of dialogOriginals.splice(0)) (HTMLDialogElement.prototype as unknown as Record<string, unknown>)[k] = v; });
+afterEach(() => { for (const [k, v] of dialogOriginals.splice(0).reverse()) (HTMLDialogElement.prototype as unknown as Record<string, unknown>)[k] = v; });
 afterEach(() => { cleanup.splice(0).forEach(f => f()); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 function openEditor(m: { target: HTMLElement }, create = false) { button(m.target, create ? 'Create template' : 'Edit').click(); flushSync(); }
 function lastBody() { return JSON.parse(fetcher.mock.calls.at(-1)![1].body); }
@@ -215,6 +215,12 @@ describe('what the save sends (portal#1743 blind review)', () => {
     await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('[role=alert]')?.textContent).toContain('whole organization'); });
     sw.checked = false; sw.dispatchEvent(new Event('change', { bubbles: true })); flushSync();
     fetcher.mockResolvedValueOnce({ ok: false, json: async () => ({ code: 'NODE_NOT_FOUND', error: 'Node not found.' }) });
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('[role=alert]')?.textContent).toBe('Node not found.'); });
+  });
+  it('a refusal on a rename of a default keeps the server text: this save did not turn it on', async () => {
+    fetcher.mockResolvedValue({ ok: false, json: async () => ({ code: 'NODE_NOT_FOUND', error: 'Node not found.' }) });
+    const m = mountTemplates({ initial: [tpl({ orgDefault: true })] }); openEditor(m);
     button(m.target, 'Save').click();
     await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('[role=alert]')?.textContent).toBe('Node not found.'); });
   });

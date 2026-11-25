@@ -79,15 +79,16 @@
   async function save(event: SubmitEvent) {
     event.preventDefault(); if (!writable || pending) return;
     pending = true; failure = null; notice = '';
+    // Whether THIS save turns it on decides the wording of a refusal; a rename of an existing default does not.
+    const turningOn = isOrg && orgDefault && !editing?.orgDefault;
     try {
       // Sent only when it changes: a rename of a default does not re-ask the server to validate it again.
-      const turningOn = isOrg && orgDefault && !editing?.orgDefault;
       const orgDefaultChanged = isOrg && (editing ? orgDefault !== (editing.orgDefault ?? false) : orgDefault);
       const input = { name, description: description || null, required, ...(orgDefaultChanged ? { orgDefault } : {}), ...(!editing || rulesChanged ? { rules: rules.map(ruleInput) } : {}) };
       await configCall({ kind: 'templates', op: editing ? 'update' : 'create', ownerType, ownerRef, ref: editing?.id, revision: editing?.revision, input });
       editing = undefined; notice = t('config.saved', 'Saved.');
       try { await reload(); } catch { failure = { error: t('config.template-reload-failed', 'Saved, but the templates could not be reloaded.') }; }
-    } catch (e) { failure = failureText(e as ConfigFailure, isOrg && orgDefault); }
+    } catch (e) { failure = failureText(e as ConfigFailure, turningOn); }
     finally { pending = false; }
   }
   // The refusals of turning it on, in words. The server's own text stands for everything else, so the cap is never ours to state.
