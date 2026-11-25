@@ -761,6 +761,8 @@ async function loadNodePageData(devServer, tab) {
  // findings/agent-tasks runs NO page legs — this list once fell back to ALL six
  // page kinds for any non-page kind, dragging the node loader and fetch guard
  // into single-kind runs.
+ // The chip floor (portal#2541), declared before the first leg that holds a chip to it; the agent-tasks tables and the share table read this one value.
+ const CHIP_VALUE_MIN_PX = 150;
  const pagesKinds = battery.pages;
  for (const kind of pagesKinds) for (const width of widths) for (const dark of [false, true]) {
   const page = await newEmulatedPage(browser, width);
@@ -895,10 +897,14 @@ async function loadNodePageData(devServer, tab) {
    failures.push(...pinFailures.map(m => `${leg}: ${m}`));
    if (kind === 'memory-shares') {
     // portal#2619: the grantor ("Shared by") chip. Measured, then held to the chip floor the other tables hold (CHIP_VALUE_MIN_PX, below).
-    const chips = await page.locator('tbody td span[title^="hrn:user:"].line-clamp-1').evaluateAll(els => els.map(el => ({ urn: el.title, px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 })));
-    if (!chips.length) failures.push(`${leg}: no compact grantor chip found to measure`);
-    const narrow = chips.filter(c => c.px < 150 && !c.whole);
-    if (narrow.length) failures.push(`${leg}: grantor chip value narrower than 150px (CHIP_VALUE_MIN_PX) ${JSON.stringify(narrow)}`);
+    // Scoped to the "Shared by" column by its header, not by the URN shape: the grantee column carries user chips too.
+    const chips = await page.evaluate(() => {
+     const idx = [...document.querySelectorAll('thead th')].find(h => h.textContent.trim().startsWith('Shared by'))?.cellIndex ?? -1;
+     return [...document.querySelectorAll('tbody tr')].flatMap(tr => [...(tr.children[idx]?.querySelectorAll('span[title^="hrn:user:"].line-clamp-1') ?? [])]).map(el => ({ urn: el.title, px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 }));
+    });
+    if (!chips.length) failures.push(`${leg}: no compact grantor chip found in the Shared by column to measure`);
+    const narrow = chips.filter(c => c.px < CHIP_VALUE_MIN_PX && !c.whole);
+    if (narrow.length) failures.push(`${leg}: grantor chip value narrower than ${CHIP_VALUE_MIN_PX}px ${JSON.stringify(narrow)}`);
     else if (chips.length) console.log(`${leg}: grantor chip value ${Math.min(...chips.map(c => c.px))}px`);
    }
    if (kind === 'node-history') {
@@ -1231,7 +1237,6 @@ const cellEscapes = (page, scope) => page.locator(`${scope}tbody td`).evaluateAl
  // min-width on it trades against containment, #2538); the caller's column floor does. Every compact worker chip
  // in the tables below must show its whole value, or at least CHIP_VALUE_MIN_PX of it (about 26 characters of the chip's
  // 0.6rem mono, the shape "e2e-alpha:team:bartholomew"), at every width, and must still carry the full URN as its title.
- const CHIP_VALUE_MIN_PX = 150;
  const CHIP_READABLE_ROWS = ['app-tasks:roster', 'app-tasks:composition-workers', 'app-tasks:composition-lanes', 'task-review-slots', 'app-tasks:alarms', 'app-tasks:board'];
  const chipReadable = scope => async (page, leg) => {
   const chips = await page.locator(`${scope}tbody td span[title^="hrn:"].line-clamp-1`).evaluateAll(els => els.map(el => ({ urn: el.title, titled: /^hrn:worker:example\.test:fixture:[a-z0-9]+$/.test(el.title), px: Math.round(el.clientWidth), whole: el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1 })));
