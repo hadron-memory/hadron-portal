@@ -127,7 +127,7 @@ describe('TeamMetricsPanel states', () => {
     const h = html(ok());
     expect(h).toContain('metrics-owner-projects-phone');
     expect(h).toContain('metrics-project-children-phone');
-    for (const label of ['By project', 'Direct tasks by status', '>Tasks<']) {
+    for (const label of ['By project', 'Tasks by status', '>Tasks<']) {
       const cells = headerCell(h, label);
       expect(cells).toHaveLength(1);
       expect(openTag(cells[0]!)).toContain('max-sm:hidden');

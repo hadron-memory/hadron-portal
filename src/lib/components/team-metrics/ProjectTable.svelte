@@ -1,4 +1,4 @@
-<!-- portal#1856 — started projects and their direct children counted by status: a DataTable, one row per project. -->
+<!-- portal#1856 — started projects and the tasks each is the nearest marked ancestor of, at any depth, counted by status (portal#2618): a DataTable, one row per project. -->
 <script lang="ts">
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -19,7 +19,7 @@
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
     { accessorKey: 'projectName', header: t('team-metrics.col.project', 'Project'), enableHiding: false, size: 300 },
-    { accessorFn: (r) => r.children.reduce((n, c) => n + c.tasks.total, 0), id: 'children', header: t('team-metrics.col.children', 'Direct tasks by status'), size: 460 },
+    { accessorFn: (r) => r.children.reduce((n, c) => n + c.tasks.total, 0), id: 'children', header: t('team-metrics.col.children', 'Tasks by status'), size: 460 },
   ];
   const table = createSvelteTable<Row>({
     get data() { return rows; },
