@@ -274,7 +274,7 @@
 </script>
 
 {#snippet pickersLoading()}
-  <LiveRegion>{#if pickers.kind === 'idle' || pickers.kind === 'loading'}<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.pickers-loading', 'Loading…')}</p>{/if}</LiveRegion>
+  <LiveRegion deferFirst>{#if pickers.kind === 'idle' || pickers.kind === 'loading'}<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.pickers-loading', 'Loading…')}</p>{/if}</LiveRegion>
 {/snippet}
 
 {#snippet pickersFailure()}

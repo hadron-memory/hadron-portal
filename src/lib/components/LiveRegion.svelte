@@ -24,20 +24,42 @@
   `empty:` on a call site. A flex/grid `gap` parent still counts it as an
   item: put the region outside that row rather than inside it.
 
+  A region whose host MOUNTS and starts its read in the same step (a panel opened on a click, a
+  section mounted unread) would otherwise be inserted already holding its text, and a screen reader
+  may not announce text that is present when a region is first registered. Pass `deferFirst` there: the
+  region is inserted EMPTY and takes its content after the first paint of the frame it was inserted in,
+  so the first read is a change inside a region that already exists (portal#2388). It is opt-in: a
+  region whose text is already visible content at mount (an error shown on load) must not wait.
+  The wrapper is in the DOM, and as tall as when idle, from the first frame, so layout does not move.
+
   Convention: hrn:node:hadronmemory.com:hadron-portal:components:live-region
   Check: hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted
 -->
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
 
   let {
     children,
     class: className = '',
     id,
+    deferFirst = false,
     ...rest
-  }: { children?: Snippet; class?: string; id?: string; [attr: `data-${string}`]: string | undefined } = $props();
+  }: { children?: Snippet; class?: string; id?: string; deferFirst?: boolean; [attr: `data-${string}`]: string | undefined } = $props();
 
   let el = $state<HTMLElement>();
+  // portal#2388: with `deferFirst` the content is withheld until after the first paint. Read once, at mount.
+  let filled = $state(untrack(() => !deferFirst));
+  onMount(() => {
+    if (filled) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fill = () => { timer = setTimeout(() => { filled = true; }, 0); };
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(fill) : undefined;
+    if (frame === undefined) fill();
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  });
 
   // Idle = no element child and no visible text. Kept from the content because `:empty` does not hold
   // when a whitespace text node sits between two blocks (portal#2394). Server-rendered markup is
@@ -53,4 +75,4 @@
   });
 </script>
 
-<div bind:this={el} {...rest} role="status" aria-live="polite" {id} class="idle:m-0 {className}">{@render children?.()}</div>
+<div bind:this={el} {...rest} role="status" aria-live="polite" {id} class="idle:m-0 {className}">{#if filled}{@render children?.()}{/if}</div>

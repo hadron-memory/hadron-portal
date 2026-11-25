@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick } from '$lib/test/mountComponent';
+import { firstPaint } from '$lib/test/firstPaint';
 import TaskPage from './[taskId]/+page.svelte';
 
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
@@ -66,6 +67,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
   it('reads nothing but the first screen until a section is shown', async () => {
     const m = mount();
     await tick(5);
+    await firstPaint();
     expect(fetched()).toEqual([]);
     expect(m.target.textContent).toContain('Ship it');
     expect(m.target.textContent).toContain('Loading history…');
@@ -75,6 +77,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
     answers.history = { kind: 'ok', value: { capped: false, events: [] } };
     mount();
     await tick(5);
+    await firstPaint();
     show('Loading history…');
     await tick(5);
     expect(sectionReads('history')).toHaveLength(1);
@@ -88,6 +91,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
     answers.history = { kind: 'ok', value: { capped: false, events: [] } };
     mount();
     await tick(8);
+    await firstPaint();
     expect(sectionReads('history')).toHaveLength(1);
     expect(sectionReads('review')).toHaveLength(1);
     expect(sectionReads('dependencies')).toHaveLength(1);
@@ -101,6 +105,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
   it('a failed history is an alert while the facts still render', async () => {
     mount();
     await tick(5);
+    await firstPaint();
     show('Loading history…');
     await tick(5);
     const alert = [...document.body.querySelectorAll('[role="alert"]')].map((a) => a.textContent);
@@ -117,6 +122,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
     ] } };
     const m = mount();
     await tick(5);
+    await firstPaint();
     show('Loading history…');
     await tick(5);
     const text = m.target.textContent ?? '';
@@ -135,6 +141,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
     ] } };
     const m = mount({ task: task({ assignee: holger }) });
     await tick(5);
+    await firstPaint();
     show('Loading history…');
     await tick(5);
     expect(m.target.textContent).toContain('assigned it to Holger');
@@ -145,6 +152,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
     answers.review = { kind: 'ok', value: { readiness: { ready: true, head: H, slots: [] }, seat: null } };
     const m = mount({ task: task({ properties: { 'pr.head': H } }) });
     await tick(5);
+    await firstPaint();
     show('Loading review…');
     await tick(5);
     const html = m.target.innerHTML;
@@ -156,6 +164,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
   it('a failed review costs the section, never the page', async () => {
     const m = mount();
     await tick(5);
+    await firstPaint();
     show('Loading review…');
     await tick(5);
     expect(m.target.textContent).toContain('Couldn’t load the review.');
@@ -166,6 +175,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
     answers.dependencies = { kind: 'ok', value: { blockedBy: { items: [], hasMore: false }, blocks: { items: [], hasMore: false } } };
     const m = mount();
     await tick(5);
+    await firstPaint();
     // Before the section is shown the priority form is already there as a native form (no-JS fallback).
     const fallback = m.target.querySelector('form[action="?/priority"]');
     expect(fallback).not.toBeNull();
@@ -179,6 +189,7 @@ describe('task page: sections read when shown (portal#2261)', () => {
   it('findings are asked only for a task with a result', async () => {
     mount({ task: task({ status: 'FINISHED', result: { outcome: 'SUCCESS', summary: 's', evidence: null } }) });
     await tick(5);
+    await firstPaint();
     show('Loading findings…');
     await tick(5);
     expect(sectionReads('findings')).toHaveLength(1);
@@ -195,6 +206,7 @@ describe('task page: write pickers read when a panel opens (portal#2261)', () =>
     answers.pickers = { kind: 'ok', value: { workers: [{ id: 'w1', name: 'Dara', role: 'x', urn: 'u' }], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] } };
     const m = mount();
     await tick(5);
+    await firstPaint();
     expect(sectionReads('pickers')).toHaveLength(0);
     await open(m, 'Reassign…');
     expect(sectionReads('pickers')).toHaveLength(1);
@@ -207,6 +219,7 @@ describe('task page: write pickers read when a panel opens (portal#2261)', () =>
   it('a failed picker read says so, offers Try again, and keeps Save from posting a blank form', async () => {
     const m = mount();
     await tick(5);
+    await firstPaint();
     await open(m, 'Edit details');
     expect(m.target.querySelector('#task-panel-edit [role="alert"]')?.textContent).toContain('Couldn’t load the people and workers to choose from.');
     expect(m.target.querySelector<HTMLButtonElement>('#task-panel-edit button[type="submit"]')!.disabled).toBe(true);
@@ -222,6 +235,7 @@ describe('task page: write pickers read when a panel opens (portal#2261)', () =>
     answers.memories = { kind: 'ok', value: [{ id: 'm1', name: 'Team KB', urn: 'hrn:mem:acme.com:team', visibility: null }] };
     const m = mount();
     await tick(5);
+    await firstPaint();
     await open(m, 'Edit details');
     expect(sectionReads('memories')).toHaveLength(0);
     // The reference form's kind select is NODE; the picker opens from "Choose a node…".

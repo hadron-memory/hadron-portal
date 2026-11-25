@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { firstPaint } from '$lib/test/firstPaint';
 import TaskActionBar from './TaskActionBar.svelte';
 
 /**
@@ -45,6 +46,7 @@ describe.each([
 
     toggle(root, label).click();
     await tick(3);
+    await firstPaint();
     const panel = root.querySelector<HTMLElement>(`#task-panel-${panelId}`)!;
     const during = loadingRegions(panel);
     expect(during, 'one loading region in the open panel').toHaveLength(1);

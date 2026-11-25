@@ -512,9 +512,12 @@ describe('task page: Review section (portal#1697)', () => {
   const H = 'c'.repeat(40);
   const review = { kind: 'ok', value: { readiness: { ready: true, head: H, slots: [] }, seat: null } };
 
-  it('a task whose review has not been read shows no Review section, only its loading line', () => {
+  it('a task whose review has not been read shows no Review section, only its (still empty) loading region', () => {
     const html = taskPage();
     expect(html).not.toContain('task-review-heading');
-    expect(html).toContain('Loading review…');
+    // portal#2388: the label region is server-rendered EMPTY and takes 'Loading review…' after the first paint
+    // in the browser (LiveRegion deferFirst; pinned in first-read-announcement-2388.client.test.ts), so the
+    // markup holds the region and no text.
+    expect(html).not.toContain('Loading review…');
   });
 });
