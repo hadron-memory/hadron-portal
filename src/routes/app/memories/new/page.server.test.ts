@@ -57,6 +57,11 @@ describe('personal (org-less) create-memory action (#627)', () => {
     expect(vars?.name).toBe('My notes');
   });
 
+  it('supports the private class', async () => {
+    await runCreate({ displayName: 'secret', slug: 'secret', memoryClass: 'private' });
+    expect(createVars()?.memoryClass).toBe('private');
+  });
+
   it('creates in one call: no follow-up rename, whatever the display name (#2647)', async () => {
     await runCreate({ displayName: 'My Notes', slug: 'my-notes', memoryClass: 'personal' });
     expect(mockRequest.mock.calls.filter((c) => c[0] === CREATE_PERSONAL_MEMORY_MUTATION)).toHaveLength(1);

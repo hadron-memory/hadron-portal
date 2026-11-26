@@ -71,6 +71,7 @@ describe('create agent action', () => {
 
       visibility: 'ORGANIZATION',
     });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
     expect(mockRequest).not.toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, expect.anything());
   });
 
