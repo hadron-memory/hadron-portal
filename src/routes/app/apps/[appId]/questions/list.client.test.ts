@@ -195,3 +195,46 @@ describe('paging', () => {
     expect(m.target.querySelector<HTMLAnchorElement>('a[rel=next]')?.getAttribute('href')).toBe('/app/apps/a1/questions?offset=50');
   });
 });
+
+// Review findings on the first head (BLIND P2 x3, UX P2 and P3).
+describe('review findings', () => {
+  it('a page past the end says so and offers the first page, never "nothing has been asked"', async () => {
+    const m = await mount(emptyOf({
+      logs: { kind: 'ok', value: [{ id: 'l1' }] }, filter: filter({ status: 'all', assignee: { kind: 'all' }, offset: 150 }),
+      questions: { kind: 'ok', value: { total: 120, items: [] } }, navigation: { offset: 150, count: 0, total: 120, previousHref: '/p?offset=100', nextHref: null },
+    }));
+    expect(status(m)[0].textContent).toContain('No questions on this page.');
+    expect(status(m)[0].textContent).not.toContain('No questions have been asked yet.');
+    const first = [...m.target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => /first page/i.test(a.textContent ?? ''));
+    expect(first?.getAttribute('href')).toBe('/app/apps/a1/questions?status=all&assignee=all');
+  });
+
+  it('a log read that answers not-participant shows the not-participant note, not a blank page', async () => {
+    const m = await mount(emptyOf({ logs: { kind: 'not-participant' } }));
+    expect(m.target.querySelector('[data-testid=questions-not-participant]')).not.toBeNull();
+    expect(m.target.querySelector('form')).toBeNull();
+  });
+
+  it('the filters apply with a button that is always there, and no select submits by itself (WCAG 3.2.2)', async () => {
+    const m = await mount();
+    const form = m.target.querySelector<HTMLFormElement>('form[method=GET]')!;
+    expect(form.querySelector('button[type=submit]')?.textContent?.trim()).toBe('Apply');
+    let submits = 0;
+    form.addEventListener('submit', (e) => { e.preventDefault(); submits += 1; });
+    const select = form.querySelector<HTMLSelectElement>('select[name=priority]')!;
+    select.value = 'urgent';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    expect(submits).toBe(0);
+  });
+
+  it('draws no pager under an empty first page ("0 of 0")', async () => {
+    const m = await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l1' }] } }));
+    expect(m.target.textContent).not.toMatch(/0\s+of\s+0/);
+  });
+
+  it('formats dates with the portal’s shared formatter and 24-hour time', async () => {
+    const m = await mount();
+    expect(text(m)).toMatch(/Nov \d+, 2026, \d\d:\d\d:\d\d/) // zone-independent: the shared formatter, seconds included;
+  });
+});

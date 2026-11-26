@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -7,6 +6,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
+  import { fmtRunTime } from '$lib/flow/runs';
   import { questionStateLabel } from '$lib/questions/labels';
   import type { QuestionActor } from '$lib/questions/types';
   import type { QuestionListRow } from '$lib/server/app-questions';
@@ -31,7 +31,8 @@
   const appHref = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
   const filter = $derived(data.filter);
-  const read = $derived(data.questions);
+  // A question log read that answers APP_NOT_FOUND says the same thing the question read would.
+  const read = $derived(data.logs?.kind === 'not-participant' ? ({ kind: 'not-participant' } as const) : data.questions);
   const rows = $derived<QuestionListRow[]>(read?.kind === 'ok' ? read.value.items : []);
   const total = $derived<number>(read?.kind === 'ok' ? read.value.total : 0);
   const people = $derived<{ id: string; name: string | null; handle: string | null }[]>(data.people.people);
@@ -75,11 +76,8 @@
   });
 
   const everything = $derived(filter.status === 'all' && filter.assignee.kind === 'all' && filter.priority.length === 0);
+  const firstPageHref = $derived(questionsHref(basePath, filter, { offset: 0 }));
   const clearHref = $derived(questionsHref(basePath, filter, { status: 'all', assignee: { kind: 'all' }, priority: [], offset: 0 }));
-
-  // The form submits on change when JavaScript runs; without it the button is the way.
-  let enhanced = $state(false);
-  onMount(() => { enhanced = true; });
 
   function actorOf(a: QuestionActor | null) {
     if (!a) return null;
@@ -88,11 +86,7 @@
     if (a.app) return { name: a.app.name ?? a.app.handle ?? a.app.id, urn: (a.app as { urn?: string | null }).urn ?? null };
     return null;
   }
-  const dateOf = (s: string | null | undefined) => {
-    if (!s) return '—';
-    const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? s : d.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-  };
+  const dateOf = fmtRunTime;
   const priorityText = (p: string | null) => (p ? (PRIORITY_LABEL[p.toLowerCase() as PriorityKey] ?? p) : PRIORITY_LABEL.normal);
 
   // The server sorts and filters (hrn:node:hadronmemory.com:specs:cor:dmo:140:09): no column sorts or searches this one page.
@@ -153,7 +147,7 @@
       <input type="hidden" name="status" value={filter.status} />
       <div class="min-w-0 basis-60">
         <label for="questions-assignee" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.filter.assignee', 'For')}</label>
-        <select id="questions-assignee" name="assignee" value={assigneeValue} onchange={(e) => enhanced && e.currentTarget.form?.requestSubmit()}
+        <select id="questions-assignee" name="assignee" value={assigneeValue}
           class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
           <option value="me">{t('app.questions.assignee.me', 'Mine and unassigned')}</option>
           <option value="all">{t('app.questions.assignee.all', 'Everyone')}</option>
@@ -168,21 +162,20 @@
       </div>
       <div class="min-w-0 basis-40">
         <label for="questions-priority" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.filter.priority', 'Priority')}</label>
-        <select id="questions-priority" name="priority" value={priorityValue} onchange={(e) => enhanced && e.currentTarget.form?.requestSubmit()}
+        <select id="questions-priority" name="priority" value={priorityValue}
           class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
           {#each priorityChoices as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
         </select>
       </div>
       <div class="min-w-0 basis-40">
         <label for="questions-sort" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.filter.sort', 'Sort')}</label>
-        <select id="questions-sort" name="sort" value={filter.sort} onchange={(e) => enhanced && e.currentTarget.form?.requestSubmit()}
+        <select id="questions-sort" name="sort" value={filter.sort}
           class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
           {#each SORT_KEYS as s (s)}<option value={s}>{SORT_LABEL[s]}</option>{/each}
         </select>
       </div>
-      {#if !enhanced}
-        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.questions.filter.apply', 'Apply')}</button>
-      {/if}
+      <!-- A select that submits on change reloads the page once per arrow key (WCAG 3.2.2), so the choice is applied with this button. -->
+      <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.questions.filter.apply', 'Apply')}</button>
     </form>
   {/if}
 
@@ -202,6 +195,8 @@
       {:else if data.logs?.kind === 'ok' && data.logs.value.length === 0}
         <p data-empty="no-log">{t('app.questions.empty.no-log', 'This App has no question log yet, so its agents cannot ask questions.')}</p>
         <p>{t('app.questions.empty.no-log.cli', 'A manager of one of its memories can create one with the CLI: {command}', { command: 'hadron question log create' })}</p>
+      {:else if data.logs?.kind === 'ok' && total > 0}
+        <p data-empty="past-end">{t('app.questions.empty.past-end', 'No questions on this page.')} <a href={firstPageHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.questions.empty.first-page', 'Go to the first page')}</a></p>
       {:else if data.logs?.kind === 'ok' && everything}
         <p data-empty="none">{t('app.questions.empty.none', 'No questions have been asked yet.')}</p>
       {:else if data.logs?.kind === 'ok'}
@@ -257,7 +252,7 @@
           {/snippet}
         </DataTable>
       {/if}
-      {#if data.navigation}
+      {#if data.navigation && (data.navigation.total > 0 || data.navigation.offset > 0)}
         <ListPageNav page={data.navigation} label={t('app.questions.pages', 'Questions pages')} />
       {/if}
     {/if}
