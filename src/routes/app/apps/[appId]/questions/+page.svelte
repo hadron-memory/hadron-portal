@@ -23,7 +23,7 @@
 
   /**
    * portal#2235 (Questions P2): the App's Questions list. Read only: a row links to the question's own page, where the card
-   * answers it. Every filter, sort and page is the server's (cor:dmo:140:09), so the table sorts and pages nothing itself.
+   * answers it. Every filter, sort and page is the server's (hrn:node:hadronmemory.com:specs:cor:dmo:140:09), so the table sorts and pages nothing itself.
    */
   let { data }: { data: PageData } = $props();
 
@@ -95,7 +95,7 @@
   };
   const priorityText = (p: string | null) => (p ? (PRIORITY_LABEL[p.toLowerCase() as PriorityKey] ?? p) : PRIORITY_LABEL.normal);
 
-  // The server sorts and filters (cor:dmo:140:09): no column sorts or searches this one page.
+  // The server sorts and filters (hrn:node:hadronmemory.com:specs:cor:dmo:140:09): no column sorts or searches this one page.
   const col = (c: PortalColumnDef<QuestionListRow>): PortalColumnDef<QuestionListRow> => ({ ...c, enableSorting: false, enableGlobalFilter: false });
   const columns: PortalColumnDef<QuestionListRow>[] = [
     col({ id: 'code', accessorFn: (r) => r.code, header: t('app.questions.col.code', 'Code'), enableHiding: false, size: 110 }),
@@ -111,7 +111,7 @@
   const table = createSvelteTable<QuestionListRow>({
     get data() { return rows; },
     columns,
-    // The server sorts and pages (cor:dmo:140:09): a client-side sort would reorder this page alone.
+    // The server sorts and pages (hrn:node:hadronmemory.com:specs:cor:dmo:140:09): a client-side sort would reorder this page alone.
     enableSorting: false,
     manualPagination: true,
     manualFiltering: true,
