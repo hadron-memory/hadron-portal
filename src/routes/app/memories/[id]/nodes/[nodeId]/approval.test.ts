@@ -180,6 +180,21 @@ describe('approveNode action', () => {
     expect(m.text).not.toContain('server prose');
   });
 
+  // portal#2236: the codes a question's approval can now return.
+  it.each([
+    ['QUESTION_NOT_DECIDER', 403, "Only one of this question's deciders can approve it, acting as themselves."],
+    ['QUESTION_IMPERSONATION_REFUSED', 403, 'A question cannot be approved while impersonating.'],
+    ['QUESTION_NOT_ANSWERED', 409, 'There is no answer to approve yet.'],
+    ['QUESTION_WITHDRAWN', 409, 'This question was withdrawn.'],
+    ['QUESTION_INVALID', 409, 'This question cannot be verified, so it cannot be approved.'],
+  ])('%s maps to its text and status', async (code, status, copy) => {
+    mockRequest.mockRejectedValue(gqlError(code));
+    const r = await runAction('approveNode', { _kind: 'approveNode', revision: '7' });
+    expect(mockRequest).toHaveBeenCalledWith(APPROVE_NODE_MUTATION, { nodeRef: 'leaf-pk', revision: 7 });
+    expect(r.status).toBe(status);
+    expect(messageOf(r)).toEqual({ type: 'error', text: copy });
+  });
+
   it('an unrecognised code is a failure (500), not a refusal (Gene on #993)', async () => {
     mockRequest.mockRejectedValue(gqlError('INTERNAL_SERVER_ERROR'));
     const r = await runAction('approveNode', { _kind: 'approveNode', revision: '4' });
