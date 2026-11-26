@@ -17,6 +17,7 @@ const member = (id: string, name: string) => ({ user: { id, handle: name.toLower
 let scope: unknown[] = [];
 let members: unknown = [];
 let createError: unknown = null;
+let scopeError: unknown = null;
 
 beforeEach(() => {
   request.mockReset();
@@ -24,8 +25,9 @@ beforeEach(() => {
   scope = [scopeRow('m1', 'app'), scopeRow('m2', 'knowledge'), scopeRow('m3', 'personal'), scopeRow('m4', 'private'), scopeRow('m5', 'system'), scopeRow('m6', 'group', ['INHERITED_BASE'])];
   members = [member('u1', 'Ada'), member('u2', 'Bob')];
   createError = null;
+  scopeError = null;
   request.mockImplementation(async (q: string) => {
-    if (q === APP_MEMORY_SCOPE_QUERY) return { appMemoryScope: { items: scope, total: scope.length } };
+    if (q === APP_MEMORY_SCOPE_QUERY) { if (scopeError) throw scopeError; return { appMemoryScope: { items: scope, total: scope.length } }; }
     if (q === TEAM_ROSTER_QUERY) return { teamRoster: { workers: [] } };
     if (q === APP_PEOPLE_QUERY) return { app: { id: 'app-1', members } };
     if (q === CREATE_QUESTION_LOG_MUTATION) { if (createError) throw createError; return { createQuestionLog: { id: 'l1', urn: 'hrn:node:acme.com:m1:questions', name: 'Questions', prefix: 'D' } }; }
@@ -86,6 +88,23 @@ describe('only what was offered is accepted (400, no create request)', () => {
     expect(creates()).toHaveLength(0);
     await outcome(submit({ memoryId: 'm1', deciders: ['u1'] }));
     expect(creates()[0][1]).toMatchObject({ defaultDeciders: ['u1'] });
+  });
+});
+
+describe('BLIND findings', () => {
+  it('an unreadable memory scope is a load failure, not "choose a memory" (F1)', async () => {
+    scopeError = new Error('boom');
+    const r = await outcome(submit({ memoryId: 'm1', deciders: ['u1'] }));
+    expect(creates()).toHaveLength(0);
+    expect(r.returned).toMatchObject({ status: 503 });
+    expect(r.returned.data.createLog.error).toMatch(/Couldn.t load the App.s memories/);
+    expect(r.returned.data.createLog.values).toEqual({ memoryId: 'm1', deciders: ['u1'] });
+  });
+  it('an unknown error keeps the submitted choices too (F5)', async () => {
+    createError = new Error('network');
+    const r = await outcome(submit({ memoryId: 'm2', deciders: ['u2'] }));
+    expect(r.returned).toMatchObject({ status: 500 });
+    expect(r.returned.data.createLog.values).toEqual({ memoryId: 'm2', deciders: ['u2'] });
   });
 });
 

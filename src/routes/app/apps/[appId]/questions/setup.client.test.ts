@@ -131,6 +131,37 @@ describe('UX seat findings (P2 x2, P3 x3)', () => {
   });
 });
 
+describe('BLIND findings', () => {
+  it('picking another memory moves the URN line and the submitted memory (F8)', async () => {
+    const m = await mount(noLog());
+    const form = setupForm(m)!;
+    const select = form.querySelector<HTMLSelectElement>('select[name=memoryId]')!;
+    expect(form.textContent).toContain('acme.com:m1');
+    select.value = 'm2';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(3);
+    expect(form.textContent).toContain('acme.com:m2');
+    expect(form.textContent).not.toContain('acme.com:m1');
+    expect(new FormData(form).get('memoryId')).toBe('m2');
+  });
+  it('the set-deciders sentence is one translation unit, the command still in code (F2)', async () => {
+    const src = (await import('node:fs')).readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/<code[^>]*>hadron question log set-deciders<\/code>\./);
+    const m = await mount(withLog());
+    const p = [...m.target.querySelectorAll('p')].find((x) => x.textContent!.includes('set-deciders'))!;
+    expect(p.textContent!.replace(/\s+/g, ' ').trim()).toBe('To change who decides, use hadron question log set-deciders.');
+    expect(p.querySelector('code')?.textContent).toBe('hadron question log set-deciders');
+  });
+  it('the impersonation sentence has one key, shared by the page and the action (F7)', async () => {
+    const fs = await import('node:fs');
+    const page = fs.readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+    const action = fs.readFileSync(new URL('./+page.server.ts', import.meta.url), 'utf8');
+    const key = (src: string) => /t\('([a-z.-]+)', 'Questions cannot be set up while impersonating\.'/.exec(src)?.[1];
+    expect(key(page)).toBeDefined();
+    expect(key(page)).toBe(key(action));
+  });
+});
+
 describe('review nits', () => {
   it('while impersonating, no form: the action would refuse it, so the page says so up front', async () => {
     const m = await mount(noLog({ impersonating: 'Some User' }));
