@@ -2056,8 +2056,8 @@ export const CREATE_AGENT_MUTATION = /* GraphQL */ `
 // optional). Mirrors CREATE_PERSONAL_MEMORY_MUTATION for the individual path.
 export const CREATE_PERSONAL_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreatePersonalAgent($name: String!, $description: String, $visibility: AgentVisibility) {
-    createAgent(name: $name, description: $description, visibility: $visibility) { ...AgentFields }
+  mutation CreatePersonalAgent($slug: String, $name: String!, $description: String, $visibility: AgentVisibility) {
+    createAgent(slug: $slug, name: $name, description: $description, visibility: $visibility) { ...AgentFields }
   }
 `;
 
