@@ -92,6 +92,10 @@ const h = vi.hoisted(() => {
     // Stops (a section of Settings, read when it is asked for): the signals page, the roster and the people who set stops.
     StopWorkers: () => ({ teamRoster: { workers: [] } }),
     StopPeople: () => ({ app: { members: [] } }),
+    // Channels (a section of Settings, read when it is asked for): the list, the register and the viewer's manage audit.
+    // No shared memory, so no per-memory write audit is read.
+    AppChannelsApp: () => ({ app: { id: 'a1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null, defaultChannel: null, sharedMemory: null } }),
+    RegisterEntriesByOwner: () => ({ registerEntries: { items: [], total: 0 } }),
   };
   return {
     ops,
@@ -155,6 +159,7 @@ const TAB_OPS: Record<string, string[]> = {
   secrets: ['AppSecrets', 'SecretChangeRequestState'],
   tickers: ['AppTickers', 'AppTickerSettings', 'AppDeliverySettings'],
   stops: ['TeamStopSignals', 'AppViewerManages', 'StopWorkers', 'StopPeople'],
+  channels: ['AppChannelsApp', 'AppChannels', 'RegisterEntriesByOwner', 'Workers', 'AppInstalledAgents', 'SelfCanManage'],
   client: ['SelfCanManage', 'AppKeys'],
 };
 
@@ -162,7 +167,7 @@ const opSet = () => [...new Set(h.ops)].sort();
 const expected = (tab: string) => [...new Set([...FRAME, ...TAB_OPS[tab]])].sort();
 /** App Keys, AI Service Configs and Node-role templates are sections of Settings. A link that still says `?tab=keys` opens Settings with that
  *  section open, so its first screen is Settings' reads plus the section's own. */
-const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops'];
+const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops', 'channels'];
 const expectedOpening = (tab: string) => SECTION_TABS.includes(tab)
   ? [...new Set([...FRAME, ...TAB_OPS.settings, ...TAB_OPS[tab]])].sort()
   : expected(tab);

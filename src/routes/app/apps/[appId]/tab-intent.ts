@@ -36,6 +36,7 @@ export const APP_TAB_IDS = [
   'secrets',
   'tickers',
   'stops',
+  'channels',
   'client',
 ] as const;
 
@@ -75,6 +76,7 @@ export const SETTINGS_SECTION_IDS = [
   'secrets',
   'tickers',
   'stops',
+  'channels',
   'danger-zone',
 ] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -90,6 +92,7 @@ export const SECTION_DATA_TAB: Partial<Record<SettingsSectionId, AppTabId>> = {
   secrets: 'secrets',
   tickers: 'tickers',
   stops: 'stops',
+  channels: 'channels',
 };
 
 /** Tabs that became Settings sections: the tab id, and the section it now is. */
@@ -100,6 +103,7 @@ const TAB_TO_SECTION: Record<string, SettingsSectionId> = {
   secrets: 'secrets',
   tickers: 'tickers',
   stops: 'stops',
+  channels: 'channels',
 };
 
 /** The Settings section a retired tab id became, or null. */

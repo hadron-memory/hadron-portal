@@ -7,7 +7,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import Page from './+page.svelte';
+import Page from '$lib/test/ChannelsBodyHarness.svelte';
 import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
 import {
   addAttendanceSchema,
@@ -16,7 +16,7 @@ import {
   editAttendanceSchema,
   removeAttendanceSchema,
   renameChannelSchema,
-} from './schema';
+} from './channels-schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {

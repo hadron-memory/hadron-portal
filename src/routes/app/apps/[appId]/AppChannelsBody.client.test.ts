@@ -11,7 +11,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { announcedStatusRegion, idleStatusRegions } from '$lib/test/firstPopulatedStatusText';
-import Page from './+page.svelte';
+import Page from '$lib/test/ChannelsBodyHarness.svelte';
 import { rowMenuItems } from '$lib/test/rowMenu';
 import {
   addAttendanceSchema,
@@ -20,7 +20,7 @@ import {
   editAttendanceSchema,
   removeAttendanceSchema,
   renameChannelSchema,
-} from './schema';
+} from './channels-schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -212,7 +212,7 @@ describe('Channels page', () => {
 
   it('the create panel names its target memory with its URN', async () => {
     const { target } = await mountPage([channel()]);
-    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    const panel = [...target.querySelectorAll('h3')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
     expect(panel.innerHTML).toContain('hrn:mem:acme.com:team-shared');
   });
 
@@ -270,7 +270,7 @@ describe('Channels page', () => {
 
   it('a read-only caller still sees the target memory’s URN in the create panel', async () => {
     const { target } = await mountPage([channel()], { canWrite: { 'mem-shared': false } });
-    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    const panel = [...target.querySelectorAll('h3')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
     expect(panel.textContent).toContain('needs write access');
     expect(panel.innerHTML).toContain('hrn:mem:acme.com:team-shared');
   });
@@ -342,7 +342,7 @@ describe('Channels page', () => {
 
   it('with no readable shared memory, the create panel says unavailable, never "has none"', async () => {
     const { target } = await mountPage([channel()], { app: { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: null, sharedMemory: null } });
-    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    const panel = [...target.querySelectorAll('h3')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
     expect(panel.textContent).toContain('isn’t available to you');
     expect(panel.textContent).not.toMatch(/has no shared memory/);
   });
@@ -404,12 +404,6 @@ describe('Channels page', () => {
     } finally {
       vi.unstubAllGlobals();
     }
-  });
-
-  it('names the App it manages with its URN', async () => {
-    const { target } = await mountPage([channel()]);
-    const h1 = target.querySelector('h1')!;
-    expect(h1.parentElement!.innerHTML).toContain('hrn:app:acme.com:team');
   });
 
   it('"Show for" offers active attendees only', async () => {

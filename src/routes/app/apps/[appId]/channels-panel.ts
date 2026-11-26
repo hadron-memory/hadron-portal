@@ -1,19 +1,21 @@
-import { error, fail } from '@sveltejs/kit';
+/**
+ * #942 — an App's Channels, as a section of Settings: the list, the register and the three forms' starting state.
+ * Read only when the section is asked for (the URL names it, or the reader unfolds it).
+ *
+ * A read that fails is a state of the section (`failed`), never the App page's 404: the App read gates every tab.
+ * (The old /channels page answered an App the caller could not see as a missing one.)
+ */
 import { ClientError } from 'graphql-request';
-import { message, superValidate } from 'sveltekit-superforms/server';
+import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import { gqlClient } from '$lib/server/api';
+import type { GraphQLClient } from 'graphql-request';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
-import { attendanceActions, registerForms } from '$lib/server/register-actions';
+import { registerForms } from '$lib/server/register-actions';
 import {
   APP_CHANNELS_APP_QUERY,
   APP_CHANNELS_QUERY,
-  APP_SHARED_MEMORY_QUERY,
-  CREATE_CHANNEL_MUTATION,
-  DELETE_CHANNEL_MUTATION,
   SELF_CAN_WRITE_QUERY,
-  UPDATE_CHANNEL_MUTATION,
   APP_INSTALLED_AGENTS_QUERY,
   REGISTER_ENTRIES_BY_OWNER_QUERY,
   SELF_CAN_MANAGE_QUERY,
@@ -21,13 +23,9 @@ import {
 } from '$lib/server/queries';
 import { t } from '$lib/i18n/t';
 import type { Channel, RegisterEntry } from '$lib/types';
-import type { Actions, PageServerLoad } from './$types';
-import {
-  channelLoc,
-  createChannelSchema,
-  deleteChannelSchema,
-  renameChannelSchema,
-} from './schema';
+import type { Attendee } from '$lib/register/types';
+import { readableInstalledAgents, type InstalledAgent } from '$lib/app-installed-agents';
+import { createChannelSchema, deleteChannelSchema, renameChannelSchema } from './channels-schema';
 
 type AppChannels = {
   app: {
@@ -40,6 +38,7 @@ type AppChannels = {
   } | null;
   channels: { total: number; items: Channel[] };
 };
+
 
 /**
  * #942 slice 2: an App's Channels (spec 049 phase 4).
@@ -63,22 +62,21 @@ type AppChannels = {
  *   `chats:team` lives. Channels in other memories belong to a memory-level
  *   view, not this one.
  */
-export const load: PageServerLoad = async ({ params, locals }) => {
-  const client = gqlClient(locals.token);
+export async function loadChannelsPanel(want: boolean, client: GraphQLClient, appId: string, locals: App.Locals) {
+  if (!want) return null;
   let data: AppChannels;
   try {
     const [{ app }, items] = await Promise.all([
-      client.request<Pick<AppChannels, 'app'>>(APP_CHANNELS_APP_QUERY, { ref: params.appId }),
-      fetchAllItems<Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId }),
+      client.request<Pick<AppChannels, 'app'>>(APP_CHANNELS_APP_QUERY, { ref: appId }),
+      fetchAllItems<Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: appId }),
     ]);
     data = { app, channels: { total: items.length, items } };
   } catch (e) {
-    // An App the caller cannot see answers as a missing one on both fields.
     const code = e instanceof ClientError && e.response.errors?.length ? extractGqlErrorCode(e) : null;
-    if (code === 'NOT_FOUND' || code === 'FORBIDDEN') throw error(404, 'App not found');
-    throw e;
+    console.warn(`[app-channels] read failed for app ${appId} (${code ?? 'no code'}):`, e);
+    return { kind: 'failed' as const };
   }
-  if (!data.app) throw error(404, 'App not found');
+  if (!data.app) return { kind: 'failed' as const };
 
   // Keyed by memory id (what the page looks up); audited by URN.
   // #2509: a concealed host memory (`memory: null`) has no record to audit —
@@ -111,6 +109,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const register = await loadRegister(client, data.app, locals.user?.id ?? null, new Set(data.channels.items.map((c) => c.id)));
 
   return {
+    kind: 'ok' as const,
     app: data.app,
     channels: data.channels.items,
     ...register,
@@ -122,11 +121,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false, id: 'deleteChannel' }),
     ...(await registerForms()),
   };
-};
-
-export type { Attendee } from '$lib/register/types';
-import type { Attendee } from '$lib/register/types';
-import { readableInstalledAgents, type InstalledAgent } from '$lib/app-installed-agents';
+}
 
 /**
  * #942 slice 3: the register rows this App owns, the organization's rows
@@ -146,7 +141,7 @@ import { readableInstalledAgents, type InstalledAgent } from '$lib/app-installed
  * facts.
  */
 async function loadRegister(
-  client: ReturnType<typeof gqlClient>,
+  client: GraphQLClient,
   app: NonNullable<AppChannels['app']>,
   userId: string | null,
   channelIds: Set<string>,
@@ -208,7 +203,7 @@ async function loadRegister(
  * are mapped (resolvers.channel.ts / lib/channels.ts); anything else, including
  * the untyped `Forbidden`, is the server's own message.
  */
-function channelErrorText(e: unknown, fallback: string): string {
+export function channelErrorText(e: unknown, fallback: string): string {
   switch (extractGqlErrorCode(e)) {
     case 'LOC_OVERLAPS_CHANNEL':
       return t('app.channels.error.overlaps', 'That address overlaps an existing channel. Pick another short name.');
@@ -222,59 +217,3 @@ function channelErrorText(e: unknown, fallback: string): string {
   }
 }
 
-export const actions: Actions = {
-  // #942: the register writes, shared with the organization's Channels page.
-  ...attendanceActions((params) => params.appId),
-
-  createChannel: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(createChannelSchema), { id: 'createChannel' });
-    if (!form.valid) return fail(400, { form });
-    const client = gqlClient(locals.token);
-    try {
-      const { app } = await client.request<{ app: { id: string; sharedMemory: { id: string } | null } | null }>(
-        APP_SHARED_MEMORY_QUERY,
-        { ref: params.appId },
-      );
-      if (!app?.sharedMemory) {
-        return message(form, { type: 'error', text: t('app.channels.error.no-host', 'This App’s shared memory, where its channels live, isn’t available to you.') }, { status: 400 });
-      }
-      await client.request(CREATE_CHANNEL_MUTATION, {
-        input: {
-          memoryRef: app.sharedMemory.id,
-          loc: channelLoc(form.data.slug),
-          name: form.data.name,
-          description: form.data.description || null,
-        },
-      });
-    } catch (e) {
-      return message(form, { type: 'error', text: channelErrorText(e, 'The channel could not be created.') }, { status: 400 });
-    }
-    return message(form, { type: 'success', text: t('app.channels.created', 'Channel created.') });
-  },
-
-  renameChannel: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(renameChannelSchema), { id: 'renameChannel' });
-    if (!form.valid) return fail(400, { form });
-    try {
-      await gqlClient(locals.token).request(UPDATE_CHANNEL_MUTATION, {
-        ref: form.data.ref,
-        // An emptied description clears it; the server trims and stores null.
-        input: { name: form.data.name, description: form.data.description },
-      });
-    } catch (e) {
-      return message(form, { type: 'error', text: channelErrorText(e, 'The channel could not be renamed.') }, { status: 400 });
-    }
-    return message(form, { type: 'success', text: t('app.channels.renamed', 'Channel updated.') });
-  },
-
-  deleteChannel: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(deleteChannelSchema), { id: 'deleteChannel' });
-    if (!form.valid) return fail(400, { form });
-    try {
-      await gqlClient(locals.token).request(DELETE_CHANNEL_MUTATION, { ref: form.data.ref });
-    } catch (e) {
-      return message(form, { type: 'error', text: channelErrorText(e, 'The channel could not be deleted.') }, { status: 400 });
-    }
-    return message(form, { type: 'success', text: t('app.channels.deleted', 'Channel deleted.') });
-  },
-};

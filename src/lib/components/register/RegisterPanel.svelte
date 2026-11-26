@@ -51,6 +51,8 @@
     listKey,
     loadFailed = false,
     inheritedHref = null,
+    actions = { add: '?/addAttendance', edit: '?/editAttendance', remove: '?/removeAttendance' },
+    onwrite,
     between,
   }: {
     /** Every row to show: the owner's own, plus any inherited ones. */
@@ -77,6 +79,10 @@
     loadFailed?: boolean;
     /** Where inherited (org) rows are managed, when the caller may go there. */
     inheritedHref?: string | null;
+    /** The form actions a host that is not the page the register was written for posts to. */
+    actions?: { add: string; edit: string; remove: string };
+    /** A host that reads its own data after a write: the page is not invalidated, this runs instead. */
+    onwrite?: () => void | Promise<void>;
     /** Rendered between the table and the add form (the App page's effective view). */
     between?: Snippet;
   } = $props();
@@ -94,12 +100,14 @@
     }
   }
   const canManageRegister = $derived(canManage !== false);
+  // A host with its own re-read replaces the page invalidation superforms does after a write.
+  const writeOpts = untrack(() => (onwrite ? { invalidateAll: false as const, onUpdated: () => { void onwrite?.(); } } : {}));
 
   const {
     form: addData, errors: addErrors, message: addMessage, submitting: adding, enhance: addEnhance,
   } = superForm<AddForm, App.Superforms.Message, AddForm>(
     untrack(() => (submittedForm<AddForm>(actionData, 'addAttendance') as SuperValidated<AddForm, App.Superforms.Message, AddForm> | null) ?? addForm),
-    { validators: zod4Client(addAttendanceSchema), clearOnSubmit: 'none', resetForm: true },
+    { validators: zod4Client(addAttendanceSchema), clearOnSubmit: 'none', resetForm: true, ...writeOpts },
   );
   const addError = $derived(scopedActionError<AddForm>(actionData, 'addAttendance', $addMessage, $addErrors, ['channelId', 'attendee', 'description', '_kind']));
   const addDone = $derived(scopedActionSuccess<AddForm>(actionData, 'addAttendance', $addMessage));
@@ -112,6 +120,7 @@
     {
       validators: zod4Client(editAttendanceSchema),
       clearOnSubmit: 'none',
+      ...writeOpts,
       onResult: ({ result }) => {
         if (result.type === 'success') editingRow = null;
       },
@@ -134,6 +143,7 @@
     untrack(() => (submittedForm<RemoveForm>(actionData, 'removeAttendance') as SuperValidated<RemoveForm, App.Superforms.Message, RemoveForm> | null) ?? removeForm),
     {
       validators: zod4Client(removeAttendanceSchema),
+      ...writeOpts,
       onResult: ({ result }) => {
         if (result.type === 'success') confirmingRemove = null;
       },
@@ -277,7 +287,7 @@
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'mode' && editingRow === row.id}
-          <form id="edit-attendance-{row.id}" method="POST" action="?/editAttendance" use:editEnhance novalidate class="space-y-1.5">
+          <form id="edit-attendance-{row.id}" method="POST" action={actions.edit} use:editEnhance novalidate class="space-y-1.5">
             <input type="hidden" name="_kind" value="editAttendance" />
             <input type="hidden" name="ref" value={row.id} />
             <select name="role" aria-label={t('app.channels.register.col.mode', 'Takes part as')} bind:value={$editData.role} class="{inputClass} py-1">
@@ -309,7 +319,7 @@
               <button type="button" onclick={() => (editingRow = null)} class="rounded-md px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.cancel', 'Cancel')}</button>
             </div>
           {:else if confirmingRemove === row.id}
-            <form method="POST" action="?/removeAttendance" use:removeEnhance class="flex flex-wrap items-center gap-2">
+            <form method="POST" action={actions.remove} use:removeEnhance class="flex flex-wrap items-center gap-2">
               <input type="hidden" name="_kind" value="removeAttendance" />
               <input type="hidden" name="ref" value={row.id} />
               <span class="text-xs text-red-700 dark:text-red-300">{t('app.channels.register.remove.confirm-text', 'Stop taking part?')}</span>
@@ -363,7 +373,7 @@
         {#if addDone}<p class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{addDone}</p>{/if}
       </LiveRegion>
       {#if addError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{addError}</p>{/if}
-      <form method="POST" action="?/addAttendance" use:addEnhance novalidate class="mt-2 grid gap-3 sm:grid-cols-2">
+      <form method="POST" action={actions.add} use:addEnhance novalidate class="mt-2 grid gap-3 sm:grid-cols-2">
         <input type="hidden" name="_kind" value="addAttendance" />
         <label class="block text-xs text-zinc-600 dark:text-zinc-400">
           {t('app.channels.register.col.channel', 'Channel')}

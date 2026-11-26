@@ -55,7 +55,7 @@ describe('⋯-menu actions labels interpolate their row name (portal#1197)', () 
     const priorArt = [
     'lib/components/register/RegisterPanel.svelte',
     'lib/components/assets/AssetTable.svelte',
-    'routes/app/apps/[appId]/channels/+page.svelte',
+    'routes/app/apps/[appId]/AppChannelsBody.svelte',
     'routes/app/orgs/[id]/runs/+page.svelte',
     ];
     for (const path of priorArt) {

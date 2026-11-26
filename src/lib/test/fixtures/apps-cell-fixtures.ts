@@ -8,8 +8,8 @@ import Secrets from '../../../routes/app/apps/[appId]/AppSecrets.svelte';
 import Stops from '../../../routes/app/apps/[appId]/AppStops.svelte';
 import Tasks from '../../../routes/app/apps/[appId]/tasks/+page.svelte';
 import Tickers from '../../../routes/app/apps/[appId]/AppTickers.svelte';
-import Channels from '../../../routes/app/apps/[appId]/channels/+page.svelte';
-import { addAttendanceSchema, createChannelSchema, deleteChannelSchema, editAttendanceSchema, removeAttendanceSchema, renameChannelSchema } from '../../../routes/app/apps/[appId]/channels/schema';
+import Channels from '../ChannelsBodyHarness.svelte';
+import { addAttendanceSchema, createChannelSchema, deleteChannelSchema, editAttendanceSchema, removeAttendanceSchema, renameChannelSchema } from '../../../routes/app/apps/[appId]/channels-schema';
 import Grants from '../../../routes/app/apps/[appId]/grants/+page.svelte';
 import { grantsFixture, fixtureGrant } from '../../../routes/app/apps/[appId]/grants/grants.fixture';
 import { superValidate } from 'sveltekit-superforms';
@@ -130,7 +130,7 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => 
 // portal#2488: the Channels page — one team chat and one channel with a 64-char unbroken name, a long description
 // and a memory the viewer can and cannot read, so the name, address and host cells carry their worst case.
 async function mountChannels(target: HTMLElement) {
-  setStubPage('http://localhost/app/apps/app-example/channels', { appId: 'app-example' });
+  setStubPage('http://localhost/app/apps/app-example', { appId: 'app-example' });
   const shared = { id: 'mem-shared', urn: `hrn:mem:example.test:${LONG.slice(0, 40)}-team-shared`, name: `${LONG} shared chats` };
   const channel = (i: number) => ({
     id: `ch-${i}`, name: `${LONG.slice(0, 62)}-${i}`, description: `${LONG}${LONG} what this channel is for`, kind: 'CHAT', loc: `chats:c${i}`,
