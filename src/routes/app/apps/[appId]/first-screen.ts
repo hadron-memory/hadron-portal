@@ -56,6 +56,7 @@ export const READ_GROUP_KEYS = {
   templates: ['templatesPanel'],
   secrets: ['secretsPanel'],
   tickers: ['tickersPanel'],
+  stops: ['stopsPanel'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type ReadGroup = keyof typeof READ_GROUP_KEYS;
@@ -78,6 +79,7 @@ export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
   'node-role-templates': ['templates'],
   secrets: ['secrets'],
   tickers: ['tickers'],
+  stops: ['stops'],
   // The Client tab's plugin grid (canManage) and its key status (appKeys).
   client: ['canManage', 'appKeys'],
 };

@@ -18,12 +18,12 @@ describe('resolveTabIntent', () => {
     expect(intent('tab=worklog')).toEqual({ initialTab: 'worklog', requestedChat: null });
   });
 
-  // App Keys, AI Service Configs, Node-role templates, Secrets and Tickers are sections of Settings now: their old tab ids resolve to Settings (below).
-  it.each(APP_TAB_IDS.filter((tab) => !['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers'].includes(tab)))('accepts the known tab id %s', (tab) => {
+  // App Keys, AI Service Configs, Node-role templates, Secrets, Tickers and Stops are sections of Settings now: their old tab ids resolve to Settings (below).
+  it.each(APP_TAB_IDS.filter((tab) => !['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops'].includes(tab)))('accepts the known tab id %s', (tab) => {
     expect(intent(`tab=${tab}`).initialTab).toBe(tab);
   });
 
-  it.each(['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers'])('resolves the retired tab id %s to Settings, with that section open', (id) => {
+  it.each(['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops'])('resolves the retired tab id %s to Settings, with that section open', (id) => {
     expect(intent(`tab=${id}`).initialTab).toBe('settings');
     expect(resolveSectionIntent(new URLSearchParams(`tab=${id}`))).toBe(id);
     expect(visibleTabFor(id)).toBe('settings');

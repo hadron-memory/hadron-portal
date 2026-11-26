@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { invalidateAll } from '$app/navigation';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import StopSignalsPanel from '$lib/components/stops/StopSignalsPanel.svelte';
+  import { invalidateAll } from '$app/navigation';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -12,18 +10,38 @@
   import { actorText, canLiftStops, levelLabel, scopeLabel, stateLabel, stopState, targetOf } from '$lib/stop-signals/present';
   import type { StopSignal } from '$lib/stop-signals/types';
   import { t } from '$lib/i18n/t';
-  import type { PageData } from './$types';
+  import type { loadStopsPanel } from './stops-panel';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
 
   /**
-   * portal#1139 — the App's stop signals. A stop signal has no URN and none is
-   * shown: a row carries its plain id. A target worker shows its URN when the
-   * roster names it; an id the roster doesn't know is shown bare.
+   * portal#1139 — the App's stop signals, as the body of a Settings section. A stop signal has no URN and none is
+   * shown: a row carries its plain id. A target worker shows its URN when the roster names it; an id the roster
+   * doesn't know is shown bare. The live stops banner is the App page's own, above the tabs, so it is not repeated here.
+   * The section posts to the App page's own `setStop` and `liftStop` actions and reads its own slice again through the
+   * tab endpoint after a write.
    */
-  let { data }: { data: PageData } = $props();
+  type Panel = NonNullable<Awaited<ReturnType<typeof loadStopsPanel>>>;
+  let { appId, panel: initial }: { appId: string; panel: Panel } = $props();
 
-  const basePath = $derived(`/app/apps/${data.app.id}`);
-  const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
+  // The panel shown: what the page last handed over, until a re-read of this section replaces it.
+  let reread = $state.raw<{ against: Panel; panel: Panel } | null>(null);
+  const data = $derived(reread && reread.against === initial ? reread.panel : initial);
+  let readSeq = 0;
+  /** Reads the section's slice again (the same page of stops). A failed read keeps what is shown; an older answer is dropped. */
+  async function reload(): Promise<void> {
+    const mine = ++readSeq;
+    const against = initial;
+    const cursor = initial.after ? `&after=${encodeURIComponent(initial.after)}` : '';
+    const res = await fetch(`${basePath}/tab?tab=stops${cursor}`, { headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error(`stops re-read ${res.status}`);
+    const next = (await res.json()) as { stopsPanel?: Panel | null };
+    if (next.stopsPanel && mine === readSeq) reread = { against, panel: next.stopsPanel };
+  }
+
+  const basePath = $derived(`/app/apps/${appId}`);
+  // The action URLs name the section: without JavaScript the answer renders the page, and it must open the section.
+  const actionUrl = (name: string) => `${basePath}?tab=settings&section=stops&/${name}`;
+  const sectionHref = $derived(`${basePath}?tab=settings&section=stops`);
   const signals = $derived<StopSignal[]>(data.page.kind === 'ok' ? data.page.value.signals : []);
   let lifting = $state<{ id: string; label: string } | null>(null);
 
@@ -86,33 +104,37 @@
   }
 
   let refreshing = $state(false);
+  let refreshFailed = $state(false);
   async function refresh() {
     refreshing = true;
+    refreshFailed = false;
     try {
-      await invalidateAll();
+      await reload();
+    } catch {
+      refreshFailed = true;
     } finally {
       refreshing = false;
     }
   }
+  // The panel's writes run this right after a write that SUCCEEDED: a failed re-read must not throw out of their
+  // submit handler (the write would then go unreported); it only says the list is stale.
+  // The live-stops banner above the tabs is the page load's own frame read, which this section's re-read does not
+  // return: the page is invalidated too, or the banner keeps saying what was true before the write (Garland's P2 on #2667).
+  async function reloadAfterWrite() {
+    refreshFailed = false;
+    void invalidateAll().catch(() => {});
+    try {
+      await reload();
+    } catch {
+      refreshFailed = true;
+    }
+  }
 </script>
 
-<svelte:head><title>{t('app.stops.head', 'Stops')} · {data.app.name} · Hadron</title></svelte:head>
-
 <div class="space-y-4">
-  <Breadcrumb items={[
-    { label: t('app.stops.crumb.apps', 'Apps'), href: appsHref },
-    { label: data.app.name, href: basePath },
-    { label: t('app.stops.crumb.stops', 'Stops') },
-  ]} />
-
-  <div>
-    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">
-      <span class="font-normal text-zinc-400">{t('app.stops.title.prefix', 'Stops:')}</span> {data.app.name}
-    </h1>
-    <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-      {t('app.stops.intro', 'A stop keeps a worker or a team from being given work or woken, by level. Several stops can cover the same worker; each applies on its own and lifting one never ends another.')}
-    </p>
-  </div>
+  <p class="text-sm text-zinc-600 dark:text-zinc-400">
+    {t('app.stops.intro', 'A stop keeps a worker or a team from being given work or woken, by level. Several stops can cover the same worker; each applies on its own and lifting one never ends another.')}
+  </p>
 
   <LiveRegion>
     {#if data.page.kind === 'not-participant'}
@@ -124,20 +146,24 @@
   {#if data.page.kind === 'not-participant'}
     <!-- announced by the region above -->
   {:else}
-    <StopBanner live={data.live} workers={data.workers} />
-
     <StopSignalsPanel
-      appId={data.app.id}
+      appId={appId}
       manages={data.manages}
       workers={data.workers}
       rosterFailed={data.rosterFailed}
       impersonating={data.impersonating}
       {lifting}
       onliftclose={() => (lifting = null)}
+      setAction={actionUrl('setStop')}
+      liftAction={actionUrl('liftStop')}
+      reload={reloadAfterWrite}
     />
 
     <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-      <span>{t('app.stops.updated-at', 'Updated {time}', { time: fmtRunTime(data.loadedAt) })}</span>
+      <span>
+        {#if refreshFailed}<span role="alert" class="mr-2 text-red-700 dark:text-red-400">{t('app.stops.refresh-failed', 'Couldn’t refresh.')}</span>{/if}
+        {t('app.stops.updated-at', 'Updated {time}', { time: fmtRunTime(data.loadedAt) })}
+      </span>
       <button type="button" onclick={refresh} disabled={refreshing} class="rounded-md border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
         {t('app.stops.refresh', 'Refresh')}
       </button>
@@ -152,7 +178,7 @@
       <div class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="stops-empty">
         {#if data.after}
           {t('app.stops.empty-older', 'No older stops.')}
-          <a href="?" class="ml-2 font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.first-page', 'Back to the first stops')}</a>
+          <a href={sectionHref} class="ml-2 font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.first-page', 'Back to the first stops')}</a>
         {:else}
           {t('app.stops.empty', 'No stops have been set on this App.')}
         {/if}
@@ -198,9 +224,9 @@
         {/snippet}
       </DataTable>
       {#if data.page.kind === 'ok' && data.page.value.pageInfo.hasNextPage && data.page.value.pageInfo.endCursor}
-        <a href="?after={encodeURIComponent(data.page.value.pageInfo.endCursor)}" class="inline-block text-sm font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.next-page', 'Show older stops')}</a>
+        <a href="{sectionHref}&after={encodeURIComponent(data.page.value.pageInfo.endCursor)}" class="inline-block text-sm font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.next-page', 'Show older stops')}</a>
       {/if}
-      {#if data.after}<a href="?" class="ml-3 inline-block text-sm font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.first-page', 'Back to the first stops')}</a>{/if}
+      {#if data.after}<a href={sectionHref} class="ml-3 inline-block text-sm font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.first-page', 'Back to the first stops')}</a>{/if}
     {/if}
   {/if}
 </div>
