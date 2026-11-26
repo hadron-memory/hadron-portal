@@ -102,3 +102,30 @@ describe("withdrawing an open selection (acceptance 5)", () => {
     expect(r.data.error).toBe(`Server says ${code}.`);
   });
 });
+describe("the App-manager gate is its own guard (security review P3-1)", () => {
+  const notManager = () => request.mockImplementation(async (q: string) => {
+    if (q.includes("query AppGrantsApp")) return { app: { ...app, viewerManages: false } };
+    throw Error("no other call may be made: " + q.slice(0, 50));
+  });
+  it("a person who does not manage the App is refused before any selection or withdraw call", async () => {
+    notManager();
+    const a = await run(post(["g1"])) as { status: number };
+    const e = post([], null, "withdrawSelection");
+    (e as { request: Request }).request = new Request("http://localhost/x", { method: "POST", body: new URLSearchParams({ id: "sel1" }) });
+    const w = await run(e, "withdrawSelection") as { status: number };
+    expect([a.status, w.status]).toEqual([403, 403]);
+    expect(sent("RequestGrantSelectionSignature")).toHaveLength(0);
+    expect(sent("WithdrawGrantSigningSelection")).toHaveLength(0);
+  });
+  it("an App the person cannot read is concealed the same way, with no selection call", async () => {
+    request.mockImplementation(async (q: string) => { if (q.includes("query AppGrantsApp")) throw refusal("FORBIDDEN", "no"); throw Error("no other call"); });
+    const a = await run(post(["g1"])) as { status: number };
+    expect([403, 404]).toContain(a.status);
+    expect(sent("RequestGrantSelectionSignature")).toHaveLength(0);
+  });
+  it("the unknown-code answer is the generic text with status 503", async () => {
+    serve(refusal("SOMETHING_ELSE", "private SQL detail"));
+    const r = await run(post(["g1"])) as { status: number; data: { error: string } };
+    expect(r.status).toBe(503); expect(r.data.error).toMatch(/could not be completed/i);
+  });
+});

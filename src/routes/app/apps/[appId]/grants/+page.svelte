@@ -29,9 +29,9 @@
   import {
     grantMatches,
     grantActorRefs,
+    grantSignable,
     type GrantPageFilter,
   } from "$lib/grants/approval";
-  import { grantSignable } from "$lib/grants/approval";
   import GrantApproval from "./GrantApproval.svelte";
   import GrantSelection from "./GrantSelection.svelte";
   import GrantRecord from "./GrantRecord.svelte";
@@ -302,7 +302,6 @@
   );
   // Sign selected is offered only where signing is on and the person is not impersonating (read-only).
   const selectionOn = $derived(data.signing && !data.impersonating);
-  const signableIds = $derived(selectionOn ? rows.filter((g) => grantSignable(g, now)).map((g) => g.id) : []);
   let globalFilter = $state("");
   const columns: PortalColumnDef<Grant>[] = [
     {
@@ -340,6 +339,9 @@
     globalFilterFn: makeGlobalFilterFn<Grant>({}),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
+  // The grants the person can SEE: the page filter and the table's search both narrow it, so Select all
+  // never counts or sends a row that is hidden (portal#2648 blind review).
+  const signableIds = $derived(selectionOn ? table.getRowModel().rows.map((r) => r.original).filter((g) => grantSignable(g, now)).map((g) => g.id) : []);
   const created = $derived(
     form &&
       "grant" in form &&
@@ -467,7 +469,7 @@
         >
       </select>
     </label>
-    {#if selectionOn}<GrantSelection
+    {#if selectionOn}{#key formScope}<GrantSelection
         bind:selected
         signable={signableIds}
         offset={data.offset}
@@ -478,7 +480,7 @@
         onopened={startSelection}
         onrefresh={() => void refreshGrants("approval")}
         onended={endSelection}
-      />{/if}
+      />{/key}{/if}
     <DataTable
       {table}
       bind:globalFilter

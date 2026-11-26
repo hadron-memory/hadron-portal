@@ -121,11 +121,11 @@
           </form>
           <button type="button" onclick={dismiss} class="min-h-11 rounded-lg px-3 py-2 text-sm underline">{t("grants.selection.dismiss", "Dismiss")}</button>
         </div>
-        {#if outcome}
-          <p aria-live="polite">
+        <LiveRegion>{#if outcome}
+          <p>
             {t("grants.selection.outcome", "{activated} approved, {pending} still waiting", { activated: outcome.activated, pending: outcome.pending })}{#if outcome.ended}{t("grants.selection.outcome-ended", ", {ended} ended", { ended: outcome.ended })}{/if}{#if outcome.elsewhere}{t("grants.selection.outcome-elsewhere", ", {elsewhere} not on this page", { elsewhere: outcome.elsewhere })}{/if}.
           </p>
-        {/if}
+        {/if}</LiveRegion>
       </div>
     {/if}
   </section>

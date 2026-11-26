@@ -103,3 +103,44 @@ describe("after the server answers (items 2, 3, 4, 5)", () => {
     expect(root.querySelector('form[action*="withdrawSelection"]')).not.toBeNull();
   });
 });
+describe("what the page offers as visible (portal#2648 reviews)", () => {
+  it("Select all counts and sends only the rows the search leaves visible", () => {
+    const root = setup();
+    const search = root.querySelector<HTMLInputElement>('input[aria-label="Search grants on this page"]')!;
+    search.value = "reason g2"; search.dispatchEvent(new Event("input", { bubbles: true })); flushSync();
+    expect(boxes(root)).toHaveLength(1);
+    tick(root.querySelector<HTMLInputElement>("section input[type=checkbox]")!, true);
+    expect([...selectionForm(root).querySelectorAll<HTMLInputElement>('input[name="ref"]')].map((i) => i.value)).toEqual(["g2"]);
+    expect(root.textContent).toContain("1 selected");
+  });
+  it("a row ticked and then hidden by the search is not sent", () => {
+    const root = setup(); tick(boxes(root)[0], true);
+    const search = root.querySelector<HTMLInputElement>('input[aria-label="Search grants on this page"]')!;
+    search.value = "reason g3"; search.dispatchEvent(new Event("input", { bubbles: true })); flushSync();
+    expect(selectionForm(root).querySelectorAll('input[name="ref"]')).toHaveLength(0);
+  });
+  it("each row's checkbox names its grant", () => {
+    const root = setup();
+    expect(boxes(root).map((b) => b.getAttribute("aria-label"))).toEqual(["Select to sign together: reason g1", "Select to sign together: reason g2", "Select to sign together: reason g3"]);
+  });
+  it("moving to another App's grants drops the open selection and its Withdraw", async () => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    expect(root.querySelector('form[action*="withdrawSelection"]')).not.toBeNull();
+    (mounted!.instance.setData as (d: unknown) => void)({ ...grantsFixture(), routeRef: "app-other", app: { ...grantsFixture().app, id: "app-other" }, grants: { items: [grant("o1")], total: 1 } });
+    flushSync();
+    expect(root.querySelector('form[action*="withdrawSelection"]')).toBeNull();
+    expect(root.textContent).not.toContain("opened in a new tab");
+  });
+  it("Check result reads the list again and states each grant's own result: two approved, one still waiting", async () => {
+    const d = grantsFixture();
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ appId: d.app.id, viewerId: d.viewerId, offset: 0, grants: { items: [grant("g1", { activatedAt: "2026-11-12T12:00:01Z" }), grant("g2", { activatedAt: "2026-11-12T12:00:02Z" }), grant("g3")], total: 3 }, holders: d.holders, nodes: { "node-example": null }, actionDefinitions: d.actionDefinitions, actionDefinitionsFailed: false })));
+    const root = setup(); tick(boxes(root)[0], true); tick(boxes(root)[1], true); tick(boxes(root)[2], true);
+    await submitEnhancedWithResult(selectionForm(root), { type: "success", status: 200, data: { operation: "signSelection", selection: { id: "sel1", ceremonyUrl: CEREMONY, expiresAt: "x", refs: ["g1", "g2", "g3"] } } });
+    flushSync();
+    expect(root.textContent).not.toContain("still waiting");
+    [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Check result")!.click();
+    await vi.waitFor(() => { flushSync(); expect(root.textContent).toContain("2 approved, 1 still waiting"); });
+    expect(root.textContent).not.toMatch(/all (the )?(grants )?(were |are )?approved/i);
+  });
+});

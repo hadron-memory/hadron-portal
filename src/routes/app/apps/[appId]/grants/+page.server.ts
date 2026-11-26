@@ -167,20 +167,20 @@ export const actions: Actions = {
   // hands on the server's own link only when it is on the server's origin and under its selection path.
   // The id comes back with the link so the person can withdraw while the selection is open.
   signSelection: async (event) => {
-    const refused = (status: number, message: string) =>
+    const answer = (status: number, message: string) =>
       fail(status, { error: message, operation: "signSelection" as const, appId: event.params.appId });
     try {
       if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
       const app = await manage(event);
       if (!(await deploymentOffersSigning(event.locals.token)))
-        return refused(403, t("grants.approve.unavailable", "Approval is unavailable on this deployment."));
+        return answer(403, t("grants.approve.unavailable", "Approval is unavailable on this deployment."));
       const refs = (await event.request.formData()).getAll("ref").map(String);
       const result = await gqlClient(event.locals.token).request<{
         requestGrantSelectionSignature: { id: string; ceremonyUrl: string; expiresAt: string };
       }>(REQUEST_GRANT_SELECTION_SIGNATURE, { grantRefs: refs });
       const selection = result.requestGrantSelectionSignature;
       const ceremonyUrl = pinCeremonyUrl(selection?.ceremonyUrl, ceremonyOrigin(), "/grant-selection-signing/");
-      if (!ceremonyUrl || typeof selection.id !== "string") return refused(503, grantError(null));
+      if (!ceremonyUrl || typeof selection.id !== "string") return answer(503, grantError(null));
       return {
         operation: "signSelection" as const,
         appId: app.id,
@@ -188,22 +188,22 @@ export const actions: Actions = {
       };
     } catch (e) {
       if (isRedirect(e)) throw e;
-      return refused(...selectionFailure(e, selectionRefusalCodes));
+      return answer(...selectionFailure(e, selectionRefusalCodes));
     }
   },
   withdrawSelection: async (event) => {
-    const refused = (status: number, message: string) =>
+    const answer = (status: number, message: string) =>
       fail(status, { error: message, operation: "withdrawSelection" as const, appId: event.params.appId });
     try {
       if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
       const app = await manage(event);
       const id = String((await event.request.formData()).get("id") ?? "");
-      if (!id) return refused(400, grantError("GRANT_NOT_FOUND"));
+      if (!id) return answer(400, grantError("GRANT_NOT_FOUND"));
       await gqlClient(event.locals.token).request(WITHDRAW_GRANT_SIGNING_SELECTION, { id });
       return { operation: "withdrawSelection" as const, appId: app.id, withdrawn: id };
     } catch (e) {
       if (isRedirect(e)) throw e;
-      return refused(...selectionFailure(e, withdrawRefusalCodes));
+      return answer(...selectionFailure(e, withdrawRefusalCodes));
     }
   },
   revoke: async (event) => {
