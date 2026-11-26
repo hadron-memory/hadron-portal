@@ -34,6 +34,9 @@
     impersonating = null,
     lifting = null,
     onliftclose = () => {},
+    setAction = '?/set',
+    liftAction = '?/lift',
+    reload = () => invalidateAll(),
   }: {
     appId: string;
     manages: ManagesHint;
@@ -44,6 +47,11 @@
     /** A live signal the reader chose to lift; set by the table's Lift button. */
     lifting?: { id: string; label: string } | null;
     onliftclose?: () => void;
+    /** The form actions a host that is not the old Stops page posts to. */
+    setAction?: string;
+    liftAction?: string;
+    /** Reads the list again after a write. It must not reject: the write has landed by then (the host says if it could not refresh). */
+    reload?: () => Promise<unknown>;
   } = $props();
 
   let level = $state<StopLevel>('PAUSE_DISPATCH');
@@ -193,7 +201,7 @@
             liftDialog?.close();
             onliftclose();
           }
-          await invalidateAll();
+          await reload();
           if (!alive || mine !== generation) return;
           if (kind === 'set') {
             refusal = null;
@@ -232,7 +240,7 @@
           liftDialog?.close();
           onliftclose();
         }
-        if (failed.kind === 'uncertain') await invalidateAll();
+        if (failed.kind === 'uncertain') await reload();
         if (kind === 'lift') {
           await tick();
           if (alive && mine === generation) liftLine?.focus();
@@ -245,7 +253,7 @@
 <!-- portal#2379: one plain wrapper, so the page sees a single child and the outcome after the space-y section adds no idle gap (Marco's placement rule, hadron-portal#2386). -->
 <div>
 <section aria-labelledby="stop-set-heading" class="space-y-3" data-testid="stop-panel">
-  <h2 id="stop-set-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.stops.set.heading', 'Stop a worker or team')}</h2>
+  <h3 id="stop-set-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.stops.set.heading', 'Stop a worker or team')}</h3>
 
   <LiveRegion>
     {#if !impersonating && manages === 'unknown'}
@@ -268,7 +276,7 @@
     <form
       bind:this={formEl}
       method="POST"
-      action="?/set"
+      action={setAction}
       use:enhance={submitter('set')}
       class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900"
     >
@@ -302,12 +310,15 @@
           name="worker"
           bind:value={worker}
           aria-invalid={invalidFor('worker')}
-          aria-describedby={[describedBy('worker'), rosterFailed ? 'stop-worker-hint' : undefined].filter(Boolean).join(' ') || undefined}
+          aria-describedby={[describedBy('worker'), scope === 'TEAM' ? 'stop-team-help' : undefined, rosterFailed ? 'stop-worker-hint' : undefined].filter(Boolean).join(' ') || undefined}
           class="mt-1 block w-full max-w-sm rounded-md border border-zinc-300 bg-white px-2 py-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
         >
           <option value="">{t('app.stops.choose', 'Choose…')}</option>
           {#each workers as w (w.id)}<option value={w.id}>{w.name}</option>{/each}
         </select>
+        {#if scope === 'TEAM'}
+          <p id="stop-team-help" class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{t('app.stops.team-help', 'Pick the worker who heads the team. If no one heads all of it, set one stop for each worker that no one reports to.')}</p>
+        {/if}
         {#if rosterFailed}
           <p id="stop-worker-hint" class="mt-1 text-xs text-amber-800 dark:text-amber-300">{t('app.stops.roster-failed', 'Couldn’t load the team roster. Reload the page to try again.')}</p>
         {/if}
@@ -386,7 +397,7 @@
         {lifting.label}
         <span class="mt-2 block">{t('app.stops.lift.body', 'This lifts only this stop. Other stops covering the same workers still apply.')}</span>
       </p>
-      <form method="POST" action="?/lift" use:enhance={submitter('lift')} class="mt-4 flex flex-wrap justify-end gap-3">
+      <form method="POST" action={liftAction} use:enhance={submitter('lift')} class="mt-4 flex flex-wrap justify-end gap-3">
         <input type="hidden" name="id" value={lifting.id} />
         <button bind:this={liftCancel} data-testid="stop-confirm-cancel" type="button" onclick={closeLift} disabled={pendingKind === 'lift'} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">
           {t('app.stops.lift.cancel', 'Cancel')}

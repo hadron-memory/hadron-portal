@@ -11,7 +11,9 @@ vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), befor
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
 // portal#1497: the on/off control on the detail page reads the page store.
 vi.mock('$app/stores', () => ({ page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://x/') }), () => {}) } }));
-import List from './+page.svelte';
+import List from '../AppTickers.svelte';
+import { sectionProps } from '$lib/test/ticker-section-props';
+
 import Detail from './[tickerId]/+page.svelte';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
@@ -27,7 +29,7 @@ const ticker = (over: Record<string, unknown> = {}) => ({
 
 const list = (over: Record<string, unknown> = {}) =>
   render(List as never, {
-    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null, ...over } },
+    props: sectionProps({ app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null, ...over }),
   } as never).body;
 const detail = (over: Record<string, unknown> = {}) =>
   render(Detail as never, {
@@ -60,7 +62,7 @@ describe('New ticker (list page)', () => {
   it('is offered to every participant, with Team chat preselected and every reason listed with its help', () => {
     const html = section(list(), 'ticker-create-section');
     expect(html).toContain('New ticker');
-    expect(html).toContain('action="?/create"');
+    expect(html).toContain('action="/app/apps/app-1?tab=settings&amp;section=tickers&amp;/createTicker"');
     expect(html).toMatch(/value="READ_TEAM_CHANNEL"[^>]*checked/);
     expect(html).not.toMatch(/value="EVERY_TICK"[^>]*checked/);
     for (const label of ['Team chat', 'Every tick', 'Live check']) expect(html).toContain(label);

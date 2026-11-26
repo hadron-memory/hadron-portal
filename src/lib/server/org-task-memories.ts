@@ -43,7 +43,7 @@ export async function orgTaskMemoryIds(
       gqlClient(token),
       ORG_SYSTEM_MEMORY_IDS_QUERY,
       'memories',
-      { orgId: org.id },
+      { orgRef: org.id },
     );
     for (const m of system) if (!m.appId && !ids.includes(m.id)) ids.push(m.id);
   } catch (err) {

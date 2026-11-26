@@ -193,7 +193,7 @@ const isOrgAgentsDoc = (doc: string) => /agents\s*\(\s*filter:\s*\{\s*visibility
 function routeOrgFetch(opts: {
   mine?: Agent[]; pub?: Agent[]; orgs?: string[] | Error; orgAgents?: Record<string, Agent[] | Error>;
 } = {}) {
-  mockFetchAll.mockImplementation(async (doc: string, _field: string, vars?: { orgId?: string }) => {
+  mockFetchAll.mockImplementation(async (doc: string, _field: string, vars?: { orgRef?: string }) => {
     if (doc === MY_AGENTS_QUERY) return opts.mine ?? [];
     if (doc === PUBLIC_AGENTS_QUERY) return opts.pub ?? [];
     if (doc === MY_APPS_QUERY) return [];
@@ -202,7 +202,7 @@ function routeOrgFetch(opts: {
       return (opts.orgs ?? []).map((id) => ({ id }));
     }
     if (isOrgAgentsDoc(doc)) {
-      const hit = opts.orgAgents?.[vars?.orgId ?? ''];
+      const hit = opts.orgAgents?.[vars?.orgRef ?? ''];
       if (hit instanceof Error) throw hit;
       return hit ?? [];
     }
@@ -255,7 +255,7 @@ describe('#1786 organization Agents on /app/apps/new', () => {
     const { load } = await importMod();
     await load(loadEv());
     const calls = orgAgentCalls();
-    expect(calls.map(([, , vars]) => (vars as { orgId?: string } | undefined)?.orgId).sort()).toEqual(['org-1', 'org-2']);
+    expect(calls.map(([, , vars]) => (vars as { orgRef?: string } | undefined)?.orgRef).sort()).toEqual(['org-1', 'org-2']);
   });
 
   it('dedupes an Agent found in two lists or two orgs; first source wins', async () => {

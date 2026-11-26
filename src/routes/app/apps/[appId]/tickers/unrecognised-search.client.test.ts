@@ -9,7 +9,9 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 
 vi.mock('$app/environment', () => ({ browser: true, dev: false, building: false, version: 'test' }));
-import Page from './+page.svelte';
+import Page from '../AppTickers.svelte';
+import { sectionProps } from '$lib/test/ticker-section-props';
+
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -30,8 +32,7 @@ const ticker = (name: string, reasons: unknown) => ({
 
 function mountPage() {
   setStubPage('https://example.test/app/apps/app-1/tickers', { appId: 'app-1' });
-  const m = mountComponent(Page as never, {
-    data: {
+  const m = mountComponent(Page as never, sectionProps({
       app,
       tickers: { kind: 'ok', value: [
         ticker('future', ['READ_TEAM_CHANNEL', 'SOMETHING_NEW']),
@@ -39,8 +40,7 @@ function mountPage() {
         ticker('broken', ['SOMETHING_NEW', 3]),
       ] },
       settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null,
-    },
-  } as never) as Mounted<Record<string, unknown>>;
+  }) as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   return m;
 }
@@ -77,13 +77,11 @@ describe('Tickers — searching the unrecognised-reason note (portal#1314)', () 
   // portal#1341: a reason that reads like the "unavailable" sentence is still a reason.
   it('renders a reason equal to the unavailable text as a reason, and finds it by that text', async () => {
     setStubPage('https://example.test/app/apps/app-1/tickers', { appId: 'app-1' });
-    const m = mountComponent(Page as never, {
-      data: {
-        app,
-        tickers: { kind: 'ok', value: [ticker('lookalike', ['Reasons unavailable']), ticker('broken', ['EVERY_TICK', 3]), ticker('known', ['EVERY_TICK'])] },
-        settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null,
-      },
-    } as never) as Mounted<Record<string, unknown>>;
+    const m = mountComponent(Page as never, sectionProps({
+      app,
+      tickers: { kind: 'ok', value: [ticker('lookalike', ['Reasons unavailable']), ticker('broken', ['EVERY_TICK', 3]), ticker('known', ['EVERY_TICK'])] },
+      settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null,
+    }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
     const row = (n: string) => [...m.target.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes(n))!;

@@ -1059,6 +1059,11 @@
   } = superForm<NodeApproveForm, App.Superforms.Message, NodeApproveForm>(initialApproveForm, {
     validators: zod4Client(nodeApproveSchema),
     clearOnSubmit: 'none',
+    // portal#2236: a refused approval (403 or 409) means what the card offered is out of date (the node moved, or the
+    // viewer's standing changed); reload so it offers what is true now.
+    onResult: ({ result }) => {
+      if (result.type === 'failure' && (result.status === 409 || result.status === 403)) void invalidateAll();
+    },
   });
   $effect(() => {
     const revision = node.revision;
@@ -2990,7 +2995,7 @@
         <!-- portal#2234: the question card, above the node's content. A failed read is said so, never an empty card. -->
         <div class="mt-3">
           {#if data.question?.kind === 'ok'}
-            <QuestionCard question={data.question.value} canAct={data.question.value.viewerMayAnswer} result={questionResult} />
+            <QuestionCard question={data.question.value} canAct={data.question.value.viewerMayAnswer} result={questionResult} approval={approvalState ? { view: approvalState, submitting: $approveSubmitting, enhance: approveEnhance } : null} />
           {:else}
             <p role="alert" data-testid="question-read-failed" class="rounded border border-red-300 p-2 text-sm text-red-800 dark:border-red-800 dark:text-red-200">{t('question.card.read-failed', 'This question could not be loaded. Reload the page to try again.')}</p>
           {/if}

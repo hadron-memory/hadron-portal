@@ -213,7 +213,7 @@ describe('node-detail sendChatMessage action', () => {
     expect(mockRequest).toHaveBeenNthCalledWith(2, LEGACY_THREAD_PROBE_QUERY, expect.objectContaining({ locPrefix: 'chats:standup:messages:' }));
     expect(mockRequest).toHaveBeenNthCalledWith(3, CREATE_NODE_MUTATION, {
       input: expect.objectContaining({
-        memoryId: MEM,
+        memoryRef: MEM,
         loc: expect.stringMatching(/^chats:standup:messages:/),
         nodeType: 'message',
       }),

@@ -2,7 +2,12 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import Urn from '$lib/components/Urn.svelte';
+  import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
+  import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
+  import type { ApprovalView } from '$lib/node-approval';
+  import type { Action } from 'svelte/action';
   import { t } from '$lib/i18n/t';
+  import { questionStateLabels } from '$lib/questions/labels';
   import type { QuestionActor, QuestionCardView, QuestionEntry, QuestionPerson, QuestionRef } from '$lib/questions/types';
 
   /**
@@ -13,23 +18,32 @@
    */
   type ActionResult = { kind?: string; ok?: boolean; error?: string; message?: string } | null | undefined;
   /* canAct is the answer capability; Undo and Withdraw follow the decider or asker, not canAct. */
-  let { question, canAct, result = null }: { question: QuestionCardView; canAct: boolean; result?: ActionResult } = $props();
+  /**
+   * portal#2236 (Questions P3): the page's own approval, handed in so the page keeps ONE `approveNode`
+   * form. `view` is the node's approval of record, `enhance` the page's superforms action for it.
+   * No `approval` prop, no approval block. There is no Sign here: signature evidence is deferred in the epic.
+   */
+  type ApprovalProp = { view: ApprovalView; submitting: boolean; enhance: Action<HTMLFormElement> };
+  let { question, canAct, result = null, approval = null }: { question: QuestionCardView; canAct: boolean; result?: ActionResult; approval?: ApprovalProp | null } = $props();
 
-  const STATE_LABEL = $derived<Record<string, string>>({
-    OPEN: t('question.card.state.open', 'Pending'),
-    DECIDED: t('question.card.state.decided', 'Decided'),
-    ANSWERED_UNCONFIRMED: t('question.card.state.unconfirmed', 'Answered, not confirmed'),
-    STALE: t('question.card.state.stale', 'Answered, approval out of date'),
-    WITHDRAWN: t('question.card.state.withdrawn', 'Withdrawn'),
-    TAMPERED: t('question.card.state.tampered', 'Changed outside Hadron'),
-    UNVERIFIABLE: t('question.card.state.unverifiable', 'Cannot be verified'),
-  });
+  const STATE_LABEL = $derived<Record<string, string>>(questionStateLabels());
+
   // QuestionPriority is HIGH, LOW, NORMAL or URGENT. NORMAL is the default and earns no chip.
   const priorityLabel = $derived(
     question.priority === 'URGENT' ? t('question.card.priority.urgent', 'Urgent')
     : question.priority === 'HIGH' ? t('question.card.priority.high', 'High priority')
     : question.priority === 'LOW' ? t('question.card.priority.low', 'Low priority')
     : null,
+  );
+  const APPROVABLE = ['ANSWERED_UNCONFIRMED', 'STALE', 'DECIDED'];
+  const showApproval = $derived(!!approval && APPROVABLE.includes(question.state));
+  // Approve follows the decider, not `viewerMayAnswer`: that goes false once the answer history is full, while a
+  // decider can still approve. The server refuses a non-decider (QUESTION_NOT_DECIDER) and an impersonated session.
+  const mayApprove = $derived(showApproval && question.viewerIsDecider && !question.impersonating && question.answered && approval!.view.canApprove);
+  const approvalNote = $derived(
+    question.tier === 'APPROVED' ? t('question.card.approval.required', 'The asker requires your approval before it relies on this answer.')
+    : question.tier === 'SIGNED' ? t('question.card.approval.signed', 'This question needs a signature, which is not available yet. An approval does not replace it.')
+    : t('question.card.approval.optional', 'Optional. The answer already settles this question.'),
   );
   const ANSWERABLE = ['OPEN', 'DECIDED', 'ANSWERED_UNCONFIRMED', 'STALE'];
   const problem = $derived(question.state === 'TAMPERED' || question.state === 'UNVERIFIABLE');
@@ -203,6 +217,21 @@
       </details>
     {/if}
   </div>
+
+  {#if showApproval && approval}
+    <div class="mt-3 flex flex-col gap-2 text-sm" data-testid="question-approval">
+      <h3 class="text-xs font-semibold uppercase text-zinc-500">{t('question.card.approval', 'Approval')}</h3>
+      <NodeApprovalBadge view={approval.view} currentRevision={question.revSeq} />
+      {#if mayApprove}
+        <form method="POST" action="?/approveNode" use:approval.enhance novalidate class="flex items-center">
+          <input type="hidden" name="_kind" value="approveNode" />
+          <input type="hidden" name="revision" value={question.revSeq} />
+          <ApproveRevisionButton revision={question.revSeq} submitting={approval.submitting} />
+        </form>
+        <p class="text-xs text-zinc-600 dark:text-zinc-400" data-testid="question-approval-note">{approvalNote}</p>
+      {/if}
+    </div>
+  {/if}
 
   {#if question.viewerIsDecider && !question.impersonating && ANSWERABLE.includes(question.state) && question.answered}
     <form method="POST" action="?/retractQuestionAnswer" use:enhance={guarded} class="mt-3 flex flex-col gap-2" data-testid="question-undo-form">

@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import Page from './+page.svelte';
+import Page from './AppStops.svelte';
 
 const sig = (id: string, over: Record<string, unknown> = {}) => ({
   id, level: 'PAUSE', scope: 'WORKER', targetWorkerId: 'w1', targetHostId: null, setAt: '2026-10-01T10:00:00Z', until: null,
@@ -17,7 +17,6 @@ afterEach(() => {
 });
 async function html(over: { signals?: unknown[]; after?: string | null; hasNext?: boolean; manages?: string } = {}) {
   const data = {
-    app: { id: 'app-1', name: 'Acme', organizationId: null },
     page: { kind: 'ok', value: { signals: over.signals ?? [], pageInfo: { hasNextPage: over.hasNext ?? false, endCursor: over.hasNext ? 'c1' : null } } },
     live: { kind: 'ok', value: { complete: true, signals: [] } },
     manages: over.manages ?? 'yes',
@@ -28,7 +27,7 @@ async function html(over: { signals?: unknown[]; after?: string | null; hasNext?
     loadedAt: '2026-10-01T10:00:00Z',
     impersonating: null,
   };
-  const m = mountComponent(Page as never, { data } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, { appId: 'app-1', panel: data } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(3);
   return m.target.innerHTML;
@@ -54,7 +53,7 @@ describe('B6 paging copy', () => {
     const out = await html({ signals: [], after: 'c1' });
     expect(out).toContain('No older stops.');
     expect(out).not.toContain('No stops have been set on this App.');
-    expect(out).toMatch(/<a href="\?"[^>]*>[^<]*first stops/);
+    expect(out).toMatch(/<a [^>]*href="[^"]*section=stops"[^>]*>[^<]*first stops/);
   });
 
   it('an empty first page still says none have been set', async () => {

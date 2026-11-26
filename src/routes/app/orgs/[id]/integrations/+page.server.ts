@@ -93,7 +93,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // GraphQL error here — surface it as an empty/error state, not a 500.
   const configsData = await fetchAllItems<AiServiceConfig>(
     gqlClient(locals.token), AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs',
-    { ownerType: 'ORGANIZATION', ownerId: params.id },
+    { ownerType: 'ORGANIZATION', ownerRef: params.id },
   ).catch(() => null);
   const [
     githubAppForm,

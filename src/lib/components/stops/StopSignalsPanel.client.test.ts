@@ -144,6 +144,19 @@ describe('the set form', () => {
     expect(root.querySelector('dialog')).toBeNull();
   });
 
+  it('a team stop says how to cover a team no one heads; a worker stop does not', async () => {
+    const { root } = await mountPanel();
+    expect(root.querySelector('#stop-team-help')).toBeNull();
+    radio(root, 'scope-choice', 'TEAM');
+    await tick(2);
+    const help = root.querySelector('#stop-team-help');
+    expect(help?.textContent).toContain('set one stop for each worker that no one reports to');
+    expect(root.querySelector('#stop-worker')?.getAttribute('aria-describedby')).toContain('stop-team-help');
+    radio(root, 'scope-choice', 'WORKER');
+    await tick(2);
+    expect(root.querySelector('#stop-team-help')).toBeNull();
+  });
+
   it('opens a confirmation with Cancel focused, naming the level, the target and its coverage', async () => {
     const { root } = await mountPanel();
     radio(root, 'scope-choice', 'TEAM');

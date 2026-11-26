@@ -86,6 +86,12 @@ import { resolveSectionIntent, resolveTabIntent } from './tab-intent';
 import { liveStopsNameAWorker, pickPayload, readGroupsFor, type ReadGroup } from './first-screen';
 import { loadTemplatesPanel, TEMPLATES_TAB_ID } from './templates-panel';
 import { loadSecretsPanel } from './secrets-panel';
+import { loadTickersPanel } from './tickers-panel';
+import { loadStopsPanel } from './stops-panel';
+import { formValues, impersonationRefusal, taskWrite, writeFailure } from '$lib/server/agent-task-writes';
+import { SET_APP_DELIVERY_SETTINGS_MUTATION, buildDeliveryPatch, classifyDeliveryError } from '$lib/server/delivery-settings';
+import { CREATE_TICKER_MUTATION, classifyTickerWriteError } from '$lib/server/ticker-writes';
+import { buildCreateInput } from '$lib/tickers/write';
 import { loadTasksApp } from '$lib/server/agent-tasks';
 import { CREATE_SECRET_MUTATION, type AppSecret } from '$lib/server/secrets';
 import { PLAIN_PROTECTED_TEXT, parseSecretValue, secretWrite, validSecretName } from '$lib/server/secret-writes';
@@ -129,7 +135,14 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
-import { loadLiveStops } from '$lib/server/stop-signals';
+import {
+  LIFT_TEAM_STOP_SIGNAL_MUTATION,
+  SET_TEAM_STOP_SIGNAL_MUTATION,
+  buildSetInput,
+  classifyStopError,
+  loadLiveStops,
+} from '$lib/server/stop-signals';
+import type { StopSignal } from '$lib/stop-signals/types';
 import type { ReleaseWorkerMessage } from './schema';
 import { readHoldStale, type HoldStale } from './hold-stale';
 
@@ -672,7 +685,7 @@ export async function _loadAppPage(
     // Coerce to null so a transient failure surfaces as a load error to admins
     // instead of a misleading empty list.
     !wants('aiConfigs') ? Promise.resolve(null) : client.request<{ aiServiceConfigs: { items: AiServiceConfig[]; total: number } }>(AI_SERVICE_CONFIGS_QUERY, {
-      ownerType: 'APP', ownerId: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: configOffset,
+      ownerType: 'APP', ownerRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: configOffset,
     }).then(r => r.aiServiceConfigs).catch(() => null),
     // #1005: the Human Team tab. null = the fetch failed, distinct from an App
     // with no members, so the tab can say so instead of showing "No members yet."
@@ -1159,11 +1172,17 @@ export async function _loadAppPage(
   const templatesPanel = await loadTemplatesPanel(wants('templates') ? TEMPLATES_TAB_ID : null, locals, setHeaders, params.appId);
   // portal#2380: the secrets section's data, when the section is asked for.
   const secretsPanel = await loadSecretsPanel(wants('secrets'), client, app.id, locals, cookies, setHeaders);
+  // portal#1099: the tickers section's data, when the section is asked for.
+  const tickersPanel = await loadTickersPanel(wants('tickers'), client, app.id, locals);
+  // portal#1139: the stops section's data, when the section is asked for. `after` is the stop list's own cursor.
+  const stopsPanel = await loadStopsPanel(wants('stops'), client, app.id, locals, url.searchParams.get('after'));
   // The frame's stop banner named a worker: its names travel with the frame.
   if (staffLoaded) reads.add('staff');
   const full = {
     templatesPanel,
     secretsPanel,
+    tickersPanel,
+    stopsPanel,
     runsPanel: runsSection && runsExtras && flowsData ? {
       ...runsSection,
       app,
@@ -1917,6 +1936,88 @@ export const actions: Actions = {
     const r = await withdrawRequest(gqlClient(locals.token), cookies, requestId);
     if (r.kind === 'ok') return { action: 'withdrawSecret' as const, ok: true as const };
     return fail(400, { action: 'withdrawSecret' as const, message: r.kind === 'refused' ? r.message : PLAIN_PROTECTED_TEXT() });
+  },
+
+  // portal#1151 (S7b): any participant may create a ticker, up to the cap; the server decides and its refusal renders.
+  // No manage audit (Rodolfo's §10 P2 on #1152): `effectiveAccess.canManage` under-reports owner-role members whom the
+  // server's managesApp admits, so every participant whose read succeeded is offered the form and the server's FORBIDDEN
+  // sentence answers anyone who may not.
+  createTicker: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('createTicker', impersonationRefusal(), values);
+    const built = buildCreateInput(fd);
+    if ('invalid' in built) return writeFailure('createTicker', { kind: 'invalid', ...built.invalid }, values);
+    // portal#1384 (acceptance 9): createTicker may succeed WITH a warning (ticker.code.unmapped, hadron-server#2733) in
+    // `extensions.warnings` under its own response key, which `request()` drops. The create stays a success; the
+    // warning is shown as the server gave it.
+    const out = await taskWrite<{ createTicker: { id: string; name: string } | null }>(
+      gqlClient(locals.token),
+      CREATE_TICKER_MUTATION,
+      { appRef: params.appId, input: built.input },
+      'createTicker',
+      (e) => classifyTickerWriteError(e, 'create'),
+    );
+    if (out.kind === 'refused') return writeFailure('createTicker', out.refusal, values);
+    const made = out.data?.createTicker;
+    const ticker = made && typeof made.id === 'string' && typeof made.name === 'string' ? { id: made.id, name: made.name } : null;
+    // No usable ticker and no warning to prove the write landed: the outcome is unknown, never "created".
+    if (!ticker && !out.committed) return writeFailure('createTicker', { kind: 'uncertain' }, values);
+    return {
+      action: 'createTicker' as const,
+      ok: true as const,
+      ticker,
+      committedWithError: out.kind === 'committed-error',
+      warnings: out.warnings,
+      more: out.more,
+    };
+  },
+
+  // portal#1141 slice A (hadron-server S9): sends only the delivery fields the reader changed.
+  setDeliverySettings: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('setDeliverySettings', impersonationRefusal(), values);
+    const built = buildDeliveryPatch(fd);
+    if ('invalid' in built) return writeFailure('setDeliverySettings', { kind: 'invalid', ...built.invalid }, values);
+    try {
+      await gqlClient(locals.token).request(SET_APP_DELIVERY_SETTINGS_MUTATION, { appRef: params.appId, input: built.patch });
+      return { action: 'setDeliverySettings' as const, ok: true as const };
+    } catch (e) {
+      return writeFailure('setDeliverySettings', classifyDeliveryError(e), values);
+    }
+  },
+
+  // portal#1139: set and lift a stop signal. The server decides on every call; `viewerManages` is only a display hint.
+  setStop: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('setStop', impersonationRefusal(), values);
+    const built = buildSetInput(fd, params.appId);
+    if ('invalid' in built) return writeFailure('setStop', { kind: 'invalid', ...built.invalid }, values);
+    try {
+      const r = await gqlClient(locals.token).request<{ setTeamStopSignal: StopSignal }>(SET_TEAM_STOP_SIGNAL_MUTATION, { input: built.input });
+      return { action: 'setStop' as const, ok: true as const, signalId: r.setTeamStopSignal.id };
+    } catch (e) {
+      return writeFailure('setStop', classifyStopError(e), values);
+    }
+  },
+
+  liftStop: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('liftStop', impersonationRefusal(), values);
+    const id = String(fd.get('id') ?? '').trim();
+    if (!id) return writeFailure('liftStop', { kind: 'invalid', field: 'form', message: 'Choose a stop to lift.' }, values);
+    try {
+      const r = await gqlClient(locals.token).request<{ liftTeamStopSignal: { changed: boolean } }>(LIFT_TEAM_STOP_SIGNAL_MUTATION, {
+        appRef: params.appId,
+        id,
+      });
+      return { action: 'liftStop' as const, ok: true as const, id, changed: r.liftTeamStopSignal.changed };
+    } catch (e) {
+      return writeFailure('liftStop', classifyStopError(e), values);
+    }
   },
 
   deleteApp: async ({ request, params, locals }) => {

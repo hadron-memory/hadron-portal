@@ -55,3 +55,27 @@ export function refusalNeedsReload(code: string | null | undefined): boolean {
     code === 'QUESTION_NOT_FOUND'
   );
 }
+
+/**
+ * portal#2237 — the refusals `createQuestionLog` can come back with (hadron-server#4425), keyed by typed code, known codes only; the text
+ * is the portal's own. The server decides who may create a log, so QUESTION_FORBIDDEN is shown, not pre-empted.
+ */
+export function questionLogRefusal(code: string | null | undefined): QuestionRefusal | null {
+  switch (code) {
+    case 'QUESTION_FORBIDDEN':
+      return { status: 403, text: t('question.log.refusal.forbidden', 'Only a manager of that memory or an owner of this App can set up questions.') };
+    case 'QUESTION_DECIDER_NOT_ELIGIBLE':
+      return { status: 400, text: t('question.log.refusal.decider', 'One of the people you chose cannot write that memory, so they cannot decide there. Give them write access first, or leave them out.') };
+    case 'QUESTION_LOG_EXISTS':
+      return { status: 409, text: t('question.log.refusal.exists', "That memory already has, or once had, a node at 'questions'. Choose another memory.") };
+    case 'QUESTION_LOG_ENCRYPTED':
+      return { status: 400, text: t('question.log.refusal.encrypted', 'An encrypted memory cannot hold a question log.') };
+    case 'QUESTION_LOG_MIRRORED':
+      return { status: 400, text: t('question.log.refusal.mirrored', 'A memory mirrored from Git cannot hold a question log.') };
+    case 'QUESTION_LOG_SYSTEM_MEMORY':
+    case 'QUESTION_LOG_ANONYMOUS_MEMORY':
+      return { status: 400, text: t('question.log.refusal.not-own', 'That memory cannot hold a question log. Choose one of the App’s own memories.') };
+    default:
+      return null;
+  }
+}

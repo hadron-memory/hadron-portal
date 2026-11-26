@@ -27,8 +27,8 @@ describe('shared node advice transport', () => {
   ])('keeps %s advice without changing the data or replaying the write', async (operation, document) => {
     const data = { saved: operation === 'bulk' ? { totalReplacements: 3 } : { id: 'n' } };
     const variables: Record<string, unknown> = operation === 'restore' ? { nodeRevRef: 'revision' }
-      : operation === 'bulk' ? { input: { nodeIds: ['n'], fields: ['content'], oldText: 'before', newText: 'after' } }
-      : { input: { memoryId: 'm', loc: 'n', name: 'N' } };
+      : operation === 'bulk' ? { input: { nodeRefs: ['n'], fields: ['content'], oldText: 'before', newText: 'after' } }
+      : { input: { memoryRef: 'm', loc: 'n', name: 'N' } };
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data, extensions: { warnings: [{ path: 'saved', code: INCLUDE_PIN_UNKEPT, text: INCLUDE_PIN_UNKEPT_TEXT }] } }), { headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
     const e = requestEvent();
@@ -44,7 +44,7 @@ describe('shared node advice transport', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { saved: null }, errors: [{ message: 'refused', path: ['saved'] }], extensions: { warnings: [{ path: 'saved', code: INCLUDE_PIN_UNKEPT, text: INCLUDE_PIN_UNKEPT_TEXT }] } }), { headers: { 'content-type': 'application/json' } })));
     const e = requestEvent();
     await nodeAdviceHandle({ event: e, resolve: async () => {
-      await expect(gqlClient('token').request(NODE_ADVICE_UPDATE_MUTATION, { input: { id: 'n', content: 'edit' } })).rejects.toThrow('refused');
+      await expect(gqlClient('token').request(NODE_ADVICE_UPDATE_MUTATION, { input: { ref: 'n', content: 'edit' } })).rejects.toThrow('refused');
       return new Response(null, { status: 400 });
     } } as never);
     expect(e.cookies.set).not.toHaveBeenCalled();
@@ -75,7 +75,7 @@ describe('shared node advice transport', () => {
     vi.stubGlobal('fetch', fetchMock);
     const e = requestEvent();
     const result = await nodeAdviceHandle({ event: e, resolve: async () => {
-      await expect(gqlClient('token').request(NODE_ADVICE_UPDATE_MUTATION, { input: { id: 'n', content: 'edit' } })).resolves.toBeDefined();
+      await expect(gqlClient('token').request(NODE_ADVICE_UPDATE_MUTATION, { input: { ref: 'n', content: 'edit' } })).resolves.toBeDefined();
       return new Response(null, { status: 200 });
     } } as never);
     expect(result.status).toBe(200);

@@ -11,7 +11,10 @@ import { setStubPage, resetStubPage } from '$lib/test/stubs/app-stores';
 
 vi.mock('$app/environment', () => ({ browser: true, dev: false, building: false, version: 'test' }));
 import Detail from './[tickerId]/+page.svelte';
-import List from './+page.svelte';
+import List from '../AppTickers.svelte';
+import { sectionProps } from '$lib/test/ticker-section-props';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { announcedStatusRegion } from '$lib/test/firstPopulatedStatusText';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
@@ -55,17 +58,72 @@ describe('portal#1457 — Try again refreshes once', () => {
     expect(invalidations()).toBe(1);
   });
 
-  it('tickers list: the failed load’s retry calls invalidateAll exactly once', async () => {
-    setStubPage('http://localhost/app/apps/app-1/tickers', { appId: 'app-1' });
-    const m = mountComponent(List as never, {
-      data: { app, tickers: { kind: 'failed' }, settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null },
-    } as never) as Mounted<Record<string, unknown>>;
-    mounted.push(m);
-    await tick(2);
-    const buttons = retryButtons(m.target);
-    expect(buttons.length).toBe(1);
-    buttons[0].click();
-    await tick(2);
-    expect(invalidations()).toBe(1);
+  // The list is a section of Settings now: its retry reads the section's slice again through the tab endpoint (not the
+  // page load), once, and shows what comes back. Mutant: drop the `onclick={refresh}` handler, or read the page load.
+  it('tickers section: the failed load’s retry reads the section again exactly once and shows the answer', async () => {
+    setStubPage('http://localhost/app/apps/app-1', { appId: 'app-1' });
+    const fetched: string[] = [];
+    const panel = (tickers: unknown) => ({ tickers, settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null });
+    vi.stubGlobal('fetch', async (url: string) => {
+      fetched.push(url);
+      return { ok: true, json: async () => ({ tickersPanel: panel({ kind: 'ok', value: [{ ...ticker, subscribers: { hasNextPage: false, items: [] } }] }) }) };
+    });
+    try {
+      const m = mountComponent(List as never, sectionProps({ app, ...panel({ kind: 'failed' }) }) as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      const buttons = retryButtons(m.target);
+      expect(buttons.length).toBe(1);
+      expect(fetched).toEqual([]);
+      buttons[0].click();
+      await tick(4);
+      expect(fetched).toEqual(['/app/apps/app-1/tab?tab=tickers']);
+      expect(invalidations()).toBe(0);
+      expect(retryButtons(m.target)).toHaveLength(0);
+      expect(m.target.textContent).toContain('eng');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // A write that landed must be reported even when the re-read after it fails: the failed read only marks the list stale
+  // (hrn:pr hadron-portal#2644 review). Mutant: hand the form the bare `reload`, and its submit handler rejects before
+  // it reports anything.
+  it('a created ticker is reported when the re-read after it fails, and the section says it could not refresh', async () => {
+    setStubPage('http://localhost/app/apps/app-1', { appId: 'app-1' });
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 500, json: async () => ({}) }));
+    try {
+      const panel = { tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null };
+      const m = mountComponent(List as never, sectionProps({ app, ...panel }) as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      const form = m.target.querySelector<HTMLFormElement>('form[data-testid]')!;
+      const name = form.querySelector<HTMLInputElement>('input[name="name"]')!;
+      name.value = 'standup';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(2);
+      await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { action: 'createTicker', ok: true, ticker: { id: 'tk-9', name: 'standup' } } });
+      await tick(4);
+      expect(announcedStatusRegion(m.target)!.firstElementChild!.textContent).toContain('Created standup.');
+      expect(m.target.textContent).toContain('Couldn’t refresh.');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('a failed refresh keeps what is shown and says so', async () => {
+    setStubPage('http://localhost/app/apps/app-1', { appId: 'app-1' });
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 500, json: async () => ({}) }));
+    try {
+      const m = mountComponent(List as never, sectionProps({ app, tickers: { kind: 'failed' }, settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null }) as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      retryButtons(m.target)[0].click();
+      await tick(4);
+      expect(m.target.textContent).toContain('Couldn’t refresh.');
+      expect(retryButtons(m.target)).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -121,7 +121,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const [systemRows, ownSystemIds, publicMemories, myMemories] = await Promise.all([
     // Feeds systemMemories AND personalMemories (ownSystemMemories below is
     // cut from systemRows), so its failure degrades both tabs.
-    fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
+    fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgRef: params.id })
       .catch(degradedRead(params.id, 'org system memories', [] as Memory[], ['systemMemories', 'personalMemories'])),
     // #2140: whose org-less system rows are the caller's is the server's call. A
     // failed read leaves the set empty, which hides those rows rather than

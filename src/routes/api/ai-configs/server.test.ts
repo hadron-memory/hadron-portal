@@ -79,7 +79,7 @@ describe('POST /api/ai-configs', () => {
     expect(body.config.id).toBe('c1');
     expect(mockRequest.mock.calls[0][1]).toMatchObject({
       ownerType: 'ORGANIZATION',
-      ownerId: 'o1',
+      ownerRef: 'o1',
       name: 'default',
       provider: 'anthropic',
       model: 'claude-sonnet-4',
@@ -470,7 +470,7 @@ describe('GET /api/ai-configs section readback', () => {
     expect(await jsonOf(res)).toEqual({ configs: [maskedConfig] });
     expect(mockGqlClient).toHaveBeenCalledTimes(1);
     expect(mockGqlClient).toHaveBeenCalledWith('test-token', expect.any(AbortSignal));
-    expect(mockRequest.mock.calls[0][1]).toEqual({ ownerType: 'AGENT', ownerId: 'a1', limit: 200, offset: 0 });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ ownerType: 'AGENT', ownerRef: 'a1', limit: 200, offset: 0 });
   });
 
   it('reads the App chat resolution slice with the same masked fields', async () => {

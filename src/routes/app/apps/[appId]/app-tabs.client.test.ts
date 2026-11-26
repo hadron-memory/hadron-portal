@@ -123,12 +123,22 @@ describe('App page tab strip (#1005, #1006)', () => {
     expect(tabLabels(target)).not.toContain('Tasks');
   });
 
-  // portal#1099: Tickers likewise, since a ticker read answers a non-participant APP_NOT_FOUND.
-  it('links to the Tickers sub-route', async () => {
+  // portal#1099: Tickers, and portal#2380: Secrets, are sections of Settings now, not tabs or sub-route links.
+  it('has no Tickers or Secrets tab or link: both are sections of Settings', async () => {
     const target = await mountTab('chats');
-    const link = [...target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Tickers');
-    expect(link?.getAttribute('href')).toBe('/app/apps/a1/tickers');
+    const links = [...target.querySelectorAll<HTMLAnchorElement>('a')].map((a) => a.textContent?.trim());
+    expect(links).not.toContain('Tickers');
+    expect(links).not.toContain('Secrets');
     expect(tabLabels(target)).not.toContain('Tickers');
+    expect(tabLabels(target)).not.toContain('Secrets');
+  });
+
+  // portal#2235: Questions likewise, since a question read answers a non-participant APP_NOT_FOUND.
+  it('links to the Questions sub-route', async () => {
+    const target = await mountTab('chats');
+    const link = [...target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Questions');
+    expect(link?.getAttribute('href')).toBe('/app/apps/a1/questions');
+    expect(tabLabels(target)).not.toContain('Questions');
   });
 });
 

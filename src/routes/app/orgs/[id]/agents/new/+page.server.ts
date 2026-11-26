@@ -4,7 +4,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode, gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
-import { CREATE_AGENT_MUTATION, UPDATE_AGENT_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
+import { CREATE_AGENT_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createAgentSchema } from './schema';
@@ -29,20 +29,16 @@ export const actions: Actions = {
     const form = await superValidate(await request.formData(), createAgentFormAdapter);
     if (!form.valid) return fail(400, { form });
 
-    const name = form.data.slug;
-    const displayName = form.data.displayName;
+    // #2647: the typed slug is sent as `slug` (the URN atom); `name` is the display name.
+    const slug = form.data.slug;
+    const name = form.data.displayName || slug;
     const description = form.data.description || null;
 
     const visibility = form.data.visibility;
     try {
       const result = await gqlClient(locals.token).request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
-        orgRef: params.id, name, description, visibility,
+        orgRef: params.id, slug, name, description, visibility,
       });
-      if (displayName && displayName !== name) {
-        await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-          ref: result.createAgent.id, name: displayName,
-        }).catch(() => {});
-      }
       redirect(303, `/app/orgs/${params.id}/agents`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;

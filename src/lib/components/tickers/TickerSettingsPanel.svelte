@@ -37,7 +37,7 @@
         <dd class="text-zinc-600 dark:text-zinc-400">{t('app.tickers.settings.budget.help', 'Mentions from managers don’t count. When it runs out, wakes wait until the next UTC day, and the team chat gets one notice.')}</dd>
       </div>
     </dl>
-    <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.settings.who', 'Only whoever manages the App can change these settings.')}</p>
+    <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.settings.who', 'These settings are read-only here. Only people who manage this App can change them: its owners and, for an organization’s App, that organization’s owners and admins.')}</p>
   {:else if settings.kind === 'failed'}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
       {t('app.tickers.settings.failed', 'Couldn’t load this App’s ticker settings.')}

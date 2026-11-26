@@ -13,7 +13,7 @@ vi.mock('$env/dynamic/private', () => ({ env }));
 import { gqlClient } from './api';
 
 const MUTATION = /* GraphQL */ `mutation Save($input: UpdateNodeInput!) { saved: updateNode(input: $input) { id } }`;
-const VARIABLES = { input: { id: 'n' } };
+const VARIABLES = { input: { ref: 'n' } };
 const QUERY = /* GraphQL */ `query Read { me { id } }`;
 const DATA = { saved: { id: 'n' } };
 

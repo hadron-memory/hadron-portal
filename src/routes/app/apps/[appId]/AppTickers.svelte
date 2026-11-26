@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { invalidateAll } from '$app/navigation';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
@@ -14,18 +12,34 @@
   import { cadenceText, isKnownReason, isWellFormedReasons, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonHelp, reasonLabel, reasonsSearchText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel, unrecognisedReasonText } from '$lib/tickers/format';
   import type { TickerListRow } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
-  import type { PageData } from './$types';
+  import type { loadTickersPanel } from './tickers-panel';
 
   /**
-   * portal#1099 — the App's tickers (design §3.1). The list itself is a read;
-   * the writes are the Delivery section below the settings (portal#1141 slice
-   * A, hadron-server S9) and New ticker (portal#1151, S7b). Edit and Delete
-   * live on the ticker's own page; Subscribe is not in the portal yet.
+   * portal#1099 — the App's tickers (design §3.1), as the body of a Settings section. The list is a read; the writes
+   * are the Delivery settings (portal#1141 slice A, hadron-server S9) and New ticker (portal#1151, S7b), posted to the
+   * App page's own `setDeliverySettings` and `createTicker` actions. Edit and Delete live on the ticker's own page;
+   * Subscribe is not in the portal yet. After a write the section reads its own slice again through the tab endpoint.
    */
-  let { data }: { data: PageData } = $props();
+  type Panel = NonNullable<Awaited<ReturnType<typeof loadTickersPanel>>>;
+  let { appId, panel: initial }: { appId: string; panel: Panel } = $props();
 
-  const basePath = $derived(`/app/apps/${data.app.id}`);
-  const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
+  // The panel shown: what the page last handed over, until a re-read of this section replaces it.
+  let reread = $state.raw<{ against: Panel; panel: Panel } | null>(null);
+  const data = $derived(reread && reread.against === initial ? reread.panel : initial);
+  let readSeq = 0;
+  /** Reads the section's slice again. A failed read keeps what is shown; an answer older than one already taken is dropped. */
+  async function reload(): Promise<void> {
+    const mine = ++readSeq;
+    const against = initial;
+    const res = await fetch(`${basePath}/tab?tab=tickers`, { headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error(`tickers re-read ${res.status}`);
+    const next = (await res.json()) as { tickersPanel?: Panel | null };
+    if (next.tickersPanel && mine === readSeq) reread = { against, panel: next.tickersPanel };
+  }
+
+  const basePath = $derived(`/app/apps/${appId}`);
+  // The action URLs name the section: without JavaScript the answer renders the page, and it must open the section.
+  const actionUrl = (name: string) => `${basePath}?tab=settings&section=tickers&/${name}`;
   const tickers = $derived(data.tickers);
   const liveCap = $derived(data.settings.kind === 'ok' ? data.settings.value.liveCap : null);
   // Relative times are computed against the load, so the page needs no polling;
@@ -81,14 +95,14 @@
 
   let globalFilter = $state('');
   // §8: at 390px the grid keeps Ticker, State and Every on screen, so the first
-  // three columns fit the 308px phone column together (132 + 92 + 76); the
-  // name truncates and the rest scroll. scripts/test-tickers-layout.mjs checks that outcome at 390px; the sizes themselves are not pinned there.
+  // three columns share the 308px phone column (132 + 92 + 100 asks for 324, so the
+  // name column gives way); the name truncates and the rest scroll. scripts/test-tickers-layout.mjs checks that outcome at 390px; the sizes themselves are not pinned there.
   const columns: PortalColumnDef<Row>[] = [
     { id: 'name', accessorFn: (r) => r.name, header: t('app.tickers.col.ticker', 'Ticker'), enableHiding: false, size: 132 },
     { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 92 },
-    { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 76 },
-    { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 240 },
-    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 200 },
+    { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 100 },
+    { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 228 },
+    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 188 },
     { id: 'channels', accessorFn: (r) => r.channelsText, header: t('app.tickers.col.counts', 'Counts'), size: 240 },
     { id: 'subscribers', accessorFn: (r) => r.subscriberCount, header: t('app.tickers.col.subscribers', 'Subscribers'), enableGlobalFilter: false, size: 120 },
     { id: 'next', accessorFn: (r) => r.nextMs, header: t('app.tickers.col.next', 'Next tick'), size: 150 },
@@ -116,33 +130,34 @@
   });
 
   let refreshing = $state(false);
+  let refreshFailed = $state(false);
   async function refresh() {
     refreshing = true;
+    refreshFailed = false;
     try {
-      await invalidateAll();
+      await reload();
+    } catch {
+      refreshFailed = true;
     } finally {
       refreshing = false;
     }
   }
+  // The forms run this right after a write that SUCCEEDED. A failed re-read must not throw out of their submit
+  // handler (the write would then go unreported and the draft stay to be sent again): it only says the list is stale.
+  async function reloadAfterWrite() {
+    refreshFailed = false;
+    try {
+      await reload();
+    } catch {
+      refreshFailed = true;
+    }
+  }
 </script>
 
-<svelte:head><title>{t('app.tickers.head', 'Tickers')} · {data.app.name} · Hadron</title></svelte:head>
-
 <div class="space-y-4">
-  <Breadcrumb items={[
-    { label: t('app.tickers.crumb.apps', 'Apps'), href: appsHref },
-    { label: data.app.name, href: basePath },
-    { label: t('app.tickers.crumb.tickers', 'Tickers') },
-  ]} />
-
-  <div>
-    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">
-      <span class="font-normal text-zinc-400">{t('app.tickers.title.prefix', 'Tickers:')}</span> {data.app.name}
-    </h1>
-    <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-      {t('app.tickers.intro', 'A ticker decides when the workers subscribed to it are due a wake. A router delivers the wakes; this page only shows who is due and when.')}
-    </p>
-  </div>
+  <p class="text-sm text-zinc-600 dark:text-zinc-400">
+    {t('app.tickers.intro', 'A ticker sends a message to an agent at regular intervals. Agents can subscribe to tickers. You can use a ticker to have the agent do some work every so often, or to check the team channel for new messages.')}
+  </p>
 
   {#if tickers.kind === 'not-participant'}
     <TickersNotParticipant impersonating={data.impersonating} />
@@ -156,8 +171,12 @@
             {t('app.tickers.count-nocap', '{n} tickers', { n: tickers.value.length })}
           {/if}
         {/if}
+        {#if tickers.kind === 'ok' && liveCap != null && tickers.value.length >= liveCap}
+          <span class="mt-0.5 block text-xs font-normal text-amber-800 dark:text-amber-300" data-testid="ticker-cap-reached">{t('app.tickers.cap-reached', 'You have reached the limit of {cap} tickers. A new ticker is refused until you delete one.', { cap: liveCap })}</span>
+        {/if}
       </p>
       <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {#if refreshFailed}<span role="alert" class="text-red-700 dark:text-red-400">{t('app.tickers.refresh-failed', 'Couldn’t refresh.')}</span>{/if}
         <span>{t('app.tickers.updated-at', 'Updated {time}', { time: fmtRunTime(data.loadedAt) })}</span>
         <button
           type="button"
@@ -177,7 +196,7 @@
       <!-- §7: the state everyone meets first. It must not claim a ticker wakes anyone today. -->
       <div class="space-y-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="tickers-empty">
         <p>
-          <span class="font-medium text-zinc-900 dark:text-white">{t('app.tickers.empty.lead', 'No tickers yet.')}</span>
+          <span class="font-medium text-zinc-900 dark:text-white">{t('app.tickers.empty.lead', 'No tickers yet. Add one below to schedule wakes.')}</span>
           {t('app.tickers.empty.body', 'A mention already makes a worker due at once, unless its mentions are off or it is paused. A ticker adds scheduled wakes: every so often, it makes the workers subscribed to it that have unread messages due.')}
         </p>
         <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.router', 'A router delivers the wakes. This page only decides who is due and when.')}</p>
@@ -254,12 +273,12 @@
 
     {#if tickers.kind === 'ok'}
       <section aria-labelledby="ticker-create-heading" class="space-y-2" data-testid="ticker-create-section">
-        <h2 id="ticker-create-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tickers.create.heading', 'New ticker')}</h2>
-        <TickerForm appId={data.app.id} impersonating={data.impersonating} />
+        <h3 id="ticker-create-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tickers.create.heading', 'New ticker')}</h3>
+        <TickerForm appId={appId} impersonating={data.impersonating} createAction={actionUrl('createTicker')} reload={reloadAfterWrite} />
       </section>
     {/if}
 
     <TickerSettingsPanel settings={data.settings} />
-    <DeliverySettingsPanel appId={data.app.id} settings={data.delivery} impersonating={data.impersonating} />
+    <DeliverySettingsPanel appId={appId} settings={data.delivery} impersonating={data.impersonating} action={actionUrl('setDeliverySettings')} reload={reloadAfterWrite} />
   {/if}
 </div>

@@ -182,6 +182,8 @@
   import { DEFAULT_TAB, READ_GROUP_KEYS, TAB_READS } from './first-screen';
   import AppNodeRoleTemplates from './AppNodeRoleTemplates.svelte';
   import AppSecrets from './AppSecrets.svelte';
+  import AppTickers from './AppTickers.svelte';
+  import AppStops from './AppStops.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -3011,14 +3013,13 @@
     </div>
   {/if}
   <!-- portal#1139: the stops in effect, prominent above the sections. -->
-  <StopBanner live={data.liveStops} workers={(tabData.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
+  <StopBanner live={data.liveStops} workers={(tabData.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}?tab=settings&section=stops" />
 
   <TabRow items={[
     ...tabs,
     { id: 'channels', label: t('app.tabs.channels', 'Channels'), href: `/app/apps/${app.id}/channels` },
     { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
-    { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
-    { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
+    { id: 'questions', label: t('app.tabs.questions', 'Questions'), href: `/app/apps/${app.id}/questions` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
     { id: 'metrics', label: t('app.tabs.metrics', 'Team metrics'), href: `/app/apps/${app.id}/metrics` },
     { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
@@ -4950,11 +4951,29 @@
       </CollapsibleSection>
 
       <!-- portal#2380: the former /secrets page, in place. Read when the section unfolds; its writes are the page's own actions. -->
-      <CollapsibleSection id="secrets" title={t('app.tabs.secrets', 'Secrets')} bind:open={openSections['secrets']}>
+      <CollapsibleSection id="secrets" title={t('app.settings.section.secrets', 'Secrets store')} bind:open={openSections['secrets']}>
         {#if tabData.secretsPanel}
-          <AppSecrets appId={app.id} panel={tabData.secretsPanel} {form} />
+          <AppSecrets appId={app.id} appUrn={app.urn} panel={tabData.secretsPanel} {form} />
         {:else}
           {@render tabArriving('secrets')}
+        {/if}
+      </CollapsibleSection>
+
+      <!-- portal#1099: the former /tickers list, in place. Read when the section unfolds; its writes are the page's own actions. -->
+      <CollapsibleSection id="tickers" title={t('app.tabs.tickers', 'Tickers')} bind:open={openSections['tickers']}>
+        {#if tabData.tickersPanel}
+          <AppTickers appId={app.id} panel={tabData.tickersPanel} />
+        {:else}
+          {@render tabArriving('tickers')}
+        {/if}
+      </CollapsibleSection>
+
+      <!-- portal#1139: the former /stops list, in place. Read when the section unfolds; its writes are the page's own actions. -->
+      <CollapsibleSection id="stops" title={t('app.tabs.stops', 'Stops')} bind:open={openSections['stops']}>
+        {#if tabData.stopsPanel}
+          <AppStops appId={app.id} panel={tabData.stopsPanel} />
+        {:else}
+          {@render tabArriving('stops')}
         {/if}
       </CollapsibleSection>
 

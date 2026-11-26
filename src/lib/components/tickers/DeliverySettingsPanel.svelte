@@ -25,10 +25,16 @@
     appId,
     settings,
     impersonating = null,
+    action = '?/delivery',
+    reload = () => invalidateAll(),
   }: {
     appId: string;
     settings: TickerRead<AppDeliverySettings>;
     impersonating?: string | null;
+    /** The form action that saves; a host that is not the Tickers page names its own. */
+    action?: string;
+    /** Reads the host's data again after a save. Defaults to the page load. */
+    reload?: () => Promise<unknown>;
   } = $props();
 
   const FIELDS = ['batchWindowSeconds', 'busyDelaySeconds', 'stuckWindowSeconds'] as const;
@@ -98,7 +104,7 @@
         if (mine !== generation) return;
         submitting = false;
         if (result.type === 'success') {
-          await invalidateAll();
+          await reload();
           if (mine !== generation) return;
           typed = {};
           refusal = null;
@@ -132,7 +138,7 @@
     {#if editable}
       <form
         method="POST"
-        action="?/delivery"
+        {action}
         use:enhance={submitter()}
         class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900"
       >

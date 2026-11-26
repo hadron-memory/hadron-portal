@@ -55,7 +55,7 @@ export function mergeInstallableAgents(org: OrgAgentPool, now: number = Date.now
 export async function fetchOrgVisibleAgents<T>(client: GraphQLClient): Promise<T[]> {
   const orgs = await fetchAllItems<{ id: string }>(client, MEMBER_ORG_IDS_QUERY, 'organizations');
   const lists = await Promise.all(
-    orgs.map((o) => fetchAllItems<T>(client, ORG_VISIBLE_AGENTS_QUERY, 'agents', { orgId: o.id })),
+    orgs.map((o) => fetchAllItems<T>(client, ORG_VISIBLE_AGENTS_QUERY, 'agents', { orgRef: o.id })),
   );
   return lists.flat();
 }
