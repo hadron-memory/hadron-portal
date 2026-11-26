@@ -103,6 +103,19 @@ describe('the form (no log yet)', () => {
   });
 });
 
+describe('review nits', () => {
+  it('while impersonating, no form: the action would refuse it, so the page says so up front', async () => {
+    const m = await mount(noLog({ impersonating: 'Some User' }));
+    expect(setupForm(m)).toBeNull();
+    expect(text(m)).toContain('Questions cannot be set up while impersonating.');
+  });
+  it('a log with no deciders says so, not "Decided by: " with nothing after it', async () => {
+    const m = await mount(withLog({ logs: { kind: 'ok', value: [log({ defaultDeciders: [] })] } }));
+    expect(text(m)).toContain('No one is named to decide.');
+    expect(text(m)).not.toMatch(/Decided by:\s*(To|$)/);
+  });
+});
+
 describe('the log lines (a log exists)', () => {
   it('has no form, and names each log with its URN and who decides', async () => {
     const m = await mount(withLog());

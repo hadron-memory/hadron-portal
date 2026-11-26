@@ -213,7 +213,7 @@
         <div data-testid="question-log" class="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
           {#if l.portalUrl}<a href={l.portalUrl} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{l.name}</a>{:else}<span class="font-medium">{l.name}</span>{/if}
           <div class="mt-1"><Urn value={l.urn} /></div>
-          <p class="mt-1 text-zinc-600 dark:text-zinc-300">{t('app.questions.log.decided-by', 'Decided by: {names}', { names: l.defaultDeciders.map(personName).join(', ') })}</p>
+          <p class="mt-1 text-zinc-600 dark:text-zinc-300">{l.defaultDeciders.length > 0 ? t('app.questions.log.decided-by', 'Decided by: {names}', { names: l.defaultDeciders.map(personName).join(', ') }) : t('app.questions.log.no-deciders', 'No one is named to decide.')}</p>
         </div>
       {/each}
       <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.questions.log.change-deciders', 'To change who decides, use {command}.', { command: 'hadron question log set-deciders' })}</p>
@@ -224,7 +224,9 @@
       {#if form?.createLog?.error}
         <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.createLog.error}</p>
       {/if}
-      {#if setup.memories === null}
+      {#if data.impersonating}
+        <p class="text-sm text-amber-700 dark:text-amber-300">{t('app.questions.setup.impersonating', 'Questions cannot be set up while impersonating.')}</p>
+      {:else if setup.memories === null}
         <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{t('app.questions.setup.memories-failed', 'Couldn’t load the App’s memories. Reload to try again.')}</p>
       {:else if setup.memories.length === 0}
         <p class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.questions.setup.no-memory', 'This App has no memory that can hold a question log.')}</p>
