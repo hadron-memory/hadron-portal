@@ -10,6 +10,7 @@ import {
   APP_QUESTION_LOGS_QUERY,
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
+import { APP_MEMORY_SCOPE_QUERY } from '../app-memories';
 import { selectsFieldPath } from '$lib/test/graphql-selection';
 
 const request = vi.fn();
@@ -18,13 +19,14 @@ vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const gqlError = (code: string) => ({ response: { errors: [{ message: code, extensions: { code } }] } });
 const member = (id: string, name: string) => ({ user: { id, handle: name.toLowerCase(), name } });
-type Over = Partial<{ questions: unknown; logs: unknown; members: unknown; appError: unknown; questionsError: unknown; logsError: unknown }>;
+type Over = Partial<{ questions: unknown; logs: unknown; members: unknown; appError: unknown; questionsError: unknown; logsError: unknown; scope: unknown; scopeError: unknown }>;
 
 function serve(over: Over = {}) {
   request.mockImplementation(async (q: string) => {
     if (q === AGENT_TASKS_APP_QUERY) { if (over.appError) throw over.appError; return { app }; }
     if (q === APP_QUESTIONS_QUERY) { if (over.questionsError) throw over.questionsError; return { questions: over.questions ?? { total: 0, items: [] } }; }
     if (q === APP_QUESTION_LOGS_QUERY) { if (over.logsError) throw over.logsError; return { questionLogs: over.logs ?? [{ id: 'l1', urn: 'hrn:node:acme.com:team:questions', name: 'Questions', memoryId: 'm1', prefix: 'Q' }] }; }
+    if (q === APP_MEMORY_SCOPE_QUERY) { if (over.scopeError) throw over.scopeError; return { appMemoryScope: { items: over.scope ?? [{ memoryId: 'm1', memoryUrn: 'hrn:mem:acme.com:m1', name: 'Team notes', class: 'app', viewerCanWrite: true, sources: [{ kind: 'APP_MEMORY', agentId: null }] }], total: 1 } }; }
     if (q === TEAM_ROSTER_QUERY) return { teamRoster: { workers: [] } };
     if (q === APP_PEOPLE_QUERY) return { app: { id: 'app-1', members: over.members === undefined ? [member('u1', 'Ada'), member('u2', 'Bob')] : over.members } };
     throw new Error(`unexpected query ${q.slice(0, 40)}`);
@@ -116,22 +118,50 @@ describe('failure is not emptiness', () => {
     await expect(loadPage()).rejects.toMatchObject({ status: 404 });
     expect(request).toHaveBeenCalledTimes(1);
   });
-  it('an empty page with a failed log read says failed for the logs, not "no log"', async () => {
+  it('a failed log read says failed for the logs, not "no log"', async () => {
     serve({ logsError: new Error('boom') });
     expect((await loadPage()).logs).toEqual({ kind: 'failed' });
   });
 });
 
-describe('the question logs (only read when the page is empty)', () => {
-  it('a page with rows does not read the logs', async () => {
+describe('the question logs (read on every page, for the log lines)', () => {
+  it('a page with rows reads them too: the list shows who decides above its rows', async () => {
     serve({ questions: { total: 1, items: [{ id: 'q1' }] } });
     const r = await loadPage();
-    expect(r.logs).toBeNull();
-    expect(request.mock.calls.some((c) => c[0] === APP_QUESTION_LOGS_QUERY)).toBe(false);
+    expect(r.logs).toMatchObject({ kind: 'ok' });
+    expect(request.mock.calls.some((c) => c[0] === APP_QUESTION_LOGS_QUERY)).toBe(true);
   });
-  it('an empty page reads them, and an App with none reports an empty list', async () => {
+  it('an App with no log reports an empty list', async () => {
     serve({ logs: [] });
     expect((await loadPage()).logs).toEqual({ kind: 'ok', value: [] });
+  });
+  it('a failed logs read is a failure for the logs only: the questions still load', async () => {
+    serve({ logsError: new Error('boom'), questions: { total: 1, items: [{ id: 'q1' }] } });
+    const r = await loadPage();
+    expect(r.logs).toEqual({ kind: 'failed' });
+    expect(r.questions).toMatchObject({ kind: 'ok' });
+  });
+});
+
+describe('the setup form’s data (only when there is no log)', () => {
+  it('no log: the memories it may offer, the deciders and the viewer', async () => {
+    serve({ logs: [] });
+    const r = await loadPage();
+    expect(r.setup).toMatchObject({ memories: [{ id: 'm1', name: 'Team notes' }], deciders: { fixed: false, people: [{ id: 'u1' }, { id: 'u2' }] }, viewer: { id: 'u1' } });
+  });
+  it('a log exists: no setup data, and the memory scope is not read', async () => {
+    serve();
+    const r = await loadPage();
+    expect(r.setup).toBeNull();
+    expect(request.mock.calls.some((c) => c[0] === APP_MEMORY_SCOPE_QUERY)).toBe(false);
+  });
+  it('an unavailable memory scope is memories: null, never an empty list', async () => {
+    serve({ logs: [], scopeError: new Error('boom') });
+    expect((await loadPage()).setup.memories).toBeNull();
+  });
+  it('withheld members: only the viewer, fixed', async () => {
+    serve({ logs: [], members: null });
+    expect((await loadPage()).setup.deciders).toMatchObject({ fixed: true, people: [{ id: 'u1' }] });
   });
 });
 
@@ -148,6 +178,8 @@ describe('the assignee choices', () => {
 
 describe('the selection set', () => {
   it('pins the fields the page reads', () => {
+    expect(selectsFieldPath(APP_QUESTION_LOGS_QUERY, 'AppQuestionLogs', ['questionLogs', 'defaultDeciders', 'name'])).toBe(true);
+    expect(selectsFieldPath(APP_QUESTION_LOGS_QUERY, 'AppQuestionLogs', ['questionLogs', 'portalUrl'])).toBe(true);
     for (const path of ['questions.total', 'questions.items.portalUrl', 'questions.items.effectiveAssignee.name', 'questions.items.askedBy.worker.urn', 'questions.items.answer.key']) {
       expect(selectsFieldPath(APP_QUESTIONS_QUERY, 'AppQuestions', path.split('.')), path).toBe(true);
     }

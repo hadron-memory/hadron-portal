@@ -103,10 +103,10 @@ describe('one status region', () => {
 });
 
 describe('the three empty states', () => {
-  it('no question log: says agents cannot ask, and names the CLI', async () => {
+  it('no question log: says agents cannot ask (the setup form, not the CLI, is the way: see setup.client.test.ts)', async () => {
     const m = await mount(emptyOf({ logs: { kind: 'ok', value: [] } }));
     expect(status(m)[0].textContent).toContain('This App has no question log yet, so its agents cannot ask questions.');
-    expect(status(m)[0].textContent).toContain('hadron question log create');
+    expect(status(m)[0].textContent).not.toContain('hadron question log create');
   });
   it('logs exist, filters match nothing: "No questions match." with a link that clears the filters', async () => {
     const m = await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l1' }] }, filter: filter({ sort: 'newest' }) }));
