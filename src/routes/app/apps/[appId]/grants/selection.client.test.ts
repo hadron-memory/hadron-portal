@@ -151,15 +151,25 @@ describe("keyboard focus after the result (portal#2648 QA)", () => {
     await opened(root); await Promise.resolve(); flushSync();
     await vi.waitFor(() => { expect(document.activeElement?.tagName).toBe("A"); expect(document.activeElement?.textContent?.trim()).toBe("Open the signing page"); });
   });
-  it("lands on Select all after Withdraw, and after Dismiss", async () => {
-    for (const how of ["withdraw", "dismiss"]) {
-      const root = setup(); tick(boxes(root)[0], true);
-      await opened(root); flushSync();
-      if (how === "withdraw") await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('form[action*="withdrawSelection"]')!, { type: "success", status: 200, data: { operation: "withdrawSelection", withdrawn: "sel1" } });
-      else [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Dismiss")!.click();
-      await vi.waitFor(() => expect((document.activeElement as HTMLInputElement | null)?.closest("label")?.textContent).toContain("Select all pending"));
-      mounted!.unmount(); mounted = undefined;
-    }
+  it.each(["withdraw", "dismiss"])("lands on Select all after %s", async (how) => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    if (how === "withdraw") await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('form[action*="withdrawSelection"]')!, { type: "success", status: 200, data: { operation: "withdrawSelection", withdrawn: "sel1" } });
+    else [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Dismiss")!.click();
+    await vi.waitFor(() => expect((document.activeElement as HTMLInputElement | null)?.closest("label")?.textContent).toContain("Select all pending"));
+  });
+  it("with no row left to sign, focus lands on the section title, not the page body", async () => {
+    const root = setup({ grants: { items: [grant("g1")], total: 1 } }); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    (mounted!.instance.setData as (d: unknown) => void)({ ...grantsFixture(), grants: { items: [grant("g1", { activatedAt: "2026-11-12T11:59:00Z" })], total: 1 } });
+    flushSync();
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('form[action*="withdrawSelection"]')!, { type: "success", status: 200, data: { operation: "withdrawSelection", withdrawn: "sel1" } });
+    await vi.waitFor(() => { expect(document.activeElement?.tagName).toBe("H2"); expect(document.activeElement?.textContent).toBe("Sign several grants"); });
+    expect(root.textContent).toContain("Selection withdrawn.");
+  });
+  it("an empty reason names the checkbox by the action instead", () => {
+    const root = setup({ grants: { items: [grant("g1", { reason: "" })], total: 1 } });
+    expect(boxes(root)[0].getAttribute("aria-label")).toBe("Select to sign together: schedule.create");
   });
   it("shows the section's own visible title", () => {
     expect(setup().querySelector("section h2")?.textContent).toBe("Sign several grants");

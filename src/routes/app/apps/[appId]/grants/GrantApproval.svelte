@@ -36,7 +36,7 @@
 </script>
 
 {#if enabled && grantSignable(grant, now)}
-  {#if selectable}<label class="mt-3 flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={selected} disabled={locked} aria-label={t("grants.select-row-named", "Select to sign together: {reason}", { reason: grant.reason })} onchange={(e) => onselect?.(grant.id, e.currentTarget.checked)} />{t("grants.select-row", "Select to sign together")}</label>{/if}
+  {#if selectable}<label class="mt-3 flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={selected} disabled={locked} aria-label={t("grants.select-row-named", "Select to sign together: {reason}", { reason: grant.reason || grant.action })} onchange={(e) => onselect?.(grant.id, e.currentTarget.checked)} />{t("grants.select-row", "Select to sign together")}</label>{/if}
   <form
     method="POST"
     action={`?/approve&offset=${offset}`}

@@ -40,6 +40,9 @@
   // after a request, to Select all once the panel is gone (portal#2648 QA).
   let openLink = $state<HTMLAnchorElement>();
   let allBox = $state<HTMLInputElement>();
+  let title = $state<HTMLHeadingElement>();
+  // Select all is disabled when no row is signable, and a disabled box cannot take focus: the title does.
+  const refocus = () => (signable.length ? allBox : title)?.focus();
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
   // The selection the server holds open for this person, with the link it answered. Never composed here.
@@ -91,7 +94,7 @@
           // Select all is disabled while a write is pending, and a disabled box cannot take focus.
           pending = false;
           await tick();
-          allBox?.focus();
+          refocus();
         } else if (result.type === "failure" && result.data && typeof result.data.error === "string") error = result.data.error;
         else error = grantError(null);
       } finally {
@@ -104,13 +107,13 @@
     notice = null;
     onended();
     await tick();
-    allBox?.focus();
+    refocus();
   }
 </script>
 
-{#if signable.length || open}
+{#if signable.length || open || notice}
   <section aria-labelledby={`${uid}-title`} class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-    <h2 id={`${uid}-title`} class="text-lg font-semibold">{t("grants.selection.title", "Sign several grants")}</h2>
+    <h2 bind:this={title} tabindex="-1" id={`${uid}-title`} class="text-lg font-semibold">{t("grants.selection.title", "Sign several grants")}</h2>
     <form method="POST" action={`?/signSelection&offset=${offset}`} use:enhance={request} class="flex flex-wrap items-center gap-3">
       {#each refs as ref (ref)}<input type="hidden" name="ref" value={ref} />{/each}
       <label class="flex min-h-11 items-center gap-2 text-sm">

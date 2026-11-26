@@ -3,6 +3,7 @@ import { ClientError } from "graphql-request";
 import { GraphQLError } from "graphql";
 import { fixtureGrant, grantsFixture, fixtureActions } from "./grants.fixture";
 import { env } from "$env/dynamic/public";
+import { grantError } from "$lib/grants/types";
 const request = vi.fn(), signing = vi.fn();
 vi.mock("$lib/server/api", () => ({ gqlClient: () => ({ request }) }));
 vi.mock("$lib/server/signing-capability", () => ({ deploymentOffersSigning: (...a: unknown[]) => signing(...a) }));
@@ -126,6 +127,6 @@ describe("the App-manager gate is its own guard (security review P3-1)", () => {
   it("the unknown-code answer is the generic text with status 503", async () => {
     serve(refusal("SOMETHING_ELSE", "private SQL detail"));
     const r = await run(post(["g1"])) as { status: number; data: { error: string } };
-    expect(r.status).toBe(503); expect(r.data.error).toMatch(/could not be completed/i);
+    expect(r.status).toBe(503); expect(r.data.error).toBe(grantError(null));
   });
 });
