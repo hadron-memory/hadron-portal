@@ -166,7 +166,7 @@ describe('POST /api/agent-chat/fixtures', () => {
     }));
     expect(res.status).toBe(200);
     expect(mockRequest).toHaveBeenCalledWith(CREATE_NODE_MUTATION, expect.objectContaining({
-      input: expect.objectContaining({ memoryId: 'sys-mem-a' }),
+      input: expect.objectContaining({ memoryRef: 'sys-mem-a' }),
     }));
   });
 

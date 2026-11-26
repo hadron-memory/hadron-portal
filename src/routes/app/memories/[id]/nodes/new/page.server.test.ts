@@ -237,7 +237,7 @@ describe('new node create action', () => {
     });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_NODE_MUTATION, {
       input: {
-        memoryId: 'memory-1',
+        memoryRef: 'memory-1',
         loc: 'parent:sort-imports',
         name: 'Sort imports',
         nodeType: 'record',
@@ -464,7 +464,7 @@ describe('new node role (#1670)', () => {
   it('create never sends authoredWith, a task, a revision or any human/surface flag', async () => {
     mockRequest.mockResolvedValueOnce({ createNode: { id: 'n1' } });
     await runCreate({ ...base, role: 'spec', authoredWith: 'HUMAN', human: 'true', task: 't', revision: '3', surface: 'portal' });
-    expect(Object.keys(sentInput()).sort()).toEqual(['content', 'abstract', 'description', 'loc', 'memoryId', 'name', 'nodeType', 'objectType', 'properties', 'role', 'tags'].filter((k) => k in sentInput()).sort());
+    expect(Object.keys(sentInput()).sort()).toEqual(['content', 'abstract', 'description', 'loc', 'memoryRef', 'name', 'nodeType', 'objectType', 'properties', 'role', 'tags'].filter((k) => k in sentInput()).sort());
     for (const k of ['authoredWith', 'human', 'task', 'taskId', 'revision', 'expectedRevision', 'surface', 'trusted']) expect(k in sentInput()).toBe(false);
   });
 

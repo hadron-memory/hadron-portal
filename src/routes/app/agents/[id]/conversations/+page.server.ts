@@ -83,7 +83,7 @@ const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionS
 // routing-rule side panel.
 const CONVERSATION_NODES_QUERY = /* GraphQL */ `
   query ConversationNodes($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
       hits {
         node {
           id memoryId urn nodeType loc name description content tags seq data
@@ -98,7 +98,7 @@ const CONVERSATION_NODES_QUERY = /* GraphQL */ `
 // seq and its setup/fallback flags, nothing else.
 const CONVERSATION_ORDER_QUERY = /* GraphQL */ `
   query ConversationOrder($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
       hits { node { id memoryId loc seq data } }
     }
   }
@@ -332,7 +332,7 @@ export const actions: Actions = {
       // Create-only: a duplicate slug now fails (the old upsert silently
       // reset the existing conversation's stageOrder to []).
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: `conversations:${slug}`, name: slug, nodeType: 'system',
+        memoryRef: systemMemoryId, loc: `conversations:${slug}`, name: slug, nodeType: 'system',
         description: name, data: { stageOrder: [] },
       }});
       return message(form, {
@@ -382,7 +382,7 @@ export const actions: Actions = {
       // extractionSpec and appended a duplicate entry to stageOrder).
       try {
         await client.request(CREATE, { input: {
-          memoryId: systemMemoryId, loc: `${conversationLoc}:${slug}`, name: slug, nodeType: 'system',
+          memoryRef: systemMemoryId, loc: `${conversationLoc}:${slug}`, name: slug, nodeType: 'system',
           description: stageName,
           data: { promptRef: `prompts:${conversationLoc.replace('conversations:', '')}:${slug}`, extractionSpec: [] },
         }});
@@ -403,7 +403,7 @@ export const actions: Actions = {
       // user's prompt text with the placeholder (the old upsert overwrote).
       try {
         await client.request(CREATE, { input: {
-          memoryId: systemMemoryId,
+          memoryRef: systemMemoryId,
           loc: `prompts:${conversationLoc.replace('conversations:', '')}:${slug}`,
           name: slug, nodeType: 'system',
           content: `Stage: ${stageName}\n\n[Edit this prompt]`,
@@ -426,7 +426,7 @@ export const actions: Actions = {
       // signal, so the resulting kind is the node's current one — which is why
       // the read above, not the input, decides it.
       const input = {
-        memoryId: systemMemoryId, loc: conversationLoc, data: { ...convData, stageOrder },
+        memoryRef: systemMemoryId, loc: conversationLoc, data: { ...convData, stageOrder },
       };
       await client.request(nodeUpdateDocument(convNode.node, input), { input });
       return message(form, {
@@ -482,9 +482,9 @@ export const actions: Actions = {
       // call sites that have to be kept in step — the first cut of #870 had
       // two, and only one of them retried, so the compound race escaped as a
       // 500 on a path the pre-#870 upsert recovered from.
-      const input = { memoryId: systemMemoryId, loc, content };
+      const input = { memoryRef: systemMemoryId, loc, content };
       const createInput = {
-        memoryId: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
+        memoryRef: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
       };
 
       // Create, and on losing the create race adopt the winner: re-read rather
@@ -558,7 +558,7 @@ export const actions: Actions = {
       const stageData = (stageNode.node?.data as Record<string, unknown>) ?? {};
       // #870: neither signal is touched — the door follows the current kind.
       const input = {
-        memoryId: systemMemoryId, loc: stageLoc, data: { ...stageData, extractionSpec: spec },
+        memoryRef: systemMemoryId, loc: stageLoc, data: { ...stageData, extractionSpec: spec },
       };
       await client.request(nodeUpdateDocument(stageNode.node, input), { input });
       return message(form, {
@@ -595,7 +595,7 @@ export const actions: Actions = {
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
       // #870: neither signal is touched — the door follows the current kind.
       const input = {
-        memoryId: systemMemoryId, loc: convLoc, data: { ...convData, goalDescriptions, goalSignals },
+        memoryRef: systemMemoryId, loc: convLoc, data: { ...convData, goalDescriptions, goalSignals },
       };
       await client.request(nodeUpdateDocument(convNode.node, input), { input });
       return message(form, {
@@ -653,7 +653,7 @@ export const actions: Actions = {
         );
         // seq only: no `data` field, so a reorder cannot touch goals, stageOrder,
         // position or the entry condition.
-        const input = { memoryId: systemMemoryId, loc: write.loc, seq: write.seq };
+        const input = { memoryRef: systemMemoryId, loc: write.loc, seq: write.seq };
         await client.request(nodeUpdateDocument(prior.node, input), { input });
         written++;
       }
@@ -712,7 +712,7 @@ export const actions: Actions = {
       }
       const { entryCondition: _previous, ...rest } = convData;
       const input = {
-        memoryId: systemMemoryId,
+        memoryRef: systemMemoryId,
         loc: convLoc,
         data: clearing ? rest : { ...rest, entryCondition: condition },
       };
@@ -839,7 +839,7 @@ export const actions: Actions = {
       const nodeData = (node.node?.data as Record<string, unknown>) ?? {};
       // #870: neither signal is touched — the door follows the current kind.
       const input = {
-        memoryId: systemMemoryId, loc, data: { ...nodeData, position: { x, y } },
+        memoryRef: systemMemoryId, loc, data: { ...nodeData, position: { x, y } },
       };
       await client.request(nodeUpdateDocument(node.node, input), { input });
     } catch (e: unknown) {

@@ -28,7 +28,7 @@ const PAGE = 200;
 
 async function fetchWindow(
   client: GraphQLClient,
-  args: { filter?: { mine?: boolean }; orgId?: string },
+  args: { filter?: { mine?: boolean }; orgRef?: string },
 ): Promise<{ items: AssetSummary[]; total: number }> {
   const items: AssetSummary[] = [];
   let total = 0;

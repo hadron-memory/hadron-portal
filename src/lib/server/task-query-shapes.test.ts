@@ -59,16 +59,16 @@ function directSelections(query: string, field: string): string[] {
 }
 
 describe('#1075 Task Nodes operations match the server snapshot', () => {
-  it('findNodes takes memoryIds inside `filter`, never as a top-level argument', () => {
+  it('findNodes takes memoryRefs inside `filter`, never as a top-level argument', () => {
     expect(errors(RUNNABLE_NODES_QUERY)).toEqual([]);
-    expect(RUNNABLE_NODES_QUERY).toMatch(/findNodes\(\s*filter:\s*\{[^}]*memoryIds:\s*\$memoryIds/);
+    expect(RUNNABLE_NODES_QUERY).toMatch(/findNodes\(\s*filter:\s*\{[^}]*memoryRefs:\s*\$memoryIds/);
     // The drifted form is refused by the same validator.
     const drifted = RUNNABLE_NODES_QUERY.replace(
-      'filter: { memoryIds: $memoryIds, isRunnable: true }',
-      'memoryIds: $memoryIds, filter: { isRunnable: true }',
+      'filter: { memoryRefs: $memoryIds, isRunnable: true }',
+      'memoryRefs: $memoryIds, filter: { isRunnable: true }',
     );
     expect(drifted).not.toBe(RUNNABLE_NODES_QUERY);
-    expect(errors(drifted).join('\n')).toContain('Unknown argument "memoryIds" on field "Query.findNodes"');
+    expect(errors(drifted).join('\n')).toContain('Unknown argument "memoryRefs" on field "Query.findNodes"');
   });
 
   it('skillPlan EXPORT selects memories by scopeRef, never by `memories`', () => {

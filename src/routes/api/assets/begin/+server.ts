@@ -18,10 +18,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
   }
 
+  // The browser keeps sending `memoryId` (the portal's own contract); the server's input names it
+  // `memoryRef` since hadron-server#5080. Built key by key, so no other browser key reaches the
+  // server unchecked and a rename on either side is caught here and by gql:validate.
+  const input = {
+    memoryRef: body.memoryId,
+    filename: body.filename,
+    mimeType: body.mimeType,
+    sizeBytes: body.sizeBytes,
+    description: body.description,
+    uploadIntent: body.uploadIntent,
+    uploadRequestId: body.uploadRequestId,
+  };
+
   try {
     const { beginAssetUploadV2 } = await gqlClient(locals.token).request<{
       beginAssetUploadV2: unknown;
-    }>(BEGIN_ASSET_UPLOAD_V2_MUTATION, { input: body });
+    }>(BEGIN_ASSET_UPLOAD_V2_MUTATION, { input });
     return json(beginAssetUploadV2);
   } catch (err) {
     return json(...mapAssetError(err, 'beginAssetUploadV2'));

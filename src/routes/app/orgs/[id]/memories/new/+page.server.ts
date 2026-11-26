@@ -4,7 +4,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
-import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
+import { CREATE_MEMORY_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createMemorySchema } from './schema';
@@ -48,7 +48,8 @@ export const actions: Actions = {
       tags: tagsRaw,
       memoryClass,
     } = form.data;
-    const name = slug; // slug for URN generation
+    // #2647: the typed slug is sent as `slug` (the URN atom); `name` is the display name.
+    const name = displayName || slug;
     const shortDescription = form.data.shortDescription || null;
     const description = form.data.description || null;
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
@@ -72,16 +73,10 @@ export const actions: Actions = {
 
     try {
       const result = await gqlClient(locals.token).request<{ createMemory: { id: string } }>(CREATE_MEMORY_MUTATION, {
-        orgRef: params.id, name, shortDescription, description, tags, license,
+        orgRef: params.id, slug, name, shortDescription, description, tags, license,
         category0, category1, category2, iconUrl, heroUrl, homeUrl,
         source, readBranch, writeBranch, visibility, memoryClass,
       });
-      // If display name differs from slug, update the name
-      if (displayName && displayName !== name) {
-        await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-          ref: result.createMemory.id, name: displayName,
-        }).catch(() => {}); // best-effort
-      }
       // #556: land back on the tab that shows the memory just created — personal
       // memories live on the Personal Memories tab, everything else on the org grid.
       const tab = isOwnerOnly ? '?tab=personal' : '';

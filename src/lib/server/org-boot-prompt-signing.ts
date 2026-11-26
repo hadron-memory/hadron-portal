@@ -71,7 +71,7 @@ function classify(e: unknown, what: string): 'hidden' | 'failed' {
 
 export async function loadOrgSigningSwitch(client: GraphQLClient, org: string): Promise<SwitchRead> {
   try {
-    const r = await client.request<{ orgBootPromptSigning: SigningSwitch }>(ORG_BOOT_PROMPT_SIGNING_QUERY, { org });
+    const r = await client.request<{ orgBootPromptSigning: SigningSwitch }>(ORG_BOOT_PROMPT_SIGNING_QUERY, { orgRef: org });
     const { required, enforced, deploymentSigns } = r.orgBootPromptSigning;
     return { kind: 'ok', required, enforced, deploymentSigns };
   } catch (e) {
@@ -96,7 +96,7 @@ async function drainOnce(client: GraphQLClient, org: string): Promise<PreviewRea
   let first: PreviewPage | null = null;
   for (let n = 0; n < PREVIEW_MAX_PAGES; n++) {
     const r: { orgBootPromptSigningPreview: PreviewPage } = await client.request(ORG_BOOT_PROMPT_SIGNING_PREVIEW_QUERY, {
-      org,
+      orgRef: org,
       first: PREVIEW_PAGE_SIZE,
       after,
     });
@@ -149,7 +149,7 @@ export async function setOrgSigning(
   org: string,
   input: { required: true; previewToken: string } | { required: false },
 ): Promise<SetRead> {
-  const variables: Record<string, unknown> = { org, required: input.required };
+  const variables: Record<string, unknown> = { orgRef: org, required: input.required };
   if (input.required) variables.previewToken = input.previewToken;
   try {
     const r = await client.request<{ setOrgBootPromptSigning: SigningSwitch }>(SET_ORG_BOOT_PROMPT_SIGNING_MUTATION, variables);

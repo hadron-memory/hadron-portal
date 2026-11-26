@@ -68,7 +68,7 @@ describe('convertToTask action (#503)', () => {
     expect(result).toMatchObject({ convertedToTask: true });
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Node converted to a task.' });
     const input = mockRequest.mock.calls.find(([q]) => q === UPDATE_TASK_NODE_MUTATION)![1].input;
-    expect(input).toEqual({ memoryId: 'mem-1', loc: 'classify', tags: ['keep'], isRunnable: true });
+    expect(input).toEqual({ memoryRef: 'mem-1', loc: 'classify', tags: ['keep'], isRunnable: true });
   });
 
   it('404s a missing node without mutating', async () => {

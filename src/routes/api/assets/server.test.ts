@@ -10,7 +10,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { COMPLETE_ASSET_UPLOAD_MUTATION, MEMORY_ASSETS_QUERY } from '$lib/server/assetQueries';
+import { BEGIN_ASSET_UPLOAD_V2_MUTATION, COMPLETE_ASSET_UPLOAD_MUTATION, MEMORY_ASSETS_QUERY } from '$lib/server/assetQueries';
 
 const mockRequest = vi.fn();
 
@@ -185,5 +185,53 @@ describe('GET /api/assets/list', () => {
     const { GET } = await import('./list/+server');
     const res = await GET(get('memoryId=mem-1'));
     expect(res.status).toBe(500);
+  });
+});
+
+
+// hadron-portal#2609 — hadron-server#5080 renamed BeginAssetUploadV2Input.memoryId to memoryRef. The route used
+// to forward the browser's body as the input, so no gate could read its keys.
+describe('POST /api/assets/begin', () => {
+  const browserBody = {
+    memoryId: 'mem-1', filename: 'a.png', mimeType: 'image/png', sizeBytes: 12,
+    description: 'd', uploadIntent: 'USER', uploadRequestId: 'req-1',
+  };
+
+  it('sends memoryRef, taken from the browser memoryId, and no memoryId', async () => {
+    mockRequest.mockResolvedValue({ beginAssetUploadV2: { uploadId: 'up-1' } });
+    const { POST } = await import('./begin/+server');
+    const res = await POST(post(browserBody));
+
+    expect(res.status).toBe(200);
+    const [doc, vars] = mockRequest.mock.calls[0];
+    expect(doc).toBe(BEGIN_ASSET_UPLOAD_V2_MUTATION);
+    expect(vars).toEqual({
+      input: {
+        memoryRef: 'mem-1', filename: 'a.png', mimeType: 'image/png', sizeBytes: 12,
+        description: 'd', uploadIntent: 'USER', uploadRequestId: 'req-1',
+      },
+    });
+    expect(vars.input).not.toHaveProperty('memoryId');
+  });
+
+  it('forwards no browser key the server input does not name', async () => {
+    mockRequest.mockResolvedValue({ beginAssetUploadV2: { uploadId: 'up-1' } });
+    const { POST } = await import('./begin/+server');
+    await POST(post({ ...browserBody, memoryRef: 'smuggled', agentUrn: 'x', extra: 1 }));
+
+    const { input } = mockRequest.mock.calls[0][1];
+    expect(input.memoryRef).toBe('mem-1');
+    expect(Object.keys(input).sort()).toEqual(
+      ['description', 'filename', 'memoryRef', 'mimeType', 'sizeBytes', 'uploadIntent', 'uploadRequestId'],
+    );
+  });
+
+  it('still refuses a body without memoryId before any request', async () => {
+    const { memoryId: _omit, ...rest } = browserBody;
+    const { POST } = await import('./begin/+server');
+    const res = await POST(post(rest));
+
+    expect(res.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });

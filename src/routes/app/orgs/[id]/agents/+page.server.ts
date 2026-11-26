@@ -81,7 +81,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const [apps, grantsData, publicAgents] = await Promise.all([
     // Which agents are already installed as an App → { agentId: { appId, appName } }.
     // Non-fatal: on failure the "Open" affordance simply doesn't render.
-    fetchAllItems<AppInstall>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId: params.id }).catch(
+    fetchAllItems<AppInstall>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgRef: params.id }).catch(
       () => [] as AppInstall[],
     ),
     // Subscribed tab (#486): the org's AgentOrgGrants. The server resolver

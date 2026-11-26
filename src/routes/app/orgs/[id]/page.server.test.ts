@@ -210,7 +210,7 @@ describe('Profile tab: boot-prompt signing (portal#1921)', () => {
       const r = await (actions as unknown as { switchOff: (e: never) => Promise<unknown> }).switchOff(offEv());
       expect(r).toMatchObject({ signingOutcome: 'off' });
       const call = mockRequest.mock.calls.find((c) => String(c[0]).includes('setOrgBootPromptSigning'))!;
-      expect(call[1]).toEqual({ org: 'org-id-123', required: false });
+      expect(call[1]).toEqual({ orgRef: 'org-id-123', required: false });
       expect('previewToken' in call[1]).toBe(false);
     });
 

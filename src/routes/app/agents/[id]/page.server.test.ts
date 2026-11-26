@@ -735,8 +735,8 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     expect(filtered(AGENT_APPS_QUERY)).toEqual([expect.objectContaining({ agentId: 'agent-aaa' })]);
     expect(filtered(AGENT_OWNED_APPS_QUERY)).toEqual([expect.objectContaining({ agentId: 'agent-aaa' })]);
     // The filter is declared in the documents themselves, not just sent.
-    expect(AGENT_APPS_QUERY).toContain('filter: { agentId: $agentId }');
-    expect(AGENT_OWNED_APPS_QUERY).toContain('filter: { ownedByMe: true, agentId: $agentId }');
+    expect(AGENT_APPS_QUERY).toContain('filter: { agentRef: $agentId }');
+    expect(AGENT_OWNED_APPS_QUERY).toContain('filter: { ownedByMe: true, agentRef: $agentId }');
   });
 
   it('lists the co-installed siblings, excluding the agent itself', async () => {

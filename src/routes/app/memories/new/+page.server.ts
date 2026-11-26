@@ -3,7 +3,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
-import { CREATE_PERSONAL_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION } from '$lib/server/queries';
+import { CREATE_PERSONAL_MEMORY_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { createPersonalMemorySchema } from './schema';
 
@@ -24,7 +24,8 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     const { slug, displayName, description, memoryClass } = form.data;
-    const name = slug; // the slug is the URN atom; createMemory mints from it
+    // #2647: the typed slug is the URN atom, sent as `slug`; `name` is the display name.
+    const name = displayName || slug;
     const tags: string[] = [];
 
     try {
@@ -32,15 +33,8 @@ export const actions: Actions = {
       // caller's handle namespace as class personal/private.
       const result = await gqlClient(locals.token).request<{ createMemory: { id: string } }>(
         CREATE_PERSONAL_MEMORY_MUTATION,
-        { name, description: description || null, tags, memoryClass },
+        { slug, name, description: description || null, tags, memoryClass },
       );
-      // The mutation seeds `name` from the slug; set the friendly display name
-      // when it differs (best-effort, mirrors the org create flow).
-      if (displayName && displayName !== name) {
-        await gqlClient(locals.token)
-          .request(UPDATE_MEMORY_MUTATION, { ref: result.createMemory.id, name: displayName })
-          .catch(() => {});
-      }
       redirect(303, `/app/memories/${result.createMemory.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;

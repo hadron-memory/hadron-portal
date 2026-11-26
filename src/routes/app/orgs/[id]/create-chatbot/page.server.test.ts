@@ -85,28 +85,30 @@ describe('create chatbot action', () => {
     expect(result).toMatchObject({ status: 303, location: '/app/agents/agent-1' });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_MEMORY_MUTATION, {
       orgRef: 'org-1',
-      name: 'juno-system',
+      slug: 'juno-system',
+      name: 'Juno System',
       shortDescription: 'Juno System',
       visibility: 'ORGANIZATION',
     });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_MEMORY_MUTATION, {
       orgRef: 'org-1',
-      name: 'juno-knowledge',
+      slug: 'juno-knowledge',
+      name: 'Juno Knowledge',
       shortDescription: 'Juno Knowledge',
       visibility: 'ORGANIZATION',
     });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_AGENT_MUTATION, {
       orgRef: 'org-1',
-      name: 'juno',
+      slug: 'juno',
+      name: 'Juno',
       description: 'Helpful assistant',
 
       systemMemoryRef: 'memory-1',
       visibility: 'PERSONAL',
     });
-    expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, {
-      ref: 'agent-1',
-      name: 'Juno',
-    });
+    // #2647: each create carries its display name; no follow-up renames.
+    expect(mockRequest).not.toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, expect.anything());
+    expect(mockRequest).not.toHaveBeenCalledWith(UPDATE_MEMORY_MUTATION, expect.anything());
     // #948: read-only, as the wizard promises the user. Never read-write.
     expect(mockRequest).toHaveBeenCalledWith(ADD_MEMORY_TO_AGENT_MUTATION, {
       agentRef: 'agent-1',
@@ -173,7 +175,7 @@ describe('create chatbot action', () => {
 
   it('does not classify an untyped memory fault by its prose', async () => {
     mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
-      if (query === CREATE_MEMORY_MUTATION && vars.name === 'juno-system') {
+      if (query === CREATE_MEMORY_MUTATION && vars.slug === 'juno-system') {
         throw {
           response: {
             errors: [{ message: 'A memory with URN "org:juno-system" already exists' }],

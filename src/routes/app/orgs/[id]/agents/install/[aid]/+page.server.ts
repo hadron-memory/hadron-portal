@@ -140,7 +140,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   let existingApps: AppChoice[] = [];
   let existingAppsFailed = false;
   try {
-    existingApps = await fetchAllItems<AppChoice>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgId: org.id });
+    existingApps = await fetchAllItems<AppChoice>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgRef: org.id });
   } catch {
     existingAppsFailed = true;
   }
@@ -169,7 +169,7 @@ export const actions: Actions = {
       // selected App's org. Page data is only a picker, never authorization.
       const target = await resolveInstallTarget(client, params.id, params.aid);
       if (!target.ok) return message(form, { type: 'error', text: installStrings.errorAgentNotFound() }, { status: 404 });
-      const apps = await fetchAllItems<AppChoice>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgId: target.org.id });
+      const apps = await fetchAllItems<AppChoice>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgRef: target.org.id });
       const app = apps.find((a) => a.id === form.data.appId);
       if (!app) return setError(form, 'appId', t('install.existing.invalid', 'Choose an App in this organization.'), { status: 400 });
       await client.request(INSTALL_AGENT_INTO_APP_MUTATION, { appRef: app.id, agentRef: target.agent.id });

@@ -3017,6 +3017,7 @@
     ...tabs,
     { id: 'channels', label: t('app.tabs.channels', 'Channels'), href: `/app/apps/${app.id}/channels` },
     { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
+    { id: 'questions', label: t('app.tabs.questions', 'Questions'), href: `/app/apps/${app.id}/questions` },
     { id: 'tickers', label: t('app.tabs.tickers', 'Tickers'), href: `/app/apps/${app.id}/tickers` },
     { id: 'stops', label: t('app.tabs.stops', 'Stops'), href: `/app/apps/${app.id}/stops` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },

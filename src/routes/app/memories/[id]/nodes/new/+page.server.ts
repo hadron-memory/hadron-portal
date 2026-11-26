@@ -131,7 +131,7 @@ export const actions: Actions = {
         createNode: { id: string };
       }>(CREATE_NODE_MUTATION, {
         input: {
-          memoryId: params.id,
+          memoryRef: params.id,
           loc,
           name: form.data.name,
           nodeType: form.data.nodeType,

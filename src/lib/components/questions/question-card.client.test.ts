@@ -20,8 +20,8 @@ const base: QuestionCardView = {
   answer: null, answers: [], blocks: [], sources: [], specsTouched: [], specsMustChange: [],
   viewerId: null, impersonating: false, deciders: [person('holger')], assignee: null, effectiveAssignee: null, askedBy: { user: null, worker: person('marco'), app: null }, withdrawn: null,
 };
-function mountCard(q: Partial<QuestionCardView>, canAct = true, result: unknown = null) {
-  const m = mountComponent(QuestionCard as never, { question: { ...base, ...q }, canAct, result } as never) as Mounted<Record<string, unknown>>;
+function mountCard(q: Partial<QuestionCardView>, canAct = true, result: unknown = null, approval: unknown = null) {
+  const m = mountComponent(QuestionCard as never, { question: { ...base, ...q }, canAct, result, approval } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   flushSync();
   return m.target;
@@ -199,6 +199,73 @@ describe('question card', () => {
       await finish({ type: 'failure', status: 403, data: { kind: 'answerQuestion', ok: false, error: 'x', reload: false } });
       await flush();
       expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    });
+  });
+
+  describe('approval block (portal#2236)', () => {
+    const view = (state: string, canApprove: boolean) => ({ view: { state, tone: 'neutral', approval: null, canApprove }, submitting: false, enhance: () => ({}) });
+    const answered = { state: 'ANSWERED_UNCONFIRMED' as const, answered: true, tier: 'APPROVED' };
+    const approvalForm = (el: HTMLElement) => forms(el).find((f) => f.getAttribute('action') === '?/approveNode');
+    it('shows the Approve form with revision = revSeq and the requirement line', () => {
+      const el = mountCard(answered, true, null, view('NOT_APPROVED', true));
+      const f = approvalForm(el)!;
+      expect(hidden(f, 'revision')).toBe('7');
+      expect(hidden(f, '_kind')).toBe('approveNode');
+      expect(el.querySelector('[data-testid=question-approval-note]')!.textContent).toBe('The asker requires your approval before it relies on this answer.');
+    });
+    it('a non-decider sees the badge and no form', () => {
+      const el = mountCard({ ...answered, viewerIsDecider: false, viewerMayAnswer: false }, false, null, view('NOT_APPROVED', true));
+      expect(el.querySelector('[data-testid=approval-state]')).not.toBeNull();
+      expect(approvalForm(el)).toBeUndefined();
+    });
+    it('an impersonating decider is offered no Approve', () => {
+      const el = mountCard({ ...answered, impersonating: true }, true, null, view('NOT_APPROVED', true));
+      expect(approvalForm(el)).toBeUndefined();
+      expect(el.querySelector('[data-testid=approval-state]')).not.toBeNull();
+    });
+    it('a non-decider who may answer is offered no Approve', () => {
+      const el = mountCard({ ...answered, viewerIsDecider: false, viewerMayAnswer: true }, true, null, view('NOT_APPROVED', true));
+      expect(approvalForm(el)).toBeUndefined();
+    });
+    it('a decider whose answer history is full (viewerMayAnswer false) still gets Approve', () => {
+      const el = mountCard({ ...answered, viewerMayAnswer: false }, false, null, view('NOT_APPROVED', true));
+      expect(approvalForm(el)).toBeDefined();
+    });
+    it('no approval prop hides the block in an approvable state', () => {
+      const el = mountCard(answered, true, null, null);
+      expect(el.querySelector('[data-testid=question-approval]')).toBeNull();
+    });
+    it('a submitting approval disables the button', () => {
+      const el = mountCard(answered, true, null, { ...view('NOT_APPROVED', true), submitting: true });
+      expect(el.querySelector<HTMLButtonElement>('[data-testid=approve-revision]')!.disabled).toBe(true);
+    });
+    it('an open question has no approval block', () => {
+      const el = mountCard({ tier: 'APPROVED' }, true, null, view('NOT_APPROVED', true));
+      expect(el.querySelector('[data-testid=question-approval]')).toBeNull();
+    });
+    it('a decided question whose revision is approved shows the badge and no button', () => {
+      const el = mountCard({ state: 'DECIDED', answered: true, tier: 'APPROVED' }, true, null, view('APPROVED', false));
+      expect(el.querySelector('[data-testid=approval-state]')).not.toBeNull();
+      expect(el.querySelector('[data-testid=approve-revision]')).toBeNull();
+    });
+    it('a stale question offers Approve again', () => {
+      const el = mountCard({ ...answered, state: 'STALE' }, true, null, view('SUPERSEDED', true));
+      expect(approvalForm(el)).toBeDefined();
+    });
+    it('explains each tier', () => {
+      const note = (tier: string) => mountCard({ ...answered, tier }, true, null, view('NOT_APPROVED', true)).querySelector('[data-testid=question-approval-note]')!.textContent;
+      expect(note('ANSWERED')).toBe('Optional. The answer already settles this question.');
+      expect(note('SIGNED')).toContain('needs a signature');
+    });
+    it('no Sign control exists in any state', () => {
+      for (const state of ['OPEN', 'ANSWERED_UNCONFIRMED', 'STALE', 'DECIDED', 'WITHDRAWN'] as const) {
+        for (const tier of ['ANSWERED', 'APPROVED', 'SIGNED']) {
+          const el = mountCard({ state, tier, answered: state !== 'OPEN' }, true, null, view('NOT_APPROVED', true));
+          const controls = [...el.querySelectorAll('button, a, input[type=submit]')].map((c) => (c.textContent ?? '') + ((c as HTMLInputElement).value ?? ''));
+          expect(controls.filter((c) => /\bsign/i.test(c))).toEqual([]);
+          expect(el.querySelector('form[action*=Signature]')).toBeNull();
+        }
+      }
     });
   });
 });

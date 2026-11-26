@@ -40,7 +40,7 @@ function route(opts: { orgs?: string[] | Error; orgAgents?: Record<string, Agent
     if (query === TEAM_WORK_ITEMS_QUERY) return { teamWorkItems: { items: [], total: 0 } };
     return { resolveAiServiceConfigs: [] };
   });
-  mockFetchAllItems.mockImplementation(async (_client: unknown, doc: string, _key: string, vars?: { orgId?: string }) => {
+  mockFetchAllItems.mockImplementation(async (_client: unknown, doc: string, _key: string, vars?: { orgRef?: string }) => {
     if (doc === MY_AGENTS_QUERY) return [OWN];
     if (doc === PUBLIC_AGENTS_QUERY) return [PUB];
     if (isMemberOrgsDoc(doc)) {
@@ -48,7 +48,7 @@ function route(opts: { orgs?: string[] | Error; orgAgents?: Record<string, Agent
       return (opts.orgs ?? []).map((id) => ({ id }));
     }
     if (isOrgAgentsDoc(doc)) {
-      const hit = opts.orgAgents?.[vars?.orgId ?? ''];
+      const hit = opts.orgAgents?.[vars?.orgRef ?? ''];
       if (hit instanceof Error) throw hit;
       return hit ?? [];
     }
@@ -76,7 +76,7 @@ describe('#1786 personal App Add Agent picker', () => {
     expect(r.availableAgents.map((a) => a.id)).toEqual(['a-own', 'a-pub', 'a-org']);
     expect(r.availableAgentsError).toBe(false);
     const orgCalls = mockFetchAllItems.mock.calls.filter(([, doc]) => isOrgAgentsDoc(doc as string));
-    expect(orgCalls.map(([, , , vars]) => (vars as { orgId?: string }).orgId)).toEqual(['org-1']);
+    expect(orgCalls.map(([, , , vars]) => (vars as { orgRef?: string }).orgRef)).toEqual(['org-1']);
   });
 
   it('a non-member is offered no org Agent and no org-Agent list is asked for', async () => {

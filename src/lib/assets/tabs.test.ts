@@ -31,11 +31,13 @@ describe('assetQueryArgs', () => {
   });
 
   it('scopes "org" to the active org', () => {
-    expect(assetQueryArgs('org', 'org-1')).toEqual({ orgId: 'org-1' });
+    expect(assetQueryArgs('org', 'org-1')).toEqual({ orgRef: 'org-1' });
+    // hadron-server#5081: the old name would be ignored and return an unscoped list.
+    expect(assetQueryArgs('org', 'org-1')).not.toHaveProperty('orgId');
   });
 
   it('returns null for "org" with no active org — never the default scope', () => {
-    // THE important case. Omitting orgId would return every asset the caller can
+    // THE important case. Omitting orgRef would return every asset the caller can
     // reach and let the UI label it "this organization's" — the relabelling trap
     // hrn:node:hadronmemory.com:hadron-server:conventions:multi-ref-scope-args calls out for an empty memoryRefs list.
     expect(assetQueryArgs('org', null)).toBeNull();
@@ -43,10 +45,10 @@ describe('assetQueryArgs', () => {
     expect(assetQueryArgs('org', '')).toBeNull();
   });
 
-  it('never returns an orgId for the non-org tabs', () => {
-    // A stray orgId would silently narrow "My files" to one org.
+  it('never returns an orgRef for the non-org tabs', () => {
+    // A stray orgRef would silently narrow "My files" to one org.
     for (const tab of ['mine', 'available'] as const) {
-      expect(assetQueryArgs(tab, 'org-1')).not.toHaveProperty('orgId');
+      expect(assetQueryArgs(tab, 'org-1')).not.toHaveProperty('orgRef');
     }
   });
 
