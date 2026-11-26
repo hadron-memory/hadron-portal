@@ -107,7 +107,7 @@ export const actions: Actions = {
       const known = questionLogRefusal(code);
       // "Choose another memory" is a dead end when this App offers only one: say there is no other.
       if (known && code === 'QUESTION_LOG_EXISTS' && offered.length === 1) {
-        return refuse(known.status, t('question.log.refusal.exists-only', "That memory already has, or once had, a node at 'questions', and this App has no other memory to use."), submitted);
+        return refuse(known.status, t('question.log.refusal.exists-only', "That memory already has, or once had, a node at 'questions', and this form offers no other memory."), submitted);
       }
       if (known) return refuse(known.status, known.text, submitted);
       return refuse(500, extractGqlError(e, t('question.log.refusal.generic', 'The question log could not be set up.'), [], { transport: 'fallback' }), submitted);

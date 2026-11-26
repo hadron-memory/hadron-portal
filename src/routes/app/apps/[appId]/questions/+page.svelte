@@ -8,7 +8,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime } from '$lib/flow/runs';
   import { questionStateLabels } from '$lib/questions/labels';
-  import type { ListAsker, ListPerson, QuestionListRow } from '$lib/server/app-questions';
+  import type { ListAsker, QuestionListRow } from '$lib/server/app-questions';
   import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
   import {
@@ -95,7 +95,7 @@
     if (!a) return null;
     // A worker or an App is shown by name with the URN the projection offers; a person by name or handle only.
     if (a.worker) return { name: a.worker.name ?? t('app.questions.worker.unnamed', 'Unnamed worker'), urn: a.worker.urn };
-    if (a.user) return { name: personName(a.user as ListPerson), urn: null };
+    if (a.user) return { name: personName(a.user), urn: null };
     if (a.app) return { name: a.app.name ?? t('app.questions.app.unnamed', 'Unnamed App'), urn: a.app.urn };
     return null;
   }
@@ -275,7 +275,9 @@
               </div>
             {/if}
             <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{setup.deciders.fixed
-              ? t('app.questions.setup.deciders-help-fixed', 'Only you can be named here, because the member list is not shown to you. You need write access to the memory.')
+              ? (setup.deciders.reason === 'failed'
+                ? t('app.questions.setup.deciders-help-failed', 'Only you are listed because the members could not be loaded. Reload to try again. You need write access to the memory.')
+                : t('app.questions.setup.deciders-help-withheld', 'Only you can be named here, because the member list is not shown to you. You need write access to the memory.'))
               : t('app.questions.setup.deciders-help', 'Choose at least one. They need write access to the memory.')}</p>
           </fieldset>
           <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.questions.setup.submit', 'Create question log')}</button>

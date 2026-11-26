@@ -12,7 +12,8 @@ export const MAX_DECIDERS = 20;
 
 export type SetupMemory = { id: string; name: string; urn: string };
 export type SetupPerson = { id: string; name: string | null; handle: string | null };
-export type DeciderChoices = { people: SetupPerson[]; fixed: boolean };
+/** `fixed`: only the viewer is offered, and `reason` says why: the member list is withheld from them, or its read failed. */
+export type DeciderChoices = { people: SetupPerson[]; fixed: boolean; reason?: 'withheld' | 'failed' };
 
 /** Personal and private memories have one writer, the owner, so nobody else could decide there; a system memory is refused by the server. */
 const OFFERED_CLASSES = new Set(['app', 'group', 'knowledge']);
@@ -38,7 +39,8 @@ export function setupDeciderChoices(
   viewer: { id: string; name: string | null },
 ): DeciderChoices {
   const me: SetupPerson = people.people.find((p) => p.id === viewer.id) ?? { id: viewer.id, name: viewer.name, handle: null };
-  if (people.withheld || people.failed) return { people: [me], fixed: true };
+  if (people.withheld) return { people: [me], fixed: true, reason: 'withheld' };
+  if (people.failed) return { people: [me], fixed: true, reason: 'failed' };
   return { people: [me, ...people.people.filter((p) => p.id !== viewer.id)], fixed: false };
 }
 
