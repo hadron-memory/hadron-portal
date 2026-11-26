@@ -145,7 +145,7 @@ describe('BLIND findings', () => {
     expect(new FormData(form).get('memoryId')).toBe('m2');
   });
   it('the set-deciders sentence is one translation unit, the command still in code (F2)', async () => {
-    const src = (await import('node:fs')).readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+    const src = (await import('node:fs')).readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.svelte`, 'utf8');
     expect(src).not.toMatch(/<code[^>]*>hadron question log set-deciders<\/code>\./);
     const m = await mount(withLog());
     const p = [...m.target.querySelectorAll('p')].find((x) => x.textContent!.includes('set-deciders'))!;
@@ -154,8 +154,8 @@ describe('BLIND findings', () => {
   });
   it('the impersonation sentence has one key, shared by the page and the action (F7)', async () => {
     const fs = await import('node:fs');
-    const page = fs.readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
-    const action = fs.readFileSync(new URL('./+page.server.ts', import.meta.url), 'utf8');
+    const page = fs.readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.svelte`, 'utf8');
+    const action = fs.readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.server.ts`, 'utf8');
     const key = (src: string) => /t\('([a-z.-]+)', 'Questions cannot be set up while impersonating\.'/.exec(src)?.[1];
     expect(key(page)).toBeDefined();
     expect(key(page)).toBe(key(action));

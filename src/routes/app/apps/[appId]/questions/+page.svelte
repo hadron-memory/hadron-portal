@@ -77,6 +77,9 @@
 
   const logs = $derived(data.logs?.kind === 'ok' ? data.logs.value : []);
   const setup = $derived(data.setup ?? null);
+  // One translatable sentence with the command as a placeholder, split around it so the command can be set in code style:
+  // a translation can reorder or repunctuate it, and the sentence is never stitched from fragments.
+  const changeDecidersParts = $derived(t('app.questions.log.change-deciders', 'To change who decides, use {command}.', { command: '\u0001' }).split('\u0001'));
   // After a refused submit the form shows what was chosen, not its defaults.
   const submitted = $derived(form?.createLog?.values ?? null);
   let pickedMemory = $state<string | null>(null);
@@ -220,7 +223,7 @@
           <p class="mt-1 text-zinc-600 dark:text-zinc-300">{l.defaultDeciders.length > 0 ? t('app.questions.log.decided-by', 'Decided by: {names}', { names: l.defaultDeciders.map(personName).join(', ') }) : t('app.questions.log.no-deciders', 'No one is named to decide.')}</p>
         </div>
       {/each}
-      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.questions.log.change-deciders', 'To change who decides, use')} <code class="font-mono">hadron question log set-deciders</code>.</p>
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">{changeDecidersParts[0]}<code class="font-mono">hadron question log set-deciders</code>{changeDecidersParts[1] ?? ''}</p>
     </div>
   {:else if read?.kind !== 'not-participant' && setup}
     <section aria-labelledby="questions-setup-title" class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">

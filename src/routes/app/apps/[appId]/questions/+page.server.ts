@@ -85,16 +85,19 @@ export const actions: Actions = {
   createQuestionLog: async ({ request, params, locals, url }) => {
     if (!locals.token) throw redirect(303, signinRedirectFor(url));
     if (locals.impersonation) {
-      return refuse(403, t('question.log.refusal.impersonation', 'Questions cannot be set up while impersonating.'));
+      return refuse(403, t('app.questions.setup.impersonating', 'Questions cannot be set up while impersonating.'));
     }
     const viewer = viewerOf(locals);
     if (!viewer.id) return refuse(400, t('question.log.refusal.invalid', 'Choose a memory and at least one person who decides.'));
     const client = gqlClient(locals.token);
     const [scope, candidates] = await Promise.all([readAppMemoryScope(client, params.appId), loadWriteCandidates(client, params.appId)]);
-    const memories = setupMemoryChoices(scope) ?? [];
-    const choices = setupDeciderChoices({ people: candidates.people, withheld: candidates.peopleWithheld === true, failed: candidates.peopleFailed === true }, { id: viewer.id, name: viewer.name });
     const formData = await request.formData();
     const submitted = submittedOf(formData);
+    // An unreadable scope is a load failure, never "no memory was offered": the person's choice may well be valid.
+    const offered = setupMemoryChoices(scope);
+    if (offered === null) return refuse(503, t('app.questions.setup.memories-failed', 'Couldn’t load the App’s memories. Reload to try again.'), submitted);
+    const memories = offered;
+    const choices = setupDeciderChoices({ people: candidates.people, withheld: candidates.peopleWithheld === true, failed: candidates.peopleFailed === true }, { id: viewer.id, name: viewer.name });
     const parsed = parseSetupForm(formData, memories, choices);
     if (!parsed.ok) return refuse(400, t('question.log.refusal.invalid', 'Choose a memory and at least one person who decides.'), submitted);
     try {
