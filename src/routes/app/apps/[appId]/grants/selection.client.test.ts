@@ -149,7 +149,7 @@ describe("keyboard focus after the result (portal#2648 QA)", () => {
   it("lands on the signing-page link after Sign selected", async () => {
     const root = setup(); tick(boxes(root)[0], true);
     await opened(root); await Promise.resolve(); flushSync();
-    await vi.waitFor(() => expect(document.activeElement?.textContent).toContain("Open the signing page"));
+    await vi.waitFor(() => { expect(document.activeElement?.tagName).toBe("A"); expect(document.activeElement?.textContent?.trim()).toBe("Open the signing page"); });
   });
   it("lands on Select all after Withdraw, and after Dismiss", async () => {
     for (const how of ["withdraw", "dismiss"]) {
