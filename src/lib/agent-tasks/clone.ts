@@ -18,8 +18,8 @@ import { readBaseRequirements, requirementsOverride, sameList, str, tagList } fr
  * The parent posts one vocabulary, `cloneParent` beside `cloneParentBase`: `project` (a root
  * source; the server clones it as a project), `none` (a root under AT0 — also the truthful
  * pre-fill when the source's parent has ended or is AT0, since the server puts the clone under
- * AT0 then), or `parent:<id>`. Only a CHANGE names a parent: `parentTaskId: <id>` for a kept or
- * newly picked one, `parentTaskId: null` for "No project".
+ * AT0 then), or `parent:<id>`. Only a CHANGE names a parent: `parentTaskRef: <id>` for a kept or
+ * newly picked one, `parentTaskRef: null` for "No project".
  *
  * Not read here — not copied and not base-diffed: owner, assignee, status, startBy (the action
  * adds them as on a plain create), blockers and handle (not in the clone input at all).
@@ -73,8 +73,8 @@ export function taskClonePatch(fd: FormData): TaskClonePatch {
   if (fd.has('cloneParentBase')) {
     const now = str(fd, 'cloneParent');
     if (now !== str(fd, 'cloneParentBase')) {
-      if (now === 'none') input.parentTaskId = null;
-      else if (now.startsWith('parent:')) input.parentTaskId = now.slice('parent:'.length);
+      if (now === 'none') input.parentTaskRef = null;
+      else if (now.startsWith('parent:')) input.parentTaskRef = now.slice('parent:'.length);
       // 'project' unchanged, or anything else a crafted post sends: no parent is named, and the
       // server applies its own copy rule.
     }

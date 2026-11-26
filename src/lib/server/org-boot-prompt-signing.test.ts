@@ -58,7 +58,7 @@ describe('the read is its own request (never folded into the profile query)', ()
     const r = await loadOrgSigningSwitch(c, 'org-1');
     expect(r).toEqual({ kind: 'ok', required: true, enforced: false, deploymentSigns: false });
     expect(calls(c)[0][0]).toBe(ORG_BOOT_PROMPT_SIGNING_QUERY);
-    expect(calls(c)[0][1]).toEqual({ org: 'org-1' });
+    expect(calls(c)[0][1]).toEqual({ orgRef: 'org-1' });
     expect(ORG_PROFILE_QUERY).not.toContain('orgBootPromptSigning');
   });
 
@@ -90,7 +90,7 @@ describe('the preview drains every page (R3)', () => {
     expect(r.kind).toBe('ok');
     expect(calls(c)).toHaveLength(1);
     expect(calls(c)[0][0]).toBe(ORG_BOOT_PROMPT_SIGNING_PREVIEW_QUERY);
-    expect(calls(c)[0][1]).toEqual({ org: 'org-1', first: PREVIEW_PAGE_SIZE, after: null });
+    expect(calls(c)[0][1]).toEqual({ orgRef: 'org-1', first: PREVIEW_PAGE_SIZE, after: null });
     expect(PREVIEW_PAGE_SIZE).toBe(200);
   });
 
@@ -103,7 +103,7 @@ describe('the preview drains every page (R3)', () => {
     const r = await loadSigningPreview(c, 'org-1');
     if (r.kind !== 'ok') throw new Error('expected ok');
     expect(r.rows.map((x) => x.appId)).toEqual(['app-1', 'app-2']);
-    expect(calls(c)[1][1]).toEqual({ org: 'org-1', first: 200, after: 'c1' });
+    expect(calls(c)[1][1]).toEqual({ orgRef: 'org-1', first: 200, after: 'c1' });
   });
 
   it('keeps the FIRST page token, not the last (R3)', async () => {
@@ -168,13 +168,13 @@ describe('switching on and off', () => {
     const r = await setOrgSigning(c, 'org-1', { required: true, previewToken: 'tok-1' });
     expect(r).toEqual({ kind: 'ok', required: true, enforced: true, deploymentSigns: true });
     expect(calls(c)[0][0]).toBe(SET_ORG_BOOT_PROMPT_SIGNING_MUTATION);
-    expect(calls(c)[0][1]).toEqual({ org: 'org-1', required: true, previewToken: 'tok-1' });
+    expect(calls(c)[0][1]).toEqual({ orgRef: 'org-1', required: true, previewToken: 'tok-1' });
   });
 
   it('off sends no previewToken key at all', async () => {
     const c = client(() => ({ setOrgBootPromptSigning: { required: false, enforced: false, deploymentSigns: true } }));
     await setOrgSigning(c, 'org-1', { required: false });
-    expect(calls(c)[0][1]).toEqual({ org: 'org-1', required: false });
+    expect(calls(c)[0][1]).toEqual({ orgRef: 'org-1', required: false });
     expect('previewToken' in calls(c)[0][1]).toBe(false);
   });
 

@@ -104,7 +104,7 @@ describe('org tasks load()', () => {
     await load(ev());
     expect(mockRequest).toHaveBeenCalledWith(
       ORG_SYSTEM_MEMORY_IDS_QUERY,
-      expect.objectContaining({ orgId: 'org-1' }),
+      expect.objectContaining({ orgRef: 'org-1' }),
     );
     const call = mockRequest.mock.calls.find(([q]) => q === RUNNABLE_NODES_QUERY);
     expect(call?.[1]).toMatchObject({ memoryIds: ['mem-1', 'sys-1', 'sys-2'] });
@@ -380,7 +380,7 @@ describe('setExport action — #879', () => {
     expect(out).toEqual({ exportSaved: { nodeId: 'n1' } });
     expect(writes).toHaveLength(1);
     const input = {
-      memoryId: 'mem-1',
+      memoryRef: 'mem-1',
       loc: 'tasks:drive-pr-home',
       properties: {
         url: 'kept',
@@ -393,12 +393,12 @@ describe('setExport action — #879', () => {
     expect(writes[0]).toEqual([nodeUpdateDocument(node as never, input), { input }]);
   });
 
-  it('sends ONLY memoryId, loc and properties — never isRunnable, name or content', async () => {
+  it('sends ONLY memoryRef, loc and properties — never isRunnable, name or content', async () => {
     const writes = routeAction({ node: storedTask() });
     const actions = await importActions();
     await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
     const { input } = writes[0][1] as { input: Record<string, unknown> };
-    expect(Object.keys(input).sort()).toEqual(['loc', 'memoryId', 'properties']);
+    expect(Object.keys(input).sort()).toEqual(['loc', 'memoryRef', 'properties']);
   });
 
   it('unchecking sets enable:false and keeps name, description and the untouched host set', async () => {

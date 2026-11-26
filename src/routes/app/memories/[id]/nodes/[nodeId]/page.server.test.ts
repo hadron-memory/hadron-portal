@@ -586,7 +586,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown; edges?: unknown } }];
     expect(vars.input.tags).toEqual(['kept']);
-    expect(vars.input.edges).toEqual([{ targetId: 'pk-target', name: 'uses' }]);
+    expect(vars.input.edges).toEqual([{ targetRef: 'pk-target', name: 'uses' }]);
   });
 
   // #656: the client hides the editor when an outgoing edge points into an
@@ -997,9 +997,9 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
       form: { content: 'new', expectedRevision: '3' },
     }));
 
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string } }];
-    expect(vars.input.memoryId).toBe('mem-B');
-    expect(vars.input.memoryId).not.toBe('mem-A');
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryRef: string } }];
+    expect(vars.input.memoryRef).toBe('mem-B');
+    expect(vars.input.memoryRef).not.toBe('mem-A');
   });
 
   it('delete: DELETE_NODE_MUTATION targets the resolved node PK, and redirect URL points at node.memoryId too', async () => {
@@ -1118,8 +1118,8 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     }));
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Parent node created.' });
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string } }];
-    expect(vars.input.memoryId).toBe('mem-B');
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryRef: string } }];
+    expect(vars.input.memoryRef).toBe('mem-B');
   });
 
   it('createParent: rejects missing fields before looking up the anchor node', async () => {
@@ -1178,8 +1178,8 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     }));
 
     // Calls: [0] anchor fetch, [1] NODE_QUERY for loc 'foo:a', [2] update.
-    const [, vars] = mockRequest.mock.calls[2]! as [unknown, { input: { memoryId: string } }];
-    expect(vars.input.memoryId).toBe('mem-B');
+    const [, vars] = mockRequest.mock.calls[2]! as [unknown, { input: { memoryRef: string } }];
+    expect(vars.input.memoryRef).toBe('mem-B');
   });
 });
 
@@ -1214,11 +1214,11 @@ describe('node-detail action — updateAbstract (#257)', () => {
 
     const [, vars] = mockRequest.mock.calls[1]! as [
       unknown,
-      { input: { abstract: unknown; tags: unknown; memoryId: string; content?: unknown } },
+      { input: { abstract: unknown; tags: unknown; memoryRef: string; content?: unknown } },
     ];
     expect(vars.input.abstract).toBe('new summary');
     expect(vars.input.tags).toEqual(['kept']);
-    expect(vars.input.memoryId).toBe('mem-B');
+    expect(vars.input.memoryRef).toBe('mem-B');
     // Content is NOT sent — omitting it preserves the existing body
     // (Prisma treats undefined as no-op), so an abstract edit can't
     // clobber content.
@@ -1283,7 +1283,7 @@ describe('node-detail action — updateData', () => {
     }));
     expect(out).toEqual({ dataSaved: true });
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
-    expect(vars.input).toEqual({ memoryId: 'mem-B', loc: 'cor:api:020:03', tags: ['kept'], data: { version: '0.0.1' } });
+    expect(vars.input).toEqual({ memoryRef: 'mem-B', loc: 'cor:api:020:03', tags: ['kept'], data: { version: '0.0.1' } });
   });
 
   it('accepts any JSON value but a top-level null — an array, a scalar', async () => {

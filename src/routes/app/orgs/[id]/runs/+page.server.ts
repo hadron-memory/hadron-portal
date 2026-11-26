@@ -66,7 +66,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // App names for the App column. Auxiliary — on failure the column falls
     // back to the raw app id, which is still a correct (if uglier) identifier;
     // it never turns into a false "no runs".
-    fetchAllItems<AppInstall>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId: params.id }).catch(
+    fetchAllItems<AppInstall>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgRef: params.id }).catch(
       (e: unknown) => {
         console.warn(`[org runs] app-name lookup failed for ${params.id}:`, e);
         return [] as AppInstall[];

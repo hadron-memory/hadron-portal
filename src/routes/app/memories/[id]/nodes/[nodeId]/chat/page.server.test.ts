@@ -261,7 +261,7 @@ describe('chat sendMessage action', () => {
     expect(mockRequest).toHaveBeenNthCalledWith(2, LEGACY_THREAD_PROBE_QUERY, expect.objectContaining({ locPrefix: 'team:chat:messages:' }));
     expect(mockRequest).toHaveBeenNthCalledWith(3, CREATE_NODE_MUTATION, {
       input: expect.objectContaining({
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: expect.stringMatching(/^team:chat:messages:/),
         name: 'holger',
         nodeType: 'message',

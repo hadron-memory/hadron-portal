@@ -69,14 +69,14 @@ describe('portal#1378 startBootSource', () => {
     request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: 'hrn:node:ada:sys:boot:compiled' } }).mockResolvedValueOnce(compiledNode).mockResolvedValueOnce({ createNode: { id: 'n1' } });
     const r = await startSource();
     expect(request).toHaveBeenNthCalledWith(1, AGENT_BOOT_START_QUERY, { ref: 'agent-1' });
-    expect(request).toHaveBeenNthCalledWith(3, CREATE_NODE_MUTATION, { input: { memoryId: 'sys-1', loc: 'boot:source', name: 'Boot prompt source', role: 'boot-prompt', content: 'COMPILED {{worker.name}}' } });
+    expect(request).toHaveBeenNthCalledWith(3, CREATE_NODE_MUTATION, { input: { memoryRef: 'sys-1', loc: 'boot:source', name: 'Boot prompt source', role: 'boot-prompt', content: 'COMPILED {{worker.name}}' } });
     expect(text(r)).toContain('compiled and approved');
   });
   it('case 2 starts EMPTY and never reads or copies the legacy systemPrompt', async () => {
     request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: null } }).mockResolvedValueOnce({ createNode: { id: 'n1' } });
     const r = await startSource();
     expect(request).toHaveBeenCalledTimes(2);
-    expect(request).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, { input: { memoryId: 'sys-1', loc: 'boot:source', name: 'Boot prompt source', role: 'boot-prompt', content: '' } });
+    expect(request).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, { input: { memoryRef: 'sys-1', loc: 'boot:source', name: 'Boot prompt source', role: 'boot-prompt', content: '' } });
     expect(JSON.stringify(request.mock.calls)).not.toContain('systemPrompt');
     expect(text(r)).toContain('served it once a compiled revision is approved');
   });

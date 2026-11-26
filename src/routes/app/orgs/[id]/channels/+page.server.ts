@@ -66,7 +66,7 @@ async function loadOrgAttendees(
   client: ReturnType<typeof gqlClient>,
   orgId: string,
 ): Promise<{ attendees: Attendee[]; unreadApps: number; withheldApps: number }> {
-  const apps = await fetchAllItems<OrgApp>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgId });
+  const apps = await fetchAllItems<OrgApp>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgRef: orgId });
   const perApp = await mapWithConcurrency(apps, ROSTER_CONCURRENCY, async (app) => {
     // allSettled, not all: an App's slot must stay taken until BOTH of its
     // reads have finished. With Promise.all a fast rejection would free the
@@ -121,7 +121,7 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
   const [channels, register, role] = await Promise.all([
     // The org's Channels. A failure here is the page's failure: the register
     // below names them.
-    fetchAllItems<Channel>(client, ORG_CHANNELS_QUERY, 'channels', { orgId: org.id }),
+    fetchAllItems<Channel>(client, ORG_CHANNELS_QUERY, 'channels', { orgRef: org.id }),
     // The register is reported as failed, never shown as empty: "no rows" and
     // "couldn't read the rows" are different facts.
     // The rows and the roster are read SEPARATELY: the rows carry their own

@@ -24,6 +24,16 @@ export const withdrawRefusalCodes: readonly string[] = [
   "FORBIDDEN",
 ];
 
+/** The states a selection can be in, as the server names them (GrantSigningSelectionState). */
+export const selectionStates = ["OPEN", "COMPLETED", "DECLINED", "EXPIRED", "WITHDRAWN"] as const;
+export type SelectionState = (typeof selectionStates)[number];
+/** A state read the server answered; anything else (a failure, null, an unknown word) is no claim at all. */
+export function parseSelectionState(v: unknown): SelectionState | null {
+  return typeof v === "string" && (selectionStates as readonly string[]).includes(v) ? (v as SelectionState) : null;
+}
+/** The states in which a selection can still be withdrawn: only OPEN. */
+export const selectionEnded = (s: SelectionState | null) => s !== null && s !== "OPEN";
+
 export type SelectionOutcome = {
   activated: number;
   pending: number;

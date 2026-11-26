@@ -401,7 +401,7 @@ async function persistNewBaseline(
   const updated = applyRunResult(record, result);
   await gqlClient(token).request(UPDATE_NODE_MUTATION, {
     input: {
-      memoryId: systemMemoryId,
+      memoryRef: systemMemoryId,
       loc,
       name: updated.label,
       data: encodeFixture(updated),

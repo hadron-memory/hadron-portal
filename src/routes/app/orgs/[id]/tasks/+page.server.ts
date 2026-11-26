@@ -161,7 +161,7 @@ export const actions: Actions = {
 
     // ONLY properties: `UpdateNodeInput` preserves every omitted field, and the
     // node is already runnable, so no governance signal is touched.
-    const input = { memoryId: node.memoryId, loc: node.loc, properties: result.properties };
+    const input = { memoryRef: node.memoryId, loc: node.loc, properties: result.properties };
     try {
       assertNodeUpdateDoor(node, input);
       await client.request(nodeUpdateDocument(node, input), { input });

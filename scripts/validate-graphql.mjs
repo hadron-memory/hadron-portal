@@ -25,7 +25,7 @@ import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { buildSchema, parse, validate, visit, specifiedRules, GraphQLError } from 'graphql';
-import { declaredVariables, findCallerMismatches } from './check-graphql-callers.mjs';
+import { declaredVariables, findCallerMismatches, findInputKeyMismatches } from './check-graphql-callers.mjs';
 import { findDoorViolations } from './check-node-write-doors.mjs';
 
 export const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -585,6 +585,11 @@ function main(argv) {
   // check-graphql-callers.mjs.
   const declared = declaredVariables(documents, (doc) => resolveInterpolations(doc, byName));
   const callers = findCallerMismatches(sourceFiles(SRC_DIR), declared, ROOT);
+  // #2609: the keys INSIDE an input-object variable (a node write's `input`), which the check above
+  // never reads. Folded into `callers` so a stale key fails the same way a stale variable does.
+  const inputKeys = findInputKeyMismatches(sourceFiles(SRC_DIR), declared, schema, ROOT);
+  callers.failures.push(...inputKeys.failures);
+  callers.skipped.push(...inputKeys.skipped);
   const naming = findArgVariableMismatches(documents, (doc) => resolveInterpolations(doc, byName));
   // #751: the precondition extractDocuments assumes — no nested backtick in a
   // GraphQL body. Checked FIRST in the report because a comment-terminated
@@ -621,6 +626,7 @@ function main(argv) {
           invalid: failures.length,
           failures: failures.map(({ name, file, line, errors }) => ({ name, file, line, errors })),
           callSites: callers.checked,
+          inputObjects: inputKeys.checked,
           callerMismatches: callers.failures.length,
           callerFailures: callers.failures,
           callerSkipped: callers.skipped,
@@ -669,7 +675,7 @@ function main(argv) {
     for (const skip of callers.skipped) console.warn(`… skipped ${skip}`);
 
     const docSummary = `${documents.length} documents, ${failures.length} invalid, ${naming.length} misnamed, ${unmarked.length} unmarked`;
-    const callSummary = `${callers.checked} call sites, ${callers.failures.length} mismatched`;
+    const callSummary = `${callers.checked} call sites, ${callers.failures.length} mismatched; ${inputKeys.checked} input objects read`;
     // The routed count is printed on the PASSING line too — a gate that only
     // ever says "clean" cannot be told apart from one that stopped looking.
     const doorSummary = `${doors.routed} node writes routed through the kind door`;

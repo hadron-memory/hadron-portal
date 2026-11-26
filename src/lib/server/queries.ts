@@ -288,8 +288,8 @@ export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
 // memories.
 export const ORG_SYSTEM_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  query OrgSystemMemories($orgId: ID!, $limit: Int, $offset: Int) {
-    memories(orgId: $orgId, filter: { memoryClasses: [system] }, limit: $limit, offset: $offset) {
+  query OrgSystemMemories($orgRef: ID!, $limit: Int, $offset: Int) {
+    memories(orgRef: $orgRef, filter: { memoryClasses: [system] }, limit: $limit, offset: $offset) {
       items {
         ...MemoryFields
       }
@@ -414,8 +414,8 @@ export const MEMBER_ORG_IDS_QUERY = /* GraphQL */ `
 // with it, `resolveOrgScope` requires live membership and answers an empty
 // page otherwise. The list only suggests; createApp stays the gate.
 export const ORG_VISIBLE_AGENTS_QUERY = /* GraphQL */ `
-  query OrgVisibleAgents($orgId: ID!, $limit: Int, $offset: Int) {
-    agents(filter: { visibility: ORGANIZATION }, orgId: $orgId, limit: $limit, offset: $offset) {
+  query OrgVisibleAgents($orgRef: ID!, $limit: Int, $offset: Int) {
+    agents(filter: { visibility: ORGANIZATION }, orgRef: $orgRef, limit: $limit, offset: $offset) {
       items { id urn name description organizationId visibility }
       total
     }
@@ -830,8 +830,8 @@ export const ORG_EXCHANGE_CONNECTIONS_QUERY = /* GraphQL */ `
 // its OWN document, never a field on ORG_PROFILE_QUERY: a refusal here (every
 // non-admin gets FORBIDDEN) must reach only this section, not the whole tab.
 export const ORG_BOOT_PROMPT_SIGNING_QUERY = /* GraphQL */ `
-  query OrgBootPromptSigning($org: ID!) {
-    orgBootPromptSigning(org: $org) {
+  query OrgBootPromptSigning($orgRef: ID!) {
+    orgBootPromptSigning(orgRef: $orgRef) {
       required
       enforced
       deploymentSigns
@@ -840,8 +840,8 @@ export const ORG_BOOT_PROMPT_SIGNING_QUERY = /* GraphQL */ `
 `;
 
 export const ORG_BOOT_PROMPT_SIGNING_PREVIEW_QUERY = /* GraphQL */ `
-  query OrgBootPromptSigningPreview($org: ID!, $first: Int, $after: String) {
-    orgBootPromptSigningPreview(org: $org, first: $first, after: $after) {
+  query OrgBootPromptSigningPreview($orgRef: ID!, $first: Int, $after: String) {
+    orgBootPromptSigningPreview(orgRef: $orgRef, first: $first, after: $after) {
       enforced
       deploymentSigns
       total
@@ -868,8 +868,8 @@ export const ORG_BOOT_PROMPT_SIGNING_PREVIEW_QUERY = /* GraphQL */ `
 `;
 
 export const SET_ORG_BOOT_PROMPT_SIGNING_MUTATION = /* GraphQL */ `
-  mutation SetOrgBootPromptSigning($org: ID!, $required: Boolean!, $previewToken: String) {
-    setOrgBootPromptSigning(org: $org, required: $required, previewToken: $previewToken) {
+  mutation SetOrgBootPromptSigning($orgRef: ID!, $required: Boolean!, $previewToken: String) {
+    setOrgBootPromptSigning(orgRef: $orgRef, required: $required, previewToken: $previewToken) {
       required
       enforced
       deploymentSigns
@@ -989,8 +989,8 @@ export const ORG_TASK_MEMORY_IDS_QUERY = /* GraphQL */ `
  * reaching `createScope` is what made the whole org export fail.
  */
 export const ORG_SYSTEM_MEMORY_IDS_QUERY = /* GraphQL */ `
-  query OrgSystemMemoryIds($orgId: ID!, $limit: Int, $offset: Int) {
-    memories(orgId: $orgId, filter: { memoryClasses: [system] }, limit: $limit, offset: $offset) {
+  query OrgSystemMemoryIds($orgRef: ID!, $limit: Int, $offset: Int) {
+    memories(orgRef: $orgRef, filter: { memoryClasses: [system] }, limit: $limit, offset: $offset) {
       items { id appId }
       total
     }
@@ -2415,8 +2415,8 @@ export const AI_SERVICE_CONFIG_FIELDS = /* GraphQL */ `
 // { items, total } page.
 export const AI_SERVICE_CONFIGS_QUERY = /* GraphQL */ `
   ${AI_SERVICE_CONFIG_FIELDS}
-  query AiServiceConfigs($ownerType: AiConfigOwnerType!, $ownerId: ID!, $limit: Int, $offset: Int) {
-    aiServiceConfigs(filter: { ownerType: $ownerType, ownerId: $ownerId }, limit: $limit, offset: $offset) {
+  query AiServiceConfigs($ownerType: AiConfigOwnerType!, $ownerRef: ID!, $limit: Int, $offset: Int) {
+    aiServiceConfigs(filter: { ownerType: $ownerType, ownerRef: $ownerRef }, limit: $limit, offset: $offset) {
       items {
         ...AiServiceConfigFields
       }
@@ -2428,12 +2428,12 @@ export const AI_SERVICE_CONFIGS_QUERY = /* GraphQL */ `
 export const CREATE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   ${AI_SERVICE_CONFIG_FIELDS}
   mutation CreateAiServiceConfig(
-    $ownerType: AiConfigOwnerType!, $ownerId: ID!, $name: String!,
+    $ownerType: AiConfigOwnerType!, $ownerRef: ID!, $name: String!,
     $provider: String!, $model: String!, $apiKey: String, $params: JSON, $enabled: Boolean,
     $endpoint: String, $apiStyle: AiApiStyle
   ) {
     createAiServiceConfig(
-      ownerType: $ownerType, ownerId: $ownerId, name: $name,
+      ownerType: $ownerType, ownerRef: $ownerRef, name: $name,
       provider: $provider, model: $model, apiKey: $apiKey, params: $params, enabled: $enabled,
       endpoint: $endpoint, apiStyle: $apiStyle
     ) {
@@ -3175,7 +3175,7 @@ export const NODE_FIELDS = /* GraphQL */ `
 // Keep this narrow read separate from GraphNodes' mixed-type default.
 export const FIXTURE_NODES_QUERY = /* GraphQL */ `
   query FixtureNodes($limit: Int, $offset: Int, $memoryIds: [ID!]!) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: $memoryIds, nodeType: "system" }, limit: $limit, offset: $offset) {
       hits { node { id loc memoryId data } }
     }
   }
@@ -3184,7 +3184,7 @@ export const FIXTURE_NODES_QUERY = /* GraphQL */ `
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query GraphNodes($limit: Int, $offset: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: $memoryIds }, limit: $limit, offset: $offset) {
       hits {
         node {
           ...NodeFields
@@ -3486,7 +3486,7 @@ export const APP_CHAT_ROOTS_PAGE_QUERY = /* GraphQL */ `
 // and nothing else says whether more rows exist; see $lib/server/node-children.
 export const NODE_CHILDREN_QUERY = /* GraphQL */ `
   query NodeChildren($memoryId: ID!, $childrenOf: String!, $limit: Int!, $offset: Int!) {
-    findNodes(filter: { memoryIds: [$memoryId], childrenOf: $childrenOf }, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: [$memoryId], childrenOf: $childrenOf }, limit: $limit, offset: $offset) {
       hits { node { id loc name description nodeType tags seq isRunnable memoryId commentSummary { openThreads } } }
     }
   }
@@ -3506,7 +3506,7 @@ export const MEMORY_SCOPE_QUERY = /* GraphQL */ `
 // memory (system memories can return base-memory rows).
 export const NODES_PAGE_QUERY = /* GraphQL */ `
   query NodesPage($memoryId: ID!, $limit: Int!, $offset: Int!) {
-    findNodes(filter: { memoryIds: [$memoryId] }, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: [$memoryId] }, limit: $limit, offset: $offset) {
       hits { node { id urn loc name description nodeType tags seq isRunnable memoryId updatedAt memory { id urn name } commentSummary { openThreads } } }
     }
   }
@@ -3523,7 +3523,7 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
     $nodeTypes: [String!]
   ) {
     findNodes(
-      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix, nodeTypes: $nodeTypes }
+      filter: { memoryRefs: [$memoryId], locPrefix: $locPrefix, nodeTypes: $nodeTypes }
       limit: $limit
       offset: $offset
       sort: $sort
@@ -3545,7 +3545,7 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
 export const LEGACY_THREAD_PROBE_QUERY = /* GraphQL */ `
   query LegacyThreadProbe($memoryId: ID!, $locPrefix: String!, $limit: Int) {
     findNodes(
-      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix, nodeType: "message" }
+      filter: { memoryRefs: [$memoryId], locPrefix: $locPrefix, nodeType: "message" }
       limit: $limit
       sort: loc
     ) {
@@ -3706,7 +3706,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
       fields: $fields
       limit: $limit
       filter: {
-        memoryIds: $memoryIds
+        memoryRefs: $memoryIds
         createdBy: $createdBy
         updatedAfter: $updatedAfter
         updatedBefore: $updatedBefore
@@ -4604,8 +4604,8 @@ export const TEST_EXCHANGE_CONNECTION_MUTATION = /* GraphQL */ `
 // org-ADMIN).
 export const APPS_QUERY = /* GraphQL */ `
   ${APP_FIELDS}
-  query Apps($orgId: ID, $limit: Int, $offset: Int) {
-    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+  query Apps($orgRef: ID, $limit: Int, $offset: Int) {
+    apps(orgRef: $orgRef, limit: $limit, offset: $offset) {
       items { ...AppFields }
       total
     }
@@ -4616,8 +4616,8 @@ export const APPS_QUERY = /* GraphQL */ `
 // Used by the org agents page to show an "Open" button for already-installed
 // agents without pulling the heavy AppFields (agent/keys/memory) payload.
 export const ORG_APP_INSTALLS_QUERY = /* GraphQL */ `
-  query OrgAppInstalls($orgId: ID, $limit: Int, $offset: Int) {
-    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+  query OrgAppInstalls($orgRef: ID, $limit: Int, $offset: Int) {
+    apps(orgRef: $orgRef, limit: $limit, offset: $offset) {
       items { id name agentId }
       total
     }
@@ -4629,8 +4629,8 @@ export const ORG_APP_INSTALLS_QUERY = /* GraphQL */ `
 // query, not a field on ORG_APP_INSTALLS_QUERY: that one feeds pages that do
 // not render the roster.
 export const ORG_APPS_RUNNABLE_QUERY = /* GraphQL */ `
-  query OrgAppsRunnable($orgId: ID, $limit: Int, $offset: Int) {
-    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+  query OrgAppsRunnable($orgRef: ID, $limit: Int, $offset: Int) {
+    apps(orgRef: $orgRef, limit: $limit, offset: $offset) {
       items { id name appAgents { agent { id name urn } } }
       total
     }
@@ -4789,7 +4789,7 @@ const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
 export const AGENT_APPS_QUERY = /* GraphQL */ `
   ${AGENT_APP_LITE_FIELDS}
   query AgentApps($agentId: ID, $limit: Int, $offset: Int) {
-    apps(filter: { agentId: $agentId }, limit: $limit, offset: $offset) {
+    apps(filter: { agentRef: $agentId }, limit: $limit, offset: $offset) {
       items { ...AgentAppLiteFields }
       total
     }
@@ -4805,7 +4805,7 @@ export const AGENT_APPS_QUERY = /* GraphQL */ `
 export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
   ${AGENT_APP_LITE_FIELDS}
   query AgentOwnedApps($agentId: ID, $limit: Int, $offset: Int) {
-    apps(filter: { ownedByMe: true, agentId: $agentId }, limit: $limit, offset: $offset) {
+    apps(filter: { ownedByMe: true, agentRef: $agentId }, limit: $limit, offset: $offset) {
       items { ...AgentAppLiteFields }
       total
     }
@@ -4972,7 +4972,7 @@ export const MERGE_MEMORIES_MUTATION = /* GraphQL */ `
 
 export const RUNNABLE_NODES_QUERY = /* GraphQL */ `
   query RunnableNodes($limit: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds, isRunnable: true }, limit: $limit) {
+    findNodes(filter: { memoryRefs: $memoryIds, isRunnable: true }, limit: $limit) {
       hits {
         node {
           id
@@ -5197,8 +5197,8 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
  * #2509: `memoryId` survives the host record's concealment — `memory` comes
  * back null for a caller who may see the Channel but not its memory's record. */
 export const ORG_CHANNELS_QUERY = /* GraphQL */ `
-  query OrgChannels($orgId: ID!, $limit: Int, $offset: Int) {
-    channels(orgId: $orgId, limit: $limit, offset: $offset) {
+  query OrgChannels($orgRef: ID!, $limit: Int, $offset: Int) {
+    channels(orgRef: $orgRef, limit: $limit, offset: $offset) {
       total
       items {
         id
@@ -5224,8 +5224,8 @@ export const ORG_CHANNELS_QUERY = /* GraphQL */ `
  * addressable when two Apps share a display name.
  */
 export const ORG_APPS_FOR_REGISTER_QUERY = /* GraphQL */ `
-  query OrgAppsForRegister($orgId: ID, $limit: Int, $offset: Int) {
-    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+  query OrgAppsForRegister($orgRef: ID, $limit: Int, $offset: Int) {
+    apps(orgRef: $orgRef, limit: $limit, offset: $offset) {
       items { id name urn }
       total
     }
