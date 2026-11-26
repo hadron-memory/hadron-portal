@@ -9,6 +9,9 @@
     offset,
     locked = false,
     onbegin,
+    selectable = false,
+    selected = false,
+    onselect,
   }: {
     grant: Grant;
     enabled: boolean;
@@ -16,6 +19,10 @@
     offset: number;
     locked?: boolean;
     onbegin: (id: string) => void;
+    /** Offer the row's checkbox for Sign selected: set only where the page may sign a selection. */
+    selectable?: boolean;
+    selected?: boolean;
+    onselect?: (id: string, on: boolean) => void;
   } = $props();
   const uid = $props.id();
   function submitted(e: SubmitEvent) {
@@ -29,6 +36,7 @@
 </script>
 
 {#if enabled && grantSignable(grant, now)}
+  {#if selectable}<label class="mt-3 flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={selected} disabled={locked} aria-label={t("grants.select-row-named", "Select to sign together: {reason}", { reason: grant.reason || grant.action })} onchange={(e) => onselect?.(grant.id, e.currentTarget.checked)} />{t("grants.select-row", "Select to sign together")}</label>{/if}
   <form
     method="POST"
     action={`?/approve&offset=${offset}`}
