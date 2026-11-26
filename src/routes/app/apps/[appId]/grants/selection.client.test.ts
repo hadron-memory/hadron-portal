@@ -204,6 +204,16 @@ describe("the selection's own state (portal#2650)", () => {
     expect(withdrawForm(root)).toBeNull();
     expect(root.textContent).not.toContain("still waiting");
     expect(root.textContent).not.toContain("opened in a new tab");
+    expect([...root.querySelectorAll("a")].some((a) => a.textContent?.includes("Open the signing page"))).toBe(false);
+  });
+  it("the state read names the open selection by id, and a second list read asks again", async () => {
+    vi.mocked(fetch).mockImplementation(async () => listBody(three));
+    const asked = vi.mocked(HTMLFormElement.prototype.requestSubmit);
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    expect(stateForm(root).querySelector<HTMLInputElement>('input[name="id"]')!.value).toBe("sel1");
+    check(root); await vi.waitFor(() => { flushSync(); expect(asked).toHaveBeenCalledTimes(1); });
+    check(root); await vi.waitFor(() => { flushSync(); expect(asked).toHaveBeenCalledTimes(2); });
   });
   it("a new selection does not inherit the ended state of the one before", async () => {
     const root = setup(); tick(boxes(root)[0], true);

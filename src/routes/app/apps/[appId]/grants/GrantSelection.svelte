@@ -168,7 +168,9 @@
           <input type="hidden" name="id" value={open.id} />
         </form>
         <div class="flex flex-wrap items-center gap-3">
-          <a bind:this={openLink} href={open.ceremonyUrl} target="_blank" rel="noopener" class="inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t("grants.selection.open-again", "Open the signing page")}</a>
+          {#if !ended}
+            <a bind:this={openLink} href={open.ceremonyUrl} target="_blank" rel="noopener" class="inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t("grants.selection.open-again", "Open the signing page")}</a>
+          {/if}
           <button type="button" disabled={pending} onclick={onrefresh} class="min-h-11 rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{t("grants.selection.refresh", "Check result")}</button>
           {#if selState === null || selState === "OPEN"}
             <form method="POST" action={`?/withdrawSelection&offset=${offset}`} use:enhance={withdraw}>
