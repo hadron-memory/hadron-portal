@@ -149,10 +149,11 @@ describe("readSelection: the selection's own state (portal#2650)", () => {
     expect(await read("")).toMatchObject({ status: 400 });
     expect(sent("ReadGrantSigningSelection")).toHaveLength(0);
   });
-  it("a server refusal is a failure, never a state", async () => {
-    serve(refusal("SIGNING_REQUEST_NOT_FOUND", "No such request."));
-    const r = await read() as { status?: number; data?: { error?: string; state?: unknown } };
-    expect(r.data?.error).toBeTruthy();
-    expect(r.data).not.toHaveProperty("state");
+  it("a server refusal passes no text on and claims no state", async () => {
+    serve(refusal("SIGNING_REQUEST_NOT_FOUND", "No such request PRIVATE_TEXT."));
+    const r = await read();
+    expect(r).toMatchObject({ operation: "readSelection", state: null });
+    expect(JSON.stringify(r)).not.toContain("PRIVATE_TEXT");
+    expect(r).not.toHaveProperty("error");
   });
 });

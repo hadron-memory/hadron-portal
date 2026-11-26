@@ -192,13 +192,29 @@ describe("the selection's own state (portal#2650)", () => {
   const listBody = (items: unknown[]) => { const d = grantsFixture(); return new Response(JSON.stringify({ appId: d.app.id, viewerId: d.viewerId, offset: 0, grants: { items, total: items.length }, holders: d.holders, nodes: { "node-example": null }, actionDefinitions: d.actionDefinitions, actionDefinitionsFailed: false })); };
   const check = (root: HTMLElement) => [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Check result")!.click();
   it.each([["DECLINED", "was declined"], ["EXPIRED", "expired"], ["WITHDRAWN", "was withdrawn"]])("%s elsewhere: says so, offers no Withdraw, and no longer says anything is still waiting", async (state, word) => {
+    vi.mocked(fetch).mockResolvedValue(listBody([grant("g1"), grant("g2"), grant("g3")]));
     const root = setup(); tick(boxes(root)[0], true); tick(boxes(root)[1], true);
     await opened(root); flushSync();
     expect(withdrawForm(root)).not.toBeNull();
+    check(root);
+    // The grant list alone says two are still waiting: this is what the state read must replace.
+    await vi.waitFor(() => { flushSync(); expect(root.textContent).toContain("0 approved, 2 still waiting"); });
     await answer(root, { state }); flushSync();
     expect(root.textContent).toContain(`The signing request ${word}.`);
     expect(withdrawForm(root)).toBeNull();
     expect(root.textContent).not.toContain("still waiting");
+    expect(root.textContent).not.toContain("opened in a new tab");
+  });
+  it("a new selection does not inherit the ended state of the one before", async () => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    await answer(root, { state: "DECLINED" }); flushSync();
+    expect(withdrawForm(root)).toBeNull();
+    [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Dismiss")!.click(); flushSync();
+    tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    expect(withdrawForm(root)).not.toBeNull();
+    expect(root.textContent).not.toContain("The signing request");
   });
   it("COMPLETED offers no Withdraw either, and still counts each grant", async () => {
     vi.mocked(fetch).mockResolvedValue(listBody([grant("g1", { activatedAt: "2026-11-12T12:00:01Z" }), grant("g2"), grant("g3")]));

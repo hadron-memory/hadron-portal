@@ -195,13 +195,11 @@ export const actions: Actions = {
   // portal#2650: the selection's own state, so the panel does not infer an end from the grant list alone.
   // A refusal or a null answer is "no state": the page then claims no end.
   readSelection: async (event) => {
-    const answer = (status: number, message: string) =>
-      fail(status, { error: message, operation: "readSelection" as const, appId: event.params.appId });
     try {
       if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
       const app = await manage(event);
       const id = String((await event.request.formData()).get("id") ?? "");
-      if (!id) return answer(400, grantError("GRANT_NOT_FOUND"));
+      if (!id) return fail(400, { error: grantError("GRANT_NOT_FOUND"), operation: "readSelection" as const, appId: event.params.appId });
       const { grantSigningSelection } = await gqlClient(event.locals.token).request<{
         grantSigningSelection: { id: string; state: string } | null;
       }>(READ_GRANT_SIGNING_SELECTION, { id });
@@ -209,7 +207,8 @@ export const actions: Actions = {
       return { operation: "readSelection" as const, appId: app.id, id, state };
     } catch (e) {
       if (isRedirect(e)) throw e;
-      return answer(...selectionFailure(e, withdrawRefusalCodes));
+      // No server text is passed on: a read that did not answer is "no state", and the page claims nothing.
+      return { operation: "readSelection" as const, appId: event.params.appId, id: null, state: null };
     }
   },
   withdrawSelection: async (event) => {

@@ -73,6 +73,8 @@
       if (result.type === "success" && result.data && result.data.operation === "readSelection" && result.data.id === id) {
         const next = parseSelectionState(result.data.state);
         if (next) selState = next;
+        // The "opened" sentence is no longer news once the server says the selection ended.
+        if (next && next !== "OPEN") notice = null;
       }
     };
   };
