@@ -46,10 +46,10 @@
     : question.tier === 'SIGNED' ? t('question.card.approval.signed', 'This question needs a signature, which is not available yet. An approval does not replace it.')
     : t('question.card.approval.optional', 'Optional. The answer already settles this question.'),
   );
-  // portal#2665 (cor:dmo:140:09, "the state shown is the worked-out state"): what the tier still asks for follows the
+  // portal#2665 (hrn:node:hadronmemory.com:specs:cor:dmo:140:09, "the state shown is the worked-out state"): what the tier still asks for follows the
   // server's `state`, never the tier alone. An approved-tier question needs approval only while it is
   // ANSWERED_UNCONFIRMED or STALE (an edit brings the pill back); a signed-tier one needs its signature until DECIDED,
-  // and an approval never clears that (cor:dmo:140:08). Otherwise the tier stays visible as a neutral label.
+  // and an approval never clears that (hrn:node:hadronmemory.com:specs:cor:dmo:140:08). Otherwise the tier stays visible as a neutral label.
   const tierPill = $derived.by((): { text: string; needed: boolean } | null => {
     if (!question.tier || question.tier === 'ANSWERED') return null;
     if (question.tier === 'SIGNED') {
