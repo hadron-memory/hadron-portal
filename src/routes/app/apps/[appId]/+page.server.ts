@@ -87,6 +87,7 @@ import { liveStopsNameAWorker, pickPayload, readGroupsFor, type ReadGroup } from
 import { loadTemplatesPanel, TEMPLATES_TAB_ID } from './templates-panel';
 import { loadSecretsPanel } from './secrets-panel';
 import { loadTickersPanel } from './tickers-panel';
+import { loadStopsPanel } from './stops-panel';
 import { formValues, impersonationRefusal, taskWrite, writeFailure } from '$lib/server/agent-task-writes';
 import { SET_APP_DELIVERY_SETTINGS_MUTATION, buildDeliveryPatch, classifyDeliveryError } from '$lib/server/delivery-settings';
 import { CREATE_TICKER_MUTATION, classifyTickerWriteError } from '$lib/server/ticker-writes';
@@ -134,7 +135,14 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
-import { loadLiveStops } from '$lib/server/stop-signals';
+import {
+  LIFT_TEAM_STOP_SIGNAL_MUTATION,
+  SET_TEAM_STOP_SIGNAL_MUTATION,
+  buildSetInput,
+  classifyStopError,
+  loadLiveStops,
+} from '$lib/server/stop-signals';
+import type { StopSignal } from '$lib/stop-signals/types';
 import type { ReleaseWorkerMessage } from './schema';
 import { readHoldStale, type HoldStale } from './hold-stale';
 
@@ -1166,12 +1174,15 @@ export async function _loadAppPage(
   const secretsPanel = await loadSecretsPanel(wants('secrets'), client, app.id, locals, cookies, setHeaders);
   // portal#1099: the tickers section's data, when the section is asked for.
   const tickersPanel = await loadTickersPanel(wants('tickers'), client, app.id, locals);
+  // portal#1139: the stops section's data, when the section is asked for. `after` is the stop list's own cursor.
+  const stopsPanel = await loadStopsPanel(wants('stops'), client, app.id, locals, url.searchParams.get('after'));
   // The frame's stop banner named a worker: its names travel with the frame.
   if (staffLoaded) reads.add('staff');
   const full = {
     templatesPanel,
     secretsPanel,
     tickersPanel,
+    stopsPanel,
     runsPanel: runsSection && runsExtras && flowsData ? {
       ...runsSection,
       app,
@@ -1974,6 +1985,38 @@ export const actions: Actions = {
       return { action: 'setDeliverySettings' as const, ok: true as const };
     } catch (e) {
       return writeFailure('setDeliverySettings', classifyDeliveryError(e), values);
+    }
+  },
+
+  // portal#1139: set and lift a stop signal. The server decides on every call; `viewerManages` is only a display hint.
+  setStop: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('setStop', impersonationRefusal(), values);
+    const built = buildSetInput(fd, params.appId);
+    if ('invalid' in built) return writeFailure('setStop', { kind: 'invalid', ...built.invalid }, values);
+    try {
+      const r = await gqlClient(locals.token).request<{ setTeamStopSignal: StopSignal }>(SET_TEAM_STOP_SIGNAL_MUTATION, { input: built.input });
+      return { action: 'setStop' as const, ok: true as const, signalId: r.setTeamStopSignal.id };
+    } catch (e) {
+      return writeFailure('setStop', classifyStopError(e), values);
+    }
+  },
+
+  liftStop: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('liftStop', impersonationRefusal(), values);
+    const id = String(fd.get('id') ?? '').trim();
+    if (!id) return writeFailure('liftStop', { kind: 'invalid', field: 'form', message: 'Choose a stop to lift.' }, values);
+    try {
+      const r = await gqlClient(locals.token).request<{ liftTeamStopSignal: { changed: boolean } }>(LIFT_TEAM_STOP_SIGNAL_MUTATION, {
+        appRef: params.appId,
+        id,
+      });
+      return { action: 'liftStop' as const, ok: true as const, id, changed: r.liftTeamStopSignal.changed };
+    } catch (e) {
+      return writeFailure('liftStop', classifyStopError(e), values);
     }
   },
 

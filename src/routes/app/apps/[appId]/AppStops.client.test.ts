@@ -1,5 +1,5 @@
 /**
- * portal#1413 D2 — the Stops page, MOUNTED. The page-level behaviours the
+ * portal#1413 D2 — the Stops section, MOUNTED. The page-level behaviours the
  * panel's own tests can't see: a Lift button appears only where canLiftStops
  * says yes (and only on a live row), the label the lift confirmation receives
  * is built from the row's level/scope/target, the not-participant box, and the
@@ -8,7 +8,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import Page from './+page.svelte';
+import Page from './AppStops.svelte';
 
 // jsdom has no <dialog>; the panel's confirmations open through showModal.
 let oldShow: PropertyDescriptor | undefined;
@@ -32,7 +32,6 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-const app = { id: 'app-1', name: 'Team', organizationId: 'org-1' };
 const workers = [{ id: 'w1', name: 'Gaby', urn: 'hrn:worker:acme.com:team:gaby' }];
 
 function signal(over: Record<string, unknown> = {}) {
@@ -46,7 +45,6 @@ function signal(over: Record<string, unknown> = {}) {
 
 function pageData(over: Record<string, unknown> = {}) {
   return {
-    app,
     page: { kind: 'ok', value: { signals: [signal()], pageInfo: { hasNextPage: false, endCursor: null } } },
     live: { signals: [], complete: true },
     manages: 'yes',
@@ -61,7 +59,7 @@ function pageData(over: Record<string, unknown> = {}) {
 
 async function mountPage(data: Record<string, unknown>) {
   const props = reactiveProps(data);
-  const m = mountComponent(Page as never, { data: props } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, { appId: 'app-1', panel: props } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(3);
   return { root: m.target, props };
@@ -69,7 +67,7 @@ async function mountPage(data: Record<string, unknown>) {
 
 const liftButtons = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent?.trim() === 'Lift');
 
-describe('the Stops page', () => {
+describe('the Stops section', () => {
   it('a live row offers Lift only when the viewer can lift: yes shows it, no, unknown and a support session do not', async () => {
     const yes = await mountPage(pageData());
     expect(liftButtons(yes.root)).toHaveLength(1);
@@ -100,18 +98,18 @@ describe('the Stops page', () => {
     expect(dialog.textContent).toContain('Pause · One worker · Gaby');
   });
 
-  it('a non-participant read shows the not-participant box instead of the page', async () => {
+  it('a non-participant read shows the not-participant box instead of the section', async () => {
     const { root } = await mountPage(pageData({ page: { kind: 'not-participant' } }));
     const box = root.querySelector('[role="status"]');
     expect(box?.textContent).toContain('You’re not a participant in this App');
-    expect(root.querySelector('form[action="?/set"]')).toBeNull();
+    expect(root.querySelector('form[action$="/setStop"]')).toBeNull();
   });
 
   it('a page with a next page links to it by cursor, URL-encoded', async () => {
     // A cursor with reserved characters pins the encodeURIComponent the href
     // relies on (Jonas's LOCAL P3) — 'abc' would leave it unpinned.
     const { root } = await mountPage(pageData({ page: { kind: 'ok', value: { signals: [signal()], pageInfo: { hasNextPage: true, endCursor: 'a/b+c=' } } } }));
-    const link = root.querySelector<HTMLAnchorElement>('a[href="?after=a%2Fb%2Bc%3D"]');
+    const link = root.querySelector<HTMLAnchorElement>('a[href$="&after=a%2Fb%2Bc%3D"]');
     expect(link).not.toBeNull();
     expect(link!.textContent).toContain('Show older stops');
   });

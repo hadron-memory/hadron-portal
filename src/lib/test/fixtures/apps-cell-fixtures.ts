@@ -5,7 +5,7 @@ import Detail from '../../../routes/app/apps/[appId]/+page.svelte';
 import { pageData } from '../../../routes/app/apps/[appId]/app-page.fixture';
 import Mine from '../../../routes/app/apps/+page.svelte';
 import Secrets from '../../../routes/app/apps/[appId]/AppSecrets.svelte';
-import Stops from '../../../routes/app/apps/[appId]/stops/+page.svelte';
+import Stops from '../../../routes/app/apps/[appId]/AppStops.svelte';
 import Tasks from '../../../routes/app/apps/[appId]/tasks/+page.svelte';
 import Tickers from '../../../routes/app/apps/[appId]/AppTickers.svelte';
 import Channels from '../../../routes/app/apps/[appId]/channels/+page.svelte';
@@ -74,13 +74,13 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => 
     return () => unmount(instance);
   }
   if (kind === 'apps-stops') {
-    setStubPage('http://localhost/app/apps/fixture-app/stops', { appId: app.id });
-    const data = {
-      app, page: { kind: 'ok', value: { signals: [0, 1, 2].map(signal), pageInfo: { hasNextPage: false, endCursor: null } } },
+    setStubPage('http://localhost/app/apps/fixture-app', { appId: app.id });
+    const panel = {
+      page: { kind: 'ok', value: { signals: [0, 1, 2].map(signal), pageInfo: { hasNextPage: false, endCursor: null } } },
       live: { signals: [], complete: true }, manages: 'yes', workers: [{ id: 'w1', name: 'Gaby', urn: 'hrn:worker:example.test:team:gaby' }],
       people: { 'u-long': `${LONG}-a-person-with-an-unbroken-name` }, after: null, loadedAt: at, impersonating: null,
     };
-    const instance = mount(Stops as never, { target, props: { data } } as never);
+    const instance = mount(Stops as never, { target, props: { appId: app.id, panel } } as never);
     return () => unmount(instance);
   }
   if (kind === 'apps-tickers') {
@@ -88,7 +88,7 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => 
     const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
     const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false } };
     const panel = { tickers: { kind: 'ok', value: [0, 1, 2].map(ticker) }, settings, delivery, subscriberCountPage: 50, loadedAt: at, impersonating: null };
-    const instance = mount(Tickers as never, { target, props: { appId: app.id, app, panel } } as never);
+    const instance = mount(Tickers as never, { target, props: { appId: app.id, panel } } as never);
     return () => unmount(instance);
   }
   if (kind === 'apps-mine') {

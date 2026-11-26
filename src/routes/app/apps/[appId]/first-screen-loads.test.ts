@@ -89,6 +89,9 @@ const h = vi.hoisted(() => {
     AppTickers: () => ({ tickers: [] }),
     AppTickerSettings: () => ({ appTickerSettings: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 500, dailyWakeBudgetDerived: true } }),
     AppDeliverySettings: () => ({ appDeliverySettings: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false } }),
+    // Stops (a section of Settings, read when it is asked for): the signals page, the roster and the people who set stops.
+    StopWorkers: () => ({ teamRoster: { workers: [] } }),
+    StopPeople: () => ({ app: { members: [] } }),
   };
   return {
     ops,
@@ -151,6 +154,7 @@ const TAB_OPS: Record<string, string[]> = {
   'node-role-templates': ['RoleTemplates', 'AppViewerManages', 'ConfigMemoryChoices'],
   secrets: ['AppSecrets', 'SecretChangeRequestState'],
   tickers: ['AppTickers', 'AppTickerSettings', 'AppDeliverySettings'],
+  stops: ['TeamStopSignals', 'AppViewerManages', 'StopWorkers', 'StopPeople'],
   client: ['SelfCanManage', 'AppKeys'],
 };
 
@@ -158,7 +162,7 @@ const opSet = () => [...new Set(h.ops)].sort();
 const expected = (tab: string) => [...new Set([...FRAME, ...TAB_OPS[tab]])].sort();
 /** App Keys, AI Service Configs and Node-role templates are sections of Settings. A link that still says `?tab=keys` opens Settings with that
  *  section open, so its first screen is Settings' reads plus the section's own. */
-const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers'];
+const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops'];
 const expectedOpening = (tab: string) => SECTION_TABS.includes(tab)
   ? [...new Set([...FRAME, ...TAB_OPS.settings, ...TAB_OPS[tab]])].sort()
   : expected(tab);
@@ -191,6 +195,7 @@ describe('App page loader: the first screen only (portal#2240)', () => {
     expect(opSet()).not.toContain('AiServiceConfigs');
     expect(opSet()).not.toContain('AppSecrets');
     expect(opSet()).not.toContain('AppTickers');
+    expect(opSet()).not.toContain('StopWorkers');
   });
 
   it.each(SECTION_TABS)('?tab=settings&section=%s reads that section with Settings', async (section) => {
