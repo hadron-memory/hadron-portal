@@ -29,6 +29,7 @@
     "test:data-table-fill-layout": "node scripts/test-data-table-fill-layout.mjs",
     "test:data-table-scroll-cue-layout": "node scripts/test-data-table-scroll-cue-layout.mjs",
     "test:live-outcome-layout": "node scripts/test-live-outcome-layout.mjs",
+    "test:questions-layout": "node scripts/test-questions-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
     "test:app-keys-layout": "node scripts/test-app-keys-layout.mjs",
     "test:members-panel-urn-layout": "node scripts/test-members-panel-urn-layout.mjs",

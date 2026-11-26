@@ -21,7 +21,7 @@
    * Subscribe is not in the portal yet. After a write the section reads its own slice again through the tab endpoint.
    */
   type Panel = NonNullable<Awaited<ReturnType<typeof loadTickersPanel>>>;
-  let { appId, app, panel: initial }: { appId: string; app: { id: string; name: string }; panel: Panel } = $props();
+  let { appId, panel: initial }: { appId: string; panel: Panel } = $props();
 
   // The panel shown: what the page last handed over, until a re-read of this section replaces it.
   let reread = $state.raw<{ against: Panel; panel: Panel } | null>(null);
@@ -140,6 +140,16 @@
       refreshFailed = true;
     } finally {
       refreshing = false;
+    }
+  }
+  // The forms run this right after a write that SUCCEEDED. A failed re-read must not throw out of their submit
+  // handler (the write would then go unreported and the draft stay to be sent again): it only says the list is stale.
+  async function reloadAfterWrite() {
+    refreshFailed = false;
+    try {
+      await reload();
+    } catch {
+      refreshFailed = true;
     }
   }
 </script>
@@ -264,11 +274,11 @@
     {#if tickers.kind === 'ok'}
       <section aria-labelledby="ticker-create-heading" class="space-y-2" data-testid="ticker-create-section">
         <h3 id="ticker-create-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tickers.create.heading', 'New ticker')}</h3>
-        <TickerForm appId={appId} impersonating={data.impersonating} createAction={actionUrl('createTicker')} {reload} />
+        <TickerForm appId={appId} impersonating={data.impersonating} createAction={actionUrl('createTicker')} reload={reloadAfterWrite} />
       </section>
     {/if}
 
     <TickerSettingsPanel settings={data.settings} />
-    <DeliverySettingsPanel appId={appId} settings={data.delivery} impersonating={data.impersonating} action={actionUrl('setDeliverySettings')} {reload} />
+    <DeliverySettingsPanel appId={appId} settings={data.delivery} impersonating={data.impersonating} action={actionUrl('setDeliverySettings')} reload={reloadAfterWrite} />
   {/if}
 </div>

@@ -154,7 +154,7 @@ describe('load', () => {
     route({ channels: Array.from({ length: 201 }, (_, i) => channel({ id: `ch-${i}` })) });
     const data = await load();
     expect(data.channels).toHaveLength(201);
-    expect(sent(ORG_CHANNELS_QUERY).map((v) => v.orgId)).toEqual(['org-1', 'org-1']);
+    expect(sent(ORG_CHANNELS_QUERY).map((v) => v.orgRef)).toEqual(['org-1', 'org-1']);
   });
 
   it('reads the org’s OWN register rows, by the org as owner', async () => {

@@ -166,7 +166,7 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
         readback.client,
         AI_SERVICE_CONFIGS_QUERY,
         'aiServiceConfigs',
-        { ownerType, ownerId },
+        { ownerType, ownerRef: ownerId },
       );
       return json({ configs }, { headers });
     } catch (e) {
@@ -206,7 +206,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           CREATE_AI_SERVICE_CONFIG_MUTATION,
           {
             ownerType,
-            ownerId,
+            ownerRef: ownerId,
             name,
             provider,
             model,

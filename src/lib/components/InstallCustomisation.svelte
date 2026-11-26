@@ -319,7 +319,7 @@
   <p class="mt-3 text-sm text-zinc-500">{t('customisation.served-by-pointer','Customisations reach a started agent when its boot pointer names a prompt compiled for this App or one of its workers, and that prompt’s newest approved revision was compiled with them.')}</p>
   <p class="text-sm text-zinc-500">{t('customisation.compile-only','Replacements apply when compiling for this App. Ordinary node reads are unchanged.')}</p>
   {#if canManage===false}<p class="text-sm text-zinc-500">{t('customisation.read-only','You can view these customisations. Only someone who manages this App can change them.')}</p>{/if}
-  <LiveRegion>{#if read.list.state==='loading'}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
+  <LiveRegion deferFirst>{#if read.list.state==='loading'}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
   <div bind:this={listZone}>
   {#if read.list.state==='loading'}<!-- announced by the LiveRegion above -->
   {:else if read.list.state==='failed'}<p role="alert">{t('customisation.load-failed','Couldn’t load customisations.')}</p><button type="button" class={secondaryButton} disabled={busy} onclick={()=>openPage(offset,loc)}>{t('customisation.retry','Retry')}</button>
@@ -355,13 +355,13 @@
   {#if loc||creating}
     <div class="mt-4 grid gap-4 md:grid-cols-2">
       <div class="min-w-0"><h4 class="font-semibold text-zinc-900 dark:text-zinc-100">{t('customisation.original','Original')}</h4>
-      <LiveRegion>{#if read.original.state==='loading'&&!creating}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
+      <LiveRegion deferFirst>{#if read.original.state==='loading'&&!creating}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
       {#if read.original.state==='ok'&&typeof read.original.value.content==='string'&&!creating}<pre class="mt-2 whitespace-pre-wrap break-words text-sm">{read.original.value.content}</pre>
       {:else if read.original.state==='loading'&&!creating}<!-- announced by the LiveRegion above -->
       {:else if read.original.state==='failed'&&!creating}<p role="alert">{t('customisation.original-failed','Couldn’t load the original.')}</p>
       {:else}<p class="text-sm text-zinc-500">{t('customisation.original-hidden','Original not shown')}</p>{#if loc&&!loc.startsWith('boot:')&&loc!=='boot'}<p class="text-sm text-zinc-500">{t('customisation.base-hint','An inherited base may hold this loc, or your access may not show it.')}</p>{/if}{/if}</div>
       <div class="min-w-0"><h4 class="font-semibold text-zinc-900 dark:text-zinc-100">{t('customisation.replacement','Replacement')}</h4>
-        <LiveRegion>{#if !creating&&read.replacement.state==='loading'}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
+        <LiveRegion deferFirst>{#if !creating&&read.replacement.state==='loading'}<p>{t('customisation.loading','Loading…')}</p>{/if}</LiveRegion>
         {#if creating||(read.replacement.state==='ok'&&typeof read.replacement.value.content==='string')}
           {#if canManage!==false}
           <form method="POST" action={`?/`+(creating?'createCustomisation':'saveCustomisation')} onsubmit={save}>

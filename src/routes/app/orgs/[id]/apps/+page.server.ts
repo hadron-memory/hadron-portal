@@ -36,7 +36,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // issues no query of its own. #845 moved only the tabs that need a nested
   // LIST off the layout payload.
   const { org } = await parent();
-  const appsData = await fetchAllItems<App>(client, APPS_QUERY, 'apps', { orgId: params.id })
+  const appsData = await fetchAllItems<App>(client, APPS_QUERY, 'apps', { orgRef: params.id })
     .catch(() => [] as App[]);
   // portal#1068: the Active keys column's counts. App.keys is manager-only and
   // non-null, so it can't ride the Apps list (it would empty the list for a

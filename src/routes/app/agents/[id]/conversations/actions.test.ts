@@ -77,7 +77,7 @@ describe('addConversation', () => {
     });
     expect(mockRequest.mock.calls[0][1]).toEqual({
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: 'conversations:demo-conversation',
         name: 'demo-conversation',
         nodeType: 'system',
@@ -154,7 +154,7 @@ describe('addStage', () => {
     });
     expect(mockRequest.mock.calls[0][1]).toEqual({
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: 'conversations:demo:gather-details',
         name: 'gather-details',
         nodeType: 'system',
@@ -167,7 +167,7 @@ describe('addStage', () => {
     });
     expect(mockRequest.mock.calls[1][1]).toEqual({
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: 'prompts:demo:gather-details',
         name: 'gather-details',
         nodeType: 'system',
@@ -176,7 +176,7 @@ describe('addStage', () => {
     });
     expect(mockRequest.mock.calls[3][1]).toEqual({
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: 'conversations:demo',
         data: { stageOrder: ['start', 'gather-details'] },
       },
@@ -291,7 +291,7 @@ describe('updatePrompt', () => {
     expect(writes()).toHaveLength(1);
     expect(writes()[0][0]).toBe(UPDATE_NODE_MUTATION);
     expect(writes()[0][1]).toEqual({
-      input: { memoryId: 'mem-1', loc: PROMPT.ref, content: 'Updated prompt' },
+      input: { memoryRef: 'mem-1', loc: PROMPT.ref, content: 'Updated prompt' },
     });
   });
 
@@ -322,7 +322,7 @@ describe('updatePrompt', () => {
     expect(writes()).toHaveLength(1);
     expect(writes()[0][1]).toEqual({
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: PROMPT.ref,
         name: 'start',
         nodeType: 'system',
@@ -414,7 +414,7 @@ describe('updatePrompt', () => {
     expect(writes()).toHaveLength(3);
     expect(writes()[2][0]).toBe(UPDATE_TASK_NODE_MUTATION);
     expect(writes()[2][1]).toEqual({
-      input: { memoryId: 'mem-1', loc: PROMPT.ref, content: 'Contested prompt' },
+      input: { memoryRef: 'mem-1', loc: PROMPT.ref, content: 'Contested prompt' },
     });
   });
 
@@ -584,7 +584,7 @@ describe('updateExtractionSpec', () => {
     });
     expect(mockRequest.mock.calls[1][1]).toEqual({
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: 'conversations:demo:start',
         data: {
           promptRef: 'prompts:demo:start',
@@ -664,7 +664,7 @@ describe('updateGoals', () => {
     });
     expect(mockRequest.mock.calls[1][1]).toEqual({
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: 'conversations:demo',
         data: {
           stageOrder: ['start'],
@@ -785,8 +785,8 @@ describe('moveConversation (start order, B4)', () => {
     });
     expect(result).toMatchObject({ form: { valid: true, message: { type: 'success' } } });
     expect(writes.map((w) => w.input)).toEqual([
-      { memoryId: 'mem-1', loc: 'conversations:a', seq: 20 },
-      { memoryId: 'mem-1', loc: 'conversations:b', seq: 10 },
+      { memoryRef: 'mem-1', loc: 'conversations:a', seq: 20 },
+      { memoryRef: 'mem-1', loc: 'conversations:b', seq: 10 },
     ]);
     expect(writes.every((w) => !('data' in w.input))).toBe(true);
   });
@@ -865,7 +865,7 @@ describe('updateEntryCondition', () => {
     });
     expect(result).toMatchObject({ form: { valid: true, message: { type: 'success' } } });
     expect(writes[0].input).toEqual({
-      memoryId: 'mem-1', loc: 'conversations:demo', data: { ...stored, entryCondition: cond },
+      memoryRef: 'mem-1', loc: 'conversations:demo', data: { ...stored, entryCondition: cond },
     });
   });
 
@@ -884,7 +884,7 @@ describe('updateEntryCondition', () => {
     const result = await runAction('updateEntryCondition', {
       systemMemoryId: 'mem-1', convLoc: 'conversations:demo', condition: JSON.stringify(cond), intent: 'clear',
     });
-    expect(writes[0].input).toEqual({ memoryId: 'mem-1', loc: 'conversations:demo', data: stored });
+    expect(writes[0].input).toEqual({ memoryRef: 'mem-1', loc: 'conversations:demo', data: stored });
     expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Cleared. This conversation now always starts.' } } });
   });
 
@@ -1316,7 +1316,7 @@ describe('savePosition', () => {
     expect(result).toBeUndefined();
     expect(mockRequest.mock.calls[1][1]).toEqual({
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: 'conversations:find-mentor',
         data: { stageOrder: ['a'], position: { x: 400, y: 120 } },
       },

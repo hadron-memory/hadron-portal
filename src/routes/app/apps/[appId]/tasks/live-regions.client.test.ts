@@ -4,6 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { firstPaint } from '$lib/test/firstPaint';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
 import TaskPage from './[taskId]/+page.svelte';
@@ -75,6 +76,7 @@ describe('task page cap notes', () => {
     const m = mountComponent(TaskPage as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(4);
+    await firstPaint();
     expect(m.target.textContent, 'the history read is still pending').toContain('Loading history…');
     const region = await expectLiveRegionLifecycle({ root: m.target, text: 'Showing the first 1000 events', settle: () => tick(10), appear: () => answer() });
     // "Jump to latest" targets #history-end: it must come AFTER the cap note, or the jump lands above it.

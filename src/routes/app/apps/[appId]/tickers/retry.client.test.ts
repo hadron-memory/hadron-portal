@@ -13,6 +13,8 @@ vi.mock('$app/environment', () => ({ browser: true, dev: false, building: false,
 import Detail from './[tickerId]/+page.svelte';
 import List from '../AppTickers.svelte';
 import { sectionProps } from '$lib/test/ticker-section-props';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { announcedStatusRegion } from '$lib/test/firstPopulatedStatusText';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
@@ -79,6 +81,31 @@ describe('portal#1457 — Try again refreshes once', () => {
       expect(invalidations()).toBe(0);
       expect(retryButtons(m.target)).toHaveLength(0);
       expect(m.target.textContent).toContain('eng');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  // A write that landed must be reported even when the re-read after it fails: the failed read only marks the list stale
+  // (hrn:pr hadron-portal#2644 review). Mutant: hand the form the bare `reload`, and its submit handler rejects before
+  // it reports anything.
+  it('a created ticker is reported when the re-read after it fails, and the section says it could not refresh', async () => {
+    setStubPage('http://localhost/app/apps/app-1', { appId: 'app-1' });
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 500, json: async () => ({}) }));
+    try {
+      const panel = { tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null };
+      const m = mountComponent(List as never, sectionProps({ app, ...panel }) as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      const form = m.target.querySelector<HTMLFormElement>('form[data-testid]')!;
+      const name = form.querySelector<HTMLInputElement>('input[name="name"]')!;
+      name.value = 'standup';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(2);
+      await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { action: 'createTicker', ok: true, ticker: { id: 'tk-9', name: 'standup' } } });
+      await tick(4);
+      expect(announcedStatusRegion(m.target)!.firstElementChild!.textContent).toContain('Created standup.');
+      expect(m.target.textContent).toContain('Couldn’t refresh.');
     } finally {
       vi.unstubAllGlobals();
     }

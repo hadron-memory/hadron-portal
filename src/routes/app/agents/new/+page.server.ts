@@ -3,7 +3,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode, gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
-import { CREATE_PERSONAL_AGENT_MUTATION, UPDATE_AGENT_MUTATION } from '$lib/server/queries';
+import { CREATE_PERSONAL_AGENT_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { createPersonalAgentSchema } from './schema';
 
@@ -25,22 +25,16 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     const { slug, displayName, description } = form.data;
-    const name = slug; // the slug is the URN atom; createAgent mints from it
+    // #2647: the typed slug is the URN atom, sent as `slug`; `name` is the display name.
+    const name = displayName || slug;
 
     try {
       // No orgId → user-owned tenancy: the agent roots on the caller's handle
       // namespace with visibility PERSONAL.
       const result = await gqlClient(locals.token).request<{ createAgent: { id: string } }>(
         CREATE_PERSONAL_AGENT_MUTATION,
-        { name, description: description || null, visibility: 'PERSONAL' },
+        { slug, name, description: description || null, visibility: 'PERSONAL' },
       );
-      // Seed a friendly display name when it differs from the slug (best-effort,
-      // mirrors the org create flow).
-      if (displayName && displayName !== name) {
-        await gqlClient(locals.token)
-          .request(UPDATE_AGENT_MUTATION, { ref: result.createAgent.id, name: displayName })
-          .catch(() => {});
-      }
       redirect(303, `/app/agents/${result.createAgent.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;

@@ -53,7 +53,7 @@ async function runCreate(fields: Record<string, string>) {
 }
 
 describe('create agent action', () => {
-  it('creates the agent under the slug and renames when display name differs', async () => {
+  it('creates the agent in one call with slug and display name, no rename (#2647)', async () => {
     const result = await runCreate({
       displayName: 'Research Assistant',
       slug: 'research-assistant',
@@ -65,22 +65,22 @@ describe('create agent action', () => {
     expect(result).toMatchObject({ status: 303, location: '/app/orgs/org-1/agents' });
     expect(mockRequest).toHaveBeenCalledWith(CREATE_AGENT_MUTATION, {
       orgRef: 'org-1',
-      name: 'research-assistant',
+      slug: 'research-assistant',
+      name: 'Research Assistant',
       description: 'Helps with research',
 
       visibility: 'ORGANIZATION',
     });
-    expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, {
-      ref: 'agent-1',
-      name: 'Research Assistant',
-    });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).not.toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, expect.anything());
   });
 
-  it('skips the rename when display name already matches the slug', async () => {
+  it('sends one call when display name already matches the slug', async () => {
     await runCreate({ displayName: 'research-assistant', slug: 'research-assistant' });
 
     expect(mockRequest).toHaveBeenCalledTimes(1);
     expect(mockRequest).toHaveBeenCalledWith(CREATE_AGENT_MUTATION, expect.objectContaining({
+      slug: 'research-assistant',
       name: 'research-assistant',
       visibility: 'PERSONAL',
     }));

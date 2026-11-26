@@ -76,7 +76,9 @@ describe('readAttachableMemories', () => {
       { id: 'abroad', urn: 'hrn:mem:o:abroad', name: 'Abroad', visibility: 'ORGANIZATION', appId: null, organizationId: 'org-2' },
     ] } });
     expect(await readAttachableMemories({ request } as never, 'org-1')).toEqual([{ id: 'free', urn: 'hrn:mem:e:free', name: 'Free', visibility: 'ORGANIZATION' }]);
-    expect(request.mock.calls[0][1]).toMatchObject({ orgId: 'org-1', ownedByMe: true });
+    expect(request.mock.calls[0][1]).toMatchObject({ orgRef: 'org-1', ownedByMe: true });
+    // hadron-server#5081: a stale orgId is ignored by the server and returns every organization's list.
+    expect(request.mock.calls[0][1]).not.toHaveProperty('orgId');
     expect(request.mock.calls[0][0]).toContain('memoryClasses: [personal, private]');
   });
   it('asks for the caller\'s own org-less memories when the App has no organization', async () => {

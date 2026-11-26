@@ -47,13 +47,14 @@ const createVars = () =>
     | undefined;
 
 describe('personal (org-less) create-memory action (#627)', () => {
-  it('sends NO orgId, memoryClass=personal, name=slug', async () => {
+  it('sends NO orgId, memoryClass=personal, slug=slug and name=display name (#2647)', async () => {
     await runCreate({ displayName: 'My notes', slug: 'my-notes', memoryClass: 'personal' });
     const vars = createVars();
     expect(vars).toBeDefined();
     expect('orgId' in (vars ?? {})).toBe(false);
     expect(vars?.memoryClass).toBe('personal');
-    expect(vars?.name).toBe('my-notes');
+    expect(vars?.slug).toBe('my-notes');
+    expect(vars?.name).toBe('My notes');
   });
 
   it('supports the private class', async () => {
@@ -61,14 +62,9 @@ describe('personal (org-less) create-memory action (#627)', () => {
     expect(createVars()?.memoryClass).toBe('private');
   });
 
-  it('updates the display name when it differs from the slug', async () => {
+  it('creates in one call: no follow-up rename, whatever the display name (#2647)', async () => {
     await runCreate({ displayName: 'My Notes', slug: 'my-notes', memoryClass: 'personal' });
-    const update = mockRequest.mock.calls.find((c) => c[0] === UPDATE_MEMORY_MUTATION);
-    expect(update?.[1]).toMatchObject({ ref: 'm1', name: 'My Notes' });
-  });
-
-  it('does not issue a display-name update when name equals the slug', async () => {
-    await runCreate({ displayName: 'my-notes', slug: 'my-notes', memoryClass: 'personal' });
+    expect(mockRequest.mock.calls.filter((c) => c[0] === CREATE_PERSONAL_MEMORY_MUTATION)).toHaveLength(1);
     expect(mockRequest.mock.calls.some((c) => c[0] === UPDATE_MEMORY_MUTATION)).toBe(false);
   });
 

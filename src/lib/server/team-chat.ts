@@ -795,7 +795,7 @@ export async function postChatMessage(
 
   const { createNode } = await client.request<{ createNode: MemoryNode }>(CREATE_NODE_MUTATION, {
     input: {
-      memoryId: args.memoryId,
+      memoryRef: args.memoryId,
       loc: messageLoc,
       name: args.author,
       nodeType: 'message',

@@ -145,7 +145,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         UPDATE_NODE_MUTATION,
         {
           input: {
-            memoryId: systemMemoryId,
+            memoryRef: systemMemoryId,
             loc: body.fixtureLoc,
             name: record.label,
             description,
@@ -165,7 +165,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       CREATE_NODE_MUTATION,
       {
         input: {
-          memoryId: systemMemoryId,
+          memoryRef: systemMemoryId,
           loc: `fixtures:${randomId()}`,
           name: record.label,
           nodeType: 'system',

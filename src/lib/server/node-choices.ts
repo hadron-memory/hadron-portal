@@ -30,7 +30,7 @@ export const MAX_NODE_CHOICES_OFFSET = 100_000;
 
 export const NODE_CHOICES_QUERY = /* GraphQL */ `
   query NodeChoices($memoryId: ID!, $query: String, $limit: Int, $offset: Int) {
-    findNodes(filter: { memoryIds: [$memoryId] }, query: $query, mode: keyword, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: [$memoryId] }, query: $query, mode: keyword, limit: $limit, offset: $offset) {
       hits {
         node { id name loc urn }
       }

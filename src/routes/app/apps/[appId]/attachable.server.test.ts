@@ -31,7 +31,7 @@ describe('GET /app/apps/[appId]/attachable', () => {
     expect(await res.json()).toEqual({ kind: 'ok', memories: [{ id: 'm1', urn: 'hrn:mem:o:m1', name: 'M1', visibility: null }] });
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(request.mock.calls[0][1]).toEqual({ ref: 'app-1' });
-    expect(request.mock.calls[1][1]).toMatchObject({ orgId: 'org-from-app', ownedByMe: true });
+    expect(request.mock.calls[1][1]).toMatchObject({ orgRef: 'org-from-app', ownedByMe: true });
     expect(JSON.stringify(request.mock.calls)).not.toContain('org-from-request');
   });
 

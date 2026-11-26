@@ -29,9 +29,11 @@
   import {
     grantMatches,
     grantActorRefs,
+    grantSignable,
     type GrantPageFilter,
   } from "$lib/grants/approval";
   import GrantApproval from "./GrantApproval.svelte";
+  import GrantSelection from "./GrantSelection.svelte";
   import GrantRecord from "./GrantRecord.svelte";
   import type { PageData, ActionData } from "./$types";
   let { data, form }: { data: PageData; form?: ActionData } = $props();
@@ -64,8 +66,16 @@
   const nodes = $derived(view?.nodes ?? data.nodes);
   const actors = $derived(view?.actors ?? data.actors ?? {});
   let pageFilter = $state<GrantPageFilter>("all");
+  let filterSelect = $state<HTMLSelectElement>();
   let now = $state(Date.now());
   let awaitingCeremony = $state<{ id: string; scope: string } | null>(null);
+  // portal#2638: the grants a person chose to sign together, and the selection the server holds open for them.
+  let selected = $state<Record<string, boolean>>({});
+  let awaitingSelection = $state<{ refs: string[]; scope: string } | null>(null);
+  let selectionFresh = $state(false);
+  // portal#2650: how many list reads that STARTED after the signing request have completed. Each one also
+  // prompts a read of the selection's own state.
+  let selectionReads = $state(0);
   let refreshPurpose = $state<"create" | "approval">("create");
   onMount(() => {
     const timer = setInterval(() => {
@@ -73,13 +83,23 @@
     }, 1000);
     return () => clearInterval(timer);
   });
+  function startSelection(refs: string[]) {
+    awaitingSelection = { refs, scope: readScope };
+    selectionFresh = false;
+    selectionReads = 0;
+  }
+  function endSelection() {
+    awaitingSelection = null;
+    selectionFresh = false;
+    selectionReads = 0;
+  }
   function startCeremony(id: string) {
     awaitingCeremony = { id, scope: readScope };
   }
   function refreshAfterCeremony() {
     if (
-      awaitingCeremony &&
-      awaitingCeremony.scope === readScope &&
+      ((awaitingCeremony && awaitingCeremony.scope === readScope) ||
+        (awaitingSelection && awaitingSelection.scope === readScope)) &&
       current &&
       !reading &&
       !creating &&
@@ -97,6 +117,8 @@
   beforeNavigate(() => {
     ownershipEpoch++;
     awaitingCeremony = null;
+    endSelection();
+    selected = {};
     cancelRefresh();
   });
   onDestroy(() => {
@@ -124,6 +146,9 @@
       against = data.grants,
       epoch = ownershipEpoch,
       mine = reads;
+    // portal#2650: the selection this read starts under. A read begun before the signing request resolved
+    // sees none (or an older one), so it can never mark the new selection fresh.
+    const forSelection = awaitingSelection;
     const controller = new AbortController();
     readAbort = controller;
     reading = true;
@@ -149,6 +174,10 @@
     readAbort = null;
     if (fresh) {
       reread = { against, scope, value: fresh };
+      if (forSelection && forSelection === awaitingSelection) {
+        selectionFresh = true;
+        selectionReads++;
+      }
       if (awaitingCeremony) {
         const g = fresh.grants.items.find((g) => g.id === awaitingCeremony!.id);
         if (g && (g.activatedAt || g.revokedAt || g.holderDepartedAt))
@@ -248,6 +277,8 @@
       reason = "";
       picker = false;
       awaitingCeremony = null;
+      endSelection();
+      selected = {};
       pageFilter = "all";
       creating = false;
       refreshFailed = false;
@@ -260,6 +291,7 @@
       cancelRefresh();
       reread = null;
       refreshFailed = false;
+      selected = {};
     });
   });
   let rowUpdates = $state<
@@ -280,6 +312,8 @@
       ? grants.items.filter((g) => grantMatches(g, pageFilter, data.viewerId))
       : [],
   );
+  // Sign selected is offered only where signing is on and the person is not impersonating (read-only).
+  const selectionOn = $derived(data.signing && !data.impersonating);
   let globalFilter = $state("");
   const columns: PortalColumnDef<Grant>[] = [
     {
@@ -317,6 +351,9 @@
     globalFilterFn: makeGlobalFilterFn<Grant>({}),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
+  // The grants the person can SEE: the page filter and the table's search both narrow it, so Select all
+  // never counts or sends a row that is hidden (portal#2648 blind review).
+  const signableIds = $derived(selectionOn ? table.getRowModel().rows.map((r) => r.original).filter((g) => grantSignable(g, now)).map((g) => g.id) : []);
   const created = $derived(
     form &&
       "grant" in form &&
@@ -429,6 +466,7 @@
     <label class="block space-y-1 text-sm">
       <span>{t("grants.filter.scope", "Show grants on this page")}</span>
       <select
+        bind:this={filterSelect}
         aria-label={t("grants.filter.scope", "Show grants on this page")}
         bind:value={pageFilter}
         class="min-h-11 max-w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
@@ -444,6 +482,20 @@
         >
       </select>
     </label>
+    {#if selectionOn}{#key formScope}<GrantSelection
+        bind:selected
+        signable={signableIds}
+        offset={data.offset}
+        locked={creating || reading || rowWrites > 0}
+        items={grants.items}
+        fresh={selectionFresh}
+        reads={selectionReads}
+        {now}
+        onopened={startSelection}
+        onrefresh={() => void refreshGrants("approval")}
+        onended={endSelection}
+        fallbackFocus={filterSelect}
+      />{/key}{/if}
     <DataTable
       {table}
       bind:globalFilter
@@ -494,6 +546,9 @@
           offset={data.offset}
           locked={creating || reading || rowWrites > 0}
           onbegin={startCeremony}
+          selectable={selectionOn}
+          selected={!!selected[c.row.original.id]}
+          onselect={(id, on) => (selected = { ...selected, [id]: on })}
         />
       {/snippet}
     </DataTable>

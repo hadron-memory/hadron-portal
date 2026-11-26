@@ -109,8 +109,8 @@ export async function attachMemory({ request, params, locals }: { request: Reque
 // The caller's own free-standing memories that an attach could take, for the picker. The read gate already
 // limits personal and private memories to their owner; the server's attach stays the authority.
 export const ATTACHABLE_MEMORIES_QUERY = /* GraphQL */ `
-  query AttachableMemories($orgId: ID, $ownedByMe: Boolean, $limit: Int, $offset: Int) {
-    memories(orgId: $orgId, filter: { memoryClasses: [personal, private], ownedByMe: $ownedByMe }, limit: $limit, offset: $offset) {
+  query AttachableMemories($orgRef: ID, $ownedByMe: Boolean, $limit: Int, $offset: Int) {
+    memories(orgRef: $orgRef, filter: { memoryClasses: [personal, private], ownedByMe: $ownedByMe }, limit: $limit, offset: $offset) {
       items { id urn name visibility appId organizationId }
       total
     }
@@ -126,7 +126,7 @@ export interface AttachableMemory { id: string; urn: string; name: string; visib
 export async function readAttachableMemories(client: ReturnType<typeof gqlClient>, orgId: string | null): Promise<AttachableMemory[] | null> {
   try {
     const rows = await withTimeout(
-      fetchAllItems<AttachableMemory & { appId: string | null; organizationId: string | null }>(client, ATTACHABLE_MEMORIES_QUERY, 'memories', orgId ? { orgId, ownedByMe: true } : { ownedByMe: true }),
+      fetchAllItems<AttachableMemory & { appId: string | null; organizationId: string | null }>(client, ATTACHABLE_MEMORIES_QUERY, 'memories', orgId ? { orgRef: orgId, ownedByMe: true } : { ownedByMe: true }),
       OPTIONAL_LIST_TIMEOUT_MS, null);
     return rows === null ? null : rows.filter(m => !m.appId && (m.organizationId ?? null) === orgId).map(({ id, urn, name, visibility }) => ({ id, urn, name, visibility }));
   } catch { return null; }
