@@ -95,14 +95,14 @@
 
   let globalFilter = $state('');
   // §8: at 390px the grid keeps Ticker, State and Every on screen, so the first
-  // three columns fit the 308px phone column together (132 + 92 + 76); the
-  // name truncates and the rest scroll. scripts/test-tickers-layout.mjs checks that outcome at 390px; the sizes themselves are not pinned there.
+  // three columns share the 308px phone column (132 + 92 + 100 asks for 324, so the
+  // name column gives way); the name truncates and the rest scroll. scripts/test-tickers-layout.mjs checks that outcome at 390px; the sizes themselves are not pinned there.
   const columns: PortalColumnDef<Row>[] = [
     { id: 'name', accessorFn: (r) => r.name, header: t('app.tickers.col.ticker', 'Ticker'), enableHiding: false, size: 132 },
     { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 92 },
-    { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 76 },
-    { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 240 },
-    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 200 },
+    { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 100 },
+    { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 228 },
+    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 188 },
     { id: 'channels', accessorFn: (r) => r.channelsText, header: t('app.tickers.col.counts', 'Counts'), size: 240 },
     { id: 'subscribers', accessorFn: (r) => r.subscriberCount, header: t('app.tickers.col.subscribers', 'Subscribers'), enableGlobalFilter: false, size: 120 },
     { id: 'next', accessorFn: (r) => r.nextMs, header: t('app.tickers.col.next', 'Next tick'), size: 150 },
@@ -146,7 +146,7 @@
 
 <div class="space-y-4">
   <p class="text-sm text-zinc-600 dark:text-zinc-400">
-    {t('app.tickers.intro', 'A ticker decides when the workers subscribed to it are due a wake. A router delivers the wakes; this page only shows who is due and when.')}
+    {t('app.tickers.intro', 'A ticker sends a message to an agent at regular intervals. Agents can subscribe to tickers. You can use a ticker to have the agent do some work every so often, or to check the team channel for new messages.')}
   </p>
 
   {#if tickers.kind === 'not-participant'}

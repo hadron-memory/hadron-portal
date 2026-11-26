@@ -196,7 +196,7 @@
         value={name}
         oninput={(e) => (typedName = e.currentTarget.value)}
         aria-invalid={invalidField('name')}
-        class="mt-1 block w-full max-w-sm rounded-md border border-zinc-300 bg-white px-2 py-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+        class="mt-1 block w-40 rounded-md border border-zinc-300 bg-white px-2 py-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
       />
     </div>
 
@@ -223,7 +223,7 @@
 
     {#if reasonsEditable}
       <fieldset class="min-w-0" aria-describedby="{formId}-reasons-help">
-        <legend id="{formId}-reasons" tabindex="-1" class="font-medium text-zinc-900 dark:text-white">{t('app.tickers.write.reasons', 'Wakes when')}</legend>
+        <legend id="{formId}-reasons" tabindex="-1" class="font-medium text-zinc-900 dark:text-white">{t('app.tickers.write.reasons', 'When should the ticker send a message?')}</legend>
         <input type="hidden" name="reasonsShown" value="1" />
         <input type="hidden" name="reasonsWas" value={editing ? storedReasons.join(',') : ''} />
         <ul class="mt-1 space-y-2">
