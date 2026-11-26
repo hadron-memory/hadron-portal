@@ -127,6 +127,7 @@ describe("what the page offers as visible (portal#2648 reviews)", () => {
     const root = setup(); tick(boxes(root)[0], true);
     await opened(root); flushSync();
     expect(root.querySelector('form[action*="withdrawSelection"]')).not.toBeNull();
+    setStubPage("http://localhost/app/apps/app-other/grants?offset=0", { appId: "app-other" });
     (mounted!.instance.setData as (d: unknown) => void)({ ...grantsFixture(), routeRef: "app-other", app: { ...grantsFixture().app, id: "app-other" }, grants: { items: [grant("o1")], total: 1 } });
     flushSync();
     expect(root.querySelector('form[action*="withdrawSelection"]')).toBeNull();
