@@ -15,3 +15,9 @@ export function mountBulkTemplates(target: HTMLElement, required = false, count 
 export function mountRulebook(target: HTMLElement) {
   return mount(RulebookManager, { target, props: { initial: { id: 'config', rules: [{ ...rule, id: 'r', revision: 1, locked: false }] }, memoryRef: 'm', readOnly: false, memories: [], memoriesFailed: false } as never });
 }
+
+// portal#2643: a memory with skipped defaults, one row per kind of reason, and no rules.
+export function mountSkippedDefaults(target: HTMLElement) {
+  const skip = { field: 'authorTask', reason: 'REFERENCE_UNAVAILABLE', ref: 'hrn:node:acme.example:fixture:tasks:runbook-review', refState: 'OK', sourceTemplate: { id: 't', name: 'Baseline', deleted: false }, createdAt: '2026-11-01T00:00:00Z' };
+  return mount(RulebookManager, { target, props: { initial: { id: 'config', rules: [], defaultSkips: [{ ...skip, role: 'runbook' }, { ...skip, role: 'audit', field: 'descriptionNode', ref: null, refState: 'BROKEN', reason: 'SOMETHING_NEW' }] }, memoryRef: 'm', readOnly: false, memories: [], memoriesFailed: false } as never });
+}

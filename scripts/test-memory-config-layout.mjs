@@ -55,4 +55,32 @@ try {
   console.log(`${width}/${dark ? 'dark' : 'light'} PASS: no overflow, focus return, nearby refusal`);
   await page.close();
  }
+
+ // portal#2643: at 1280 px with the sidebar open the data-table scroller measured 1006 px. The skipped-defaults table
+ // must fit it, so "Add rule for {role}" is reachable without scrolling sideways. Only this table's columns changed:
+ // a table that really overflows keeps its cue (test-data-table-scroll-cue-layout.mjs).
+ for (const dark of [false, true]) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page.setDefaultTimeout(10000);
+  await page.route('**/__blank', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>fixture</title>' }));
+  await page.goto(new URL('/__blank', origin).href);
+  await page.evaluate(({ css, dark }) => { document.head.innerHTML = `<style>${css}</style>`; document.body.innerHTML = '<main style="width:1006px;margin:0" id="fixture"></main>'; document.documentElement.classList.toggle('dark', dark); }, { css, dark });
+  await page.evaluate(async () => { const { mountSkippedDefaults } = await import('/src/lib/test/fixtures/memory-config-layout-harness.ts'); mountSkippedDefaults(document.getElementById('fixture')); });
+  const section = page.locator('section[aria-labelledby="default-skips-heading"]');
+  await section.waitFor();
+  const scroller = section.getByTestId('data-table-scroller');
+  // Give the scroller exactly 1006 px, whatever padding the fixture adds around it.
+  const delta = 1006 - await scroller.evaluate(el => el.clientWidth);
+  await page.evaluate(d => { const m = document.getElementById('fixture'); m.style.width = `${m.getBoundingClientRect().width + d}px`; }, delta);
+  const m = await scroller.evaluate(el => { const r = el.getBoundingClientRect(); return { client: el.clientWidth, scroll: el.scrollWidth, left: r.left, right: r.right, cue: el.hasAttribute('data-overflow-end') }; });
+  assert.equal(m.client, 1006, `scroller is ${m.client}px, wanted 1006`);
+  assert.ok(m.scroll <= m.client, `${dark}: skipped table scrollWidth ${m.scroll} exceeds its ${m.client}px scroller`);
+  assert.equal(m.cue, false, 'a table that fits shows no overflow cue');
+  for (const name of ['Add rule for runbook, Author task', 'Add rule for audit, Description node']) {
+   const b = await section.getByRole('button', { name }).evaluate(el => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right }; });
+   assert.ok(b.left >= m.left && b.right <= m.right, `${dark}: "${name}" spans ${b.left}-${b.right}, outside the scroller ${m.left}-${m.right}`);
+  }
+  console.log(`1280/${dark ? 'dark' : 'light'} PASS: skipped table fits ${m.client}px, Add rule inside it`);
+  await page.close();
+ }
 } finally { await browser?.close(); await server.close(); }
