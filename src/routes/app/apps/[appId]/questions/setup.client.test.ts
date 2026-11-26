@@ -134,8 +134,19 @@ describe('UX seat findings (P2 x2, P3 x3)', () => {
 });
 
 describe('portal#2664 follow-ups', () => {
+  it('a failed member read says so, and does not blame a permission (BLIND P2)', async () => {
+    const m = await mount(noLog({ people: { people: [], withheld: false, failed: true }, setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada')], fixed: true, reason: 'failed' }, viewer: person('u1', 'Ada') } }));
+    const help = setupForm(m)!.textContent!.replace(/\s+/g, ' ');
+    expect(help).toContain('Only you are listed because the members could not be loaded.');
+    expect(help).not.toContain('not shown to you');
+  });
+  it('the withheld and failed helps have their own i18n keys; the old shared key is not reused with a new meaning', () => {
+    expect(pageSource).toMatch(/'app\.questions\.setup\.deciders-help-withheld'/);
+    expect(pageSource).toMatch(/'app\.questions\.setup\.deciders-help-failed'/);
+    expect(pageSource).not.toMatch(/'app\.questions\.setup\.deciders-help-fixed'/);
+  });
   it('with members withheld, the help says why only the viewer is listed (and not "They")', async () => {
-    const m = await mount(noLog({ setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada')], fixed: true }, viewer: person('u1', 'Ada') } }));
+    const m = await mount(noLog({ setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada')], fixed: true, reason: 'withheld' }, viewer: person('u1', 'Ada') } }));
     const help = setupForm(m)!.textContent!.replace(/\s+/g, ' ');
     expect(help).toContain('Only you can be named here, because the member list is not shown to you.');
     expect(help).not.toMatch(/\bThey\b/);

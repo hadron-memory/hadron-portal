@@ -98,7 +98,7 @@ describe('portal#2664 follow-ups', () => {
     const r = await outcome(submit({ memoryId: 'm1', deciders: ['u1'] }));
     expect(r.returned).toMatchObject({ status: 409 });
     expect(r.returned.data.createLog.error).not.toMatch(/Choose another memory/);
-    expect(r.returned.data.createLog.error).toMatch(/no other memory/i);
+    expect(r.returned.data.createLog.error).toMatch(/offers no other memory/i);
   });
   it('QUESTION_LOG_EXISTS with several memories on offer still says to choose another', async () => {
     createError = gqlError('QUESTION_LOG_EXISTS');
@@ -185,7 +185,7 @@ describe('the choices the form offers', () => {
     const viewer = { id: 'u1', name: 'Ada' };
     expect(setupDeciderChoices({ people: [{ id: 'u2', name: 'Bob', handle: 'bob' }, { id: 'u1', name: 'Ada', handle: 'ada' }], withheld: false, failed: false }, viewer))
       .toMatchObject({ fixed: false, people: [{ id: 'u1' }, { id: 'u2' }] });
-    expect(setupDeciderChoices({ people: [], withheld: true, failed: false }, viewer)).toMatchObject({ fixed: true, people: [{ id: 'u1', name: 'Ada' }] });
-    expect(setupDeciderChoices({ people: [], withheld: false, failed: true }, viewer)).toMatchObject({ fixed: true, people: [{ id: 'u1' }] });
+    expect(setupDeciderChoices({ people: [], withheld: true, failed: false }, viewer)).toMatchObject({ fixed: true, reason: 'withheld', people: [{ id: 'u1', name: 'Ada' }] });
+    expect(setupDeciderChoices({ people: [], withheld: false, failed: true }, viewer)).toMatchObject({ fixed: true, reason: 'failed', people: [{ id: 'u1' }] });
   });
 });

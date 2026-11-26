@@ -86,7 +86,8 @@ describe('rows', () => {
 
   it('the For column shows a person with no URN chip (a person has none here)', async () => {
     const m = await mount();
-    const forCell = [...m.target.querySelectorAll('tbody tr')][0].querySelectorAll('td')[4];
+    const heads = [...m.target.querySelectorAll('thead th')].map((th) => th.textContent!.replace(/[^\p{L} ]/gu, '').trim());
+    const forCell = [...m.target.querySelectorAll('tbody tr')][0].querySelectorAll('td')[heads.indexOf('For')];
     expect(forCell.textContent).toContain('Bob');
     expect(forCell.querySelector('code, [title^="hrn:"]')).toBeNull();
   });
