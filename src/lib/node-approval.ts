@@ -127,6 +127,8 @@ export function approvalRefusalStatus(code: string | null | undefined): 403 | 40
     case 'FORBIDDEN':
     case 'BOOT_PROMPT_APPROVAL_FORBIDDEN':
     case 'BOOT_PROMPT_WORKER_SESSION_REFUSED':
+    case 'QUESTION_NOT_DECIDER':
+    case 'QUESTION_IMPERSONATION_REFUSED':
       return 403;
     case 'NODE_NOT_FOUND':
     case 'NOT_FOUND':
@@ -134,6 +136,9 @@ export function approvalRefusalStatus(code: string | null | undefined): 403 | 40
     case 'REVISION_MISMATCH':
     case 'NODE_IS_PLACEHOLDER':
     case 'ENCRYPTED_MEMORY_NOT_APPLICABLE':
+    case 'QUESTION_NOT_ANSWERED':
+    case 'QUESTION_WITHDRAWN':
+    case 'QUESTION_INVALID':
       return 409;
     case 'SESSION_EXPIRED':
       return 423;
@@ -153,6 +158,16 @@ export function approveRefusalText(code: string | null | undefined): string {
       return t('node.approval.refused.boot-prompt-worker-session', 'Boot prompts are approved by their manager signed in as themselves, not through a worker session.');
     case 'REVISION_MISMATCH':
       return t('node.approval.refused.revision-mismatch', 'This node changed after you opened it, so nothing was approved. Review the current revision, then approve it.');
+    case 'QUESTION_NOT_DECIDER':
+      return t('node.approval.refused.question-not-decider', "Only one of this question's deciders can approve it, acting as themselves.");
+    case 'QUESTION_IMPERSONATION_REFUSED':
+      return t('node.approval.refused.question-impersonation', 'A question cannot be approved while impersonating.');
+    case 'QUESTION_NOT_ANSWERED':
+      return t('node.approval.refused.question-not-answered', 'There is no answer to approve yet.');
+    case 'QUESTION_WITHDRAWN':
+      return t('node.approval.refused.question-withdrawn', 'This question was withdrawn.');
+    case 'QUESTION_INVALID':
+      return t('node.approval.refused.question-invalid', 'This question cannot be verified, so it cannot be approved.');
     case 'NODE_IS_PLACEHOLDER':
       return t('node.approval.refused.placeholder', 'This node is a reserved placeholder. It has no spec to approve yet.');
     case 'ENCRYPTED_MEMORY_NOT_APPLICABLE':
