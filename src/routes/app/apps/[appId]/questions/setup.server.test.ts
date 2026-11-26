@@ -45,7 +45,7 @@ async function submit(fields: Record<string, string | string[]>, locals: Record<
     url: new URL('http://localhost/app/apps/app-1/questions'),
   });
 }
-const outcome = async (p: Promise<unknown>) => p.then((v) => ({ returned: v as any }), (e) => ({ thrown: e as any }));
+const outcome = async (p: Promise<unknown>): Promise<{ returned?: any; thrown?: any }> => p.then((v) => ({ returned: v as any }), (e) => ({ thrown: e as any }));
 
 describe('what the action sends', () => {
   it('creates the log at loc "questions", named "Questions", with the chosen deciders and no prefix, then redirects to the tab', async () => {

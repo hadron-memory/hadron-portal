@@ -29,7 +29,11 @@ export type QuestionListRow = {
   askedBy: QuestionActor | null;
 };
 export type QuestionListPage = { total: number; items: QuestionListRow[] };
-export type QuestionLogRow = { id: string; urn: string; name: string; memoryId: string; prefix: string };
+export type QuestionLogPerson = { id: string; name: string | null; handle: string | null };
+export type QuestionLogRow = {
+  id: string; urn: string; name: string; memoryId: string; prefix: string;
+  portalUrl: string | null; revSeq: number; defaultDeciders: QuestionLogPerson[]; eligibleDeciders: QuestionLogPerson[];
+};
 
 function classify<T>(e: unknown, what: string): QuestionsRead<T> {
   if (extractGqlErrorCode(e) === 'APP_NOT_FOUND') return { kind: 'not-participant' };

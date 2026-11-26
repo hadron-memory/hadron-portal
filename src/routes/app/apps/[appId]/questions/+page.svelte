@@ -11,7 +11,7 @@
   import type { QuestionActor } from '$lib/questions/types';
   import type { QuestionListRow } from '$lib/server/app-questions';
   import { t } from '$lib/i18n/t';
-  import type { PageData } from './$types';
+  import type { ActionData, PageData } from './$types';
   import {
     SORT_KEYS,
     STATUS_FILTERS,
@@ -25,7 +25,7 @@
    * portal#2235 (Questions P2): the App's Questions list. Read only: a row links to the question's own page, where the card
    * answers it. Every filter, sort and page is the server's (hrn:node:hadronmemory.com:specs:cor:dmo:140:09), so the table sorts and pages nothing itself.
    */
-  let { data }: { data: PageData } = $props();
+  let { data, form }: { data: PageData; form?: ActionData } = $props();
 
   const basePath = $derived(`/app/apps/${data.app.id}/questions`);
   const appHref = $derived(`/app/apps/${data.app.id}`);
@@ -75,6 +75,8 @@
     return a.kind === 'user' && !people.some((p) => p.id === a.id) ? a.id : null;
   });
 
+  const logs = $derived(data.logs?.kind === 'ok' ? data.logs.value : []);
+  const setup = $derived(data.setup ?? null);
   const everything = $derived(filter.status === 'all' && filter.assignee.kind === 'all' && filter.priority.length === 0);
   const firstPageHref = $derived(questionsHref(basePath, filter, { offset: 0 }));
   const clearHref = $derived(questionsHref(basePath, filter, { status: 'all', assignee: { kind: 'all' }, priority: [], offset: 0 }));
@@ -194,7 +196,6 @@
         <p>{total === 1 ? t('app.questions.count.one', '1 question') : t('app.questions.count.many', '{n} questions', { n: total })}</p>
       {:else if data.logs?.kind === 'ok' && data.logs.value.length === 0}
         <p data-empty="no-log">{t('app.questions.empty.no-log', 'This App has no question log yet, so its agents cannot ask questions.')}</p>
-        <p>{t('app.questions.empty.no-log.cli', 'A manager of one of its memories can create one with the CLI: {command}', { command: 'hadron question log create' })}</p>
       {:else if data.logs?.kind === 'ok' && total > 0}
         <p data-empty="past-end">{t('app.questions.empty.past-end', 'No questions on this page.')} <a href={firstPageHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.questions.empty.first-page', 'Go to the first page')}</a></p>
       {:else if data.logs?.kind === 'ok' && everything}
@@ -204,6 +205,67 @@
       {/if}
     {/if}
   </LiveRegion>
+
+  {#if read?.kind !== 'not-participant' && logs.length > 0}
+    <!-- The logs this App's agents ask into: each with its URN and who decides. Changing the deciders stays in the CLI. -->
+    <div class="space-y-2">
+      {#each logs as l (l.id)}
+        <div data-testid="question-log" class="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
+          {#if l.portalUrl}<a href={l.portalUrl} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{l.name}</a>{:else}<span class="font-medium">{l.name}</span>{/if}
+          <div class="mt-1"><Urn value={l.urn} /></div>
+          <p class="mt-1 text-zinc-600 dark:text-zinc-300">{t('app.questions.log.decided-by', 'Decided by: {names}', { names: l.defaultDeciders.map(personName).join(', ') })}</p>
+        </div>
+      {/each}
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.questions.log.change-deciders', 'To change who decides, use {command}.', { command: 'hadron question log set-deciders' })}</p>
+    </div>
+  {:else if read?.kind !== 'not-participant' && setup}
+    <section aria-labelledby="questions-setup-title" class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 id="questions-setup-title" class="text-base font-semibold text-zinc-900 dark:text-white">{t('app.questions.setup.title', 'Set up questions for this App')}</h2>
+      {#if form?.createLog?.error}
+        <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.createLog.error}</p>
+      {/if}
+      {#if setup.memories === null}
+        <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{t('app.questions.setup.memories-failed', 'Couldn’t load the App’s memories. Reload to try again.')}</p>
+      {:else if setup.memories.length === 0}
+        <p class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.questions.setup.no-memory', 'This App has no memory that can hold a question log.')}</p>
+      {:else}
+        <form method="POST" action="?/createQuestionLog" data-testid="question-log-setup" class="space-y-4">
+          <div class="min-w-0">
+            {#if setup.memories.length === 1}
+              <span class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.setup.memory', 'Memory')}</span>
+              <input type="hidden" name="memoryId" value={setup.memories[0].id} />
+              <span class="[overflow-wrap:anywhere] text-sm text-zinc-900 dark:text-white">{setup.memories[0].name}</span>
+            {:else}
+              <label for="questions-setup-memory" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.setup.memory', 'Memory')}</label>
+              <select id="questions-setup-memory" name="memoryId" class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                {#each setup.memories as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
+              </select>
+            {/if}
+          </div>
+          <fieldset class="min-w-0">
+            <legend class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.setup.deciders', 'Who decides')}</legend>
+            {#if setup.deciders.fixed}
+              {#each setup.deciders.people as p (p.id)}
+                <input type="hidden" name="deciders" value={p.id} />
+                <p class="text-sm text-zinc-900 dark:text-white">{personName(p)}</p>
+              {/each}
+            {:else}
+              <div class="space-y-1">
+                {#each setup.deciders.people as p (p.id)}
+                  <div class="flex items-center gap-2">
+                    <input id="questions-decider-{p.id}" type="checkbox" name="deciders" value={p.id} checked={p.id === setup.viewer.id} class="h-4 w-4 rounded border-zinc-300" />
+                    <label for="questions-decider-{p.id}" class="text-sm text-zinc-900 dark:text-white">{personName(p)}</label>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.questions.setup.deciders-help', 'Choose at least one. They need write access to the memory.')}</p>
+          </fieldset>
+          <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.questions.setup.submit', 'Create question log')}</button>
+        </form>
+      {/if}
+    </section>
+  {/if}
 
   {#if read?.kind !== 'not-participant'}
     {#if read?.kind === 'failed'}
