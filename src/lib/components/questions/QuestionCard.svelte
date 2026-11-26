@@ -43,7 +43,9 @@
   );
   const APPROVABLE = ['ANSWERED_UNCONFIRMED', 'STALE', 'DECIDED'];
   const showApproval = $derived(!!approval && APPROVABLE.includes(question.state));
-  const mayApprove = $derived(showApproval && question.viewerMayAnswer && approval!.view.canApprove);
+  // Approve follows the decider, not `viewerMayAnswer`: that goes false once the answer history is full, while a
+  // decider can still approve. The server refuses a non-decider (QUESTION_NOT_DECIDER) and an impersonated session.
+  const mayApprove = $derived(showApproval && question.viewerIsDecider && !question.impersonating && question.answered && approval!.view.canApprove);
   const approvalNote = $derived(
     question.tier === 'APPROVED' ? t('question.card.approval.required', 'The asker requires your approval before it relies on this answer.')
     : question.tier === 'SIGNED' ? t('question.card.approval.signed', 'This question needs a signature, which is not available yet. An approval does not replace it.')

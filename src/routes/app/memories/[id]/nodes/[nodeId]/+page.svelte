@@ -1059,9 +1059,10 @@
   } = superForm<NodeApproveForm, App.Superforms.Message, NodeApproveForm>(initialApproveForm, {
     validators: zod4Client(nodeApproveSchema),
     clearOnSubmit: 'none',
-    // portal#2236: a refused approval (409, e.g. REVISION_MISMATCH) means the node moved since it was opened; the card reloads.
+    // portal#2236: a refused approval (403 or 409) means what the card offered is out of date (the node moved, or the
+    // viewer's standing changed); reload so it offers what is true now.
     onResult: ({ result }) => {
-      if (result.type === 'failure' && result.status === 409) void invalidateAll();
+      if (result.type === 'failure' && (result.status === 409 || result.status === 403)) void invalidateAll();
     },
   });
   $effect(() => {

@@ -213,10 +213,31 @@ describe('question card', () => {
       expect(hidden(f, '_kind')).toBe('approveNode');
       expect(el.querySelector('[data-testid=question-approval-note]')!.textContent).toBe('The asker requires your approval before it relies on this answer.');
     });
-    it('viewerMayAnswer false shows the badge and no form', () => {
-      const el = mountCard({ ...answered, viewerMayAnswer: false }, false, null, view('NOT_APPROVED', true));
+    it('a non-decider sees the badge and no form', () => {
+      const el = mountCard({ ...answered, viewerIsDecider: false, viewerMayAnswer: false }, false, null, view('NOT_APPROVED', true));
       expect(el.querySelector('[data-testid=approval-state]')).not.toBeNull();
       expect(approvalForm(el)).toBeUndefined();
+    });
+    it('an impersonating decider is offered no Approve', () => {
+      const el = mountCard({ ...answered, impersonating: true }, true, null, view('NOT_APPROVED', true));
+      expect(approvalForm(el)).toBeUndefined();
+      expect(el.querySelector('[data-testid=approval-state]')).not.toBeNull();
+    });
+    it('a non-decider who may answer is offered no Approve', () => {
+      const el = mountCard({ ...answered, viewerIsDecider: false, viewerMayAnswer: true }, true, null, view('NOT_APPROVED', true));
+      expect(approvalForm(el)).toBeUndefined();
+    });
+    it('a decider whose answer history is full (viewerMayAnswer false) still gets Approve', () => {
+      const el = mountCard({ ...answered, viewerMayAnswer: false }, false, null, view('NOT_APPROVED', true));
+      expect(approvalForm(el)).toBeDefined();
+    });
+    it('no approval prop hides the block in an approvable state', () => {
+      const el = mountCard(answered, true, null, null);
+      expect(el.querySelector('[data-testid=question-approval]')).toBeNull();
+    });
+    it('a submitting approval disables the button', () => {
+      const el = mountCard(answered, true, null, { ...view('NOT_APPROVED', true), submitting: true });
+      expect(el.querySelector<HTMLButtonElement>('[data-testid=approve-revision]')!.disabled).toBe(true);
     });
     it('an open question has no approval block', () => {
       const el = mountCard({ tier: 'APPROVED' }, true, null, view('NOT_APPROVED', true));
