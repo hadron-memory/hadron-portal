@@ -46,11 +46,15 @@ export const ruleGlobalFilterFn = makeGlobalFilterFn<Rule>({}, {
   role: rule => `${settingsText(rule)} ${referencesText(rule)} ${lockedText(rule)}`,
 });
 
-/** The reason a default was skipped, in the words a row shows; an unknown code is shown as sent. */
-export const skipReasonCopy = (reason: string): string =>
-  reason === 'REFERENCE_UNAVAILABLE' ? t('config.skip-unavailable', 'Its task or node wasn’t available to the organization.') : reason;
+/** The one reason the page knows; the table states it once above the rows, not on each row. */
+export const SKIP_UNAVAILABLE = 'REFERENCE_UNAVAILABLE';
+export const skipUnavailableNote = (): string =>
+  t('config.skip-unavailable-note', 'Unless a row gives its own reason, these rules were skipped because their task or node wasn’t available to the organization.');
+/** A reason a row shows for itself: any code the page does not know, as sent. The known one is the note above the table. */
+export const skipOwnReason = (skip: DefaultSkip): string =>
+  skip.reason === SKIP_UNAVAILABLE ? '' : t('config.skip-why', 'Why: {reason}', { reason: skip.reason });
 
-/** Everything a skipped-defaults row displays: role, field label, template, the reference as now seen, and the reason. */
+/** Everything a skipped-defaults row displays: role, field label, template, the reference as now seen, and a reason of its own. */
 function skipText(skip: DefaultSkip): string {
   return [
     skip.role,
@@ -58,10 +62,10 @@ function skipText(skip: DefaultSkip): string {
     skip.sourceTemplate && !skip.sourceTemplate.deleted ? skip.sourceTemplate.name : t('config.template-deleted', 'template deleted'),
     referenceStateCopy(skip.refState, !!skip.ref),
     skip.refState === 'OK' ? skip.ref ?? '' : '',
-    skipReasonCopy(skip.reason),
+    skipOwnReason(skip),
   ].join(' ');
 }
 
-// The skipped table has accessors for role and the raw field key only, so the
-// other displayed values ride on the role column, as the rule table's do.
+// The skipped table's role column is its only accessor, so every other displayed value
+// rides on it, as the rule table's do. The raw field key is not displayed, so it is not searched.
 export const skipGlobalFilterFn = makeGlobalFilterFn<DefaultSkip>({}, { role: skipText });

@@ -80,6 +80,7 @@ try {
    const b = await section.getByRole('button', { name }).evaluate(el => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right }; });
    assert.ok(b.left >= m.left && b.right <= m.right, `${dark}: "${name}" spans ${b.left}-${b.right}, outside the scroller ${m.left}-${m.right}`);
   }
+  if (process.env.MEMORY_CONFIG_SHOTS) await section.screenshot({ path: `${process.env.MEMORY_CONFIG_SHOTS}/1006-${dark ? 'dark' : 'light'}-skipped-defaults.png` });
   console.log(`1280/${dark ? 'dark' : 'light'} PASS: skipped table fits ${m.client}px, Add rule inside it`);
   await page.close();
  }

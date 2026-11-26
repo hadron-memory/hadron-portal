@@ -4,7 +4,7 @@
   import { t } from '$lib/i18n/t';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
-  import { ruleGlobalFilterFn, skipGlobalFilterFn, skipReasonCopy as skipReason } from '$lib/memory-config/rule-search';
+  import { ruleGlobalFilterFn, skipGlobalFilterFn, skipOwnReason, skipUnavailableNote, SKIP_UNAVAILABLE } from '$lib/memory-config/rule-search';
   import type { PortalColumnDef } from '$lib/table/features';
   import RuleReference from './RuleReference.svelte';
   import RuleEditor from './RuleEditor.svelte';
@@ -67,12 +67,11 @@
   let ruleFilter = $state('');
   const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, state: { get globalFilter() { return ruleFilter; } }, onGlobalFilterChange: value => { ruleFilter = typeof value === 'function' ? value(ruleFilter) : value; }, globalFilterFn: ruleGlobalFilterFn, initialState: { sorting: [{ id: 'role', desc: false }] } });
   // What the server recorded at creation (MemoryConfig.defaultSkips, managers only). Never worked out from the rules.
+  // Four columns, 840 px: the field's label sits under the role, and the one known reason is stated once above the table.
   const skipColumns: PortalColumnDef<DefaultSkip>[] = [
-    { accessorKey: 'role', header: t('config.role', 'Role / sub-role'), size: 160 },
-    { accessorKey: 'field', header: t('config.skip-field', 'Reference'), size: 160 },
+    { accessorKey: 'role', header: t('config.role', 'Role / sub-role'), size: 200 },
     { id: 'source', header: t('config.skip-source', 'Template'), size: 180 },
     { id: 'now', header: t('config.skip-now', 'Now'), size: 280 },
-    { id: 'reason', header: t('config.skip-reason', 'Why'), size: 260 },
     { id: 'actions', header: t('config.actions', 'Actions'), size: 180 },
   ];
   let skipFilter = $state('');
@@ -236,13 +235,12 @@
     {#if book.defaultSkips?.length}
       <section class="space-y-3" aria-labelledby="default-skips-heading">
         <h2 id="default-skips-heading" class="text-xl font-semibold text-zinc-900 dark:text-white">{t('config.skips-title', 'Not applied when this memory was created')}</h2>
+        {#if book.defaultSkips.some(s => s.reason === SKIP_UNAVAILABLE)}<p class="text-sm text-zinc-600 dark:text-zinc-400">{skipUnavailableNote()}</p>{/if}
         <DataTable table={skipTable} listKey="memory-default-skips" bind:globalFilter={skipFilter} searchPlaceholder={t('config.search-skips', 'Search skipped rules…')} searchAriaLabel={t('config.search-skips', 'Search skipped rules…')}>
           {#snippet cell(cell, r)}
-            {#if cell.column.id === 'role'}<span class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono">{r.role}</span>
-            {:else if cell.column.id === 'field'}{labels[r.field] ?? r.field}
+            {#if cell.column.id === 'role'}<span class="block min-w-0 max-w-full [overflow-wrap:anywhere] font-mono">{r.role}</span><span class="block whitespace-normal text-sm text-zinc-600 dark:text-zinc-400">{labels[r.field] ?? r.field}</span>
             {:else if cell.column.id === 'source'}<span class="whitespace-normal">{r.sourceTemplate && !r.sourceTemplate.deleted ? r.sourceTemplate.name : t('config.template-deleted', 'template deleted')}</span>
-            {:else if cell.column.id === 'now'}<div class="whitespace-normal"><RuleReference state={r.refState} urn={r.ref} /></div>
-            {:else if cell.column.id === 'reason'}<span class="whitespace-normal">{skipReason(r.reason)}</span>
+            {:else if cell.column.id === 'now'}<div class="whitespace-normal"><RuleReference state={r.refState} urn={r.ref} />{#if skipOwnReason(r)}<p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{skipOwnReason(r)}</p>{/if}</div>
             {:else if book?.rules.some(x => x.role === r.role)}<span>{t('config.rule-exists', 'A rule for this role exists now.')}</span>
             {:else if !readOnly}<button type="button" disabled={busy} aria-label={`${t('config.add-rule-for', 'Add rule for {role}', { role: r.role })}, ${labels[r.field] ?? r.field}`} onclick={() => edit(null, r.role)} class="min-h-11 rounded border px-3">{t('config.add-rule-for', 'Add rule for {role}', { role: r.role })}</button>{/if}
           {/snippet}
