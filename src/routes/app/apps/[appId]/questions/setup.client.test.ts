@@ -103,6 +103,34 @@ describe('the form (no log yet)', () => {
   });
 });
 
+describe('UX seat findings (P2 x2, P3 x3)', () => {
+  it('after a refused submit the form keeps the memory and the people that were chosen', async () => {
+    const m = await mount(noLog(), { createLog: { error: 'One of the people you chose cannot write that memory.', values: { memoryId: 'm2', deciders: ['u2'] } } });
+    const form = setupForm(m)!;
+    expect(form.querySelector<HTMLSelectElement>('select[name=memoryId]')!.value).toBe('m2');
+    expect([...form.querySelectorAll<HTMLInputElement>('input[name=deciders]')].map((b) => [b.value, b.checked])).toEqual([['u1', false], ['u2', true]]);
+  });
+  it('shows the chosen memory’s URN, for a single memory and for the selected one in a select', async () => {
+    const single = await mount(noLog({ setup: { memories: [memory('m1', 'Team notes')], deciders: { people: [person('u1', 'Ada')], fixed: false }, viewer: person('u1', 'Ada') } }));
+    expect(setupForm(single)!.textContent).toContain('acme.com:m1');
+    const many = await mount(noLog(), { createLog: { error: 'x', values: { memoryId: 'm2', deciders: ['u1'] } } });
+    expect(setupForm(many)!.textContent).toContain('acme.com:m2');
+    expect(setupForm(many)!.textContent).not.toContain('acme.com:m1');
+  });
+  it('with members withheld there is no "choose at least one" (nobody to choose)', async () => {
+    const m = await mount(noLog({ setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada')], fixed: true }, viewer: person('u1', 'Ada') } }));
+    expect(setupForm(m)!.textContent).not.toContain('Choose at least one');
+  });
+  it('the checkboxes do not shrink beside a long name', async () => {
+    const m = await mount(noLog());
+    for (const b of setupForm(m)!.querySelectorAll('input[type=checkbox]')) expect(b.className).toMatch(/shrink-0/);
+  });
+  it('the set-deciders command is in code style', async () => {
+    const m = await mount(withLog());
+    expect([...m.target.querySelectorAll('code')].some((c) => c.textContent === 'hadron question log set-deciders')).toBe(true);
+  });
+});
+
 describe('review nits', () => {
   it('while impersonating, no form: the action would refuse it, so the page says so up front', async () => {
     const m = await mount(noLog({ impersonating: 'Some User' }));

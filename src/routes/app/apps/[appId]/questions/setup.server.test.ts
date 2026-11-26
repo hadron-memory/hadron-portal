@@ -117,6 +117,15 @@ describe('typed refusals (known codes only)', () => {
     const r = await outcome(submit({ memoryId: 'm1', deciders: ['u1'] }));
     expect(r.returned).toMatchObject({ status, data: { createLog: { error: text } } });
   });
+  it('a refusal hands the submitted memory and deciders back, so the form is not reset (UX P2)', async () => {
+    createError = gqlError('QUESTION_DECIDER_NOT_ELIGIBLE');
+    const r = await outcome(submit({ memoryId: 'm2', deciders: ['u1', 'u2'] }));
+    expect(r.returned.data.createLog.values).toEqual({ memoryId: 'm2', deciders: ['u1', 'u2'] });
+  });
+  it('an invalid submission hands back what was sent too', async () => {
+    const r = await outcome(submit({ memoryId: 'm2', deciders: ['u-stranger'] }));
+    expect(r.returned.data.createLog.values).toEqual({ memoryId: 'm2', deciders: ['u-stranger'] });
+  });
   it('an unknown code is not mapped, and takes the generic text with status 500', async () => {
     expect(questionLogRefusal('SOMETHING_NEW')).toBeNull();
     createError = gqlError('SOMETHING_NEW');
