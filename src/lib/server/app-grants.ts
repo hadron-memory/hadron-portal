@@ -399,6 +399,14 @@ export const REQUEST_GRANT_SELECTION_SIGNATURE = /* GraphQL */ `
     }
   }
 `;
+export const READ_GRANT_SIGNING_SELECTION = /* GraphQL */ `
+  query ReadGrantSigningSelection($id: ID!) {
+    grantSigningSelection(id: $id) {
+      id
+      state
+    }
+  }
+`;
 export const WITHDRAW_GRANT_SIGNING_SELECTION = /* GraphQL */ `
   mutation WithdrawGrantSigningSelection($id: ID!) {
     withdrawGrantSigningSelection(id: $id) {

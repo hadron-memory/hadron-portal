@@ -3,7 +3,7 @@ import { flushSync } from "svelte";
 import Page from "./Page.harness.svelte";
 import { mountComponent } from "$lib/test/mountComponent";
 import { setStubPage, resetStubPage } from "$lib/test/stubs/app-stores";
-import { submitEnhancedWithResult } from "$lib/test/stubs/app-forms";
+import { beginEnhanced, submitEnhancedWithResult } from "$lib/test/stubs/app-forms";
 import { grantsFixture, fixtureGrant } from "./grants.fixture";
 let mounted: ReturnType<typeof mountComponent> | undefined;
 const grant = (id: string, over: Record<string, unknown> = {}) => ({ ...fixtureGrant, id, reason: `reason ${id}`, ...over });
@@ -24,6 +24,7 @@ beforeEach(() => {
   setStubPage("http://localhost/app/apps/app-example/grants?offset=0", { appId: "app-example" });
   vi.stubGlobal("fetch", vi.fn());
   vi.spyOn(window, "open").mockReturnValue(null);
+  vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => {});
 });
 afterEach(() => { mounted?.unmount(); mounted = undefined; vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); resetStubPage(); });
 describe("selecting several pending grants (portal#2638 item 1)", () => {
@@ -182,5 +183,123 @@ describe("keyboard focus after the result (portal#2648 QA)", () => {
   });
   it("shows the section's own visible title", () => {
     expect(setup().querySelector("section h2")?.textContent).toBe("Sign several grants");
+  });
+});
+describe("the selection's own state (portal#2650)", () => {
+  const stateForm = (root: HTMLElement) => root.querySelector<HTMLFormElement>('form[action*="readSelection"]')!;
+  const withdrawForm = (root: HTMLElement) => root.querySelector('form[action*="withdrawSelection"]');
+  const answer = (root: HTMLElement, data: Record<string, unknown>, type: "success" | "failure" = "success") => submitEnhancedWithResult(stateForm(root), { type, status: type === "success" ? 200 : 400, data: { operation: "readSelection", id: "sel1", ...data } });
+  const listBody = (items: unknown[]) => { const d = grantsFixture(); return new Response(JSON.stringify({ appId: d.app.id, viewerId: d.viewerId, offset: 0, grants: { items, total: items.length }, holders: d.holders, nodes: { "node-example": null }, actionDefinitions: d.actionDefinitions, actionDefinitionsFailed: false })); };
+  const check = (root: HTMLElement) => [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Check result")!.click();
+  it.each([["DECLINED", "was declined"], ["EXPIRED", "expired"], ["WITHDRAWN", "was withdrawn"]])("%s elsewhere: says so, offers no Withdraw, and no longer says anything is still waiting", async (state, word) => {
+    vi.mocked(fetch).mockResolvedValue(listBody([grant("g1"), grant("g2"), grant("g3")]));
+    const root = setup(); tick(boxes(root)[0], true); tick(boxes(root)[1], true);
+    await opened(root); flushSync();
+    expect(withdrawForm(root)).not.toBeNull();
+    check(root);
+    // The grant list alone says two are still waiting: this is what the state read must replace.
+    await vi.waitFor(() => { flushSync(); expect(root.textContent).toContain("0 approved, 2 still waiting"); });
+    await answer(root, { state }); flushSync();
+    expect(root.textContent).toContain(`The signing request ${word}.`);
+    expect(withdrawForm(root)).toBeNull();
+    expect(root.textContent).not.toContain("still waiting");
+    expect(root.textContent).not.toContain("opened in a new tab");
+    expect([...root.querySelectorAll("a")].some((a) => a.textContent?.includes("Open the signing page"))).toBe(false);
+  });
+  it("the state read names the open selection by id, and a second list read asks again", async () => {
+    vi.mocked(fetch).mockImplementation(async () => listBody(three));
+    const asked = vi.mocked(HTMLFormElement.prototype.requestSubmit);
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    expect(stateForm(root).querySelector<HTMLInputElement>('input[name="id"]')!.value).toBe("sel1");
+    check(root); await vi.waitFor(() => { flushSync(); expect(asked).toHaveBeenCalledTimes(1); });
+    check(root); await vi.waitFor(() => { flushSync(); expect(asked).toHaveBeenCalledTimes(2); });
+  });
+  it("a new selection does not inherit the ended state of the one before", async () => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    await answer(root, { state: "DECLINED" }); flushSync();
+    expect(withdrawForm(root)).toBeNull();
+    [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Dismiss")!.click(); flushSync();
+    tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    expect(withdrawForm(root)).not.toBeNull();
+    expect(root.textContent).not.toContain("The signing request");
+  });
+  it("COMPLETED offers no Withdraw either, and still counts each grant", async () => {
+    vi.mocked(fetch).mockResolvedValue(listBody([grant("g1", { activatedAt: "2026-11-12T12:00:01Z" }), grant("g2"), grant("g3")]));
+    const root = setup(); tick(boxes(root)[0], true); tick(boxes(root)[1], true);
+    await opened(root); flushSync();
+    check(root);
+    await vi.waitFor(() => { flushSync(); expect(root.textContent).toContain("1 approved, 1 still waiting"); });
+    await answer(root, { state: "COMPLETED" }); flushSync();
+    expect(withdrawForm(root)).toBeNull();
+    expect(root.textContent).toContain("The signing request is complete.");
+  });
+  it("an OPEN selection keeps Withdraw", async () => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    await answer(root, { state: "OPEN" }); flushSync();
+    expect(withdrawForm(root)).not.toBeNull();
+    expect(root.textContent).not.toContain("The signing request");
+  });
+  it.each([["a failed read", { error: "nope" }, "failure" as const], ["a null state", { state: null }, "success" as const], ["an unknown word", { state: "STALE" }, "success" as const]])("%s claims no end", async (_n, data, type) => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    await answer(root, data, type); flushSync();
+    expect(withdrawForm(root)).not.toBeNull();
+    expect(root.textContent).not.toContain("The signing request");
+    expect(root.querySelector("[role=alert]")).toBeNull();
+  });
+  it("an answer for another selection is ignored", async () => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    await answer(root, { id: "other", state: "DECLINED" }); flushSync();
+    expect(withdrawForm(root)).not.toBeNull();
+  });
+  it("a late answer after Dismiss does not come back with the next selection", async () => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    const late = await beginEnhanced(stateForm(root));
+    [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Dismiss")!.click(); flushSync();
+    tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    await late({ type: "success", status: 200, data: { operation: "readSelection", id: "sel1", state: "DECLINED" } }); flushSync();
+    expect(withdrawForm(root)).not.toBeNull();
+  });
+  it("a list read that completes after the request resolved asks for the selection's state", async () => {
+    vi.mocked(fetch).mockResolvedValue(listBody(three));
+    const asked = vi.mocked(HTMLFormElement.prototype.requestSubmit);
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    expect(asked).not.toHaveBeenCalled();
+    check(root);
+    await vi.waitFor(() => { flushSync(); expect(asked).toHaveBeenCalledTimes(1); });
+    expect(asked.mock.contexts[0]).toBe(stateForm(root));
+  });
+  it("a list read that started while the request was still pending does not mark the selection fresh", async () => {
+    let finish!: (r: Response) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>((r) => { finish = r; }));
+    const asked = vi.mocked(HTMLFormElement.prototype.requestSubmit);
+    const root = setup(); tick(boxes(root)[0], true); tick(boxes(root)[1], true);
+    // A row's own ceremony is awaited, so a focus return reads the list while Sign selected is still out.
+    root.querySelector<HTMLFormElement>('form[action*="/approve"]')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    const deliver = await beginEnhanced(selectionForm(root));
+    window.dispatchEvent(new Event("focus"));
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    await deliver({ type: "success", status: 200, data: { operation: "signSelection", selection: { id: "sel1", ceremonyUrl: CEREMONY, expiresAt: "x", refs: ["g1", "g2"] } } });
+    flushSync();
+    finish(listBody([grant("g1", { activatedAt: "2026-11-12T12:00:01Z" }), grant("g2", { activatedAt: "2026-11-12T12:00:02Z" }), grant("g3")]));
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    flushSync();
+    expect(root.textContent).toContain("opened in a new tab");
+    expect(root.textContent).not.toContain("approved,");
+    expect(asked).not.toHaveBeenCalled();
+  });
+  it("announces that the signing page opened through the section's live region", async () => {
+    const root = setup(); tick(boxes(root)[0], true); tick(boxes(root)[1], true);
+    await opened(root); flushSync();
+    const region = [...root.querySelectorAll('section [role=status]')].find((r) => r.textContent?.includes("opened in a new tab"));
+    expect(region?.textContent).toContain("The signing page for 2 grants opened in a new tab.");
   });
 });
