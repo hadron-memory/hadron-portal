@@ -64,7 +64,7 @@ describe('rows', () => {
     const m = await mount();
     const [a, b] = [...m.target.querySelectorAll('tbody tr')];
     expect(a.textContent).toContain('Beryl');
-    expect(a.textContent).toContain('hrn:worker:acme.com:team:beryl');
+    expect(a.textContent).toContain('acme.com:team:beryl'); // the Urn chip: type badge, then the rest
     expect(a.textContent).toContain('Pending');
     expect(b.textContent).toContain('Decided');
     expect(b.textContent).toContain('yes');
@@ -112,7 +112,8 @@ describe('the three empty states', () => {
     const m = await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l1' }] }, filter: filter({ sort: 'newest' }) }));
     expect(status(m)[0].textContent).toContain('No questions match.');
     const clear = [...m.target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => /clear/i.test(a.textContent ?? ''));
-    expect(clear?.getAttribute('href')).toBe('/app/apps/a1/questions?status=all&assignee=all');
+    // The sort is not a filter, so clearing the filters keeps it.
+    expect(clear?.getAttribute('href')).toBe('/app/apps/a1/questions?status=all&assignee=all&sort=newest');
   });
   it('logs exist and nothing was ever asked (status all, everyone, no priority): "No questions have been asked yet."', async () => {
     const m = await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l1' }] }, filter: filter({ status: 'all', assignee: { kind: 'all' } }) }));
@@ -133,14 +134,14 @@ describe('the three empty states', () => {
   it('not a participant: the not-found treatment, no list', async () => {
     const m = await mount({ questions: { kind: 'not-participant' } });
     expect(m.target.querySelector('table')).toBeNull();
-    expect(text(m)).toMatch(/not found|don.t have access|not a participant/i);
+    expect(text(m)).toMatch(/take part/i);
   });
 });
 
 describe('the filter controls', () => {
   it('status links carry aria-current on the active one only', async () => {
     const m = await mount({ filter: filter({ status: 'answered' }) });
-    const nav = m.target.querySelector('nav[aria-label]')!;
+    const nav = m.target.querySelector('nav[aria-label="Filter questions by status"]')!;
     const links = [...nav.querySelectorAll<HTMLAnchorElement>('a')];
     expect(links.map((a) => a.textContent!.trim())).toEqual(['Pending', 'Answered', 'All']);
     expect(links.filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent!.trim())).toEqual(['Answered']);
@@ -148,7 +149,7 @@ describe('the filter controls', () => {
 
   it('a status link keeps the rest of the view and starts from the first page', async () => {
     const m = await mount({ filter: filter({ sort: 'newest', priority: ['high'], offset: 50 }) });
-    const all = [...m.target.querySelectorAll<HTMLAnchorElement>('nav[aria-label] a')].find((a) => a.textContent!.trim() === 'All')!;
+    const all = [...m.target.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Filter questions by status"] a')].find((a) => a.textContent!.trim() === 'All')!;
     expect(all.getAttribute('href')).toBe('/app/apps/a1/questions?status=all&sort=newest&priority=high');
   });
 

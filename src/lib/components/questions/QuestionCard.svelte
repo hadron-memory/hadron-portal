@@ -3,6 +3,7 @@
   import { invalidateAll } from '$app/navigation';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
+  import { questionStateLabels } from '$lib/questions/labels';
   import type { QuestionActor, QuestionCardView, QuestionEntry, QuestionPerson, QuestionRef } from '$lib/questions/types';
 
   /**
@@ -15,15 +16,8 @@
   /* canAct is the answer capability; Undo and Withdraw follow the decider or asker, not canAct. */
   let { question, canAct, result = null }: { question: QuestionCardView; canAct: boolean; result?: ActionResult } = $props();
 
-  const STATE_LABEL = $derived<Record<string, string>>({
-    OPEN: t('question.card.state.open', 'Pending'),
-    DECIDED: t('question.card.state.decided', 'Decided'),
-    ANSWERED_UNCONFIRMED: t('question.card.state.unconfirmed', 'Answered, not confirmed'),
-    STALE: t('question.card.state.stale', 'Answered, approval out of date'),
-    WITHDRAWN: t('question.card.state.withdrawn', 'Withdrawn'),
-    TAMPERED: t('question.card.state.tampered', 'Changed outside Hadron'),
-    UNVERIFIABLE: t('question.card.state.unverifiable', 'Cannot be verified'),
-  });
+  const STATE_LABEL = $derived<Record<string, string>>(questionStateLabels());
+
   // QuestionPriority is HIGH, LOW, NORMAL or URGENT. NORMAL is the default and earns no chip.
   const priorityLabel = $derived(
     question.priority === 'URGENT' ? t('question.card.priority.urgent', 'Urgent')
