@@ -308,7 +308,7 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
     // The update first, selected by id; then the move.
     expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION]);
     const input = mockRequest.mock.calls.find(([q]) => q === UPDATE_NODE_MUTATION)![1].input;
-    expect(input).toMatchObject({ id: base.id });
+    expect(input).toMatchObject({ ref: base.id });
     expect(input).not.toHaveProperty('loc');
   });
 

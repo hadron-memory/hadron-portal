@@ -62,7 +62,7 @@ describe('updateProperties — the write', () => {
     const out = await save({ properties: JSON.stringify(next), baseline });
     expect(out).toEqual({ propertiesSaved: true });
     expect(writes).toHaveLength(1);
-    expect(writes[0][1].input).toEqual({ memoryId: 'mem-1', loc: 'tasks:x', properties: next });
+    expect(writes[0][1].input).toEqual({ memoryRef: 'mem-1', loc: 'tasks:x', properties: next });
   });
 
   it('goes through the TASK door on a runnable node, the generic one otherwise (#868)', async () => {

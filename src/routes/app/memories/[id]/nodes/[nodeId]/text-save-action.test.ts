@@ -127,7 +127,7 @@ describe.each([
     await save(action, { [field]: 'B edit', expectedRevision: '1' });
     // The pre-#927 request: the whole buffer, no precondition.
     const { gqlClient } = await import('$lib/server/api');
-    await gqlClient('tok').request(UPDATE_NODE_MUTATION, { input: { memoryId: 'mem-1', loc: 'notes', [field]: editorA.text } });
+    await gqlClient('tok').request(UPDATE_NODE_MUTATION, { input: { memoryRef: 'mem-1', loc: 'notes', [field]: editorA.text } });
     expect(stored[field]).toBe(editorA.text);
   });
 

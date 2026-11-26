@@ -64,7 +64,7 @@ const memorySettingsUpdate: Sink = { name: 'memory settings update', shape: 'for
 const nodeReorder: Sink = { name: 'node reorder', shape: 'action', fallback: 'Reorder failed', expectedCalls: [
   {},
   { variables: { ref: 'fixture', memoryRef: 'fixture-memory' } },
-  { documentContains: 'mutation UpdateNode', variables: { input: { memoryId: 'fixture-memory', loc: 'fixture', tags: [], seq: 1 } } },
+  { documentContains: 'mutation UpdateNode', variables: { input: { memoryRef: 'fixture-memory', loc: 'fixture', tags: [], seq: 1 } } },
 ], readServes: [
   { node: { id: 'fixture-anchor', memoryId: 'fixture-memory' } },
   { node: { id: 'fixture-sibling', memoryId: 'fixture-memory', loc: 'fixture', tags: [] } },
@@ -85,7 +85,7 @@ const organizationCreation: Sink = { name: 'organization creation', shape: 'form
 // the FAULTING call is the write.
 const conversationPosition: Sink = { name: 'conversation position', shape: 'action', fallback: 'Failed to save position', expectedCalls: [
   { documentContains: 'query NodeDataByLoc', variables: { ref: 'fixture', memoryRef: 'fixture-memory' } },
-  { documentContains: 'mutation UpdateNode', variables: { input: { memoryId: 'fixture-memory', loc: 'fixture', data: { position: { x: 1, y: 2 } } } } },
+  { documentContains: 'mutation UpdateNode', variables: { input: { memoryRef: 'fixture-memory', loc: 'fixture', data: { position: { x: 1, y: 2 } } } } },
 ], readServes: [
   { node: { data: {} } },
 ], run: async () => {

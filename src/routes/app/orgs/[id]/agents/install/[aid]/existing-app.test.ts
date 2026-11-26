@@ -21,7 +21,7 @@ describe('#1003 install into an existing App', () => {
   it('uses the existing install mutation with no App creation or override', async () => {
     expect(await install()).toMatchObject({ status: 303, location: '/app/apps/app-1' });
     expect(request).toHaveBeenCalledExactlyOnceWith(INSTALL_AGENT_INTO_APP_MUTATION, { appRef: 'app-1', agentRef: 'agent-1' });
-    expect(list).toHaveBeenCalledWith(expect.anything(), ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgId: 'org-1' });
+    expect(list).toHaveBeenCalledWith(expect.anything(), ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgRef: 'org-1' });
   });
   it('refuses an app outside the refreshed org list', async () => {
     expect(await install('foreign-app')).toMatchObject({ status: 400 });

@@ -24,10 +24,10 @@ export function parseAssetTab(value: string | null | undefined): AssetTab {
  *
  * - `mine`      → `filter: { mine: true }` (their own uploads, across memories)
  * - `available` → nothing (the whole accessible set)
- * - `org`       → `orgId` (that org's memories)
+ * - `org`       → `orgRef` (that org's memories)
  *
  * **`org` returns null when there is no active org, and the caller MUST NOT fall
- * back to the default scope.** Sending `orgId: undefined` would quietly return
+ * back to the default scope.** Sending `orgRef: undefined` would quietly return
  * every asset the caller can reach and label it "this organization's" — the same
  * relabelling trap `hrn:node:hadronmemory.com:hadron-server:conventions:multi-ref-scope-args` calls out for an empty
  * `memoryRefs` list. The page shows an explanatory empty state instead.
@@ -35,13 +35,13 @@ export function parseAssetTab(value: string | null | undefined): AssetTab {
 export function assetQueryArgs(
   tab: AssetTab,
   activeOrgId: string | null | undefined,
-): { filter?: { mine?: boolean }; orgId?: string } | null {
+): { filter?: { mine?: boolean }; orgRef?: string } | null {
   switch (tab) {
     case 'mine':
       return { filter: { mine: true } };
     case 'available':
       return {};
     case 'org':
-      return activeOrgId ? { orgId: activeOrgId } : null;
+      return activeOrgId ? { orgRef: activeOrgId } : null;
   }
 }

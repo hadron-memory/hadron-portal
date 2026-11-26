@@ -93,7 +93,7 @@ describe('switchOn', () => {
     const { actions } = await mod();
     const r = await actions.switchOn(actEv({ previewToken: 'tok-shown' }));
     expect(r).toMatchObject({ outcome: 'done' });
-    expect(varsOf(SET_ORG_BOOT_PROMPT_SIGNING_MUTATION)).toEqual({ org: 'org-1', required: true, previewToken: 'tok-shown' });
+    expect(varsOf(SET_ORG_BOOT_PROMPT_SIGNING_MUTATION)).toEqual({ orgRef: 'org-1', required: true, previewToken: 'tok-shown' });
   });
 
   it('never reads required from the form', async () => {

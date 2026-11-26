@@ -94,18 +94,20 @@ describe('clone save: the call (acceptance 2, 3, 5)', () => {
     expect(cloneVars()).toEqual({ taskRef: 'canon-1', input: { title: 'Redone' } });
   });
 
-  it('choosing "No project" sends parentTaskId: null; picking another parent sends its id', async () => {
+  it('choosing "No project" sends parentTaskRef: null; picking another parent sends its id', async () => {
     request.mockResolvedValue({ cloneAgentTask: { id: 'new-1' } });
     await post({ cloneParent: 'none' });
-    expect(cloneVars().input).toEqual({ parentTaskId: null });
+    expect(cloneVars().input).toEqual({ parentTaskRef: null });
     await post({ cloneParent: 'parent:picked-1' });
-    expect(cloneVars().input).toEqual({ parentTaskId: 'picked-1' });
+    expect(cloneVars().input).toEqual({ parentTaskRef: 'picked-1' });
   });
 
-  it('a "No project" pre-fill left unchanged sends no parentTaskId at all (acceptance 4)', async () => {
+  it('a "No project" pre-fill left unchanged sends no parent key at all (acceptance 4)', async () => {
     request.mockResolvedValue({ cloneAgentTask: { id: 'new-1' } });
     await post({ cloneParent: 'none', cloneParentBase: 'none' });
     expect(cloneVars()).toEqual({ taskRef: 'canon-1', input: {} });
+    expect(cloneVars().input).not.toHaveProperty('parentTaskRef');
+    // hadron-server#5080: the old key would be refused by the server.
     expect(cloneVars().input).not.toHaveProperty('parentTaskId');
   });
 

@@ -122,7 +122,7 @@ export async function updateStorage({ request, params, locals }: RequestEvent<{ 
   // sending the loaded `false` back would let a stale page, or a POST that
   // simply omits the checkbox, un-set Runnable on a task node.
   const input = {
-    memoryId: currentNode.memoryId,
+    memoryRef: currentNode.memoryId,
     loc: currentNode.loc,
     ...(form.data.isRunnable ? { isRunnable: true } : {}),
     objectType,

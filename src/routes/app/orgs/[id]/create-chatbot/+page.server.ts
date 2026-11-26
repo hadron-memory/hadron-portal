@@ -130,20 +130,20 @@ export const actions: Actions = {
 
       // conversations parent
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'conversations', name: 'conversations', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'conversations', name: 'conversations', nodeType: 'system',
         description: 'Conversation designs',
       }});
 
       // setup conversation
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
         description: 'First-time user setup',
         data: { isSetup: true, stageOrder: ['onboard'] },
       }});
 
       // onboard stage
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
         description: 'Onboarding stage',
         data: {
           promptRef: 'prompts:setup:onboard',
@@ -155,34 +155,34 @@ export const actions: Actions = {
 
       // prompts parent
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'prompts', name: 'prompts', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'prompts', name: 'prompts', nodeType: 'system',
         description: 'Prompt templates',
       }});
 
       // setup prompts
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
       }});
 
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
         content: `You are ${agentName}.\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
       }});
 
       // partials
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
         description: 'Shared prompt fragments',
       }});
 
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
         content: "Always respond using the 'respond' tool. Include:\n- message: your response to the user\n- data: any new information you learned\n- next_stage: null to stay, or the next stage name to transition\n- onTrack: true if the conversation is still on track, false if the user's question doesn't fit this stage",
       }});
 
       // fallback conversation — used when routing can't match any conversation
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'conversations:fallback', name: 'fallback', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'conversations:fallback', name: 'fallback', nodeType: 'system',
         description: 'Fallback when no conversation matches the user\'s request',
         data: {
           isFallback: true,
@@ -191,14 +191,14 @@ export const actions: Actions = {
         },
       }});
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'conversations:fallback:no-match', name: 'no-match', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'conversations:fallback:no-match', name: 'no-match', nodeType: 'system',
         data: { promptRef: 'prompts:fallback:no-match' },
       }});
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'prompts:fallback', name: 'fallback', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'prompts:fallback', name: 'fallback', nodeType: 'system',
       }});
       await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: 'prompts:fallback:no-match', name: 'no-match', nodeType: 'system',
+        memoryRef: systemMemoryId, loc: 'prompts:fallback:no-match', name: 'no-match', nodeType: 'system',
         content: `You are ${agentName}. The user asked about something outside your current capabilities.\n\nApologize honestly and briefly explain what you can help with. If appropriate, suggest they try rephrasing their question or offer to connect them with a person who can help.\n\nRespond using the 'respond' tool. Set onTrack to true.`,
       }});
 
