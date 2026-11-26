@@ -68,7 +68,13 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   };
 };
 
-const refuse = (status: number, error: string) => fail(status, { createLog: { error } });
+type Submitted = { memoryId: string; deciders: string[] };
+/** A refusal hands the submitted choices back, so the form keeps them instead of resetting. */
+const refuse = (status: number, error: string, values?: Submitted) => fail(status, { createLog: { error, values } });
+const submittedOf = (form: FormData): Submitted => ({
+  memoryId: typeof form.get('memoryId') === 'string' ? (form.get('memoryId') as string) : '',
+  deciders: form.getAll('deciders').filter((v): v is string => typeof v === 'string'),
+});
 
 export const actions: Actions = {
   /**
@@ -87,14 +93,16 @@ export const actions: Actions = {
     const [scope, candidates] = await Promise.all([readAppMemoryScope(client, params.appId), loadWriteCandidates(client, params.appId)]);
     const memories = setupMemoryChoices(scope) ?? [];
     const choices = setupDeciderChoices({ people: candidates.people, withheld: candidates.peopleWithheld === true, failed: candidates.peopleFailed === true }, { id: viewer.id, name: viewer.name });
-    const parsed = parseSetupForm(await request.formData(), memories, choices);
-    if (!parsed.ok) return refuse(400, t('question.log.refusal.invalid', 'Choose a memory and at least one person who decides.'));
+    const formData = await request.formData();
+    const submitted = submittedOf(formData);
+    const parsed = parseSetupForm(formData, memories, choices);
+    if (!parsed.ok) return refuse(400, t('question.log.refusal.invalid', 'Choose a memory and at least one person who decides.'), submitted);
     try {
       await client.request(CREATE_QUESTION_LOG_MUTATION, { memoryRef: parsed.memoryRef, loc: LOG_LOC, name: LOG_NAME, defaultDeciders: parsed.deciders });
     } catch (e) {
       const known = questionLogRefusal(extractGqlErrorCode(e));
-      if (known) return refuse(known.status, known.text);
-      return refuse(500, extractGqlError(e, t('question.log.refusal.generic', 'The question log could not be set up.'), [], { transport: 'fallback' }));
+      if (known) return refuse(known.status, known.text, submitted);
+      return refuse(500, extractGqlError(e, t('question.log.refusal.generic', 'The question log could not be set up.'), [], { transport: 'fallback' }), submitted);
     }
     throw redirect(303, `/app/apps/${params.appId}/questions`);
   },

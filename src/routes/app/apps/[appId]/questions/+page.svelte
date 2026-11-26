@@ -77,6 +77,10 @@
 
   const logs = $derived(data.logs?.kind === 'ok' ? data.logs.value : []);
   const setup = $derived(data.setup ?? null);
+  // After a refused submit the form shows what was chosen, not its defaults.
+  const submitted = $derived(form?.createLog?.values ?? null);
+  let pickedMemory = $state<string | null>(null);
+  const chosenMemory = $derived(setup?.memories?.find((m) => m.id === (pickedMemory ?? submitted?.memoryId)) ?? setup?.memories?.[0] ?? null);
   const everything = $derived(filter.status === 'all' && filter.assignee.kind === 'all' && filter.priority.length === 0);
   const firstPageHref = $derived(questionsHref(basePath, filter, { offset: 0 }));
   const clearHref = $derived(questionsHref(basePath, filter, { status: 'all', assignee: { kind: 'all' }, priority: [], offset: 0 }));
@@ -216,7 +220,7 @@
           <p class="mt-1 text-zinc-600 dark:text-zinc-300">{l.defaultDeciders.length > 0 ? t('app.questions.log.decided-by', 'Decided by: {names}', { names: l.defaultDeciders.map(personName).join(', ') }) : t('app.questions.log.no-deciders', 'No one is named to decide.')}</p>
         </div>
       {/each}
-      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.questions.log.change-deciders', 'To change who decides, use {command}.', { command: 'hadron question log set-deciders' })}</p>
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.questions.log.change-deciders', 'To change who decides, use')} <code class="font-mono">hadron question log set-deciders</code>.</p>
     </div>
   {:else if read?.kind !== 'not-participant' && setup}
     <section aria-labelledby="questions-setup-title" class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
@@ -237,11 +241,13 @@
               <span class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.setup.memory', 'Memory')}</span>
               <input type="hidden" name="memoryId" value={setup.memories[0].id} />
               <span class="[overflow-wrap:anywhere] text-sm text-zinc-900 dark:text-white">{setup.memories[0].name}</span>
+              <div class="mt-1"><Urn value={setup.memories[0].urn} /></div>
             {:else}
               <label for="questions-setup-memory" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.setup.memory', 'Memory')}</label>
-              <select id="questions-setup-memory" name="memoryId" class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <select id="questions-setup-memory" name="memoryId" value={chosenMemory?.id} onchange={(e) => (pickedMemory = e.currentTarget.value)} class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 {#each setup.memories as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
               </select>
+              {#if chosenMemory}<div class="mt-1"><Urn value={chosenMemory.urn} /></div>{/if}
             {/if}
           </div>
           <fieldset class="min-w-0">
@@ -255,13 +261,15 @@
               <div class="space-y-1">
                 {#each setup.deciders.people as p (p.id)}
                   <div class="flex items-center gap-2">
-                    <input id="questions-decider-{p.id}" type="checkbox" name="deciders" value={p.id} checked={p.id === setup.viewer.id} class="h-4 w-4 rounded border-zinc-300" />
+                    <input id="questions-decider-{p.id}" type="checkbox" name="deciders" value={p.id} checked={submitted ? submitted.deciders.includes(p.id) : p.id === setup.viewer.id} class="h-4 w-4 shrink-0 rounded border-zinc-300" />
                     <label for="questions-decider-{p.id}" class="text-sm text-zinc-900 dark:text-white">{personName(p)}</label>
                   </div>
                 {/each}
               </div>
             {/if}
-            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.questions.setup.deciders-help', 'Choose at least one. They need write access to the memory.')}</p>
+            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{setup.deciders.fixed
+              ? t('app.questions.setup.deciders-help-fixed', 'They need write access to the memory.')
+              : t('app.questions.setup.deciders-help', 'Choose at least one. They need write access to the memory.')}</p>
           </fieldset>
           <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.questions.setup.submit', 'Create question log')}</button>
         </form>
