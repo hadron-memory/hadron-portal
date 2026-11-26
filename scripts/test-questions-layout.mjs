@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 
 // The first import of the harness makes Vite re-optimize dependencies and reload the page; a setup that a reload interrupts starts again.
 const RELOADED = /Execution context was destroyed|navigation/i;
-const VIEWS = ['list', 'empty-no-log', 'empty-no-match', 'failed'];
+const VIEWS = ['list', 'empty-no-log', 'setup-single', 'setup-withheld', 'setup-refused', 'empty-no-match', 'failed'];
 
 async function mountView(page, origin, css, width, view) {
   for (let attempt = 0; ; attempt++) {
@@ -57,7 +57,7 @@ try {
           const scroller = document.querySelector('[data-testid="data-table-scroller"]');
           const statusRegions = document.querySelectorAll('[role=status]').length;
           const heads = [...document.querySelectorAll('th')].map((th) => th.textContent?.trim() ?? '');
-          const controls = [...document.querySelectorAll('select, nav a, form button')].map((el) => {
+          const controls = [...document.querySelectorAll('select, nav a, form button, input[type=checkbox]')].map((el) => {
             const b = el.getBoundingClientRect();
             return { tag: el.tagName, left: b.left, right: b.right };
           });

@@ -6396,6 +6396,13 @@ export const APP_QUESTIONS_QUERY = /* GraphQL */ `
 
 export const APP_QUESTION_LOGS_QUERY = /* GraphQL */ `
   query AppQuestionLogs($appRef: ID) {
-    questionLogs(appRef: $appRef) { id urn name memoryId prefix }
+    questionLogs(appRef: $appRef) { id urn name memoryId prefix portalUrl revSeq defaultDeciders { id name handle } eligibleDeciders { id name handle } }
+  }
+`;
+
+// portal#2237 (Questions P4): set up an App's question log. The portal sends no `prefix`: the server's default applies.
+export const CREATE_QUESTION_LOG_MUTATION = /* GraphQL */ `
+  mutation CreateQuestionLog($memoryRef: ID!, $loc: String!, $name: String, $defaultDeciders: [ID!]!) {
+    createQuestionLog(memoryRef: $memoryRef, loc: $loc, name: $name, defaultDeciders: $defaultDeciders) { id urn name prefix }
   }
 `;

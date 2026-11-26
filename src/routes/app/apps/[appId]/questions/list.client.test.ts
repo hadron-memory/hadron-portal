@@ -9,6 +9,7 @@ import Page from './+page.svelte';
 const mounted: Mounted<any>[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
 
+const LOG = { id: 'l1', urn: 'hrn:node:acme.com:team:questions', name: 'Questions', memoryId: 'm1', prefix: 'D', portalUrl: null, revSeq: 1, defaultDeciders: [], eligibleDeciders: [] };
 const person = (id: string, name: string) => ({ id, name, handle: name.toLowerCase() });
 const row = (over: Record<string, unknown> = {}) => ({
   id: 'q1', urn: 'hrn:node:acme.com:team:questions:q-1', portalUrl: 'https://hadronmemory.com/app/u/hrn:node:acme.com:team:questions:q-1',
@@ -103,27 +104,27 @@ describe('one status region', () => {
 });
 
 describe('the three empty states', () => {
-  it('no question log: says agents cannot ask, and names the CLI', async () => {
+  it('no question log: says agents cannot ask (the setup form, not the CLI, is the way: see setup.client.test.ts)', async () => {
     const m = await mount(emptyOf({ logs: { kind: 'ok', value: [] } }));
     expect(status(m)[0].textContent).toContain('This App has no question log yet, so its agents cannot ask questions.');
-    expect(status(m)[0].textContent).toContain('hadron question log create');
+    expect(status(m)[0].textContent).not.toContain('hadron question log create');
   });
   it('logs exist, filters match nothing: "No questions match." with a link that clears the filters', async () => {
-    const m = await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l1' }] }, filter: filter({ sort: 'newest' }) }));
+    const m = await mount(emptyOf({ logs: { kind: 'ok', value: [LOG] }, filter: filter({ sort: 'newest' }) }));
     expect(status(m)[0].textContent).toContain('No questions match.');
     const clear = [...m.target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => /clear/i.test(a.textContent ?? ''));
     // The sort is not a filter, so clearing the filters keeps it.
     expect(clear?.getAttribute('href')).toBe('/app/apps/a1/questions?status=all&assignee=all&sort=newest');
   });
   it('logs exist and nothing was ever asked (status all, everyone, no priority): "No questions have been asked yet."', async () => {
-    const m = await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l1' }] }, filter: filter({ status: 'all', assignee: { kind: 'all' } }) }));
+    const m = await mount(emptyOf({ logs: { kind: 'ok', value: [LOG] }, filter: filter({ status: 'all', assignee: { kind: 'all' } }) }));
     expect(status(m)[0].textContent).toContain('No questions have been asked yet.');
     expect(status(m)[0].textContent).not.toContain('No questions match.');
   });
   it('the three texts are different', async () => {
     const a = status(await mount(emptyOf({ logs: { kind: 'ok', value: [] } })))[0].textContent;
-    const b = status(await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l' }] } })))[0].textContent;
-    const c = status(await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l' }] }, filter: filter({ status: 'all', assignee: { kind: 'all' } }) })))[0].textContent;
+    const b = status(await mount(emptyOf({ logs: { kind: 'ok', value: [LOG] } })))[0].textContent;
+    const c = status(await mount(emptyOf({ logs: { kind: 'ok', value: [LOG] }, filter: filter({ status: 'all', assignee: { kind: 'all' } }) })))[0].textContent;
     expect(new Set([a, b, c]).size).toBe(3);
   });
   it('an empty page with a failed log read says it could not tell, not "no log"', async () => {
@@ -200,7 +201,7 @@ describe('paging', () => {
 describe('review findings', () => {
   it('a page past the end says so and offers the first page, never "nothing has been asked"', async () => {
     const m = await mount(emptyOf({
-      logs: { kind: 'ok', value: [{ id: 'l1' }] }, filter: filter({ status: 'all', assignee: { kind: 'all' }, offset: 150 }),
+      logs: { kind: 'ok', value: [LOG] }, filter: filter({ status: 'all', assignee: { kind: 'all' }, offset: 150 }),
       questions: { kind: 'ok', value: { total: 120, items: [] } }, navigation: { offset: 150, count: 0, total: 120, previousHref: '/p?offset=100', nextHref: null },
     }));
     expect(status(m)[0].textContent).toContain('No questions on this page.');
@@ -229,7 +230,7 @@ describe('review findings', () => {
   });
 
   it('draws no pager under an empty first page ("0 of 0")', async () => {
-    const m = await mount(emptyOf({ logs: { kind: 'ok', value: [{ id: 'l1' }] } }));
+    const m = await mount(emptyOf({ logs: { kind: 'ok', value: [LOG] } }));
     expect(m.target.textContent).not.toMatch(/0\s+of\s+0/);
   });
 
