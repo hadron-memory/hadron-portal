@@ -14,7 +14,7 @@ const person = (id: string, name: string) => ({ id, name, handle: name.toLowerCa
 const row = (over: Record<string, unknown> = {}) => ({
   id: 'q1', urn: 'hrn:node:acme.com:team:questions:q-1', portalUrl: 'https://hadronmemory.com/app/u/hrn:node:acme.com:team:questions:q-1',
   code: 'Q-1', title: 'Ship the migration?', state: 'OPEN', answered: false, priority: 'HIGH', tier: 'DEFAULT',
-  askedAt: '2026-11-20T10:00:00Z', answeredAt: null, revSeq: 1, viewerMayAnswer: true, answer: null,
+  askedAt: '2026-11-20T10:00:00Z', answeredAt: null, revSeq: 1, answer: null,
   effectiveAssignee: person('u2', 'Bob'),
   askedBy: { user: null, worker: { id: 'w1', name: 'Beryl', urn: 'hrn:worker:acme.com:team:beryl' }, app: null },
   ...over,

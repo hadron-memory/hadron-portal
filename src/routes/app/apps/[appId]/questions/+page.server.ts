@@ -26,10 +26,11 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
 
-  const { filter, malformed, canonical } = parseQuestionsFilter(url.searchParams);
+  const { filter, malformed, rewrite, canonical } = parseQuestionsFilter(url.searchParams);
   if (!canonical) {
     const target = new URL(url);
     for (const key of malformed) target.searchParams.delete(key);
+    for (const [key, value] of Object.entries(rewrite)) target.searchParams.set(key, value);
     // #1738 (Refs #1394): wait for the app layout's active-org cookie write before redirecting.
     await parent();
     throw redirect(303, target.pathname + target.search);
@@ -96,14 +97,18 @@ export const actions: Actions = {
     // An unreadable scope is a load failure, never "no memory was offered": the person's choice may well be valid.
     const offered = setupMemoryChoices(scope);
     if (offered === null) return refuse(503, t('app.questions.setup.memories-failed', 'Couldn’t load the App’s memories. Reload to try again.'), submitted);
-    const memories = offered;
     const choices = setupDeciderChoices({ people: candidates.people, withheld: candidates.peopleWithheld === true, failed: candidates.peopleFailed === true }, { id: viewer.id, name: viewer.name });
-    const parsed = parseSetupForm(formData, memories, choices);
+    const parsed = parseSetupForm(formData, offered, choices);
     if (!parsed.ok) return refuse(400, t('question.log.refusal.invalid', 'Choose a memory and at least one person who decides.'), submitted);
     try {
       await client.request(CREATE_QUESTION_LOG_MUTATION, { memoryRef: parsed.memoryRef, loc: LOG_LOC, name: LOG_NAME, defaultDeciders: parsed.deciders });
     } catch (e) {
-      const known = questionLogRefusal(extractGqlErrorCode(e));
+      const code = extractGqlErrorCode(e);
+      const known = questionLogRefusal(code);
+      // "Choose another memory" is a dead end when this App offers only one: say there is no other.
+      if (known && code === 'QUESTION_LOG_EXISTS' && offered.length === 1) {
+        return refuse(known.status, t('question.log.refusal.exists-only', "That memory already has, or once had, a node at 'questions', and this App has no other memory to use."), submitted);
+      }
       if (known) return refuse(known.status, known.text, submitted);
       return refuse(500, extractGqlError(e, t('question.log.refusal.generic', 'The question log could not be set up.'), [], { transport: 'fallback' }), submitted);
     }

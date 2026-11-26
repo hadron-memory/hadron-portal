@@ -4,6 +4,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import Page from './+page.svelte';
+import pageSource from './+page.svelte?raw';
+import serverSource from './+page.server.ts?raw';
 
 const mounted: Mounted<any>[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
@@ -158,7 +160,7 @@ describe('BLIND findings', () => {
     expect(new FormData(form).get('memoryId')).toBe('m2');
   });
   it('the set-deciders sentence is one translation unit, the command still in code (F2)', async () => {
-    const src = (await import('node:fs')).readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.svelte`, 'utf8');
+    const src = pageSource;
     expect(src).not.toMatch(/<code[^>]*>hadron question log set-deciders<\/code>\./);
     const m = await mount(withLog());
     const p = [...m.target.querySelectorAll('p')].find((x) => x.textContent!.includes('set-deciders'))!;
@@ -166,9 +168,8 @@ describe('BLIND findings', () => {
     expect(p.querySelector('code')?.textContent).toBe('hadron question log set-deciders');
   });
   it('the impersonation sentence has one key, shared by the page and the action (F7)', async () => {
-    const fs = await import('node:fs');
-    const page = fs.readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.svelte`, 'utf8');
-    const action = fs.readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.server.ts`, 'utf8');
+    const page = pageSource;
+    const action = serverSource;
     const key = (src: string) => /t\('([a-z.-]+)', 'Questions cannot be set up while impersonating\.'/.exec(src)?.[1];
     expect(key(page)).toBeDefined();
     expect(key(page)).toBe(key(action));
@@ -205,7 +206,7 @@ describe('the log lines (a log exists)', () => {
   });
 
   it('shows the log line above the list, with rows below', async () => {
-    const row = { id: 'q1', urn: 'u', portalUrl: 'https://x/q1', code: 'Q-1', title: 'T', state: 'OPEN', answered: false, priority: 'HIGH', tier: null, askedAt: null, answeredAt: null, revSeq: 1, viewerMayAnswer: true, answer: null, effectiveAssignee: null, askedBy: null };
+    const row = { id: 'q1', urn: 'u', portalUrl: 'https://x/q1', code: 'Q-1', title: 'T', state: 'OPEN', answered: false, priority: 'HIGH', tier: null, askedAt: null, answeredAt: null, revSeq: 1, answer: null, effectiveAssignee: null, askedBy: null };
     const m = await mount(withLog({ questions: { kind: 'ok', value: { total: 1, items: [row] } } }));
     const line = m.target.querySelector('[data-testid=question-log]')!;
     const table = m.target.querySelector('table')!;

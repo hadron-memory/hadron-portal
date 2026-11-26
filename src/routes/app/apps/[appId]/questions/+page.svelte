@@ -7,9 +7,8 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime } from '$lib/flow/runs';
-  import { questionStateLabel } from '$lib/questions/labels';
-  import type { QuestionActor } from '$lib/questions/types';
-  import type { QuestionListRow } from '$lib/server/app-questions';
+  import { questionStateLabels } from '$lib/questions/labels';
+  import type { ListAsker, ListPerson, QuestionListRow } from '$lib/server/app-questions';
   import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
   import {
@@ -68,7 +67,10 @@
       ? PRIORITY_CHOICES
       : [...PRIORITY_CHOICES, { value: priorityValue, label: filter.priority.map((p) => PRIORITY_LABEL[p]).join(', ') }],
   );
-  const personName = (p: { id: string; name: string | null; handle: string | null }) => p.name ?? p.handle ?? p.id;
+  // A person is shown by name, else handle, and never by account id (hrn:node:hadronmemory.com:specs:cor:dmo:140:09).
+  const personName = (p: { name: string | null; handle: string | null }) => p.name ?? p.handle ?? t('app.questions.person.unnamed', 'Unnamed person');
+  // The state labels, built once per render rather than once per row cell.
+  const STATE_LABEL = $derived(questionStateLabels());
   const assigneeValue = $derived(filter.assignee.kind === 'user' ? filter.assignee.id : filter.assignee.kind);
   const assigneeUnlisted = $derived.by(() => {
     const a = filter.assignee;
@@ -77,9 +79,10 @@
 
   const logs = $derived(data.logs?.kind === 'ok' ? data.logs.value : []);
   const setup = $derived(data.setup ?? null);
+  const COMMAND_SLOT = '\u0001'; // marks where the command goes in the translated sentence; never shown
   // One translatable sentence with the command as a placeholder, split around it so the command can be set in code style:
   // a translation can reorder or repunctuate it, and the sentence is never stitched from fragments.
-  const changeDecidersParts = $derived(t('app.questions.log.change-deciders', 'To change who decides, use {command}.', { command: '\u0001' }).split('\u0001'));
+  const changeDecidersParts = $derived(t('app.questions.log.change-deciders', 'To change who decides, use {command}.', { command: COMMAND_SLOT }).split(COMMAND_SLOT));
   // After a refused submit the form shows what was chosen, not its defaults.
   const submitted = $derived(form?.createLog?.values ?? null);
   let pickedMemory = $state<string | null>(null);
@@ -88,11 +91,12 @@
   const firstPageHref = $derived(questionsHref(basePath, filter, { offset: 0 }));
   const clearHref = $derived(questionsHref(basePath, filter, { status: 'all', assignee: { kind: 'all' }, priority: [], offset: 0 }));
 
-  function actorOf(a: QuestionActor | null) {
+  function actorOf(a: ListAsker | null): { name: string; urn: string | null } | null {
     if (!a) return null;
-    if (a.worker) return { name: a.worker.name ?? a.worker.handle ?? a.worker.id, urn: (a.worker as { urn?: string | null }).urn ?? null };
-    if (a.user) return { name: a.user.name ?? a.user.handle ?? a.user.id, urn: null };
-    if (a.app) return { name: a.app.name ?? a.app.handle ?? a.app.id, urn: (a.app as { urn?: string | null }).urn ?? null };
+    // A worker or an App is shown by name with the URN the projection offers; a person by name or handle only.
+    if (a.worker) return { name: a.worker.name ?? t('app.questions.worker.unnamed', 'Unnamed worker'), urn: a.worker.urn };
+    if (a.user) return { name: personName(a.user as ListPerson), urn: null };
+    if (a.app) return { name: a.app.name ?? t('app.questions.app.unnamed', 'Unnamed App'), urn: a.app.urn };
     return null;
   }
   const dateOf = fmtRunTime;
@@ -105,7 +109,7 @@
     col({ id: 'title', accessorFn: (r) => r.title, header: t('app.questions.col.question', 'Question'), enableHiding: false, size: 340 }),
     col({ id: 'priority', accessorFn: (r) => r.priority ?? '', header: t('app.questions.col.priority', 'Priority'), size: 110 }),
     col({ id: 'state', accessorFn: (r) => r.state, header: t('app.questions.col.status', 'Status'), size: 190 }),
-    col({ id: 'for', accessorFn: (r) => r.effectiveAssignee?.name ?? '', header: t('app.questions.col.for', 'For'), size: 170 }),
+    col({ id: 'for', accessorFn: (r) => (r.effectiveAssignee ? personName(r.effectiveAssignee) : ''), header: t('app.questions.col.for', 'For'), size: 170 }),
     col({ id: 'askedBy', accessorFn: (r) => actorOf(r.askedBy)?.name ?? '', header: t('app.questions.col.asked-by', 'Asked by'), size: 300 }),
     col({ id: 'asked', accessorFn: (r) => r.askedAt ?? '', header: t('app.questions.col.asked', 'Asked'), size: 170 }),
     col({ id: 'answer', accessorFn: (r) => r.answer?.key ?? r.answer?.text ?? '', header: t('app.questions.col.answer', 'Answer'), size: 190 }),
@@ -201,10 +205,10 @@
     {:else if read?.kind === 'ok'}
       {#if rows.length > 0}
         <p>{total === 1 ? t('app.questions.count.one', '1 question') : t('app.questions.count.many', '{n} questions', { n: total })}</p>
+      {:else if total > 0}
+        <p data-empty="past-end">{t('app.questions.empty.past-end', 'No questions on this page.')} <a href={firstPageHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.questions.empty.first-page', 'Go to the first page')}</a></p>
       {:else if data.logs?.kind === 'ok' && data.logs.value.length === 0}
         <p data-empty="no-log">{t('app.questions.empty.no-log', 'This App has no question log yet, so its agents cannot ask questions.')}</p>
-      {:else if data.logs?.kind === 'ok' && total > 0}
-        <p data-empty="past-end">{t('app.questions.empty.past-end', 'No questions on this page.')} <a href={firstPageHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.questions.empty.first-page', 'Go to the first page')}</a></p>
       {:else if data.logs?.kind === 'ok' && everything}
         <p data-empty="none">{t('app.questions.empty.none', 'No questions have been asked yet.')}</p>
       {:else if data.logs?.kind === 'ok'}
@@ -271,7 +275,7 @@
               </div>
             {/if}
             <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{setup.deciders.fixed
-              ? t('app.questions.setup.deciders-help-fixed', 'They need write access to the memory.')
+              ? t('app.questions.setup.deciders-help-fixed', 'Only you can be named here, because the member list is not shown to you. You need write access to the memory.')
               : t('app.questions.setup.deciders-help', 'Choose at least one. They need write access to the memory.')}</p>
           </fieldset>
           <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.questions.setup.submit', 'Create question log')}</button>
@@ -297,15 +301,16 @@
           {#snippet cell(c, row)}
             {@const asker = actorOf(row.askedBy)}
             {#if c.column.id === 'code'}
-              {#if row.portalUrl}<a href={row.portalUrl} class="font-mono text-indigo-600 hover:underline dark:text-indigo-300">{row.code}</a>{:else}<span class="font-mono">{row.code}</span>{/if}
+              <!-- Plain text: the title is the row's one link, so a keyboard user meets one tab stop per question. -->
+              <span class="font-mono">{row.code}</span>
             {:else if c.column.id === 'title'}
               {#if row.portalUrl}<a href={row.portalUrl} title={row.title} class="[overflow-wrap:anywhere] font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.title}</a>{:else}<span class="[overflow-wrap:anywhere] font-medium">{row.title}</span>{/if}
             {:else if c.column.id === 'priority'}
               <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{priorityText(row.priority)}</span>
             {:else if c.column.id === 'state'}
-              <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{questionStateLabel(row.state)}</span>
+              <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{STATE_LABEL[row.state] ?? row.state}</span>
             {:else if c.column.id === 'for'}
-              {#if row.effectiveAssignee}<span class="[overflow-wrap:anywhere]">{row.effectiveAssignee.name ?? row.effectiveAssignee.handle ?? row.effectiveAssignee.id}</span>
+              {#if row.effectiveAssignee}<span class="[overflow-wrap:anywhere]">{personName(row.effectiveAssignee)}</span>
               {:else}<span class="text-zinc-500 dark:text-zinc-400">{t('app.questions.any-decider', 'Any decider')}</span>{/if}
             {:else if c.column.id === 'askedBy'}
               {#if asker}
