@@ -12,6 +12,8 @@ import { describe, expect, it } from 'vitest';
 import { parse, print, type FieldNode, type OperationDefinitionNode } from 'graphql';
 import {
   CREATE_AGENT_MUTATION,
+  CREATE_PERSONAL_AGENT_MUTATION,
+  CREATE_PERSONAL_MEMORY_MUTATION,
   CREATE_MEMORY_MUTATION,
   UPDATE_AGENT_MUTATION,
   UPDATE_MEMORY_MUTATION,
@@ -55,7 +57,7 @@ describe('portal#2122 renamed ref args (server#4140)', () => {
   });
 
   it('#2647: createMemory and createAgent take an optional slug beside the required name', () => {
-    for (const [doc, name] of [[CREATE_MEMORY_MUTATION, 'createMemory'], [CREATE_AGENT_MUTATION, 'createAgent']] as const) {
+    for (const [doc, name] of [[CREATE_MEMORY_MUTATION, 'createMemory'], [CREATE_AGENT_MUTATION, 'createAgent'], [CREATE_PERSONAL_MEMORY_MUTATION, 'createMemory'], [CREATE_PERSONAL_AGENT_MUTATION, 'createAgent']] as const) {
       const { args, vars } = field(doc, name);
       expect(args.get('slug')).toBe('slug');
       expect(vars.get('slug')).toBe('String');

@@ -46,23 +46,19 @@ const createVars = () =>
     | undefined;
 
 describe('personal (org-less) create-agent action (#636)', () => {
-  it('sends NO orgId, visibility=PERSONAL, name=slug', async () => {
+  it('sends NO orgId, visibility=PERSONAL, slug=slug and name=display name (#2647)', async () => {
     await runCreate({ displayName: 'My assistant', slug: 'my-assistant' });
     const vars = createVars();
     expect(vars).toBeDefined();
     expect('orgId' in (vars ?? {})).toBe(false);
     expect(vars?.visibility).toBe('PERSONAL');
-    expect(vars?.name).toBe('my-assistant');
+    expect(vars?.slug).toBe('my-assistant');
+    expect(vars?.name).toBe('My assistant');
   });
 
-  it('updates the display name when it differs from the slug', async () => {
+  it('creates in one call: no follow-up rename (#2647)', async () => {
     await runCreate({ displayName: 'My Assistant', slug: 'my-assistant' });
-    const update = mockRequest.mock.calls.find((c) => c[0] === UPDATE_AGENT_MUTATION);
-    expect(update?.[1]).toMatchObject({ ref: 'a1', name: 'My Assistant' });
-  });
-
-  it('does not issue a display-name update when name equals the slug', async () => {
-    await runCreate({ displayName: 'my-assistant', slug: 'my-assistant' });
+    expect(mockRequest.mock.calls.filter((c) => c[0] === CREATE_PERSONAL_AGENT_MUTATION)).toHaveLength(1);
     expect(mockRequest.mock.calls.some((c) => c[0] === UPDATE_AGENT_MUTATION)).toBe(false);
   });
 
