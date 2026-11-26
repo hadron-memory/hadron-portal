@@ -83,7 +83,7 @@ const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionS
 // routing-rule side panel.
 const CONVERSATION_NODES_QUERY = /* GraphQL */ `
   query ConversationNodes($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
       hits {
         node {
           id memoryId urn nodeType loc name description content tags seq data
@@ -98,7 +98,7 @@ const CONVERSATION_NODES_QUERY = /* GraphQL */ `
 // seq and its setup/fallback flags, nothing else.
 const CONVERSATION_ORDER_QUERY = /* GraphQL */ `
   query ConversationOrder($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
+    findNodes(filter: { memoryRefs: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
       hits { node { id memoryId loc seq data } }
     }
   }

@@ -289,7 +289,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   if (node.isRunnable && org?.id) {
     try {
       const apps = await fetchAllItems<{ id: string; name: string; appAgents: Array<{ agent: InstalledAgent | null }> | null }>(
-        gqlClient(locals.token), ORG_APPS_RUNNABLE_QUERY, 'apps', { orgId: org.id },
+        gqlClient(locals.token), ORG_APPS_RUNNABLE_QUERY, 'apps', { orgRef: org.id },
       );
       testFlowApps = apps.map((a) => ({ id: a.id, name: a.name, agents: runAgentChoice(a.appAgents) }));
     } catch (e) {

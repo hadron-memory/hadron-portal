@@ -156,7 +156,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       // list), and use filter.locPrefix for the `revisions:` prefix. Results are hits[].node.
       const REVISIONS_QUERY = /* GraphQL */ `
         query Revisions($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
-          findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType, locPrefix: "revisions:" }, limit: $limit, offset: $offset) {
+          findNodes(filter: { memoryRefs: $memoryIds, nodeType: $nodeType, locPrefix: "revisions:" }, limit: $limit, offset: $offset) {
             hits { node { id loc name description data } }
           }
         }

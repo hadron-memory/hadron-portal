@@ -672,7 +672,7 @@ export async function _loadAppPage(
     // Coerce to null so a transient failure surfaces as a load error to admins
     // instead of a misleading empty list.
     !wants('aiConfigs') ? Promise.resolve(null) : client.request<{ aiServiceConfigs: { items: AiServiceConfig[]; total: number } }>(AI_SERVICE_CONFIGS_QUERY, {
-      ownerType: 'APP', ownerId: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: configOffset,
+      ownerType: 'APP', ownerRef: params.appId, limit: APP_DISPLAY_PAGE_SIZE, offset: configOffset,
     }).then(r => r.aiServiceConfigs).catch(() => null),
     // #1005: the Human Team tab. null = the fetch failed, distinct from an App
     // with no members, so the tab can say so instead of showing "No members yet."

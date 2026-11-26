@@ -185,7 +185,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Org system memories feed the system-memory picker — org-only; a user-owned
     // agent has no org, so skip the query.
     org
-      ? fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: org.id })
+      ? fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgRef: org.id })
           .catch(() => [] as Memory[])
       : Promise.resolve([] as Memory[]),
     // 036: the AGENT-owned named configs. org-ADMIN gated server-side; a
@@ -193,7 +193,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // anyway). Coerce to null so a transient failure surfaces as a load error
     // to admins instead of a misleading empty list.
     fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
-      ownerType: 'AGENT', ownerId: agent.id,
+      ownerType: 'AGENT', ownerRef: agent.id,
     }).catch(() => null),
     // Apps this agent is installed into (member-scoped, all caller orgs),
     // filtered server-side by the AppAgent join (#472).

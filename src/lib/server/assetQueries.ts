@@ -96,7 +96,7 @@ export const MEMORY_ASSETS_QUERY = /* GraphQL */ `
 // FILTERS over one query, not three queries:
 //   My files        → filter: { mine: true }
 //   Available files → no filter
-//   Org files       → orgId: <active org>
+//   Org files       → orgRef: <active org>
 //
 // Every AssetFilter field narrows; none widens. Two semantics worth remembering
 // (hrn:node:hadronmemory.com:hadron-server:conventions:multi-ref-scope-args): unreadable/unknown `memoryRefs` are
@@ -104,8 +104,8 @@ export const MEMORY_ASSETS_QUERY = /* GraphQL */ `
 // memoryRefs list is the EMPTY scope — never a fallback to the default one.
 export const ASSETS_QUERY = /* GraphQL */ `
   ${ASSET_FIELDS}
-  query Assets($filter: AssetFilter, $orgId: ID, $limit: Int, $offset: Int) {
-    assets(filter: $filter, orgId: $orgId, limit: $limit, offset: $offset) {
+  query Assets($filter: AssetFilter, $orgRef: ID, $limit: Int, $offset: Int) {
+    assets(filter: $filter, orgRef: $orgRef, limit: $limit, offset: $offset) {
       items {
         ...AssetFields
       }
