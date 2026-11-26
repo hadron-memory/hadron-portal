@@ -103,7 +103,7 @@ describe('App display-list request boundaries (#1758)', () => {
   it('does not drain 201 configs on first load: asks for 20 and preserves the count', async () => {
     const result = await loadPage('?tab=ai-configs');
     expect(calls.filter(c => c.name === 'AiServiceConfigs').map(c => c.variables)).toEqual([
-      expect.objectContaining({ ownerType: 'APP', ownerId: APP_ID, limit: 20, offset: 0 }),
+      expect.objectContaining({ ownerType: 'APP', ownerRef: APP_ID, limit: 20, offset: 0 }),
     ]);
     expect(result.appConfigs).toHaveLength(20);
     expect(result.configsPage).toMatchObject({ total: 201 });

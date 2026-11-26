@@ -103,25 +103,25 @@ describe('top-level assets loader', () => {
     const data = await run(event(null));
     expect(data.tab).toBe('mine');
     expect(assetVars().filter).toEqual({ mine: true });
-    expect(assetVars().orgId).toBeUndefined();
+    expect(assetVars().orgRef).toBeUndefined();
   });
 
-  it('sends neither filter nor orgId for "available"', async () => {
+  it('sends neither filter nor orgRef for "available"', async () => {
     respond({ items: [], total: 0 });
     await run(event('available'));
     expect(assetVars().filter).toBeUndefined();
-    expect(assetVars().orgId).toBeUndefined();
+    expect(assetVars().orgRef).toBeUndefined();
   });
 
   it('scopes "org" to the active org', async () => {
     respond({ items: [], total: 0 });
     await run(event('org', 'org-7'));
-    expect(assetVars().orgId).toBe('org-7');
+    expect(assetVars().orgRef).toBe('org-7');
     expect(assetVars().filter).toBeUndefined();
   });
 
   it('does NOT query at all for "org" with no active org', async () => {
-    // The whole point: omitting orgId returns everything the caller can reach,
+    // The whole point: omitting orgRef returns everything the caller can reach,
     // which the Organization tab would then mislabel as the org's.
     respond({ items: [asset()], total: 1 });
     const data = await run(event('org', null));

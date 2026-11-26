@@ -79,7 +79,7 @@ describe('updateFlow', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Flow settings saved.' });
     const input = mockRequest.mock.calls[1][1].input;
-    expect(input.memoryId).toBe('mem-1');
+    expect(input.memoryRef).toBe('mem-1');
     expect(input.tags).toEqual(['keep-me']);
     expect(input.data).toEqual({
       promptRef: 'prompts:x',

@@ -107,7 +107,7 @@ function fieldError(result: unknown, field: string): string | undefined {
 }
 
 describe('storage action — derives memoryId from fetched node (#237)', () => {
-  it("update input.memoryId is the node's actual memoryId, not params.gid", async () => {
+  it("update input.memoryRef is the node's actual memoryId, not params.gid", async () => {
     // Stale URL says mem-A; the node lives in mem-B. The update must
     // commit into mem-B so the user's edit lands on the right row.
     mockRequest.mockResolvedValueOnce({
@@ -123,8 +123,8 @@ describe('storage action — derives memoryId from fetched node (#237)', () => {
 
     const actions = await importActions();
     const result = await actions.default(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { objectType: '' } }));
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string; loc: string } }];
-    expect(vars.input.memoryId).toBe('mem-B');
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryRef: string; loc: string } }];
+    expect(vars.input.memoryRef).toBe('mem-B');
     // The selector is the node's CURRENT loc — this form never moves a node.
     expect(vars.input.loc).toBe('a');
     // #1031: a successful save RETURNS (the reader is already on the node
@@ -164,8 +164,8 @@ describe('storage action — derives memoryId from fetched node (#237)', () => {
 
     expect(mockRequest).toHaveBeenCalledTimes(2); // refetch + update: no move
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
-    expect(Object.keys(vars.input).sort()).toEqual(['loc', 'memoryId', 'objectType', 'properties']);
-    expect(vars.input).toEqual({ memoryId: 'mem-B', loc: 'a', objectType: 'thing', properties: { k: 1 } });
+    expect(Object.keys(vars.input).sort()).toEqual(['loc', 'memoryRef', 'objectType', 'properties']);
+    expect(vars.input).toEqual({ memoryRef: 'mem-B', loc: 'a', objectType: 'thing', properties: { k: 1 } });
   });
 
   it('sends isRunnable only as TRUE, never false', async () => {

@@ -1051,7 +1051,7 @@ describe('postChatMessage', () => {
     expect(posted).toEqual({ nodeId: 'm-1' });
     expect(client.request).toHaveBeenCalledWith(CREATE_NODE_MUTATION, {
       input: {
-        memoryId: 'mem-1',
+        memoryRef: 'mem-1',
         loc: 'chats:team:messages:2026-08-14T123456789-holger',
         name: 'holger',
         nodeType: 'message',
