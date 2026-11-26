@@ -73,6 +73,9 @@
   let selected = $state<Record<string, boolean>>({});
   let awaitingSelection = $state<{ refs: string[]; scope: string } | null>(null);
   let selectionFresh = $state(false);
+  // portal#2650: how many list reads that STARTED after the signing request have completed. Each one also
+  // prompts a read of the selection's own state.
+  let selectionReads = $state(0);
   let refreshPurpose = $state<"create" | "approval">("create");
   onMount(() => {
     const timer = setInterval(() => {
@@ -83,10 +86,12 @@
   function startSelection(refs: string[]) {
     awaitingSelection = { refs, scope: readScope };
     selectionFresh = false;
+    selectionReads = 0;
   }
   function endSelection() {
     awaitingSelection = null;
     selectionFresh = false;
+    selectionReads = 0;
   }
   function startCeremony(id: string) {
     awaitingCeremony = { id, scope: readScope };
@@ -141,6 +146,9 @@
       against = data.grants,
       epoch = ownershipEpoch,
       mine = reads;
+    // portal#2650: the selection this read starts under. A read begun before the signing request resolved
+    // sees none (or an older one), so it can never mark the new selection fresh.
+    const forSelection = awaitingSelection;
     const controller = new AbortController();
     readAbort = controller;
     reading = true;
@@ -166,7 +174,10 @@
     readAbort = null;
     if (fresh) {
       reread = { against, scope, value: fresh };
-      if (awaitingSelection) selectionFresh = true;
+      if (forSelection && forSelection === awaitingSelection) {
+        selectionFresh = true;
+        selectionReads++;
+      }
       if (awaitingCeremony) {
         const g = fresh.grants.items.find((g) => g.id === awaitingCeremony!.id);
         if (g && (g.activatedAt || g.revokedAt || g.holderDepartedAt))
@@ -478,6 +489,7 @@
         locked={creating || reading || rowWrites > 0}
         items={grants.items}
         fresh={selectionFresh}
+        reads={selectionReads}
         {now}
         onopened={startSelection}
         onrefresh={() => void refreshGrants("approval")}

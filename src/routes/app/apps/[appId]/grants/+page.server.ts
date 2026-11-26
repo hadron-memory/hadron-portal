@@ -11,6 +11,7 @@ import {
   REVOKE_GRANT,
   REQUEST_GRANT_SIGNATURE,
   REQUEST_GRANT_SELECTION_SIGNATURE,
+  READ_GRANT_SIGNING_SELECTION,
   WITHDRAW_GRANT_SIGNING_SELECTION,
   GRANTS_PAGE,
   grantChoices,
@@ -25,7 +26,7 @@ import {
   type Grant,
 } from "$lib/grants/types";
 import { t } from "$lib/i18n/t";
-import { selectionRefusalCodes, withdrawRefusalCodes } from "$lib/grants/selection";
+import { parseSelectionState, selectionRefusalCodes, withdrawRefusalCodes } from "$lib/grants/selection";
 import { ceremonyOrigin, pinCeremonyUrl } from "$lib/ceremony-origin";
 import type { Actions, PageServerLoad } from "./$types";
 export const load: PageServerLoad = async ({ params, locals, url }) => {
@@ -189,6 +190,26 @@ export const actions: Actions = {
     } catch (e) {
       if (isRedirect(e)) throw e;
       return answer(...selectionFailure(e, selectionRefusalCodes));
+    }
+  },
+  // portal#2650: the selection's own state, so the panel does not infer an end from the grant list alone.
+  // A refusal or a null answer is "no state": the page then claims no end.
+  readSelection: async (event) => {
+    const answer = (status: number, message: string) =>
+      fail(status, { error: message, operation: "readSelection" as const, appId: event.params.appId });
+    try {
+      if (!event.locals.token || !event.locals.user?.id) redirect(303, "/signin");
+      const app = await manage(event);
+      const id = String((await event.request.formData()).get("id") ?? "");
+      if (!id) return answer(400, grantError("GRANT_NOT_FOUND"));
+      const { grantSigningSelection } = await gqlClient(event.locals.token).request<{
+        grantSigningSelection: { id: string; state: string } | null;
+      }>(READ_GRANT_SIGNING_SELECTION, { id });
+      const state = grantSigningSelection && grantSigningSelection.id === id ? parseSelectionState(grantSigningSelection.state) : null;
+      return { operation: "readSelection" as const, appId: app.id, id, state };
+    } catch (e) {
+      if (isRedirect(e)) throw e;
+      return answer(...selectionFailure(e, withdrawRefusalCodes));
     }
   },
   withdrawSelection: async (event) => {

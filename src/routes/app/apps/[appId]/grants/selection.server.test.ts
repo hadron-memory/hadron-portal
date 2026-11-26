@@ -13,13 +13,14 @@ const post = (refs: string[], impersonation: unknown = null, action = "signSelec
   const body = new URLSearchParams(); for (const r of refs) body.append("ref", r);
   return { locals: { token: "synthetic", user: { id: "person-example" }, impersonation }, params: { appId: "hrn:app:example.test:team" }, url: new URL(`http://localhost/app/apps/app-example/grants?/${action}&offset=20`), request: new Request("http://localhost/x", { method: "POST", body }) };
 };
-const run = async (e: ReturnType<typeof post>, name: "signSelection" | "withdrawSelection" = "signSelection") => { const { actions } = await import("./+page.server"); return (actions as Record<string, (e: never) => Promise<unknown>>)[name]!(e as never); };
+const run = async (e: ReturnType<typeof post>, name: "signSelection" | "withdrawSelection" | "readSelection" = "signSelection") => { const { actions } = await import("./+page.server"); return (actions as Record<string, (e: never) => Promise<unknown>>)[name]!(e as never); };
 const refusal = (code: string, message: string, extensions: Record<string, unknown> = {}) => new ClientError({ status: 400, headers: new Headers(), body: "", errors: [new GraphQLError(message, { extensions: { code, ...extensions } })] }, { query: "mutation SECRET_QUERY", variables: { secret: "PRIVATE_VARIABLE" } });
 const serve = (selection: unknown) => request.mockImplementation(async (q: string) => {
   if (q.includes("query AppGrantsApp")) return { app };
   if (q.includes("query AppGrantActions")) return { grantActions: { items: fixtureActions, total: fixtureActions.length } };
   if (q.includes("mutation RequestGrantSelectionSignature")) { if (selection instanceof Error) throw selection; return { requestGrantSelectionSignature: selection }; }
   if (q.includes("mutation WithdrawGrantSigningSelection")) { if (selection instanceof Error) throw selection; return { withdrawGrantSigningSelection: selection }; }
+  if (q.includes("query ReadGrantSigningSelection")) { if (selection instanceof Error) throw selection; return { grantSigningSelection: selection }; }
   throw Error("Unexpected operation " + q.slice(0, 60));
 });
 beforeEach(() => { env.PUBLIC_SERVER_URL = "https://signing.example.test"; request.mockReset(); signing.mockReset().mockResolvedValue(true); serve({ id: "sel1", ceremonyUrl: ceremony, expiresAt: "2026-12-01T00:00:00Z" }); });
@@ -128,5 +129,30 @@ describe("the App-manager gate is its own guard (security review P3-1)", () => {
     serve(refusal("SOMETHING_ELSE", "private SQL detail"));
     const r = await run(post(["g1"])) as { status: number; data: { error: string } };
     expect(r.status).toBe(503); expect(r.data.error).toBe(grantError(null));
+  });
+});
+
+describe("readSelection: the selection's own state (portal#2650)", () => {
+  const read = (id = "sel1") => { const e = post([], null, "readSelection"); const body = new URLSearchParams({ id }); return run({ ...e, request: new Request("http://localhost/x", { method: "POST", body }) }, "readSelection") as Promise<Record<string, unknown>>; };
+  it.each(["OPEN", "COMPLETED", "DECLINED", "EXPIRED", "WITHDRAWN"])("answers %s as the server read it", async (state) => {
+    serve({ id: "sel1", state });
+    expect(await read()).toMatchObject({ operation: "readSelection", id: "sel1", state });
+    expect(sent("ReadGrantSigningSelection")[0][1]).toEqual({ id: "sel1" });
+  });
+  it("a null selection, another id or an unknown word is no state", async () => {
+    for (const answer of [null, { id: "other", state: "DECLINED" }, { id: "sel1", state: "STALE" }]) {
+      serve(answer);
+      expect(await read()).toMatchObject({ state: null });
+    }
+  });
+  it("an empty id is refused before any call", async () => {
+    expect(await read("")).toMatchObject({ status: 400 });
+    expect(sent("ReadGrantSigningSelection")).toHaveLength(0);
+  });
+  it("a server refusal is a failure, never a state", async () => {
+    serve(refusal("SIGNING_REQUEST_NOT_FOUND", "No such request."));
+    const r = await read() as { status?: number; data?: { error?: string; state?: unknown } };
+    expect(r.data?.error).toBeTruthy();
+    expect(r.data).not.toHaveProperty("state");
   });
 });

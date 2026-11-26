@@ -2,8 +2,8 @@
   import { enhance } from "$app/forms";
   import type { SubmitFunction } from "@sveltejs/kit";
   import type { Grant } from "$lib/grants/types";
-  import { tick } from "svelte";
-  import { selectionOutcome } from "$lib/grants/selection";
+  import { tick, untrack } from "svelte";
+  import { parseSelectionState, selectionEnded, selectionOutcome, type SelectionState } from "$lib/grants/selection";
   import { grantError } from "$lib/grants/types";
   import LiveRegion from "$lib/components/LiveRegion.svelte";
   import { t } from "$lib/i18n/t";
@@ -14,6 +14,7 @@
     locked = false,
     items,
     fresh,
+    reads = 0,
     now,
     onopened,
     onrefresh,
@@ -28,6 +29,8 @@
     items: Grant[];
     /** True once a list read has been made after the signing page was requested. */
     fresh: boolean;
+    /** Completed list reads that started after the signing page was requested; each prompts a read of the selection's own state. */
+    reads?: number;
     now: number;
     onopened: (refs: string[]) => void;
     onrefresh: () => void;
@@ -50,6 +53,29 @@
   let notice = $state<string | null>(null);
   // The selection the server holds open for this person, with the link it answered. Never composed here.
   let open = $state<{ id: string; ceremonyUrl: string; refs: string[] } | null>(null);
+  // portal#2650: what the server says about the selection itself. Null is "not read, or not answered": no claim.
+  let selState = $state<SelectionState | null>(null);
+  let stateForm = $state<HTMLFormElement>();
+  let stateSeq = 0;
+  const ended = $derived(selectionEnded(selState));
+  $effect(() => {
+    if (reads > 0) untrack(() => open && stateForm?.requestSubmit());
+  });
+  const readState: SubmitFunction = ({ cancel }) => {
+    if (!open) {
+      cancel();
+      return;
+    }
+    const mine = ++stateSeq, id = open.id;
+    return async ({ result }) => {
+      // A later read, a new selection or a dismissed panel makes this answer stale.
+      if (mine !== stateSeq || open?.id !== id) return;
+      if (result.type === "success" && result.data && result.data.operation === "readSelection" && result.data.id === id) {
+        const next = parseSelectionState(result.data.state);
+        if (next) selState = next;
+      }
+    };
+  };
   const outcome = $derived(open && fresh ? selectionOutcome(open.refs, items, now) : null);
   function toggleAll(on: boolean) {
     selected = on ? Object.fromEntries(signable.map((id) => [id, true])) : {};
@@ -68,6 +94,9 @@
         if (result.type === "success" && result.data && typeof result.data === "object" && "selection" in result.data) {
           const sel = result.data.selection as { id: string; ceremonyUrl: string };
           open = { id: sel.id, ceremonyUrl: sel.ceremonyUrl, refs: sent };
+          selState = null;
+          stateSeq++;
+          notice = t("grants.selection.opened", "The signing page for {count} grants opened in a new tab.", { count: sent.length });
           onopened(sent);
           window.open(sel.ceremonyUrl, "_blank", "noopener");
           await tick();
@@ -91,6 +120,7 @@
       try {
         if (result.type === "success") {
           open = null;
+          selState = null;
           selected = {};
           notice = t("grants.selection.withdrawn", "Selection withdrawn.");
           onended();
@@ -107,6 +137,7 @@
   };
   async function dismiss() {
     open = null;
+    selState = null;
     notice = null;
     onended();
     await tick();
@@ -131,17 +162,23 @@
     {#if error}<p role="alert" class="rounded-lg bg-red-50 p-3 text-red-800 dark:bg-red-950 dark:text-red-200">{error}</p>{/if}
     {#if open}
       <div class="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-        <p>{t("grants.selection.opened", "The signing page for {count} grants opened in a new tab.", { count: open.refs.length })}</p>
+        <form bind:this={stateForm} method="POST" action={`?/readSelection&offset=${offset}`} use:enhance={readState} hidden>
+          <input type="hidden" name="id" value={open.id} />
+        </form>
         <div class="flex flex-wrap items-center gap-3">
           <a bind:this={openLink} href={open.ceremonyUrl} target="_blank" rel="noopener" class="inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t("grants.selection.open-again", "Open the signing page")}</a>
           <button type="button" disabled={pending} onclick={onrefresh} class="min-h-11 rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{t("grants.selection.refresh", "Check result")}</button>
-          <form method="POST" action={`?/withdrawSelection&offset=${offset}`} use:enhance={withdraw}>
-            <input type="hidden" name="id" value={open.id} />
-            <button type="submit" disabled={pending} class="min-h-11 rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{t("grants.selection.withdraw", "Withdraw")}</button>
-          </form>
+          {#if selState === null || selState === "OPEN"}
+            <form method="POST" action={`?/withdrawSelection&offset=${offset}`} use:enhance={withdraw}>
+              <input type="hidden" name="id" value={open.id} />
+              <button type="submit" disabled={pending} class="min-h-11 rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{t("grants.selection.withdraw", "Withdraw")}</button>
+            </form>
+          {/if}
           <button type="button" onclick={dismiss} class="min-h-11 rounded-lg px-3 py-2 text-sm underline">{t("grants.selection.dismiss", "Dismiss")}</button>
         </div>
-        <LiveRegion>{#if outcome}
+        <LiveRegion>{#if selState && selState !== "OPEN"}
+          <p>{selState === "DECLINED" ? t("grants.selection.state-declined", "The signing request was declined.") : selState === "EXPIRED" ? t("grants.selection.state-expired", "The signing request expired.") : selState === "WITHDRAWN" ? t("grants.selection.state-withdrawn", "The signing request was withdrawn.") : t("grants.selection.state-completed", "The signing request is complete.")}</p>
+        {/if}{#if outcome && !(ended && selState !== "COMPLETED")}
           <p>
             {t("grants.selection.outcome", "{activated} approved, {pending} still waiting", { activated: outcome.activated, pending: outcome.pending })}{#if outcome.ended}{t("grants.selection.outcome-ended", ", {ended} ended", { ended: outcome.ended })}{/if}{#if outcome.elsewhere}{t("grants.selection.outcome-elsewhere", ", {elsewhere} not on this page", { elsewhere: outcome.elsewhere })}{/if}.
           </p>
