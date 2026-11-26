@@ -52,7 +52,7 @@ export function scopeLabel(scope: StopScope): string {
 /** What a scope covers, for the set form and its confirmation. TEAM is never "this worker only". */
 export function scopeCoverage(scope: StopScope): string {
   return scope === 'TEAM'
-    ? t('app.stops.coverage.team', 'The worker you pick and every worker reporting to it, directly or not.')
+    ? t('app.stops.coverage.team', 'The worker you pick and every worker reporting to it, directly or not. If no one reports to it, only that worker.')
     : t('app.stops.coverage.worker', 'Only the worker you pick.');
 }
 

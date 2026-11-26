@@ -310,12 +310,15 @@
           name="worker"
           bind:value={worker}
           aria-invalid={invalidFor('worker')}
-          aria-describedby={[describedBy('worker'), rosterFailed ? 'stop-worker-hint' : undefined].filter(Boolean).join(' ') || undefined}
+          aria-describedby={[describedBy('worker'), scope === 'TEAM' ? 'stop-team-help' : undefined, rosterFailed ? 'stop-worker-hint' : undefined].filter(Boolean).join(' ') || undefined}
           class="mt-1 block w-full max-w-sm rounded-md border border-zinc-300 bg-white px-2 py-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
         >
           <option value="">{t('app.stops.choose', 'Choose…')}</option>
           {#each workers as w (w.id)}<option value={w.id}>{w.name}</option>{/each}
         </select>
+        {#if scope === 'TEAM'}
+          <p id="stop-team-help" class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{t('app.stops.team-help', 'Pick the worker who heads the team. If no one heads all of it, set one stop for each worker that no one reports to.')}</p>
+        {/if}
         {#if rosterFailed}
           <p id="stop-worker-hint" class="mt-1 text-xs text-amber-800 dark:text-amber-300">{t('app.stops.roster-failed', 'Couldn’t load the team roster. Reload the page to try again.')}</p>
         {/if}
