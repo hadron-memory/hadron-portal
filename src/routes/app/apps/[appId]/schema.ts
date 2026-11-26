@@ -255,12 +255,11 @@ export const removeAppMemberSchema = z.object({
 // the worker's own page runs the same delete through the same contract, so the
 // schema lives beside the attestation token neither route owns alone.
 
-// An EXISTING memory the caller owns, put into this App through one of its installed Agents.
-// The server decides every part of it (ownership, class, org, install); no field here is trusted.
+// An EXISTING memory the caller can read, linked into this App (portal#2635). The server ignores any Agent and
+// decides every part of it (readability, class, membership); no field here is trusted.
 export const attachAppMemorySchema = z.object({
   _kind: z.literal('attachAppMemory').default('attachAppMemory'),
   memoryId: z.string().trim().min(1).prefault(''),
-  agentId: z.string().trim().min(1).prefault(''),
 });
 
 // #487: only a NEW memory, born on this App. No caller-controlled App,

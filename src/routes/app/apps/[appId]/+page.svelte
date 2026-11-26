@@ -4377,7 +4377,7 @@
     <h2 class="sr-only">{t('app.tabs.memory', 'Memories')}</h2>
     {#if data.createMemoryForm && data.attachMemoryForm}
       {#key app.id}
-        <AppMemories memories={tabData.appMemories ?? null} appId={app.id} agentId={app.agentId ?? installedAgents[0]?.id ?? null}
+        <AppMemories memories={tabData.appMemories ?? null} appId={app.id}
           hasAgent={installedAgents.length > 0} canCreate={tabData.canCreateMemory ?? null}
           attachForm={data.attachMemoryForm} result={form} bind:createOpen={createMemoryOpen}>
           {#snippet create()}

@@ -3,6 +3,7 @@ vi.mock('$lib/server/api', () => ({ gqlClient: vi.fn() }));
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { gqlClient } from '$lib/server/api';
 import { appMemoriesFromScope, attachMemory, canCreateAppMemory, readAppMemoryScope, readAttachableMemories } from './app-memories';
+import { notYetInScope } from './attachable-candidates';
 it.each(['OWNER','ADMIN','CONTRIBUTOR','READER'])('creation visibility follows the current user org role %s', role => {
  expect(canCreateAppMemory({members:[{role,user:{id:'me'}},{role:'OWNER',user:{id:'other'}}]},'me')).toBe(['OWNER','ADMIN'].includes(role));
 });
@@ -47,50 +48,75 @@ describe('attachMemory action', () => {
     for (const [k, v] of Object.entries({ _kind: 'attachAppMemory', ...fields })) body.set(k, v);
     return attachMemory({ request: new Request('http://x/', { method: 'POST', body }), params: { appId: 'app-1' }, locals: { token: 'tok' } });
   };
-  it('attaches the chosen memory through the given Agent and reports success', async () => {
+  it('attaches the chosen memory and reports success, sending no Agent', async () => {
     const request = vi.fn().mockResolvedValue({ attachMemoryToApp: { id: 'm1' } });
-    const res = await run({ memoryId: 'm1', agentId: 'ag1' }, request) as { form: { message?: { type: string } } };
-    expect(request.mock.calls[0][1]).toEqual({ memoryRef: 'm1', appRef: 'app-1', agentRef: 'ag1' });
+    const res = await run({ memoryId: 'm1' }, request) as { form: { message?: { type: string } } };
+    expect(request.mock.calls[0][1]).toEqual({ memoryRef: 'm1', appRef: 'app-1' });
+    expect(request.mock.calls[0][0]).not.toContain('agentRef');
     expect(res.form.message?.type).toBe('success');
   });
   it('refuses a request with no memory before asking the server', async () => {
     const request = vi.fn();
-    await run({ memoryId: '', agentId: 'ag1' }, request);
+    await run({ memoryId: '' }, request);
     expect(request).not.toHaveBeenCalled();
   });
-  it.each([['FORBIDDEN', 403], ['UNAUTHENTICATED', 401], ['AGENT_NOT_INSTALLED', 409], ['APP_UNINSTALLED', 409], ['MEMORY_ALREADY_APP_SCOPED', 409], ['UNSUPPORTED_MEMORY_CLASS', 400], ['ORGANIZATION_MISMATCH', 400], ['SOMETHING_ELSE', 500]])('answers a %s refusal with fixed copy and status %i, never server text', async (code, status) => {
+  it.each([['FORBIDDEN', 403], ['UNAUTHENTICATED', 401], ['APP_UNINSTALLED', 409], ['MEMORY_NOT_FOUND', 404], ['UNSUPPORTED_MEMORY_CLASS', 400], ['SOMETHING_ELSE', 500]])('answers a %s refusal with fixed copy and status %i, never server text', async (code, status) => {
     const request = vi.fn().mockRejectedValue({ response: { errors: [{ message: 'SECRET server text', extensions: { code } }] } });
-    const res = await run({ memoryId: 'm1', agentId: 'ag1' }, request) as { status?: number; form?: { message?: { type: string; text: string } } };
+    const res = await run({ memoryId: 'm1' }, request) as { status?: number; form?: { message?: { type: string; text: string } } };
     const text = JSON.stringify(res);
     expect(text).not.toContain('SECRET');
     expect(text).toContain('"error"');
     expect(text).toContain(String(status));
   });
+  // portal#2635: the old attach rules are gone. Their codes are not special cases, and nothing says "owner", "renamed" or "limit".
+  it.each(['MEMORY_ALREADY_APP_SCOPED', 'ORGANIZATION_MISMATCH', 'AGENT_NOT_INSTALLED'])('does not answer %s with the old copy', async (code) => {
+    const request = vi.fn().mockRejectedValue({ response: { errors: [{ message: 'x', extensions: { code } }] } });
+    const res = JSON.stringify(await run({ memoryId: 'm1' }, request));
+    for (const old of ['already belongs to an App', 'different organization', 'personal and private memories', 'memory you own', 'Install an Agent']) expect(res).not.toContain(old);
+    expect(res).toContain('500');
+  });
+  it('says a system memory cannot be attached, and a missing or unreadable memory is one answer', async () => {
+    const refuse = async (code: string) => JSON.stringify(await run({ memoryId: 'm1' }, vi.fn().mockRejectedValue({ response: { errors: [{ message: 'x', extensions: { code } }] } })));
+    expect(await refuse('UNSUPPORTED_MEMORY_CLASS')).toContain('A system memory cannot be attached to an App.');
+    expect(await refuse('MEMORY_NOT_FOUND')).toContain('couldn’t be found');
+  });
 });
 
 describe('readAttachableMemories', () => {
-  it('lists only memories of the App\'s own organization that no App holds yet, with their visibility', async () => {
-    const request = vi.fn().mockResolvedValue({ memories: { total: 3, items: [
-      { id: 'free', urn: 'hrn:mem:e:free', name: 'Free', visibility: 'ORGANIZATION', appId: null, organizationId: 'org-1' },
-      { id: 'held', urn: 'hrn:mem:e:held', name: 'Held', visibility: 'ORGANIZATION', appId: 'other-app', organizationId: 'org-1' },
-      { id: 'abroad', urn: 'hrn:mem:o:abroad', name: 'Abroad', visibility: 'ORGANIZATION', appId: null, organizationId: 'org-2' },
-    ] } });
-    expect(await readAttachableMemories({ request } as never, 'org-1')).toEqual([{ id: 'free', urn: 'hrn:mem:e:free', name: 'Free', visibility: 'ORGANIZATION' }]);
-    expect(request.mock.calls[0][1]).toMatchObject({ orgRef: 'org-1', ownedByMe: true });
-    // hadron-server#5081: a stale orgId is ignored by the server and returns every organization's list.
-    expect(request.mock.calls[0][1]).not.toHaveProperty('orgId');
-    expect(request.mock.calls[0][0]).toContain('memoryClasses: [personal, private]');
+  const rows = [
+    { id: 'owned', urn: 'hrn:mem:e:owned', name: 'Owned', visibility: null },
+    { id: 'shared', urn: 'hrn:mem:o:shared', name: 'Shared with me', visibility: 'ORGANIZATION' },
+    { id: 'held', urn: 'hrn:mem:e:held', name: 'Linked elsewhere', visibility: null },
+  ];
+  // portal#2635: the link law (hrn:node:hadronmemory.com:specs:cor:dmo:060:20). Any memory the person can read, except system.
+  it('asks for every class but system, with no owner, organization or class-count narrowing', async () => {
+    const request = vi.fn().mockResolvedValue({ memories: { total: 3, items: rows } });
+    await readAttachableMemories({ request } as never);
+    const [doc, vars] = request.mock.calls[0];
+    expect(doc).toContain('memoryClasses: [app, group, knowledge, personal, private]');
+    expect(doc).not.toContain('system');
+    expect(doc).not.toContain('ownedByMe');
+    expect(doc).not.toContain('orgRef');
+    expect(vars).not.toHaveProperty('ownedByMe');
+    expect(vars).not.toHaveProperty('orgRef');
   });
-  it('asks for the caller\'s own org-less memories when the App has no organization', async () => {
-    const request = vi.fn().mockResolvedValue({ memories: { total: 2, items: [
-      { id: 'mine', urn: 'hrn:mem:e:mine', name: 'Mine', visibility: null, appId: null, organizationId: null },
-      { id: 'orged', urn: 'hrn:mem:e:orged', name: 'Orged', visibility: null, appId: null, organizationId: 'org-1' },
-    ] } });
-    expect(await readAttachableMemories({ request } as never, null)).toEqual([{ id: 'mine', urn: 'hrn:mem:e:mine', name: 'Mine', visibility: null }]);
-    expect(request.mock.calls[0][1]).toMatchObject({ ownedByMe: true });
+  it('offers memories another person owns, one of another organization and one linked to another App', async () => {
+    const request = vi.fn().mockResolvedValue({ memories: { total: 3, items: rows } });
+    expect((await readAttachableMemories({ request } as never))?.map(m => m.id)).toEqual(['owned', 'shared', 'held']);
   });
   it('reports a failed read instead of claiming there is nothing to add', async () => {
-    expect(await readAttachableMemories({ request: vi.fn().mockRejectedValue(new Error('offline')) } as never, 'o')).toBeNull();
+    expect(await readAttachableMemories({ request: vi.fn().mockRejectedValue(new Error('offline')) } as never)).toBeNull();
+  });
+});
+
+describe('notYetInScope', () => {
+  const c = (id: string) => ({ id, urn: `hrn:mem:e:${id}`, name: id, visibility: null });
+  const row = (id: string) => ({ id, urn: `hrn:mem:e:${id}`, name: id, class: 'app', appId: 'a' });
+  it('leaves out a memory already in this App\'s scope, since attaching it again does nothing', () => {
+    expect(notYetInScope([c('a'), c('b'), c('c')], [row('b')]).map(m => m.id)).toEqual(['a', 'c']);
+  });
+  it('leaves the list whole when the scope is unavailable; the server decides', () => {
+    expect(notYetInScope([c('a')], null).map(m => m.id)).toEqual(['a']);
   });
 });
 
