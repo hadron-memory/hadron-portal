@@ -6,9 +6,7 @@ import { extractGqlErrorCode, gqlErrorTextForBranching, extractGqlError } from '
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   CREATE_MEMORY_MUTATION,
-  UPDATE_MEMORY_MUTATION,
   CREATE_AGENT_MUTATION,
-  UPDATE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
   ORG_CHROME_QUERY,
 } from '$lib/server/queries';
@@ -69,48 +67,39 @@ export const actions: Actions = {
       // moot post-promotion, so the safe floor costs nothing.
       const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgRef: params.id,
-        name: systemMemorySlug,
+        slug: systemMemorySlug,
+        name: systemDisplayName,
         shortDescription: systemDisplayName,
         visibility: 'ORGANIZATION',
       });
       const systemMemoryId = systemResult.createMemory.id;
-      await client.request(UPDATE_MEMORY_MUTATION, {
-        ref: systemMemoryId, name: systemDisplayName,
-      });
 
       // 2. Optionally create the knowledge memory (read-only domain content)
       let knowledgeMemoryId: string | null = null;
       if (includeKnowledge) {
         const knowledgeResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
           orgRef: params.id,
-          name: knowledgeMemorySlug,
+          slug: knowledgeMemorySlug,
+          name: knowledgeMemoryName,
           shortDescription: knowledgeMemoryName,
           visibility: memoryVisibility,
         });
         knowledgeMemoryId = knowledgeResult.createMemory.id;
-        await client.request(UPDATE_MEMORY_MUTATION, {
-          ref: knowledgeMemoryId, name: knowledgeMemoryName,
-        });
       }
 
       // 3. Create the agent
       const agentResult = await client.request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
         orgRef: params.id,
-        name: agentSlug || agentName,
+        // #2647: the typed slug (when set) goes as `slug`; `name` is the display name.
+        ...(agentSlug ? { slug: agentSlug } : {}),
+        name: agentName,
         description: agentDescription,
         systemMemoryRef: systemMemoryId,
         visibility,
       });
       const agentId = agentResult.createAgent.id;
 
-      // 4. Rename agent if displayName differs from slug
-      if (agentSlug && agentName !== agentSlug) {
-        await client.request(UPDATE_AGENT_MUTATION, {
-          ref: agentId, name: agentName,
-        }).catch(() => {});
-      }
-
-      // 5. Add the knowledge memory to the agent if included.
+      // 4. Add the knowledge memory to the agent if included.
       // Note: the system memory is NOT added as a memory item — it is
       // linked exclusively via Agent.systemMemoryId (set on createAgent).
       // Per-user memories are created on-demand by startChat.
