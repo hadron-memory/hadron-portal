@@ -6377,3 +6377,25 @@ export const TEAM_METRICS_QUERY = /* GraphQL */ `
   }
   fragment TeamMetricsCountFields on TeamMetricsCount { total ids truncated named { id name } }
 `;
+
+// portal#2235 (Questions P2, epic hadron-server#1641): the App's Questions tab. Needs a server serving hadron-server#4428
+// (`questions(appRef:)`, the effective assignee, the filters and sorts, `questionLogs`).
+export const APP_QUESTIONS_QUERY = /* GraphQL */ `
+  query AppQuestions($appRef: ID, $answered: Boolean, $assigneeId: ID, $unassigned: Boolean, $priority: [QuestionPriority!], $sort: QuestionSort, $limit: Int, $offset: Int) {
+    questions(appRef: $appRef, answered: $answered, assigneeId: $assigneeId, unassigned: $unassigned, priority: $priority, sort: $sort, limit: $limit, offset: $offset) {
+      total
+      items {
+        id urn portalUrl code title state answered priority tier askedAt answeredAt revSeq viewerMayAnswer
+        answer { key text at }
+        effectiveAssignee { id name handle }
+        askedBy { user { id name handle } worker { id name urn } app { id name urn } }
+      }
+    }
+  }
+`;
+
+export const APP_QUESTION_LOGS_QUERY = /* GraphQL */ `
+  query AppQuestionLogs($appRef: ID) {
+    questionLogs(appRef: $appRef) { id urn name memoryId prefix }
+  }
+`;
