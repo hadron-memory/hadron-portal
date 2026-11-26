@@ -11,6 +11,8 @@
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { updatedFilterText } from '$lib/secrets/format';
   import { isOpenState } from '$lib/secrets/staged';
+  import Urn from '$lib/components/Urn.svelte';
+  import { composeAppSecretUrnV2 } from '$lib/urn/parse-urn';
   import { t } from '$lib/i18n/t';
   import type { AppSecret } from '$lib/server/secrets';
   import type { loadSecretsPanel } from './secrets-panel';
@@ -23,7 +25,7 @@
    */
   type Panel = NonNullable<Awaited<ReturnType<typeof loadSecretsPanel>>>;
   type Answer = { action: string; ok?: true; staged?: true; name?: string; message?: string };
-  let { appId, panel: initial, form = null }: { appId: string; panel: Panel; form?: unknown } = $props();
+  let { appId, appUrn = '', panel: initial, form = null }: { appId: string; appUrn?: string; panel: Panel; form?: unknown } = $props();
 
   // The panel shown. Every response goes through `accept`, whichever way it arrived: this section's own re-read, a
   // PendingChange re-read, or a fresh read of the section from the page.
@@ -71,6 +73,7 @@
 
   const submit: SubmitFunction = () => async ({ update }) => {
     await update({ invalidateAll: false });
+    typedName = null;
     await reread().catch(() => {});
   };
 
@@ -86,6 +89,21 @@
 
   // The name a refused create gave back so it can be corrected; a staged or successful create leaves the field empty (portal#2436).
   const retypedName = $derived(answer?.action === 'createSecret' && !answer.staged && !answer.ok ? (answer.name ?? '') : '');
+
+  // The URN this name will have, shown as it is typed so the name and the URN read as one thing, and so the URN can be
+  // copied into an automation straight away. Only a name the server would accept gets one; `hrn:app:<root>:<slug>` is
+  // the App's own URN.
+  let typedName = $state<string | null>(null);
+  const nameNow = $derived(typedName ?? retypedName);
+  const previewUrn = $derived.by(() => {
+    const m = /^hrn:app:([^:]+):([^:]+)$/.exec(appUrn);
+    if (!m || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(nameNow)) return '';
+    try {
+      return composeAppSecretUrnV2(m[1], m[2], nameNow);
+    } catch {
+      return '';
+    }
+  });
   /** A staged create has no secret yet and carries the name asked for; any other request names its secret. */
   const pendingName = (p: { secretId: string | null; createName: string | null }) =>
     p.createName ?? (p.secretId ? (list.find((s) => s.id === p.secretId)?.name ?? null) : null);
@@ -163,8 +181,14 @@
     <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.new.heading', 'Add a new secret to the store')}</h3>
     <div>
       <label for="secret-name" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.name', 'Name')}</label>
-      <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={retypedName} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+      <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={retypedName} oninput={(e) => (typedName = e.currentTarget.value)} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
       <p id="secret-name-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.name.help', 'Starts with a lowercase letter or digit, then lowercase letters, digits and hyphens, up to 64 characters.')}</p>
+      {#if previewUrn}
+        <div class="mt-2" data-testid="secret-urn-preview">
+          <p class="mb-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.urn', 'This secret’s URN. Copy it to refer to the secret from an automation:')}</p>
+          <Urn value={previewUrn} type="secret" />
+        </div>
+      {/if}
     </div>
     <div>
       <label for="secret-value" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.value', 'Value')}</label>
