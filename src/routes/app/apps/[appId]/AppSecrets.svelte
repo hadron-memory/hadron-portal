@@ -94,7 +94,10 @@
   // copied into an automation straight away. Only a name the server would accept gets one; `hrn:app:<root>:<slug>` is
   // the App's own URN.
   let typedName = $state<string | null>(null);
-  const nameNow = $derived(typedName ?? retypedName);
+  // Trimmed, as the create action trims it before it checks the rule. The rule is the server's own (`validSecretName`
+  // in `$lib/server/secret-writes`, which a component cannot import); `composeAppSecretUrnV2` would not catch an
+  // uppercase name, so the check stays here.
+  const nameNow = $derived((typedName ?? retypedName).trim());
   const previewUrn = $derived.by(() => {
     const m = /^hrn:app:([^:]+):([^:]+)$/.exec(appUrn);
     if (!m || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(nameNow)) return '';

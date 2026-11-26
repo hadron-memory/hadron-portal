@@ -22,6 +22,8 @@ it('shows the full secret URN for a valid name and drops it for an invalid or em
   expect(preview(m)).toBeNull();
   await type(m, 'db-password');
   expect(preview(m)?.querySelector('[title]')?.getAttribute('title')).toBe('hrn:secret:acme.com:app:billing:db-password');
+  await type(m, '  db-password  ');
+  expect(preview(m)?.querySelector('[title]')?.getAttribute('title')).toBe('hrn:secret:acme.com:app:billing:db-password');
   await type(m, 'Bad Name');
   expect(preview(m)).toBeNull();
   await type(m, '');
