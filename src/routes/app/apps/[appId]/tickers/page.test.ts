@@ -13,7 +13,9 @@ vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false
 // portal#1497: the on/off control reads the page store (its refresh fence), the
 // same one-line store the other node-lane table tests use.
 vi.mock('$app/stores', () => ({ page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://x/') }), () => {}) } }));
-import List from './+page.svelte';
+import List from '../AppTickers.svelte';
+import { sectionProps } from '$lib/test/ticker-section-props';
+
 import Detail from './[tickerId]/+page.svelte';
 import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
 
@@ -40,7 +42,7 @@ const readView = (html: string) => html.replace(WRITE_SECTION, '');
 
 function listFull(over: Record<string, unknown> = {}) {
   return render(List as never, {
-    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
+    props: sectionProps({ app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over }),
   } as never).body;
 }
 const list = (over: Record<string, unknown> = {}) => readView(listFull(over));
@@ -122,9 +124,9 @@ describe('Tickers list', () => {
   it('offers exactly one form, the Delivery one; the ticker settings stay read-only', () => {
     const html = list();
     expect(html.match(/<form/g)).toHaveLength(1);
-    expect(html).toContain('action="?/delivery"');
+    expect(html).toContain('action="/app/apps/app-1?tab=settings&amp;section=tickers&amp;/setDeliverySettings"');
     expect(html).toContain('Save delivery settings');
-    expect(html).toContain('Only whoever manages the App can change these settings.');
+    expect(html).toContain('These settings are read-only here.');
     expect(html).toContain('data-testid="ticker-settings"');
     expect(html).not.toContain('name="standbyEnabled"');
   });
@@ -141,7 +143,7 @@ describe('Tickers list', () => {
     expect(html).toContain('Up to 20 tickers');
     expect(html).toContain('480 ticker wakes a day');
     expect(html).toContain('(set automatically from the team’s size)');
-    expect(html).toContain('Only whoever manages the App can change these settings.');
+    expect(html).toContain('These settings are read-only here.');
   });
 });
 
@@ -504,5 +506,19 @@ describe('Ticker page: the Task entry (portal#1384)', () => {
     expectReadOnly(detail());
     expectReadOnly(detail({ tickerTask: noLoc }));
     expectReadOnly(detail({ tickerTask: { kind: 'failed' } }));
+  });
+});
+
+describe('the copy says what the user can or must do', () => {
+  it('the empty state names the next step', () => {
+    expect(list()).toContain('Add one below to schedule wakes.');
+  });
+  it('says what happens at the limit, and only at the limit', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => ticker({ id: `tk-${i}`, name: `t${i}`, urn: `hrn:ticker:acme.com:team:t${i}` }));
+    expect(list({ tickers: { kind: 'ok', value: many(20) } })).toContain('data-testid="ticker-cap-reached"');
+    expect(list({ tickers: { kind: 'ok', value: many(19) } })).not.toContain('ticker-cap-reached');
+  });
+  it('the read-only settings say who can change them', () => {
+    expect(list()).toContain('owners and, for an organization’s App, that organization’s owners and admins');
   });
 });

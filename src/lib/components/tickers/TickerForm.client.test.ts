@@ -364,13 +364,13 @@ describe('TickerDelete', () => {
     expect(navigationCalls.filter((c) => c.fn === 'goto')).toHaveLength(0);
   });
 
-  it('a success leaves for the list instead of reloading the deleted ticker', async () => {
+  it('a success leaves for the Tickers section instead of reloading the deleted ticker', async () => {
     const root = await mountIt(TickerDelete, { appId: 'app-1', ticker: stored });
     root.querySelector<HTMLButtonElement>('button')!.click();
     await tick(2);
     await submitEnhancedWithResult(formOf(root), { type: 'success', status: 200, data: { action: 'delete', ok: true } });
     await tick(3);
-    expect(navigationCalls.find((c) => c.fn === 'goto')?.args[0]).toBe('/app/apps/app-1/tickers');
+    expect(navigationCalls.find((c) => c.fn === 'goto')?.args[0]).toBe('/app/apps/app-1?tab=settings&section=tickers');
   });
 
   // portal#1463 — focus, refusal and the pending window of the confirmation.

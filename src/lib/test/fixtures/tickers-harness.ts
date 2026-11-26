@@ -3,7 +3,7 @@
 // aliases and each component's own Svelte compile apply. The data is long on
 // purpose (names, URNs, quiet hours), since that is what pushes a phone wide.
 import { flushSync, mount, unmount } from 'svelte';
-import TickersList from '../../../routes/app/apps/[appId]/tickers/+page.svelte';
+import TickersList from '../../../routes/app/apps/[appId]/AppTickers.svelte';
 import TickerPage from '../../../routes/app/apps/[appId]/tickers/[tickerId]/+page.svelte';
 import WakeUpsPanel from '../../components/tickers/WakeUpsPanel.svelte';
 import WriteRefusalAlert from '../../components/agent-tasks/WriteRefusal.svelte';
@@ -118,7 +118,7 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
   if (view === 'list') {
     page = mount(TickersList, {
       target,
-      props: { data: { app, tickers: { kind: 'ok', value: [ticker] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null } } as never,
+      props: { appId: app.id, app, panel: { tickers: { kind: 'ok', value: [ticker] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null } } as never,
     });
   } else if (view in detailTask || view in rosters) {
     page = mount(TickerPage, {

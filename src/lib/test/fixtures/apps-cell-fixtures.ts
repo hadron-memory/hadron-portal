@@ -7,7 +7,7 @@ import Mine from '../../../routes/app/apps/+page.svelte';
 import Secrets from '../../../routes/app/apps/[appId]/AppSecrets.svelte';
 import Stops from '../../../routes/app/apps/[appId]/stops/+page.svelte';
 import Tasks from '../../../routes/app/apps/[appId]/tasks/+page.svelte';
-import Tickers from '../../../routes/app/apps/[appId]/tickers/+page.svelte';
+import Tickers from '../../../routes/app/apps/[appId]/AppTickers.svelte';
 import Channels from '../../../routes/app/apps/[appId]/channels/+page.svelte';
 import { addAttendanceSchema, createChannelSchema, deleteChannelSchema, editAttendanceSchema, removeAttendanceSchema, renameChannelSchema } from '../../../routes/app/apps/[appId]/channels/schema';
 import Grants from '../../../routes/app/apps/[appId]/grants/+page.svelte';
@@ -87,8 +87,8 @@ export function mountAppsCellFixture(target: HTMLElement, kind: string): (() => 
     setStubPage('http://localhost/app/apps/fixture-app/tickers', { appId: app.id });
     const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
     const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false } };
-    const data = { app, tickers: { kind: 'ok', value: [0, 1, 2].map(ticker) }, settings, delivery, subscriberCountPage: 50, loadedAt: at, impersonating: null };
-    const instance = mount(Tickers as never, { target, props: { data } } as never);
+    const panel = { tickers: { kind: 'ok', value: [0, 1, 2].map(ticker) }, settings, delivery, subscriberCountPage: 50, loadedAt: at, impersonating: null };
+    const instance = mount(Tickers as never, { target, props: { appId: app.id, app, panel } } as never);
     return () => unmount(instance);
   }
   if (kind === 'apps-mine') {
