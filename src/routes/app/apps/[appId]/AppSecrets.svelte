@@ -11,6 +11,8 @@
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { updatedFilterText } from '$lib/secrets/format';
   import { isOpenState } from '$lib/secrets/staged';
+  import Urn from '$lib/components/Urn.svelte';
+  import { composeAppSecretUrnV2 } from '$lib/urn/parse-urn';
   import { t } from '$lib/i18n/t';
   import type { AppSecret } from '$lib/server/secrets';
   import type { loadSecretsPanel } from './secrets-panel';
@@ -23,7 +25,7 @@
    */
   type Panel = NonNullable<Awaited<ReturnType<typeof loadSecretsPanel>>>;
   type Answer = { action: string; ok?: true; staged?: true; name?: string; message?: string };
-  let { appId, panel: initial, form = null }: { appId: string; panel: Panel; form?: unknown } = $props();
+  let { appId, appUrn = '', panel: initial, form = null }: { appId: string; appUrn?: string; panel: Panel; form?: unknown } = $props();
 
   // The panel shown. Every response goes through `accept`, whichever way it arrived: this section's own re-read, a
   // PendingChange re-read, or a fresh read of the section from the page.
@@ -71,6 +73,7 @@
 
   const submit: SubmitFunction = () => async ({ update }) => {
     await update({ invalidateAll: false });
+    typedName = null;
     await reread().catch(() => {});
   };
 
@@ -86,6 +89,24 @@
 
   // The name a refused create gave back so it can be corrected; a staged or successful create leaves the field empty (portal#2436).
   const retypedName = $derived(answer?.action === 'createSecret' && !answer.staged && !answer.ok ? (answer.name ?? '') : '');
+
+  // The URN this name will have, shown as it is typed so the name and the URN read as one thing, and so the URN can be
+  // copied into an automation straight away. Only a name the server would accept gets one; `hrn:app:<root>:<slug>` is
+  // the App's own URN.
+  let typedName = $state<string | null>(null);
+  // Trimmed, as the create action trims it before it checks the rule. The rule is the server's own (`validSecretName`
+  // in `$lib/server/secret-writes`, which a component cannot import); `composeAppSecretUrnV2` would not catch an
+  // uppercase name, so the check stays here.
+  const nameNow = $derived((typedName ?? retypedName).trim());
+  const previewUrn = $derived.by(() => {
+    const m = /^hrn:app:([^:]+):([^:]+)$/.exec(appUrn);
+    if (!m || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(nameNow)) return '';
+    try {
+      return composeAppSecretUrnV2(m[1], m[2], nameNow);
+    } catch {
+      return '';
+    }
+  });
   /** A staged create has no secret yet and carries the name asked for; any other request names its secret. */
   const pendingName = (p: { secretId: string | null; createName: string | null }) =>
     p.createName ?? (p.secretId ? (list.find((s) => s.id === p.secretId)?.name ?? null) : null);
@@ -111,7 +132,7 @@
 </script>
 
 <div class="space-y-4">
-  <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('secrets.intro', 'Values are stored encrypted and can be replaced, never read back.')}</p>
+  <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('secrets.intro', 'If this app needs a secret value, such as a password, to do its work while you are not there to supply it, you can store it in this app’s secrets store. Each secret is stored encrypted, and only this app can read it.')}</p>
 
   {#if impersonating}
     <p class="rounded-lg border border-zinc-300 p-3 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{t('secrets.impersonating', 'Impersonation sessions are read-only.')}</p>
@@ -133,7 +154,7 @@
   {#if panel.secrets.kind === 'failed'}
     <p role="alert" class="text-sm text-red-700 dark:text-red-400">{t('secrets.load-failed', "The secrets couldn't be loaded. Reload to try again.")}</p>
   {:else if list.length === 0}
-    <p class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="secrets-empty">{t('secrets.empty', 'No secrets yet.')}</p>
+    <p class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="secrets-empty">{t('secrets.empty', 'No secrets yet. Add one below if this app needs a value such as a password to do its work.')}</p>
   {:else}
     <DataTable
       {table}
@@ -160,11 +181,17 @@
   {/if}
 
   <form method="POST" action={actionUrl('createSecret')} use:enhance={submit} class="max-w-lg space-y-3">
-    <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.new.heading', 'New secret')}</h3>
+    <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.new.heading', 'Add a new secret to the store')}</h3>
     <div>
       <label for="secret-name" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.name', 'Name')}</label>
-      <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={retypedName} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+      <input id="secret-name" name="name" required maxlength="64" autocomplete="off" value={retypedName} oninput={(e) => (typedName = e.currentTarget.value)} aria-describedby="secret-name-help" class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
       <p id="secret-name-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.name.help', 'Starts with a lowercase letter or digit, then lowercase letters, digits and hyphens, up to 64 characters.')}</p>
+      {#if previewUrn}
+        <div class="mt-2" data-testid="secret-urn-preview">
+          <p class="mb-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.urn', 'This secret’s URN. Copy it to refer to the secret from an automation:')}</p>
+          <Urn value={previewUrn} type="secret" />
+        </div>
+      {/if}
     </div>
     <div>
       <label for="secret-value" class="block text-sm text-zinc-700 dark:text-zinc-300">{t('secrets.field.value', 'Value')}</label>
@@ -172,10 +199,13 @@
       <p id="secret-value-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.value.help', 'Stored as typed, with line breaks kept as new lines. A JSON object or array is stored as JSON.')}</p>
     </div>
     {#if signs}
-      <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-        <input type="checkbox" name="protected" class="rounded border-zinc-300" />
-        {t('secrets.field.protected', 'Require a passkey signature to change it')}
-      </label>
+      <div>
+        <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+          <input type="checkbox" name="protected" aria-describedby="secret-protected-help" class="rounded border-zinc-300" />
+          {t('secrets.field.protected', 'Protect with my passkey')}
+        </label>
+        <p id="secret-protected-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('secrets.field.protected.help', 'Every change to this secret, including creating it, then waits until you approve it with your passkey.')}</p>
+      </div>
     {/if}
     <button type="submit" disabled={!!impersonating} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{t('secrets.create.submit', 'Create')}</button>
     <div aria-live="polite">

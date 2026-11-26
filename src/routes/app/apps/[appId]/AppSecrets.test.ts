@@ -85,3 +85,14 @@ describe('the pending notices', () => {
     expect(html()).toContain('action="/app/apps/app-1?tab=settings&amp;section=secrets&amp;/createSecret"');
   });
 });
+
+describe('the copy says what the user can or must do', () => {
+  it('the empty state names the next step', () => {
+    expect(html({ secrets: { kind: 'ok', secrets: [], total: 0 } })).toContain('Add one below');
+  });
+  it('the passkey option says what it means for later changes, in helper text it is described by', () => {
+    const h = html();
+    expect(h).toContain('aria-describedby="secret-protected-help"');
+    expect(h).toMatch(/id="secret-protected-help"[^>]*>[^<]*waits until you approve it with your passkey/);
+  });
+});
