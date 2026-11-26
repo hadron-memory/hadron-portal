@@ -91,7 +91,7 @@
   const dateOf = (s: string | null | undefined) => {
     if (!s) return '—';
     const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? s : d.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+    return Number.isNaN(d.getTime()) ? s : d.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   };
   const priorityText = (p: string | null) => (p ? (PRIORITY_LABEL[p.toLowerCase() as PriorityKey] ?? p) : PRIORITY_LABEL.normal);
 
@@ -160,6 +160,11 @@
           {#each people as p (p.id)}<option value={p.id}>{personName(p)}</option>{/each}
           {#if assigneeUnlisted}<option value={assigneeUnlisted}>{assigneeUnlisted}</option>{/if}
         </select>
+        {#if data.people.withheld}
+          <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.questions.people.withheld', 'The member list is not shown to you, so only your own and everyone’s questions can be chosen.')}</p>
+        {:else if data.people.failed}
+          <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">{t('app.questions.people.failed', 'Couldn’t load the members, so they are not listed here.')}</p>
+        {/if}
       </div>
       <div class="min-w-0 basis-40">
         <label for="questions-priority" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.questions.filter.priority', 'Priority')}</label>
