@@ -72,6 +72,7 @@ const h = vi.hoisted(() => {
     AppInstallMarks: () => ({ app: { appAgents: [] } }),
     TeamStopSignals: () => ({ teamStopSignals: { signals: signals(), pageInfo: { hasNextPage: false, endCursor: null } } }),
     AppMemoryScope: () => ({ appMemoryScope: { items: [], total: 0 } }),
+    AppUserMemoryClasses: () => ({ app: { viewerAppUserMemoryClasses: [] } }),
     AppMemories: () => ({ memories: { items: [], total: 0 } }),
     // Runs (already tab-gated before #2240; kept as it was).
     AppRuns: () => ({ appRuns: { items: [], total: 0 } }),
@@ -147,7 +148,7 @@ const TAB_OPS: Record<string, string[]> = {
   staff: ['Workers', 'AppTeamRoster', 'AppInstallMarks'],
   members: ['AppMembers'],
   agents: ['MyAgents', 'PublicAgents', 'MemberOrgIds', 'AppBootPointers', 'AppInstallMarks', 'SelfCanManage'],
-  memory: ['AppNodesPage', 'AppMemoryScope', 'SelfCanManage'],
+  memory: ['AppNodesPage', 'AppMemoryScope', 'AppUserMemoryClasses', 'SelfCanManage'],
   keys: ['AppKeys', 'AppKeyScopes'],
   'ai-configs': ['AiServiceConfigs', 'SelfCanManage'],
   settings: ['Workers', 'AppChatbotAiConfig', 'AppSaturationAlarmWakeRoles', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'SelfCanManage', 'AppMemoryScope'],

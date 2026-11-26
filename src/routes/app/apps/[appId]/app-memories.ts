@@ -8,7 +8,7 @@ import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { fetchAllItems } from '$lib/server/paginate';
 import { t } from '$lib/i18n/t';
-import { attachAppMemorySchema, createAppMemorySchema } from './schema';
+import { attachAppMemorySchema, createAppMemorySchema, createOwnAppMemorySchema } from './schema';
 
 export interface CreatedAppMemory { id: string; urn: string; name: string }
 // code: set only when the refusal's reason is something the page already says (AGENT_NOT_INSTALLED), so the
@@ -130,4 +130,50 @@ export async function readAttachableMemories(client: ReturnType<typeof gqlClient
       OPTIONAL_LIST_TIMEOUT_MS, null);
     return rows === null ? null : rows.filter(m => !m.appId && (m.organizationId ?? null) === orgId).map(({ id, urn, name, visibility }) => ({ id, urn, name, visibility }));
   } catch { return null; }
+}
+
+// portal#2634 — a member's own personal or private memory (hrn:node:hadronmemory.com:specs:cor:dmo:060:20). The class
+// is the member's only choice; the server derives the name and the URN (under the member's own root) and decides every
+// outcome. `name` is a required argument of the mutation that the server ignores for these two classes, so a fixed
+// label goes there and no user text does.
+export const CREATE_MEMORY_IN_APP_MUTATION = /* GraphQL */ `
+  mutation CreateMemoryInApp($appRef: ID!, $agentRef: ID!, $memoryClass: MemoryClass!, $name: String!) {
+    createMemoryInApp(appRef: $appRef, agentRef: $agentRef, memoryClass: $memoryClass, name: $name) { id urn name }
+  }
+`;
+export const APP_USER_MEMORY_CLASSES_QUERY = /* GraphQL */ `query AppUserMemoryClasses($ref: ID!) { app(ref: $ref) { viewerAppUserMemoryClasses } }`;
+export type OwnMemoryClass = 'personal' | 'private';
+export type OwnMemoryMessage = App.Superforms.Message & { created?: CreatedAppMemory };
+
+/**
+ * The classes the server says this viewer may still create (App.viewerAppUserMemoryClasses), exactly: the portal
+ * adds no rule of its own, so a member who holds a private memory is offered `personal` only and an empty list offers
+ * nothing. Null means the read failed, which offers nothing too. A class this form cannot create is dropped, never offered.
+ */
+export async function readViewerMemoryClasses(client: ReturnType<typeof gqlClient>, appId: string): Promise<OwnMemoryClass[] | null> {
+  try {
+    const res = await withTimeout(client.request<{ app: { viewerAppUserMemoryClasses: string[] } | null }>(APP_USER_MEMORY_CLASSES_QUERY, { ref: appId }), OPTIONAL_LIST_TIMEOUT_MS, null);
+    const classes = res?.app?.viewerAppUserMemoryClasses;
+    return classes ? classes.filter((c): c is OwnMemoryClass => c === 'personal' || c === 'private') : null;
+  } catch { return null; }
+}
+
+export async function createOwnMemory({ request, params, locals }: { request: Request; params: { appId: string }; locals: { token?: string | null } }) {
+  const form = await superValidate<Infer<typeof createOwnAppMemorySchema, 'zod4'>, OwnMemoryMessage>(await request.formData(), zod4(createOwnAppMemorySchema), { id: `createOwnAppMemory:${params.appId}` });
+  if (!form.valid) return fail(400, { form });
+  const label = form.data.memoryClass === 'personal' ? 'Personal memory' : 'Private memory';
+  try {
+    const { createMemoryInApp: created } = await gqlClient(locals.token).request<{ createMemoryInApp: CreatedAppMemory }>(CREATE_MEMORY_IN_APP_MUTATION, { appRef: params.appId, agentRef: form.data.agentId, memoryClass: form.data.memoryClass, name: label });
+    return message(form, { type: 'success', text: t('app.memory.own-created', 'Memory created.'), created });
+  } catch (e: unknown) {
+    // The code selects fixed copy, never the message text (Tunable wording, cor:api:140:01); no raw GraphQL or transport text.
+    const code = extractGqlErrorCode(e);
+    const refusal = code === 'APP_USER_MEMORY_ALREADY_EXISTS' ? [409, t('app.memory.own-exists', 'You already have a memory of this kind in this App.')] as const
+      : code === 'FORBIDDEN' ? [403, t('app.memory.own-forbidden', 'Only a member of this App, signed in as themselves, can create their own memory here.')] as const
+      : code === 'UNAUTHENTICATED' ? [401, t('app.memory.sign-in-own', 'Sign in again to create your memory.')] as const
+      : code === 'AGENT_NOT_INSTALLED' || code === 'APP_UNINSTALLED' ? [409, t('app.memory.no-agent', 'Install an Agent in this App before adding a memory.')] as const
+      : code === 'UNSUPPORTED_MEMORY_CLASS' ? [400, t('app.memory.own-unsupported', 'Creating your own memory isn’t available in this App.')] as const
+      : [500, t('app.memory.own-failed', 'Could not create your memory. Please try again.')] as const;
+    return message(form, { type: 'error', text: refusal[1] }, { status: refusal[0] });
+  }
 }
