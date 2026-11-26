@@ -131,6 +131,19 @@ describe('UX seat findings (P2 x2, P3 x3)', () => {
   });
 });
 
+describe('portal#2664 follow-ups', () => {
+  it('with members withheld, the help says why only the viewer is listed (and not "They")', async () => {
+    const m = await mount(noLog({ setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada')], fixed: true }, viewer: person('u1', 'Ada') } }));
+    const help = setupForm(m)!.textContent!.replace(/\s+/g, ' ');
+    expect(help).toContain('Only you can be named here, because the member list is not shown to you.');
+    expect(help).not.toMatch(/\bThey\b/);
+  });
+  it('a person without a name or handle is never shown as an account id', async () => {
+    const m = await mount(noLog({ setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada'), { id: 'acct-777', name: null, handle: null }], fixed: false }, viewer: person('u1', 'Ada') } }));
+    expect(setupForm(m)!.textContent).not.toContain('acct-777');
+  });
+});
+
 describe('BLIND findings', () => {
   it('picking another memory moves the URN line and the submitted memory (F8)', async () => {
     const m = await mount(noLog());

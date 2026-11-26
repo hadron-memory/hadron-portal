@@ -99,6 +99,19 @@ describe('canonical URLs', () => {
   });
 });
 
+describe('a valid but non-canonical priority list (portal#2664)', () => {
+  it('redirects 303 to the canonical spelling and keeps the rest of the view', async () => {
+    serve();
+    await expect(loadPage('?sort=newest&priority=urgent,low')).rejects.toMatchObject({ status: 303, location: '/app/apps/app-1/questions?sort=newest&priority=low%2Curgent' });
+    await expect(loadPage('?priority=low,low')).rejects.toMatchObject({ status: 303, location: '/app/apps/app-1/questions?priority=low' });
+  });
+  it('a canonical list does not redirect, and the set filters the same either way', async () => {
+    serve();
+    await loadPage('?priority=low,urgent');
+    expect(questionsVars().priority).toEqual(['LOW', 'URGENT']);
+  });
+});
+
 describe('failure is not emptiness', () => {
   it('a failed questions read is { kind: "failed" }, never an empty list', async () => {
     serve({ questionsError: new Error('boom') });

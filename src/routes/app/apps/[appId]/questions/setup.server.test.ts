@@ -91,6 +91,28 @@ describe('only what was offered is accepted (400, no create request)', () => {
   });
 });
 
+describe('portal#2664 follow-ups', () => {
+  it('QUESTION_LOG_EXISTS with only one memory on offer does not say "choose another": there is none', async () => {
+    scope = [scopeRow('m1', 'app')];
+    createError = gqlError('QUESTION_LOG_EXISTS');
+    const r = await outcome(submit({ memoryId: 'm1', deciders: ['u1'] }));
+    expect(r.returned).toMatchObject({ status: 409 });
+    expect(r.returned.data.createLog.error).not.toMatch(/Choose another memory/);
+    expect(r.returned.data.createLog.error).toMatch(/no other memory/i);
+  });
+  it('QUESTION_LOG_EXISTS with several memories on offer still says to choose another', async () => {
+    createError = gqlError('QUESTION_LOG_EXISTS');
+    const r = await outcome(submit({ memoryId: 'm1', deciders: ['u1'] }));
+    expect(r.returned.data.createLog.error).toMatch(/Choose another memory/);
+  });
+  it('a readable but empty memory scope still answers 400 (nothing was offered), not 503', async () => {
+    scope = [];
+    const r = await outcome(submit({ memoryId: 'm1', deciders: ['u1'] }));
+    expect(creates()).toHaveLength(0);
+    expect(r.returned).toMatchObject({ status: 400 });
+  });
+});
+
 describe('BLIND findings', () => {
   it('an unreadable memory scope is a load failure, not "choose a memory" (F1)', async () => {
     scopeError = new Error('boom');
