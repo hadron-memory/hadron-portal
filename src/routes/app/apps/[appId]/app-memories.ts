@@ -110,7 +110,7 @@ export async function attachMemory({ request, params, locals }: { request: Reque
 }
 
 // The memories a link could take, for the picker: every memory the caller can read except `system`, whoever owns it,
-// whichever organization it is in and whichever App already links it (the link law, cor:dmo:060:20). The server's
+// whichever organization it is in and whichever App already links it (the link law, hrn:node:hadronmemory.com:specs:cor:dmo:060:20). The server's
 // attach stays the authority on what links.
 export const ATTACHABLE_MEMORIES_QUERY = /* GraphQL */ `
   query AttachableMemories($limit: Int, $offset: Int) {
