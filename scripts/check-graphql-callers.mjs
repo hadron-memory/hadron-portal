@@ -19,7 +19,7 @@
 import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import ts from 'typescript';
-import { parse } from 'graphql';
+import { parse, typeFromAST, getNamedType, isInputObjectType, isListType, isNonNullType } from 'graphql';
 
 /** `limit`/`offset` are injected by fetchAllItems itself, not by the caller. */
 const PAGER_INJECTED = ['limit', 'offset'];
@@ -126,13 +126,16 @@ export function declaredVariables(documents, resolve) {
     if (!op) continue; // fragment-only const
     const all = new Set();
     const required = new Set();
+    // #2609: the declared type of each variable, so an input-object variable's KEYS can be checked too.
+    const types = new Map();
     for (const v of op.variableDefinitions ?? []) {
       const name = v.variable.name.value;
       all.add(name);
+      types.set(name, v.type);
       // Required = non-null and no default. Anything else the caller may omit.
       if (v.type.kind === 'NonNullType' && v.defaultValue === undefined) required.add(name);
     }
-    out.set(doc.name, { all, required, opName: op.name?.value ?? '(anon)' });
+    out.set(doc.name, { all, required, types, opName: op.name?.value ?? '(anon)' });
   }
   return out;
 }
@@ -294,7 +297,7 @@ function readVariablesArg(node, locals, callPos) {
  * Every GraphQL call site in one file.
  * Yields { docName, keys, injected, line } — keys null when not statically readable.
  */
-function callSites(source) {
+export function callSites(source) {
   const locals = collectLocalObjects(source);
   const chooserNames = chooserBindings(source);
   const chooserHeld = chooserLocals(source, chooserNames);
@@ -342,6 +345,8 @@ function callSites(source) {
           found.push({
             docName: CHOOSER_REPRESENTATIVE,
             vars: readVariablesArg(varsArg, locals, node.getStart(source)),
+            varsNode: varsArg,
+            pos: node.getStart(source),
             injected,
             line,
           });
@@ -349,6 +354,8 @@ function callSites(source) {
           found.push({
             docName: docArg.text,
             vars: readVariablesArg(varsArg, locals, node.getStart(source)),
+            varsNode: varsArg,
+            pos: node.getStart(source),
             injected,
             line,
           });
@@ -455,5 +462,301 @@ export function findCallerMismatches(files, declared, root) {
     }
   }
 
+  return { failures, checked, skipped };
+}
+
+
+// ---------------------------------------------------------------------------
+// #2609 — the keys INSIDE an input-object variable.
+//
+// findCallerMismatches checks the TOP-LEVEL keys of the variables a caller
+// passes. A node write passes `{ input }`, and the keys of `input` (`memoryId`,
+// `id`, `edges[].targetId`) were checked by nothing: the node-update input type
+// has an index signature and most inputs are `Record<string, unknown>`, so tsc
+// sees nothing either. hadron-server#5080 renamed 21 such fields to `*Ref`; the
+// portal would have shipped every node save broken, silently, until runtime.
+//
+// For each call site whose variables are statically readable, an input-typed
+// variable's value is read — an object literal, a `const input = {…}` visible
+// from the call (resolved by scope, so one `input` per action does not read as
+// one ambiguous name), `input.x = …` assignments before the call, nested
+// objects, and `list.map((e) => ({…}))` — and its keys are checked against that
+// input type in the schema snapshot. What cannot be read is reported as skipped
+// and never passes silently.
+// ---------------------------------------------------------------------------
+
+/** Parentheses, `as`, `satisfies` and `!` do not change which object a value is. */
+function unwrapExpr(node) {
+  let n = node;
+  while (
+    n &&
+    (ts.isParenthesizedExpression(n) ||
+      ts.isAsExpression(n) ||
+      ts.isSatisfiesExpression(n) ||
+      ts.isNonNullExpression(n))
+  ) {
+    n = n.expression;
+  }
+  return n;
+}
+
+const SCOPE_KINDS = new Set([
+  ts.SyntaxKind.Block,
+  ts.SyntaxKind.SourceFile,
+  ts.SyntaxKind.ModuleBlock,
+  ts.SyntaxKind.CaseClause,
+  ts.SyntaxKind.DefaultClause,
+  ts.SyntaxKind.ForStatement,
+  ts.SyntaxKind.ForOfStatement,
+  ts.SyntaxKind.ForInStatement,
+  ts.SyntaxKind.CatchClause,
+]);
+
+function scopeOf(node) {
+  for (let p = node.parent; p; p = p.parent) {
+    if (SCOPE_KINDS.has(p.kind) || ts.isFunctionLike(p)) return p;
+  }
+  return null;
+}
+
+/**
+ * Every name a file binds, with where it is visible, so a use resolves to the
+ * NEAREST binding. `literal` is the object literal it was initialised with, or
+ * null for a parameter, a destructured binding, a loop variable or any other
+ * initialiser. A nearest binding with no literal means "not readable" — it must
+ * never fall through to an outer binding of the same name.
+ */
+function collectBindings(source) {
+  const bindings = [];
+  const add = (name, node, literal) => {
+    bindings.push({ name, scope: scopeOf(node), pos: node.getStart(source), literal, assignments: [] });
+  };
+  const bindName = (nameNode, literal) => {
+    if (ts.isIdentifier(nameNode)) add(nameNode.text, nameNode, literal);
+    else if (ts.isObjectBindingPattern(nameNode) || ts.isArrayBindingPattern(nameNode)) {
+      for (const el of nameNode.elements) if (ts.isBindingElement(el)) bindName(el.name, null);
+    }
+  };
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node)) {
+      const init = node.initializer ? unwrapExpr(node.initializer) : undefined;
+      bindName(node.name, init && ts.isObjectLiteralExpression(init) ? init : null);
+    } else if (ts.isParameter(node)) {
+      bindName(node.name, null);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return bindings;
+}
+
+function contains(scope, node) {
+  for (let p = node; p; p = p.parent) if (p === scope) return true;
+  return false;
+}
+
+/** The nearest binding of `name` visible at `node`, or null. */
+function resolveBinding(bindings, name, node) {
+  const use = node.getStart();
+  let best = null;
+  for (const b of bindings) {
+    if (b.name !== name || b.pos > use || !(b.scope && contains(b.scope, node))) continue;
+    if (!best || contains(best.scope, b.scope.parent ?? b.scope) || (b.scope === best.scope && b.pos > best.pos)) best = b;
+  }
+  return best;
+}
+
+function attachAssignments(source, bindings) {
+  const visit = (node) => {
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const lhs = node.left;
+      let owner = null;
+      let key = null;
+      if (ts.isPropertyAccessExpression(lhs) && ts.isIdentifier(lhs.expression)) {
+        owner = lhs.expression;
+        key = lhs.name.text;
+      } else if (
+        ts.isElementAccessExpression(lhs) &&
+        ts.isIdentifier(lhs.expression) &&
+        lhs.argumentExpression &&
+        ts.isStringLiteral(lhs.argumentExpression)
+      ) {
+        owner = lhs.expression;
+        key = lhs.argumentExpression.text;
+      }
+      if (owner) {
+        const b = resolveBinding(bindings, owner.text, node);
+        if (b && b.literal) b.assignments.push({ key, value: node.right, pos: node.getStart(source) });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+}
+
+/** A readable object: the literal, plus the `x.key = value` assignments that precede `pos`. */
+function readableObject(expr, bindings, pos) {
+  const e = unwrapExpr(expr);
+  if (!e) return null;
+  if (ts.isObjectLiteralExpression(e)) return { literal: e, assignments: [] };
+  if (ts.isIdentifier(e)) {
+    const b = resolveBinding(bindings, e.text, e);
+    return b && b.literal ? { literal: b.literal, assignments: b.assignments.filter((a) => a.pos < pos) } : null;
+  }
+  return null;
+}
+
+/** The members of `list.map((e) => ({…}))`, as one readable object per returned literal; null otherwise. */
+function mappedLiterals(expr) {
+  const e = unwrapExpr(expr);
+  if (!e || !ts.isCallExpression(e) || !ts.isPropertyAccessExpression(e.expression) || e.expression.name.text !== 'map') {
+    return null;
+  }
+  const fn = e.arguments[0];
+  if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) return null;
+  const body = fn.body;
+  if (!ts.isBlock(body)) {
+    const v = unwrapExpr(body);
+    return v && ts.isObjectLiteralExpression(v) ? [v] : null;
+  }
+  const returns = [];
+  const visit = (n) => {
+    if (n !== body && ts.isFunctionLike(n)) return;
+    if (ts.isReturnStatement(n) && n.expression) returns.push(unwrapExpr(n.expression));
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  return returns.length > 0 && returns.every((r) => r && ts.isObjectLiteralExpression(r)) ? returns : null;
+}
+
+/** Key name, value expression and whether the object may hold keys we cannot see. */
+function membersOf(readable, bindings) {
+  const members = [];
+  let exact = true;
+  const fromLiteral = (literal) => {
+    for (const prop of literal.properties) {
+      if (ts.isShorthandPropertyAssignment(prop)) members.push({ key: prop.name.text, value: prop.name });
+      else if (ts.isPropertyAssignment(prop)) {
+        const n = prop.name;
+        if (ts.isIdentifier(n) || ts.isStringLiteral(n)) members.push({ key: n.text, value: prop.initializer });
+        else exact = false;
+      } else if (ts.isSpreadAssignment(prop)) {
+        // `...(cond ? { role } : {})` — read the literals of both branches; anything else is unseen.
+        const sp = unwrapExpr(prop.expression);
+        const branches = sp && ts.isConditionalExpression(sp) ? [sp.whenTrue, sp.whenFalse] : [sp];
+        for (const b of branches) {
+          const lit = b && unwrapExpr(b);
+          if (lit && ts.isObjectLiteralExpression(lit)) fromLiteral(lit);
+          else exact = false;
+        }
+      } else exact = false;
+    }
+  };
+  fromLiteral(readable.literal);
+  for (const a of readable.assignments) members.push({ key: a.key, value: a.value });
+  return { members, exact };
+}
+
+const STEM = /(Refs|Ref|Ids|Id)$/;
+const stem = (k) => (k === 'id' || k === 'ref' ? 'ref' : k.replace(STEM, ''));
+
+/**
+ * Check one value against an input type. Pushes errors/skips into `acc`.
+ * `type` is a GraphQLType (not an AST node).
+ */
+function checkValue(expr, type, ctx, path) {
+  const named = getNamedType(type);
+  if (!isInputObjectType(named)) return;
+  const e = unwrapExpr(expr);
+  if (!e) return;
+  if (e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined')) return;
+
+  let t = type;
+  if (isNonNullType(t)) t = t.ofType;
+  if (isListType(t)) {
+    const item = t.ofType;
+    if (ts.isArrayLiteralExpression(e)) {
+      e.elements.forEach((el, i) => checkValue(el, item, ctx, `${path}[${i}]`));
+      return;
+    }
+    const mapped = mappedLiterals(e);
+    if (mapped) {
+      for (const lit of mapped) checkValue(lit, item, ctx, `${path}[]`);
+      return;
+    }
+    ctx.skipped.push(`${ctx.rel}:${ctx.line}  ${ctx.doc} ${path} (list of ${named.name} not statically readable)`);
+    return;
+  }
+
+  const readable = readableObject(e, ctx.bindings, ctx.pos);
+  if (!readable) {
+    ctx.skipped.push(`${ctx.rel}:${ctx.line}  ${ctx.doc} ${path} (${named.name} not statically readable)`);
+    return;
+  }
+  ctx.checked += 1;
+  const fields = named.getFields();
+  const { members, exact } = membersOf(readable, ctx.bindings);
+  if (!exact) {
+    ctx.skipped.push(`${ctx.rel}:${ctx.line}  ${ctx.doc} ${path} (${named.name} has keys the gate cannot read; the readable ones were checked)`);
+  }
+  const passed = new Set(members.map((m) => m.key));
+  for (const m of members) {
+    const field = fields[m.key];
+    if (!field) {
+      const hint = Object.keys(fields).filter((f) => !passed.has(f) && stem(f) === stem(m.key));
+      ctx.errors.push(
+        `${path} passes "${m.key}", which ${named.name} does not declare` +
+          (hint.length ? ` — did you mean ${hint.map((h) => `"${h}"`).join(' or ')}?` : ''),
+      );
+      continue;
+    }
+    checkValue(m.value, field.type, ctx, `${path}.${m.key}`);
+  }
+}
+
+/**
+ * Cross-check the keys of every statically readable input-object variable.
+ * Returns { failures, checked, skipped } like findCallerMismatches; `checked`
+ * counts the input objects whose keys were read.
+ */
+export function findInputKeyMismatches(files, declared, schema, root) {
+  const failures = [];
+  const skipped = [];
+  let checked = 0;
+
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8');
+    if (!/\.request\s*[<(]/.test(text) && !text.includes('fetchAllItems(')) continue;
+    const rel = relative(root, file);
+    const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
+    const bindings = collectBindings(source);
+    attachAssignments(source, bindings);
+
+    for (const site of callSites(source)) {
+      if (site.unresolved || site.inline || !site.varsNode) continue;
+      const spec = declared.get(site.docName);
+      if (!spec || !spec.types) continue;
+      const inputVars = [...spec.types].filter(([, node]) => isInputObjectType(getNamedType(typeFromAST(schema, node) ?? schema.getType('String'))));
+      if (inputVars.length === 0) continue;
+
+      const vars = readableObject(site.varsNode, bindings, site.pos);
+      if (!vars) {
+        skipped.push(`${rel}:${site.line}  ${site.docName} (input variables not statically readable)`);
+        continue;
+      }
+      const { members } = membersOf(vars, bindings);
+      for (const [name, typeNode] of inputVars) {
+        const type = typeFromAST(schema, typeNode);
+        if (!type) continue;
+        // The last write to a key wins; every conditional alternative is a candidate.
+        const values = members.filter((m) => m.key === name);
+        if (values.length === 0) continue;
+        const ctx = { rel, line: site.line, doc: site.docName, bindings, pos: site.pos, errors: [], skipped, checked: 0 };
+        for (const v of values) checkValue(v.value, type, ctx, `$${name}`);
+        checked += ctx.checked;
+        if (ctx.errors.length > 0) failures.push({ file: rel, line: site.line, name: site.docName, errors: ctx.errors });
+      }
+    }
+  }
   return { failures, checked, skipped };
 }

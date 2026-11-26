@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // @ts-expect-error — plain .mjs helpers, no type declarations by design.
-import { declaredVariables, findCallerMismatches } from './check-graphql-callers.mjs';
+import { declaredVariables, findCallerMismatches, findInputKeyMismatches } from './check-graphql-callers.mjs';
+import { buildSchema } from 'graphql';
 
 let dir: string;
 beforeAll(() => {
@@ -288,5 +289,89 @@ describe('the node-write chooser (#868)', () => {
     );
     expect(failures).toHaveLength(1);
     expect(failures[0].errors[0]).toContain('"wrong"');
+  });
+});
+
+
+// #2609 — the keys inside an input-object variable.
+const INPUT_SCHEMA = buildSchema(`
+  input EdgeInput { targetRef: ID!, name: String }
+  input WriteInput { ref: ID, memoryRef: ID, loc: String, tags: [String!], edges: [EdgeInput!], extra: EdgeInput }
+  type Query { x: Int }
+  type Mutation { write(input: WriteInput!): Int }
+`);
+const INPUT_DOCS = [
+  { name: 'WRITE_MUTATION', file: 'q.ts', line: 1, body: 'mutation Write($input: WriteInput!) { write(input: $input) }' },
+];
+const inputDeclared = declaredVariables(INPUT_DOCS, (d: { body: string }) => d.body);
+function checkInput(source: string) {
+  const file = join(dir, `input-${Math.abs(hash(source))}.ts`);
+  writeFileSync(file, source);
+  return findInputKeyMismatches([file], inputDeclared, INPUT_SCHEMA, dir);
+}
+
+describe('findInputKeyMismatches (#2609)', () => {
+  it('accepts an input whose keys the type declares, and counts it as read', () => {
+    const r = checkInput('client.request(WRITE_MUTATION, { input: { memoryRef: "m", loc: "l", tags: [] } });');
+    expect(r.failures).toEqual([]);
+    expect(r.checked).toBe(1);
+  });
+
+  it('fails an old key in an object literal, with the renamed field as the hint', () => {
+    const r = checkInput('client.request(WRITE_MUTATION, { input: { memoryId: "m", loc: "l" } });');
+    expect(r.failures).toHaveLength(1);
+    expect(r.failures[0].errors[0]).toMatch(/\$input passes "memoryId", which WriteInput does not declare — did you mean "memoryRef"\?/);
+  });
+
+  it('reads a const input passed by shorthand, and a stale id/ref pair', () => {
+    const r = checkInput('const input = { id: "n", loc: "l" };\nclient.request(WRITE_MUTATION, { input });');
+    expect(r.failures[0].errors[0]).toMatch(/passes "id".*did you mean "ref"/);
+  });
+
+  it('reads nested objects, `list.map(e => ({…}))` and array literals', () => {
+    const mapped = checkInput('client.request(WRITE_MUTATION, { input: { ref: "n", edges: rows.map((e) => ({ targetId: e.t, name: null })) } });');
+    expect(mapped.failures[0].errors[0]).toMatch(/\$input\.edges\[\] passes "targetId".*did you mean "targetRef"/);
+    const literal = checkInput('client.request(WRITE_MUTATION, { input: { ref: "n", edges: [{ targetId: "a" }] } });');
+    expect(literal.failures[0].errors[0]).toMatch(/\$input\.edges\[0\] passes "targetId"/);
+    const nested = checkInput('client.request(WRITE_MUTATION, { input: { ref: "n", extra: { targetId: "a" } } });');
+    expect(nested.failures[0].errors[0]).toMatch(/\$input\.extra passes "targetId"/);
+    expect(checkInput('client.request(WRITE_MUTATION, { input: { ref: "n", edges: rows.map((e) => ({ targetRef: e.t })) } });').failures).toEqual([]);
+  });
+
+  it('resolves `input` by scope: one per function is not ambiguous, and a shadowing binding is never read as the outer one', () => {
+    const two = checkInput(
+      'async function a() { const input = { ref: "ok" }; await client.request(WRITE_MUTATION, { input }); }\n' +
+        'async function b() { const input = { memoryId: "bad" }; await client.request(WRITE_MUTATION, { input }); }',
+    );
+    expect(two.checked).toBe(2);
+    expect(two.failures).toHaveLength(1);
+    expect(two.failures[0].line).toBe(2);
+    const shadow = checkInput(
+      'const input = { memoryId: "outer" };\n' +
+        'for (const { input } of planned) { await client.request(WRITE_MUTATION, { input }); }',
+    );
+    expect(shadow.failures).toEqual([]);
+    expect(shadow.skipped.join('\n')).toMatch(/\$input \(WriteInput not statically readable\)/);
+  });
+
+  it('applies `input.key = …` assignments that precede the call, and ignores one after it', () => {
+    const before = checkInput('const input: any = { ref: "n" };\ninput.memoryId = "m";\nclient.request(WRITE_MUTATION, { input });');
+    expect(before.failures[0].errors[0]).toMatch(/passes "memoryId"/);
+    const after = checkInput('const input: any = { ref: "n" };\nclient.request(WRITE_MUTATION, { input });\ninput.memoryId = "m";');
+    expect(after.failures).toEqual([]);
+  });
+
+  it('reads both branches of a conditional spread, and reports an unreadable spread as skipped', () => {
+    expect(checkInput('client.request(WRITE_MUTATION, { input: { ref: "n", ...(x ? { memoryId: "m" } : {}) } });').failures).toHaveLength(1);
+    const r = checkInput('client.request(WRITE_MUTATION, { input: { ref: "n", ...other } });');
+    expect(r.failures).toEqual([]);
+    expect(r.skipped.join('\n')).toMatch(/keys the gate cannot read/);
+  });
+
+  it('never passes an input it cannot read: a helper call is reported as skipped', () => {
+    const r = checkInput('client.request(WRITE_MUTATION, { input: buildInput() });');
+    expect(r.failures).toEqual([]);
+    expect(r.checked).toBe(0);
+    expect(r.skipped).toHaveLength(1);
   });
 });
