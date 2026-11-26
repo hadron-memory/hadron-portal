@@ -2,6 +2,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import StopSignalsPanel from '$lib/components/stops/StopSignalsPanel.svelte';
+  import { invalidateAll } from '$app/navigation';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -117,8 +118,11 @@
   }
   // The panel's writes run this right after a write that SUCCEEDED: a failed re-read must not throw out of their
   // submit handler (the write would then go unreported); it only says the list is stale.
+  // The live-stops banner above the tabs is the page load's own frame read, which this section's re-read does not
+  // return: the page is invalidated too, or the banner keeps saying what was true before the write (Garland's P2 on #2667).
   async function reloadAfterWrite() {
     refreshFailed = false;
+    void invalidateAll().catch(() => {});
     try {
       await reload();
     } catch {
