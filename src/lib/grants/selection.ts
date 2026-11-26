@@ -3,7 +3,7 @@ import { grantExpired } from "./approval";
 
 /**
  * The refusals a selection request or its withdrawal can answer that the page words from the
- * server's own text (hadron-server#5001; cor:acl:140:07). The page states no number of its own:
+ * server's own text (hadron-server#5001; hrn:node:hadronmemory.com:specs:cor:acl:140:07). The page states no number of its own:
  * the cap lives in SELECTION_TOO_LARGE's message and `extensions.cap`.
  */
 export const selectionRefusalCodes: readonly string[] = [
