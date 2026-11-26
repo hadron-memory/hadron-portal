@@ -586,7 +586,7 @@ function attachAssignments(source, bindings) {
       }
       if (owner) {
         const b = resolveBinding(bindings, owner.text, node);
-        if (b && b.literal) b.assignments.push({ key, value: node.right, pos: node.getStart(source) });
+        if (b && b.literal) b.assignments.push({ key, value: node.right, pos: node.getStart(source), node });
       }
     }
     ts.forEachChild(node, visit);
@@ -594,14 +594,50 @@ function attachAssignments(source, bindings) {
   visit(source);
 }
 
+/** Condition texts that name a plain value: reading one twice cannot give two answers. */
+function pureCondition(expr) {
+  const e = unwrapExpr(expr);
+  return e && (ts.isIdentifier(e) || (ts.isPropertyAccessExpression(e) && ts.isIdentifier(e.expression)))
+    ? e.getText()
+    : null;
+}
+
+/** For each enclosing `if (<plain value>)`, the arm `node` sits in. */
+function armsOf(node) {
+  const arms = new Map();
+  for (let p = node; p.parent; p = p.parent) {
+    const parent = p.parent;
+    if (!ts.isIfStatement(parent)) continue;
+    const text = pureCondition(parent.expression);
+    if (!text || arms.has(text)) continue;
+    if (p === parent.thenStatement) arms.set(text, 'then');
+    else if (p === parent.elseStatement) arms.set(text, 'else');
+  }
+  return arms;
+}
+
+/**
+ * Can `assignment` have run before `call`? Not when an `if (flag)` puts them in opposite arms, in
+ * the same statement or in two `if (flag)` statements on the same plain value: the `else` arm's
+ * `input.expectedRevision = …` never precedes a request made under `if (create)`, though it comes
+ * first in the source (install-customisation.ts).
+ */
+function exclusiveArms(assignment, call) {
+  const c = armsOf(call);
+  for (const [text, arm] of armsOf(assignment)) if (c.has(text) && c.get(text) !== arm) return true;
+  return false;
+}
+
 /** A readable object: the literal, plus the `x.key = value` assignments that precede `pos`. */
-function readableObject(expr, bindings, pos) {
+function readableObject(expr, bindings, pos, call) {
   const e = unwrapExpr(expr);
   if (!e) return null;
   if (ts.isObjectLiteralExpression(e)) return { literal: e, assignments: [] };
   if (ts.isIdentifier(e)) {
     const b = resolveBinding(bindings, e.text, e);
-    return b && b.literal ? { literal: b.literal, assignments: b.assignments.filter((a) => a.pos < pos) } : null;
+    return b && b.literal
+      ? { literal: b.literal, assignments: b.assignments.filter((a) => a.pos < pos && !(call && exclusiveArms(a.node, call))) }
+      : null;
   }
   return null;
 }
@@ -688,7 +724,7 @@ function checkValue(expr, type, ctx, path) {
     return;
   }
 
-  const readable = readableObject(e, ctx.bindings, ctx.pos);
+  const readable = readableObject(e, ctx.bindings, ctx.pos, ctx.call);
   if (!readable) {
     ctx.skipped.push(`${ctx.rel}:${ctx.line}  ${ctx.doc} ${path} (${named.name} not statically readable)`);
     return;
@@ -739,7 +775,7 @@ export function findInputKeyMismatches(files, declared, schema, root) {
       const inputVars = [...spec.types].filter(([, node]) => isInputObjectType(getNamedType(typeFromAST(schema, node) ?? schema.getType('String'))));
       if (inputVars.length === 0) continue;
 
-      const vars = readableObject(site.varsNode, bindings, site.pos);
+      const vars = readableObject(site.varsNode, bindings, site.pos, site.varsNode);
       if (!vars) {
         skipped.push(`${rel}:${site.line}  ${site.docName} (input variables not statically readable)`);
         continue;
@@ -751,7 +787,7 @@ export function findInputKeyMismatches(files, declared, schema, root) {
         // The last write to a key wins; every conditional alternative is a candidate.
         const values = members.filter((m) => m.key === name);
         if (values.length === 0) continue;
-        const ctx = { rel, line: site.line, doc: site.docName, bindings, pos: site.pos, errors: [], skipped, checked: 0 };
+        const ctx = { rel, line: site.line, doc: site.docName, bindings, pos: site.pos, call: site.varsNode, errors: [], skipped, checked: 0 };
         for (const v of values) checkValue(v.value, type, ctx, `$${name}`);
         checked += ctx.checked;
         if (ctx.errors.length > 0) failures.push({ file: rel, line: site.line, name: site.docName, errors: ctx.errors });

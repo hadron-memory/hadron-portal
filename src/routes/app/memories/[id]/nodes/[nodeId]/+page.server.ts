@@ -750,7 +750,7 @@ async function saveNodeText(
   const input = {
     // #237: memoryId from the node, not the URL. Selects the target together
     // with loc; omitted fields (name, description, …) are preserved.
-    memoryId: node.memoryId,
+    memoryRef: node.memoryId,
     loc: node.loc,
     expectedRevision,
     // #235 history: the old upsertNode resolver cleared omitted tags
@@ -852,7 +852,7 @@ export const actions: Actions = {
     if (!anchorNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     try {
       const res = await client.request<{ createNode: { id: string } }>(CREATE_NODE_MUTATION, {
-        input: { memoryId: anchorNode.memoryId, loc, name, nodeType: 'info' },
+        input: { memoryRef: anchorNode.memoryId, loc, name, nodeType: 'info' },
       });
       return {
         createdParentId: res.createNode.id,
@@ -941,7 +941,7 @@ export const actions: Actions = {
     // applied. Now a refusal leaves the node exactly where and as it was.
     const role = roleUpdate(form.data.role, form.data.roleSeed);
     const input = {
-      id: currentNode.id, name, nodeType, description, alias,
+      ref: currentNode.id, name, nodeType, description, alias,
       seq: Number.isNaN(seq) ? null : seq, tags, isRunnable,
       ...(role !== undefined ? { role } : {}),
     };
@@ -1170,7 +1170,7 @@ export const actions: Actions = {
     // #868: neither governance signal is touched — the door follows the
     // node's current kind. #237: memoryId from the node, not the URL. #235:
     // explicit tags pass-through, kept deliberately.
-    const input = { memoryId: node.memoryId, loc: node.loc, tags: node.tags ?? [], data: parsed.value };
+    const input = { memoryRef: node.memoryId, loc: node.loc, tags: node.tags ?? [], data: parsed.value };
     try {
       assertNodeUpdateDoor(node, input);
       await client.request(nodeUpdateDocument(node, input), { input });
@@ -1233,7 +1233,7 @@ export const actions: Actions = {
 
     // ONLY properties: an omitted field is preserved, and no governance signal
     // is touched, so the door is the node's current kind (#868).
-    const input = { memoryId: node.memoryId, loc: node.loc, properties: parsed.value };
+    const input = { memoryRef: node.memoryId, loc: node.loc, properties: parsed.value };
     try {
       assertNodeUpdateDoor(node, input);
       await client.request(nodeUpdateDocument(node, input), { input });
@@ -1285,7 +1285,7 @@ export const actions: Actions = {
       // node's current kind. See updateContent.
       const input = {
         // #237: memoryId from the node, not the URL.
-        memoryId: node.memoryId,
+        memoryRef: node.memoryId,
         loc: node.loc,
         // #235: explicit tags pass-through — see updateContent.
         tags: node.tags ?? [],
@@ -1482,7 +1482,7 @@ export const actions: Actions = {
       // file. Converting a node that is ALREADY governed some other way is the
       // case a fixed answer gets wrong, and the chooser refuses it loudly.
       const input = {
-        memoryId: node.memoryId,
+        memoryRef: node.memoryId,
         loc: node.loc,
         // #235: explicit tags pass-through — see updateContent.
         tags: node.tags ?? [],
@@ -1653,13 +1653,13 @@ export const actions: Actions = {
       // node's current kind. See updateContent.
       const input = {
         // #237: memoryId from the node, not the URL.
-        memoryId: node.memoryId,
+        memoryRef: node.memoryId,
         loc: node.loc,
         // #235: explicit tags pass-through — no longer load-bearing
         // under updateNode, kept deliberately. See updateContent.
         tags: node.tags ?? [],
         edges: edges.map((e) => ({
-          targetId: e.targetId,
+          targetRef: e.targetId,
           name: e.name ?? null,
         })),
       };
@@ -1707,7 +1707,7 @@ export const actions: Actions = {
         const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { ref: u.loc, memoryRef: anchorNode.memoryId });
         if (!node) continue;
         const input = {
-          memoryId: anchorNode.memoryId,
+          memoryRef: anchorNode.memoryId,
           loc: u.loc,
           // #235: explicit tags pass-through — no longer load-bearing
           // under updateNode, kept deliberately. See updateContent.

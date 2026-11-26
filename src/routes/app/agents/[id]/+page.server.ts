@@ -565,7 +565,7 @@ export const actions: Actions = {
       }
       attempted = true;
       await client.request(CREATE_NODE_MUTATION, {
-        input: { memoryId: agent.systemMemoryId, loc: BOOT_SOURCE_LOC, name: 'Boot prompt source', role: 'boot-prompt', content: seed },
+        input: { memoryRef: agent.systemMemoryId, loc: BOOT_SOURCE_LOC, name: 'Boot prompt source', role: 'boot-prompt', content: seed },
       });
       return message(form, {
         type: 'success',
@@ -665,20 +665,20 @@ export const actions: Actions = {
         if (!hasConversations.node) {
           // conversations parent
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryRef, loc: 'conversations', name: 'conversations', nodeType: 'system',
+            memoryRef: systemMemoryRef, loc: 'conversations', name: 'conversations', nodeType: 'system',
             description: 'Conversation designs',
           }}).catch(() => {});
 
           // setup conversation
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryRef, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
+            memoryRef: systemMemoryRef, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
             description: 'First-time user setup',
             data: { isSetup: true, stageOrder: ['onboard'] },
           }}).catch(() => {});
 
           // onboard stage
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryRef, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
+            memoryRef: systemMemoryRef, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
             description: 'Onboarding stage',
             data: {
               promptRef: 'prompts:setup:onboard',
@@ -688,27 +688,27 @@ export const actions: Actions = {
 
           // prompts parent
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryRef, loc: 'prompts', name: 'prompts', nodeType: 'system',
+            memoryRef: systemMemoryRef, loc: 'prompts', name: 'prompts', nodeType: 'system',
             description: 'Prompt templates',
           }}).catch(() => {});
 
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryRef, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
+            memoryRef: systemMemoryRef, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
           }}).catch(() => {});
 
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryRef, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
+            memoryRef: systemMemoryRef, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
             content: `You are ${agentDisplayName}.\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
           }}).catch(() => {});
 
           // partials
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryRef, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
+            memoryRef: systemMemoryRef, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
             description: 'Shared prompt fragments',
           }}).catch(() => {});
 
           await client.request(CREATE, { input: {
-            memoryId: systemMemoryRef, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
+            memoryRef: systemMemoryRef, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
             content: "Always respond using the 'respond' tool. Include:\n- message: your response to the user\n- data: any new information you learned\n- next_stage: null to stay, or the next stage name to transition",
           }}).catch(() => {});
         }

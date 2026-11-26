@@ -361,6 +361,28 @@ describe('findInputKeyMismatches (#2609)', () => {
     expect(after.failures).toEqual([]);
   });
 
+  it('ignores an assignment in the other arm of an if/else', () => {
+    const r = checkInput(
+      'const input: any = { ref: "n" };\n' +
+        'if (create) { client.request(WRITE_MUTATION, { input }); } else { input.memoryId = "m"; }',
+    );
+    expect(r.failures).toEqual([]);
+    const split = checkInput(
+      'const input: any = { ref: "n" };\n' +
+        'if (create) { input.loc = "l"; } else { input.memoryId = "m"; }\n' +
+        'if (create) { client.request(WRITE_MUTATION, { input }); }',
+    );
+    expect(split.failures).toEqual([]);
+    const other = checkInput(
+      'const input: any = { ref: "n" };\n' +
+        'if (a) { input.memoryId = "m"; }\n' +
+        'if (b) { client.request(WRITE_MUTATION, { input }); }',
+    );
+    expect(other.failures).toHaveLength(1);
+    const same = checkInput('const input: any = { ref: "n" };\nif (create) { input.memoryId = "m"; client.request(WRITE_MUTATION, { input }); }');
+    expect(same.failures).toHaveLength(1);
+  });
+
   it('reads both branches of a conditional spread, and reports an unreadable spread as skipped', () => {
     expect(checkInput('client.request(WRITE_MUTATION, { input: { ref: "n", ...(x ? { memoryId: "m" } : {}) } });').failures).toHaveLength(1);
     const r = checkInput('client.request(WRITE_MUTATION, { input: { ref: "n", ...other } });');

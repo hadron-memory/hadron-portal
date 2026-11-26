@@ -43,7 +43,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       // default), so this is no longer load-bearing — kept deliberately;
       // see routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts
       // updateContent for the rationale.
-      const input = { memoryId, loc: u.loc, tags: node.tags ?? [], seq: u.seq };
+      const input = { memoryRef: memoryId, loc: u.loc, tags: node.tags ?? [], seq: u.seq };
       assertNodeUpdateDoor(node, input);
       planned.push({ node, input });
     }
