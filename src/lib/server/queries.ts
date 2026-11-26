@@ -1633,7 +1633,7 @@ export const ACCEPT_INVITATION_MUTATION = /* GraphQL */ `
 export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation CreateMemory(
-    $orgRef: ID!, $name: String!, $shortDescription: String, $description: String,
+    $orgRef: ID!, $slug: String, $name: String!, $shortDescription: String, $description: String,
     $tags: [String!], $license: String,
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
@@ -1641,7 +1641,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
     $visibility: MemoryVisibility, $memoryClass: MemoryClass = knowledge
   ) {
     createMemory(
-      orgRef: $orgRef, name: $name, shortDescription: $shortDescription, description: $description,
+      orgRef: $orgRef, slug: $slug, name: $name, shortDescription: $shortDescription, description: $description,
       tags: $tags, license: $license,
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
@@ -1659,10 +1659,10 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
 export const CREATE_PERSONAL_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation CreatePersonalMemory(
-    $name: String!, $description: String, $tags: [String!],
+    $slug: String, $name: String!, $description: String, $tags: [String!],
     $memoryClass: MemoryClass = personal
   ) {
-    createMemory(name: $name, description: $description, tags: $tags, memoryClass: $memoryClass) {
+    createMemory(slug: $slug, name: $name, description: $description, tags: $tags, memoryClass: $memoryClass) {
       ...MemoryFields
     }
   }
@@ -2046,8 +2046,8 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgRef: ID!, $name: String!, $description: String, $systemMemoryRef: ID, $visibility: AgentVisibility) {
-    createAgent(orgRef: $orgRef, name: $name, description: $description, systemMemoryRef: $systemMemoryRef, visibility: $visibility) { ...AgentFields }
+  mutation CreateAgent($orgRef: ID!, $slug: String, $name: String!, $description: String, $systemMemoryRef: ID, $visibility: AgentVisibility) {
+    createAgent(orgRef: $orgRef, slug: $slug, name: $name, description: $description, systemMemoryRef: $systemMemoryRef, visibility: $visibility) { ...AgentFields }
   }
 `;
 
