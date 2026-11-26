@@ -13,7 +13,7 @@
  *   - knowledge (default) → sends the chosen visibility, memoryClass 'knowledge'
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CREATE_MEMORY_MUTATION } from '$lib/server/queries';
+import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -66,7 +66,15 @@ describe('create-memory action (spec 034)', () => {
     const vars = createVars();
     expect(vars?.memoryClass).toBe('private');
     expect(vars?.visibility).toBeNull();
+    expect(vars?.slug).toBe('my-private');
     expect(vars?.name).toBe('my-private');
+  });
+
+  it('#2647: slug goes as `slug`, the display name as `name`, in one call with no rename', async () => {
+    await runCreate({ slug: 'my-notes', displayName: 'My Notes', memoryClass: 'knowledge', visibility: 'ORGANIZATION' });
+    expect(createVars()).toMatchObject({ slug: 'my-notes', name: 'My Notes' });
+    expect(mockRequest.mock.calls.filter((c) => c[0] === CREATE_MEMORY_MUTATION)).toHaveLength(1);
+    expect(mockRequest.mock.calls.some((c) => c[0] === UPDATE_MEMORY_MUTATION)).toBe(false);
   });
 
   it('personal → sends memoryClass=personal and visibility=null', async () => {
