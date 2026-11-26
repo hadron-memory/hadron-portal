@@ -70,8 +70,8 @@
 
   // #1604: a compact chip truncates, and its full URN is only in a `title`
   // tooltip, which a touch device cannot show. On a coarse pointer a compact,
-  // UNLINKED chip becomes a toggle between the truncated bare value and the
-  // whole fully-qualified URN (hrn:<type>: included), wrapped. #1686 extends
+  // UNLINKED chip becomes a toggle between the whole URN cut off at the end
+  // (hrn:<type>: always included) and the same URN wrapped in full. #1686 extends
   // reveal below the sm breakpoint so a keyboard-only user can read the value
   // too. A linked chip stays an anchor and gets a SEPARATE reveal button;
   // activation still navigates. A wide, fine-pointer chip keeps its plain
