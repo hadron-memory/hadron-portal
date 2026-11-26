@@ -145,3 +145,23 @@ describe("what the page offers as visible (portal#2648 reviews)", () => {
     expect(root.textContent).not.toMatch(/all (the )?(grants )?(were |are )?approved/i);
   });
 });
+describe("keyboard focus after the result (portal#2648 QA)", () => {
+  it("lands on the signing-page link after Sign selected", async () => {
+    const root = setup(); tick(boxes(root)[0], true);
+    await opened(root); await Promise.resolve(); flushSync();
+    await vi.waitFor(() => expect(document.activeElement?.textContent).toContain("Open the signing page"));
+  });
+  it("lands on Select all after Withdraw, and after Dismiss", async () => {
+    for (const how of ["withdraw", "dismiss"]) {
+      const root = setup(); tick(boxes(root)[0], true);
+      await opened(root); flushSync();
+      if (how === "withdraw") await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('form[action*="withdrawSelection"]')!, { type: "success", status: 200, data: { operation: "withdrawSelection", withdrawn: "sel1" } });
+      else [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Dismiss")!.click();
+      await vi.waitFor(() => expect((document.activeElement as HTMLInputElement | null)?.closest("label")?.textContent).toContain("Select all pending"));
+      mounted!.unmount(); mounted = undefined;
+    }
+  });
+  it("shows the section's own visible title", () => {
+    expect(setup().querySelector("section h2")?.textContent).toBe("Sign several grants");
+  });
+});
