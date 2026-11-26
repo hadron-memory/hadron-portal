@@ -167,6 +167,15 @@ describe("keyboard focus after the result (portal#2648 QA)", () => {
     await vi.waitFor(() => { expect(document.activeElement?.tagName).toBe("H2"); expect(document.activeElement?.textContent).toBe("Sign several grants"); });
     expect(root.textContent).toContain("Selection withdrawn.");
   });
+  it("Dismiss with no row left to sign puts focus on the page's grant filter, not the body", async () => {
+    const root = setup({ grants: { items: [grant("g1")], total: 1 } }); tick(boxes(root)[0], true);
+    await opened(root); flushSync();
+    (mounted!.instance.setData as (d: unknown) => void)({ ...grantsFixture(), grants: { items: [grant("g1", { activatedAt: "2026-11-12T11:59:00Z" })], total: 1 } });
+    flushSync();
+    [...root.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Dismiss")!.click();
+    await vi.waitFor(() => { expect(document.activeElement?.tagName).toBe("SELECT"); expect(document.activeElement?.getAttribute("aria-label")).toBe("Show grants on this page"); });
+    expect(root.textContent).not.toContain("Sign several grants");
+  });
   it("an empty reason names the checkbox by the action instead", () => {
     const root = setup({ grants: { items: [grant("g1", { reason: "" })], total: 1 } });
     expect(boxes(root)[0].getAttribute("aria-label")).toBe("Select to sign together: schedule.create");

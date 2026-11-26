@@ -66,6 +66,7 @@
   const nodes = $derived(view?.nodes ?? data.nodes);
   const actors = $derived(view?.actors ?? data.actors ?? {});
   let pageFilter = $state<GrantPageFilter>("all");
+  let filterSelect = $state<HTMLSelectElement>();
   let now = $state(Date.now());
   let awaitingCeremony = $state<{ id: string; scope: string } | null>(null);
   // portal#2638: the grants a person chose to sign together, and the selection the server holds open for them.
@@ -454,6 +455,7 @@
     <label class="block space-y-1 text-sm">
       <span>{t("grants.filter.scope", "Show grants on this page")}</span>
       <select
+        bind:this={filterSelect}
         aria-label={t("grants.filter.scope", "Show grants on this page")}
         bind:value={pageFilter}
         class="min-h-11 max-w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
@@ -480,6 +482,7 @@
         onopened={startSelection}
         onrefresh={() => void refreshGrants("approval")}
         onended={endSelection}
+        fallbackFocus={filterSelect}
       />{/key}{/if}
     <DataTable
       {table}

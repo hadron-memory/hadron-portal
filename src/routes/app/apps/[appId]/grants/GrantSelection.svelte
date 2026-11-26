@@ -18,6 +18,7 @@
     onopened,
     onrefresh,
     onended,
+    fallbackFocus,
   }: {
     /** Grant id to whether it is selected; only ids still signable on this page are ever sent. */
     selected: Record<string, boolean>;
@@ -31,6 +32,8 @@
     onopened: (refs: string[]) => void;
     onrefresh: () => void;
     onended: () => void;
+    /** Where focus goes when the section itself is gone (Dismiss with nothing left to sign). */
+    fallbackFocus?: HTMLElement;
   } = $props();
   const uid = $props.id();
   const refs = $derived(signable.filter((id) => selected[id]));
@@ -42,7 +45,7 @@
   let allBox = $state<HTMLInputElement>();
   let title = $state<HTMLHeadingElement>();
   // Select all is disabled when no row is signable, and a disabled box cannot take focus: the title does.
-  const refocus = () => (signable.length ? allBox : title)?.focus();
+  const refocus = () => (signable.length ? allBox : (title ?? fallbackFocus))?.focus();
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
   // The selection the server holds open for this person, with the link it answered. Never composed here.
