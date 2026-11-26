@@ -97,6 +97,23 @@ describe('the Channels section', () => {
     expect(root.textContent).toContain('Team chat');
   });
 
+  // Gino's P2 on #2668: the loader answers its own failure as { kind: 'failed' } with a 200. Mutant: drop the kind check
+  // in reload() and the good list is swapped for "Couldn’t load the channels.".
+  it.each([
+    ['a panel that is itself the failed state', { channelsPanel: { kind: 'failed' } }],
+    ['a 200 with no panel', {}],
+  ])('a re-read that answers %s keeps the list and says it could not refresh', async (_name, body) => {
+    vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => body }));
+    const root = await mountIt(await okPanel());
+    const done = await superValidate({ _kind: 'createChannel', name: 'Release', slug: 'release', description: '' }, zod4(createChannelSchema), { errors: false });
+    done.message = { type: 'success', text: 'Channel created.' };
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('form[action$="/createChannel"]')!, { type: 'success', status: 200, data: { form: done } });
+    await tick(8);
+    expect(root.textContent).toContain('Team chat');
+    expect(root.textContent).not.toContain('Couldn’t load the channels.');
+    expect(root.textContent).toContain('Couldn’t refresh.');
+  });
+
   it('the organization’s register is linked only for an organization the person belongs to', async () => {
     const orgRow = {
       id: 're-9', ownerType: 'ORG', ownerId: 'org-1', appId: null, organizationId: 'org-1', channelId: 'ch-team',

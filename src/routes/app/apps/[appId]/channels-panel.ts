@@ -39,9 +39,8 @@ type AppChannels = {
   channels: { total: number; items: Channel[] };
 };
 
-
 /**
- * #942 slice 2: an App's Channels (spec 049 phase 4).
+ * What the section reads, and why (spec 049 phase 4).
  *
  * - The list is `channels(filter: {appRef})`: only Channels whose host memory
  *   the caller may read. There's no existence oracle, so there's nothing to

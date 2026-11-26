@@ -24,7 +24,10 @@
     const res = await fetch(`${basePath}/tab?tab=channels`, { headers: { accept: 'application/json' } });
     if (!res.ok) throw new Error(`channels re-read ${res.status}`);
     const next = (await res.json()) as { channelsPanel?: Panel | null };
-    if (next.channelsPanel && mine === readSeq) reread = { against, panel: next.channelsPanel };
+    // The loader reports its own failure as `{ kind: 'failed' }` with a 200, and a 200 can carry no panel at all: neither
+    // may replace a list that is shown, and neither is "refreshed" (Gino's P2 and P3 on #2668).
+    if (!next.channelsPanel || next.channelsPanel.kind === 'failed') throw new Error('channels re-read answered no panel');
+    if (mine === readSeq) reread = { against, panel: next.channelsPanel };
   }
 
   let refreshFailed = $state(false);

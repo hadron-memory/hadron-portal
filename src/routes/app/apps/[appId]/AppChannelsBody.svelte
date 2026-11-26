@@ -1,8 +1,7 @@
 <script lang="ts">
   import LiveRegion from '$lib/components/LiveRegion.svelte';
-  // #942 slice 2: an App's Channels. A table of the Channels in this App's
-  // memories, with create / rename / delete through the sanctioned Channel
-  // mutations. Register (who attends which Channel) is the next slice.
+  // #942: an App's Channels. A table of the Channels in this App's memories, with create / rename / delete through the
+  // sanctioned Channel mutations, then the register (who attends which Channel) and the effective view.
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
