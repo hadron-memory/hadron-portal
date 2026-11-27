@@ -166,7 +166,7 @@ export async function createOwnMemory({ request, params, locals }: { request: Re
     const { createMemoryInApp: created } = await gqlClient(locals.token).request<{ createMemoryInApp: CreatedAppMemory }>(CREATE_MEMORY_IN_APP_MUTATION, { appRef: params.appId, agentRef: form.data.agentId, memoryClass: form.data.memoryClass, name: label });
     return message(form, { type: 'success', text: t('app.memory.own-created', 'Memory created.'), created });
   } catch (e: unknown) {
-    // The code selects fixed copy, never the message text (Tunable wording, cor:api:140:01); no raw GraphQL or transport text.
+    // The code selects fixed copy, never the message text (Tunable wording, hrn:node:hadronmemory.com:specs:cor:api:140:01); no raw GraphQL or transport text.
     const code = extractGqlErrorCode(e);
     const refusal = code === 'APP_USER_MEMORY_ALREADY_EXISTS' ? [409, t('app.memory.own-exists', 'You already have a memory of this kind in this App.')] as const
       : code === 'FORBIDDEN' ? [403, t('app.memory.own-forbidden', 'Only a member of this App, signed in as themselves, can create their own memory here.')] as const

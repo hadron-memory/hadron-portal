@@ -1,6 +1,6 @@
 /**
  * portal#2634: a member creates their own personal or private memory in an App. The class choices are exactly
- * App.viewerAppUserMemoryClasses; the server names the memory and decides every outcome (cor:dmo:060:20, cor:api:240:01).
+ * App.viewerAppUserMemoryClasses; the server names the memory and decides every outcome (hrn:node:hadronmemory.com:specs:cor:dmo:060:20, hrn:node:hadronmemory.com:specs:cor:api:240:01).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildSchema, parse, validate } from 'graphql';
