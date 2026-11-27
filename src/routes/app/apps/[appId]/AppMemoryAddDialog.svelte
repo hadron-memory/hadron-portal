@@ -2,7 +2,8 @@
   import { focusTrap } from '$lib/a11y/focus-trap';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
-  let { open = $bindable(false), hasAgent, canCreate, loading = false, onexisting, onnew }: {
+  import type { OwnMemoryClass } from './app-memories';
+  let { open = $bindable(false), hasAgent, canCreate, ownClasses = null, loading = false, onexisting, onnew, onown }: {
     open?: boolean;
     // Only creating a new memory needs an installed Agent: linking an existing one does not.
     hasAgent: boolean;
@@ -12,6 +13,9 @@
     loading?: boolean;
     onexisting: () => void;
     onnew: () => void;
+    // The classes the server offers this viewer for their own memory; empty or null offers nothing.
+    ownClasses?: OwnMemoryClass[] | null;
+    onown?: (memoryClass: OwnMemoryClass) => void;
   } = $props();
   const title = $derived(t('app.memory.add-title', 'Add a memory'));
   const escapeFallback = { close: () => { open = false; } };
@@ -43,6 +47,16 @@
           <!-- portal#1391: display only. It states no role or membership and no authorization rule the server did not
                state; the server's createAppMemory gate stays the authority. -->
           <p data-testid="app-memory-create-unavailable" class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.create-unavailable', 'Creating a new memory isn’t available to you here.')}</p>
+        {/if}
+        {#if ownClasses && ownClasses.length > 0 && onown}
+          <div data-testid="app-memory-own">
+            {#each ownClasses as memoryClass (memoryClass)}
+              <button type="button" aria-disabled={!hasAgent ? 'true' : undefined} onclick={() => { if (hasAgent) onown(memoryClass); }} data-testid="app-memory-own-{memoryClass}" class="{buttonClass} mb-2">
+                {memoryClass === 'personal' ? t('app.memory.own-personal', 'Create my personal memory') : t('app.memory.own-private', 'Create my private memory')}
+              </button>
+            {/each}
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.own.help', 'The App names it for you. You can hold one of each kind here.')}</p>
+          </div>
         {/if}
       </div>
       <div class="mt-5 flex justify-end">

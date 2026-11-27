@@ -19,7 +19,7 @@ import Page from './+page.svelte';
 import { resetAiConfigRecoveryForTests } from '$lib/components/ai-config-recovery';
 import { message, pageData, runsPanel } from './app-page.fixture';
 import {
-  createAppMemorySchema, attachAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
+  createAppMemorySchema, attachAppMemorySchema, createOwnAppMemorySchema, addAgentSchema, castWorkerSchema, removeAppAgentSchema,
   retireWorkerSchema, revokeAppKeySchema, grantAppKeyScopeSchema, revokeAppKeyScopeSchema, addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema, releaseWorkerSchema,
 } from './schema';
 import { firstPopulatedStatusText } from '$lib/test/firstPopulatedStatusText';
@@ -3435,7 +3435,7 @@ describe('adding an App memory (#487)', () => {
   async function memoryPage(role: string, installed = true, members: { role: string; user: { id: string } }[] | null = [{ role, user: { id: 'u1' } }]) {
     setStubPage('http://localhost/app/apps/a1?tab=memory', { appId: 'a1' });
     const data = await pageData();
-    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), attachMemoryForm: await superValidate(zod4(attachAppMemorySchema),{id:'attachAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: members === null ? null : { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members }, app: {...data.app, organizationId: members === null ? null : 'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',class:'app',appId:'a1'}] };
+    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), attachMemoryForm: await superValidate(zod4(attachAppMemorySchema),{id:'attachAppMemory:a1',errors:false}), createOwnMemoryForm: await superValidate(zod4(createOwnAppMemorySchema),{id:'createOwnAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: members === null ? null : { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members }, app: {...data.app, organizationId: members === null ? null : 'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',class:'app',appId:'a1'}] };
   }
   const mountPage = async (data: unknown) => { const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();return m; };
   const textOf = (b: Element) => b.textContent?.trim();
@@ -3727,8 +3727,9 @@ describe('App memories list wiring (portal#1469)', () => {
     const data = await pageData();
     const createMemoryForm = await superValidate(zod4(createAppMemorySchema), { id: 'createAppMemory:a1', errors: false });
     const attachMemoryForm = await superValidate(zod4(attachAppMemorySchema), { id: 'attachAppMemory:a1', errors: false });
+    const createOwnMemoryForm = await superValidate(zod4(createOwnAppMemorySchema), { id: 'createOwnAppMemory:a1', errors: false });
     const m = mountComponent(Page as never, {
-      data: { ...data, user: { id: 'u1' }, initialTab: 'memory', app: { ...data.app, ...app }, appMemories: memoryRows, createMemoryForm, attachMemoryForm },
+      data: { ...data, user: { id: 'u1' }, initialTab: 'memory', app: { ...data.app, ...app }, appMemories: memoryRows, createMemoryForm, attachMemoryForm, createOwnMemoryForm },
       form: null,
     } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);

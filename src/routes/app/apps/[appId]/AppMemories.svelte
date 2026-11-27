@@ -11,20 +11,26 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { failedSubmission, submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
-  import type { AppMemoryRow, AttachableMemory, AttachMemoryMessage } from './app-memories';
+  import type { AppMemoryRow, AttachableMemory, AttachMemoryMessage, OwnMemoryClass, OwnMemoryMessage } from './app-memories';
   import { notYetInScope } from './attachable-candidates';
   import type { AttachableRead } from './attachable/+server';
   import AppMemoryAddDialog from './AppMemoryAddDialog.svelte';
-  import { attachAppMemorySchema } from './schema';
+  import { attachAppMemorySchema, createOwnAppMemorySchema } from './schema';
   type AttachFields = Infer<typeof attachAppMemorySchema, 'zod4'>;
-  let { memories, appId, hasAgent, canCreate, attachForm, result, createOpen = $bindable(false), create }: {
+  type OwnFields = Infer<typeof createOwnAppMemorySchema, 'zod4'>;
+  let { memories, appId, agentId, hasAgent, canCreate, attachForm, ownForm, ownClasses = null, result, createOpen = $bindable(false), create }: {
     memories: AppMemoryRow[] | null;
     appId: string;
+    // The installed Agent a memory is added through: the App's primary one.
+    agentId: string | null;
     // Whether an Agent is installed: only creating a new memory needs one. Linking an existing memory does not.
     hasAgent: boolean;
     // Whether to OFFER creating a new memory (null: unknown, offered not). The server's gate stays the authority.
     canCreate: boolean | null;
     attachForm: SuperValidated<AttachFields, AttachMemoryMessage>;
+    ownForm: SuperValidated<OwnFields, OwnMemoryMessage>;
+    // The classes the server says this viewer may still create for themselves (App.viewerAppUserMemoryClasses), as is.
+    ownClasses?: OwnMemoryClass[] | null;
     result: unknown;
     // Set when the user asks for a new memory; the form then shows below the list.
     createOpen?: boolean;
@@ -50,6 +56,20 @@
     const submitted = submittedForm<AttachFields>(result, 'attachAppMemory') as SuperValidated<AttachFields, AttachMemoryMessage> | null;
     return (failedSubmission<AttachFields>(result, 'attachAppMemory') as SuperValidated<AttachFields, AttachMemoryMessage> | null) ?? { ...attachForm, message: submitted?.message };
   }), { validators: zod4Client(attachAppMemorySchema), invalidateAll: 'force', resetForm: true });
+
+  // Creating the viewer's OWN memory: the class is the only choice, the server names it and decides every outcome.
+  const { form: ownValues, message: ownMessage, enhance: ownEnhance, submit: ownSubmit, submitting: ownSubmitting } = superForm(untrack(() => {
+    const submitted = submittedForm<OwnFields>(result, 'createOwnAppMemory') as SuperValidated<OwnFields, OwnMemoryMessage> | null;
+    return (failedSubmission<OwnFields>(result, 'createOwnAppMemory') as SuperValidated<OwnFields, OwnMemoryMessage> | null) ?? { ...ownForm, message: submitted?.message };
+  }), { validators: zod4Client(createOwnAppMemorySchema), invalidateAll: 'force', resetForm: true });
+  async function createOwn(memoryClass: OwnMemoryClass) {
+    if (!agentId || $ownSubmitting) return;
+    $ownValues.memoryClass = memoryClass;
+    $ownValues.agentId = agentId;
+    await tick();
+    chooserOpen = false;
+    ownSubmit();
+  }
 
   let chooserOpen = $state(false);
   let pickerOpen = $state(false);
@@ -111,9 +131,17 @@
     </DataTable>
   {/if}
   <!-- The outcome of adding an existing memory, beside the list it changed. -->
-  <LiveOutcome failed={$message?.type === 'error' || candidatesFailed}>
+  <LiveOutcome failed={$message?.type === 'error' || $ownMessage?.type === 'error' || candidatesFailed}>
     {#if candidatesFailed}
       <p class="text-sm text-red-600 dark:text-red-400">{t('app.memory.candidates-failed', 'Could not load your memories. Please try again.')}</p>
+    {:else if $ownMessage}
+      <div class="text-sm {$ownMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">
+        <p>{$ownMessage.text}</p>
+        {#if $ownMessage.type === 'success' && $ownMessage.created}
+          <a href="/app/memories/{encodeURIComponent($ownMessage.created.id)}" class="mt-1 inline-block font-medium text-indigo-600 hover:underline dark:text-indigo-300">{$ownMessage.created.name}</a>
+          <div class="mt-1"><Urn value={$ownMessage.created.urn} type="memory" size={10} /></div>
+        {/if}
+      </div>
     {:else if $message}
       <p class="text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>
     {/if}
@@ -124,5 +152,10 @@
   <input type="hidden" name="_kind" value="attachAppMemory" />
   <input type="hidden" name="memoryId" value={$form.memoryId} />
 </form>
-<AppMemoryAddDialog bind:open={chooserOpen} {hasAgent} {canCreate} loading={loadingCandidates} onexisting={chooseExisting} onnew={chooseNew} />
+<form method="POST" action="?/createOwnMemory" use:ownEnhance class="hidden">
+  <input type="hidden" name="_kind" value="createOwnAppMemory" />
+  <input type="hidden" name="memoryClass" value={$ownValues.memoryClass} />
+  <input type="hidden" name="agentId" value={$ownValues.agentId} />
+</form>
+<AppMemoryAddDialog bind:open={chooserOpen} hasAgent={hasAgent && agentId !== null} {canCreate} {ownClasses} onown={createOwn} loading={loadingCandidates} onexisting={chooseExisting} onnew={chooseNew} />
 <SelectMemory bind:open={pickerOpen} memories={candidates} onselect={attach} placeholder={t('app.memory.pick-placeholder', 'Search memories by name or URN...')} />

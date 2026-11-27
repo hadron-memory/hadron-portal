@@ -48,7 +48,7 @@ export const READ_GROUP_KEYS = {
   memoryScope: ['appMemoryScope'],
   // The Memory tab's list and create offer. The list is derived from the `memoryScope` group's read (every Memory
   // tab load takes both); this group owns the payload keys, and `canCreateMemory` is computed from the org read.
-  appMemories: ['appMemories', 'canCreateMemory'],
+  appMemories: ['appMemories', 'canCreateMemory', 'viewerMemoryClasses'],
   appKeys: ['appKeys'],
   keyScopes: ['keyScopes'],
   aiConfigs: ['appConfigs', 'configsPage', 'configsError'],

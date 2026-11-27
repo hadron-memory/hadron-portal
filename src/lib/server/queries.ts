@@ -6385,7 +6385,7 @@ export const APP_QUESTIONS_QUERY = /* GraphQL */ `
     questions(appRef: $appRef, answered: $answered, assigneeId: $assigneeId, unassigned: $unassigned, priority: $priority, sort: $sort, limit: $limit, offset: $offset) {
       total
       items {
-        id urn portalUrl code title state answered priority tier askedAt answeredAt revSeq viewerMayAnswer
+        id urn portalUrl code title state answered priority tier askedAt answeredAt revSeq
         answer { key text at }
         effectiveAssignee { id name handle }
         askedBy { user { id name handle } worker { id name urn } app { id name urn } }

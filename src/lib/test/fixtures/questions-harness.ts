@@ -11,7 +11,7 @@ const longWorker = { id: 'w2', name: 'A worker with a very long display name', u
 const row = (n: number, over: Record<string, unknown> = {}) => ({
   id: `q${n}`, urn: `hrn:node:hadronmemory.com:hadron-dev-team:questions:q-${n}`, portalUrl: `https://hadronmemory.com/app/u/q-${n}`,
   code: `Q-${n}`, title: 'Should the release wait for the migration to finish on every region before we announce it?', state: 'OPEN', answered: false,
-  priority: 'HIGH', tier: 'DEFAULT', askedAt: '2026-11-20T10:00:00Z', answeredAt: null, revSeq: 1, viewerMayAnswer: true, answer: null,
+  priority: 'HIGH', tier: 'DEFAULT', askedAt: '2026-11-20T10:00:00Z', answeredAt: null, revSeq: 1, answer: null,
   effectiveAssignee: person('u2', 'Bob'), askedBy: { user: null, worker, app: null }, ...over,
 });
 const ok = (items: unknown[], total = items.length) => ({ kind: 'ok', value: { total, items } });
@@ -50,4 +50,3 @@ export function mountQuestions(target: HTMLElement, view: string) {
   const form = view === 'setup-refused' ? { createLog: { error: 'One of the people you chose cannot write that memory, so they cannot decide there. Give them write access first, or leave them out.' } } : null;
   mount(QuestionsPage as never, { target, props: { data: views[view === 'setup-refused' ? 'empty-no-log' : view], form } as never });
 }
-export const QUESTION_VIEWS = [...Object.keys(views), 'setup-refused'];

@@ -14,7 +14,7 @@ const person = (id: string, name: string) => ({ id, name, handle: name.toLowerCa
 const row = (over: Record<string, unknown> = {}) => ({
   id: 'q1', urn: 'hrn:node:acme.com:team:questions:q-1', portalUrl: 'https://hadronmemory.com/app/u/hrn:node:acme.com:team:questions:q-1',
   code: 'Q-1', title: 'Ship the migration?', state: 'OPEN', answered: false, priority: 'HIGH', tier: 'DEFAULT',
-  askedAt: '2026-11-20T10:00:00Z', answeredAt: null, revSeq: 1, viewerMayAnswer: true, answer: null,
+  askedAt: '2026-11-20T10:00:00Z', answeredAt: null, revSeq: 1, answer: null,
   effectiveAssignee: person('u2', 'Bob'),
   askedBy: { user: null, worker: { id: 'w1', name: 'Beryl', urn: 'hrn:worker:acme.com:team:beryl' }, app: null },
   ...over,
@@ -45,12 +45,20 @@ describe('rows', () => {
     expect(m.target.querySelectorAll('tbody tr').length).toBe(2);
   });
 
-  it('links the code and the title to the row’s portalUrl, copied not built', async () => {
+  it('links the title to the row’s portalUrl, copied not built; the code is plain text, so a row has one link, not two (portal#2664)', async () => {
     const m = await mount();
-    const links = [...m.target.querySelectorAll<HTMLAnchorElement>('tbody a')].map((a) => [a.textContent!.trim(), a.getAttribute('href')]);
-    expect(links).toContainEqual(['Q-1', row().portalUrl]);
-    expect(links).toContainEqual(['Ship the migration?', row().portalUrl]);
-    expect(links).toContainEqual(['Q-2', 'https://hadronmemory.com/app/u/q-2']);
+    const rows = [...m.target.querySelectorAll('tbody tr')];
+    const hrefs = (r: Element) => [...r.querySelectorAll<HTMLAnchorElement>('a')].filter((a) => !a.closest('[data-urn-chip]') && a.getAttribute('href')?.startsWith('https://hadronmemory.com/app/u/')).map((a) => [a.textContent!.trim(), a.getAttribute('href')]);
+    expect(hrefs(rows[0])).toEqual([['Ship the migration?', row().portalUrl]]);
+    expect(hrefs(rows[1])).toEqual([['Rotate the key?', 'https://hadronmemory.com/app/u/q-2']]);
+    expect(rows[0].textContent).toContain('Q-1');
+  });
+
+  it('a row without a portalUrl shows its title as plain text, with no link', async () => {
+    const m = await mount({ questions: { kind: 'ok', value: { total: 1, items: [row({ portalUrl: null })] } } });
+    const tr = m.target.querySelector('tbody tr')!;
+    expect(tr.textContent).toContain('Ship the migration?');
+    expect(tr.querySelectorAll('a[href^="https://hadronmemory.com"]').length).toBe(0);
   });
 
   it('shows the effective assignee, or "Any decider" for an unassigned row', async () => {
@@ -59,6 +67,29 @@ describe('rows', () => {
     expect(rows[0].textContent).toContain('Bob');
     expect(rows[1].textContent).toContain('Any decider');
     expect(rows[0].textContent).not.toContain('Any decider');
+  });
+
+  it('shows a person by name, else handle, and never by account id (portal#2664)', async () => {
+    const m = await mount({ questions: { kind: 'ok', value: { total: 3, items: [
+      row({ id: 'a', code: 'Q-A', effectiveAssignee: { id: 'acct-111', name: null, handle: 'bobby' }, askedBy: { user: { id: 'acct-222', name: null, handle: 'cleo' }, worker: null, app: null } }),
+      row({ id: 'b', code: 'Q-B', effectiveAssignee: { id: 'acct-333', name: null, handle: null }, askedBy: { user: { id: 'acct-444', name: null, handle: null }, worker: null, app: null } }),
+      row({ id: 'c', code: 'Q-C', effectiveAssignee: { id: 'acct-555', name: 'Dana', handle: 'dana' }, askedBy: { user: null, worker: null, app: { id: 'app-9', name: 'Billing App', urn: 'hrn:app:acme.com:billing' } } }),
+    ] } } });
+    const [a, b, c] = [...m.target.querySelectorAll('tbody tr')];
+    expect(a.textContent).toContain('bobby');
+    expect(a.textContent).toContain('cleo');
+    for (const r of [a, b, c]) expect(r.textContent).not.toMatch(/acct-\d+/);
+    expect(c.textContent).toContain('Dana');
+    expect(c.textContent).toContain('Billing App');
+    expect(c.textContent).toContain('acme.com:billing'); // an App asker keeps its URN chip
+  });
+
+  it('the For column shows a person with no URN chip (a person has none here)', async () => {
+    const m = await mount();
+    const heads = [...m.target.querySelectorAll('thead th')].map((th) => th.textContent!.replace(/[^\p{L} ]/gu, '').trim());
+    const forCell = [...m.target.querySelectorAll('tbody tr')][0].querySelectorAll('td')[heads.indexOf('For')];
+    expect(forCell.textContent).toContain('Bob');
+    expect(forCell.querySelector('code, [title^="hrn:"]')).toBeNull();
   });
 
   it('shows the asker by name with its URN, the status in words, and the answer only when there is one', async () => {
@@ -208,6 +239,14 @@ describe('review findings', () => {
     expect(status(m)[0].textContent).not.toContain('No questions have been asked yet.');
     const first = [...m.target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => /first page/i.test(a.textContent ?? ''));
     expect(first?.getAttribute('href')).toBe('/app/apps/a1/questions?status=all&assignee=all');
+  });
+
+  it('a page past the end does not depend on the question-log read: it still says so when the logs are missing or failed (portal#2664)', async () => {
+    const past = { filter: filter({ status: 'all', assignee: { kind: 'all' }, offset: 150 }), questions: { kind: 'ok', value: { total: 120, items: [] } }, navigation: { offset: 150, count: 0, total: 120, previousHref: '/p?offset=100', nextHref: null } };
+    for (const logs of [null, { kind: 'failed' }]) {
+      const m = await mount(emptyOf({ ...past, logs }));
+      expect(status(m)[0].textContent, JSON.stringify(logs)).toContain('No questions on this page.');
+    }
   });
 
   it('a log read that answers not-participant shows the not-participant note, not a blank page', async () => {

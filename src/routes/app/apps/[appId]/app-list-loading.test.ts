@@ -77,6 +77,7 @@ beforeEach(() => {
       case 'AppSaturationAlarmWakeRoles': return { saturationAlarmWakeRoles: { appId: APP_ID, roles: [] } };
       case 'AppMemoryScope': return { appMemoryScope: { items: [], total: 0 } };
       case 'AppAttachedMemories': return { app: { attachedMemories: [] } };
+      case 'AppUserMemoryClasses': return { app: { viewerAppUserMemoryClasses: [] } };
       case 'MyAgents': return { agents: { items: [], total: 0 } };
       case 'PublicAgents': return { publicAgents: { items: [], total: 0 } };
       case 'MemberOrgIds': return { organizations: { items: [], total: 0 } };

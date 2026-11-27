@@ -1,7 +1,7 @@
 import { t } from '$lib/i18n/t';
 
 /**
- * portal#2234/#2235 — the words for a question's worked-out state and priority, written once so the card and the list say
+ * portal#2234/#2235 — the words for a question's worked-out state, written once so the card and the list say
  * the same thing. Every state the server can return has a label, including the three that no Pending/Answered filter reaches.
  */
 export function questionStateLabels(): Record<string, string> {
@@ -14,8 +14,4 @@ export function questionStateLabels(): Record<string, string> {
     TAMPERED: t('question.card.state.tampered', 'Changed outside Hadron'),
     UNVERIFIABLE: t('question.card.state.unverifiable', 'Cannot be verified'),
   };
-}
-
-export function questionStateLabel(state: string): string {
-  return questionStateLabels()[state] ?? state;
 }

@@ -7,7 +7,7 @@ import { runAppFlow } from '$lib/server/run-app-flow';
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
 
-import { attachMemory, createMemory, readAppMemoryScope, readAttachedMemories, withLinkedMemories, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
+import { attachMemory, createMemory, createOwnMemory, readViewerMemoryClasses, readAppMemoryScope, readAttachedMemories, withLinkedMemories, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
 import { writeCustomisation } from '$lib/server/install-customisation';
 import { readDeleteWorkerPost, deleteWorkerFailureRefusal, type DeleteWorkerRefusal, type DeleteWorkerResult } from '$lib/workers/delete-worker';
 
@@ -120,6 +120,7 @@ import { loadSaturationAlarmWakeRoles } from '$lib/server/saturation-wake-roles'
 import type { Actions, PageServerLoad } from './$types';
 import {
   createAppMemorySchema,
+  createOwnAppMemorySchema,
   attachAppMemorySchema,
   addAgentSchema,
   appSettingsSchema,
@@ -1154,11 +1155,13 @@ export async function _loadAppPage(
           })
       : null;
 
-  const [appMemoryScope, attachedMemories, createMemoryForm, attachMemoryForm] = await Promise.all([
+  const [appMemoryScope, attachedMemories, viewerMemoryClasses, createMemoryForm, attachMemoryForm, createOwnMemoryForm] = await Promise.all([
     wants('memoryScope') ? readAppMemoryScope(client, app.id) : null,
     wants('memoryScope') ? readAttachedMemories(client, app.id) : null,
+    wants('appMemories') ? readViewerMemoryClasses(client, app.id) : null,
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
     superValidate(zod4(attachAppMemorySchema), { id: `attachAppMemory:${app.id}`, errors: false }),
+    superValidate(zod4(createOwnAppMemorySchema), { id: `createOwnAppMemory:${app.id}`, errors: false }),
   ]);
 
   const [runsSection, runsExtras, flowGraph, flowsData] = wants('runs')
@@ -1196,6 +1199,8 @@ export async function _loadAppPage(
     appMemories: withLinkedMemories(appMemoriesFromScope(appMemoryScope, app.id), attachedMemories),
     createMemoryForm,
     attachMemoryForm,
+    createOwnMemoryForm,
+    viewerMemoryClasses,
     canCreateMemory: canCreateAppMemory({ members: orgMembers ?? [] }, locals.user?.id ?? null, { userOwned: !app.organizationId, canManageApp: canManageApp as boolean | null }),
     app,
     org,
@@ -1320,6 +1325,7 @@ export const actions: Actions = {
   run: runAppFlow,
   createMemory,
   attachMemory,
+  createOwnMemory,
   createCustomisation: async ({ request, params, locals }) =>
     writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
   saveCustomisation: async ({ request, params, locals }) =>

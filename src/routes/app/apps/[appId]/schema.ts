@@ -269,3 +269,11 @@ export const createAppMemorySchema = z.object({
   name: z.string().trim().min(1, t('app.memory.name-required', 'Give the memory a name.')).prefault(''),
   description: z.string().trim().prefault(''),
 });
+
+// portal#2634: the member's own personal or private memory in this App. The class is the only choice; the server
+// names the memory and decides every outcome. The Agent is the App's installed one the memory is created through.
+export const createOwnAppMemorySchema = z.object({
+  _kind: z.literal('createOwnAppMemory').default('createOwnAppMemory'),
+  memoryClass: z.enum(['personal', 'private']),
+  agentId: z.string().trim().min(1),
+});

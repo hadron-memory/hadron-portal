@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import Urn from '$lib/components/Urn.svelte';
+  import LiveRegion from '$lib/components/LiveRegion.svelte';
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import type { ApprovalView } from '$lib/node-approval';
@@ -23,7 +24,7 @@
    * form. `view` is the node's approval of record, `enhance` the page's superforms action for it.
    * No `approval` prop, no approval block. There is no Sign here: signature evidence is deferred in the epic.
    */
-  type ApprovalProp = { view: ApprovalView; submitting: boolean; enhance: Action<HTMLFormElement> };
+  type ApprovalProp = { view: ApprovalView; submitting: boolean; enhance: Action<HTMLFormElement>; error?: string | null; success?: string | null };
   let { question, canAct, result = null, approval = null }: { question: QuestionCardView; canAct: boolean; result?: ActionResult; approval?: ApprovalProp | null } = $props();
 
   const STATE_LABEL = $derived<Record<string, string>>(questionStateLabels());
@@ -45,6 +46,22 @@
     : question.tier === 'SIGNED' ? t('question.card.approval.signed', 'This question needs a signature, which is not available yet. An approval does not replace it.')
     : t('question.card.approval.optional', 'Optional. The answer already settles this question.'),
   );
+  // portal#2665 (hrn:node:hadronmemory.com:specs:cor:dmo:140:09, "the state shown is the worked-out state"): what the tier still asks for follows the
+  // server's `state`, never the tier alone. An approved-tier question needs approval only while it is
+  // ANSWERED_UNCONFIRMED or STALE (an edit brings the pill back); a signed-tier one needs its signature until DECIDED,
+  // and an approval never clears that (hrn:node:hadronmemory.com:specs:cor:dmo:140:08). Otherwise the tier stays visible as a neutral label.
+  const tierPill = $derived.by((): { text: string; needed: boolean } | null => {
+    if (!question.tier || question.tier === 'ANSWERED') return null;
+    if (question.tier === 'SIGNED') {
+      // A signature is still owed only while the question is live; withdrawn, tampered and unverifiable ones owe nothing.
+      return ['OPEN', 'ANSWERED_UNCONFIRMED', 'STALE'].includes(question.state)
+        ? { text: t('question.card.tier.signature', 'needs signature'), needed: true }
+        : { text: t('question.card.tier.signature-tier', 'signature tier'), needed: false };
+    }
+    return question.state === 'ANSWERED_UNCONFIRMED' || question.state === 'STALE'
+      ? { text: t('question.card.tier.approval', 'needs approval'), needed: true }
+      : { text: t('question.card.tier.approval-tier', 'approval tier'), needed: false };
+  });
   const ANSWERABLE = ['OPEN', 'DECIDED', 'ANSWERED_UNCONFIRMED', 'STALE'];
   const problem = $derived(question.state === 'TAMPERED' || question.state === 'UNVERIFIABLE');
   const withdrawn = $derived(question.state === 'WITHDRAWN');
@@ -113,8 +130,8 @@
     </h2>
     <span data-testid="question-state" class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{STATE_LABEL[question.state] ?? question.state}</span>
     {#if priorityLabel}<span data-testid="question-priority" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">{priorityLabel}</span>{/if}
-    {#if question.tier && question.tier !== 'ANSWERED'}
-      <span data-testid="question-tier" class="rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-300">{question.tier === 'SIGNED' ? t('question.card.tier.signature', 'needs signature') : t('question.card.tier.approval', 'needs approval')}</span>
+    {#if tierPill}
+      <span data-testid="question-tier" data-needed={tierPill.needed} class="rounded-full px-2 py-0.5 text-xs {tierPill.needed ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300' : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'}">{tierPill.text}</span>
     {/if}
     {#if question.authorizes === true}<span class="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-300">{t('question.card.authorizes-work', 'Authorizes work')}</span>{/if}
   </header>
@@ -230,6 +247,12 @@
         </form>
         <p class="text-xs text-zinc-600 dark:text-zinc-400" data-testid="question-approval-note">{approvalNote}</p>
       {/if}
+      <!-- portal#2665: the approve result lives in the card. Both regions stay mounted so a result is announced.
+           Success says only what the server said ("Revision N approved."); the state pill above is what says decided. -->
+      <p role="alert" data-testid="question-approval-error" class="empty:hidden text-xs text-red-700 dark:text-red-300">{#if approval.error}{approval.error}{/if}</p>
+      <LiveRegion data-testid="question-approval-success">
+        {#if !approval.error && approval.success}<p class="text-xs text-emerald-700 dark:text-emerald-300">{approval.success}</p>{/if}
+      </LiveRegion>
     </div>
   {/if}
 

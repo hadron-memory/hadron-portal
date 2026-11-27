@@ -257,6 +257,67 @@ describe('question card', () => {
       expect(note('ANSWERED')).toBe('Optional. The answer already settles this question.');
       expect(note('SIGNED')).toContain('needs a signature');
     });
+    describe('portal#2665: the tier pill follows the worked-out state', () => {
+      const pill = (q: Partial<QuestionCardView>) => mountCard(q, true, null, null).querySelector<HTMLElement>('[data-testid=question-tier]');
+      it('approved tier: "needs approval" only while ANSWERED_UNCONFIRMED or STALE', () => {
+        for (const state of ['ANSWERED_UNCONFIRMED', 'STALE'] as const) {
+          const p = pill({ state, answered: true, tier: 'APPROVED' })!;
+          expect(p.textContent).toBe('needs approval');
+          expect(p.dataset.needed).toBe('true');
+        }
+      });
+      it('approved tier: DECIDED shows no claim that approval is needed, only the neutral tier', () => {
+        const el = mountCard({ state: 'DECIDED', answered: true, tier: 'APPROVED' });
+        expect(el.textContent).not.toContain('needs approval');
+        const p = el.querySelector<HTMLElement>('[data-testid=question-tier]')!;
+        expect(p.dataset.needed).toBe('false');
+        expect(el.querySelector('[data-testid=question-state]')!.textContent).toMatch(/decided/i);
+      });
+      it('the pill returns when an edit makes the decided question stale', () => {
+        expect(pill({ state: 'DECIDED', answered: true, tier: 'APPROVED' })!.dataset.needed).toBe('false');
+        expect(pill({ state: 'STALE', answered: true, tier: 'APPROVED' })!.dataset.needed).toBe('true');
+      });
+      it('approved tier, OPEN: nothing is claimed needed', () => {
+        expect(pill({ state: 'OPEN', tier: 'APPROVED' })!.dataset.needed).toBe('false');
+      });
+      it('signed tier: "needs signature" stays until DECIDED, and an approval on the page does not clear it', () => {
+        for (const state of ['OPEN', 'ANSWERED_UNCONFIRMED', 'STALE'] as const) {
+          const el = mountCard({ state, answered: state !== 'OPEN', tier: 'SIGNED' }, true, null, { view: { state: 'APPROVED', tone: 'neutral', approval: null, canApprove: false }, submitting: false, enhance: () => ({}) });
+          expect(el.querySelector('[data-testid=question-tier]')!.textContent).toBe('needs signature');
+        }
+        expect(pill({ state: 'DECIDED', answered: true, tier: 'SIGNED' })!.dataset.needed).toBe('false');
+      });
+      it('signed tier: a withdrawn, tampered or unverifiable question owes no signature', () => {
+        for (const state of ['WITHDRAWN', 'TAMPERED', 'UNVERIFIABLE'] as const) {
+          expect(pill({ state, answered: true, tier: 'SIGNED' })!.dataset.needed, state).toBe('false');
+        }
+      });
+      it('the answered tier has no pill', () => {
+        expect(pill({ state: 'ANSWERED_UNCONFIRMED', answered: true, tier: 'ANSWERED' })).toBeNull();
+      });
+    });
+    describe('portal#2665: the approve result renders in the card', () => {
+      const withResult = (extra: { error?: string; success?: string }) => ({ ...view('NOT_APPROVED', true), ...extra });
+      it('shows a refusal inside the approval block, as an alert', () => {
+        const el = mountCard(answered, true, null, withResult({ error: 'Only a decider can approve.' }));
+        const err = el.querySelector('[data-testid=question-approval]')!.querySelector('[data-testid=question-approval-error]')!;
+        expect(err.getAttribute('role')).toBe('alert');
+        expect(err.textContent).toBe('Only a decider can approve.');
+        expect(el.querySelector('[data-testid=question-approval-success]')!.textContent).toBe('');
+      });
+      it('shows the success line, without claiming decided', () => {
+        const el = mountCard(answered, true, null, withResult({ success: 'Revision 7 approved.' }));
+        const ok = el.querySelector('[data-testid=question-approval-success]')!;
+        expect(ok.textContent).toBe('Revision 7 approved.');
+        expect(ok.textContent).not.toMatch(/decided/i);
+        expect(el.querySelector('[data-testid=question-approval-error]')!.textContent).toBe('');
+      });
+      it('keeps both live regions mounted and empty with no result', () => {
+        const el = mountCard(answered, true, null, view('NOT_APPROVED', true));
+        expect(el.querySelector('[data-testid=question-approval-error]')!.textContent).toBe('');
+        expect(el.querySelector('[data-testid=question-approval-success]')!.textContent).toBe('');
+      });
+    });
     it('no Sign control exists in any state', () => {
       for (const state of ['OPEN', 'ANSWERED_UNCONFIRMED', 'STALE', 'DECIDED', 'WITHDRAWN'] as const) {
         for (const tier of ['ANSWERED', 'APPROVED', 'SIGNED']) {
