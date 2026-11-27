@@ -2285,6 +2285,10 @@
   const isComment = $derived(node.nodeType === COMMENT_NODE_TYPE);
   // portal#2234: a node whose role is `question` gets the question card.
   const isQuestion = $derived(node.role === 'question');
+  // portal#2665: on a question page whose card is showing, the approve result renders inside the card, not here.
+  const approveInCard = $derived(isQuestion && data.question?.kind === 'ok' && !!approvalState);
+  const pageApproveError = $derived(approveInCard ? null : approveActionError);
+  const pageApproveSuccess = $derived(approveInCard ? null : approveActionSuccess);
   const questionResult = $derived(questionResultOf(form));
   // portal#1175: what the server says about this comment (`Node.asComment`).
   // Null when it was not returned; then the viewer is not treated as the author
@@ -2968,12 +2972,12 @@
         {#if typeof form?.requestSignatureError === 'string'}{form.requestSignatureError}{/if}
       </p>
       {/if}
-      {#if approveActionError || verifyActionError}
-        <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>
+      {#if pageApproveError || verifyActionError}
+        <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{pageApproveError ?? verifyActionError}</p>
       {/if}
       <LiveRegion>
-        {#if !(approveActionError || verifyActionError) && (approveActionSuccess || verifyActionSuccess)}
-          <p data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{approveActionSuccess ?? verifyActionSuccess}</p>
+        {#if !(pageApproveError || verifyActionError) && (pageApproveSuccess || verifyActionSuccess)}
+          <p data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{pageApproveSuccess ?? verifyActionSuccess}</p>
         {/if}
       </LiveRegion>
       {#if verifyHashes && (verifyHashes.expectedHash || verifyHashes.actualHash)}
@@ -2995,7 +2999,7 @@
         <!-- portal#2234: the question card, above the node's content. A failed read is said so, never an empty card. -->
         <div class="mt-3">
           {#if data.question?.kind === 'ok'}
-            <QuestionCard question={data.question.value} canAct={data.question.value.viewerMayAnswer} result={questionResult} approval={approvalState ? { view: approvalState, submitting: $approveSubmitting, enhance: approveEnhance } : null} />
+            <QuestionCard question={data.question.value} canAct={data.question.value.viewerMayAnswer} result={questionResult} approval={approvalState ? { view: approvalState, submitting: $approveSubmitting, enhance: approveEnhance, error: approveActionError, success: approveActionSuccess } : null} />
           {:else}
             <p role="alert" data-testid="question-read-failed" class="rounded border border-red-300 p-2 text-sm text-red-800 dark:border-red-800 dark:text-red-200">{t('question.card.read-failed', 'This question could not be loaded. Reload the page to try again.')}</p>
           {/if}
