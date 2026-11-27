@@ -59,6 +59,18 @@ describe('the deleteAfterUse action', () => {
     expect(call?.[1]).toEqual({ ref: 's1', deleteAfterUse: false });
   });
 
+  it('anything but true or false is refused with a message and sends nothing', async () => {
+    const { actions } = await import('./[secretId]/+page.server');
+    request.mockImplementation(owned(() => ({ updateSecret: secret })));
+    for (const bad of [{}, { deleteAfterUse: '' }, { deleteAfterUse: 'yes' }] as Record<string, string>[]) {
+      const r = (await (actions as Record<string, (e: never) => unknown>).deleteAfterUse(ev(jar(), { request: form(bad) }))) as { status: number; data: { action: string; message: string } };
+      expect(r.status).toBe(400);
+      expect(r.data.action).toBe('deleteAfterUse');
+      expect(r.data.message).toBeTruthy();
+    }
+    expect(request.mock.calls.find(([q]) => q === secrets.UPDATE_SECRET_DELETE_AFTER_USE_MUTATION)).toBeUndefined();
+  });
+
   it('on a protected secret it is staged, the request is remembered, and nothing says saved', async () => {
     const { actions } = await import('./[secretId]/+page.server');
     request.mockImplementation(owned((q) => { if (q === secrets.UPDATE_SECRET_DELETE_AFTER_USE_MUTATION) throw staged(); }));

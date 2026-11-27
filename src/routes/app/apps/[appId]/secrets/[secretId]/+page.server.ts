@@ -80,7 +80,10 @@ export const actions: Actions = {
 
   deleteAfterUse: async ({ request, params, locals, cookies }) => {
     if (locals.impersonation) return readOnly('deleteAfterUse');
-    const on = (await request.formData()).get('deleteAfterUse') === 'true';
+    const value = (await request.formData()).get('deleteAfterUse');
+    // Only the two values the switch posts; anything else is a tampered or broken post, not "off".
+    if (value !== 'true' && value !== 'false') return fail(400, { action: 'deleteAfterUse' as const, message: t('secrets.dau.invalid', 'That change could not be read. Reload the page and try again.') });
+    const on = value === 'true';
     const client = gqlClient(locals.token);
     const refused = await ownedSecret(client, params, 'deleteAfterUse');
     if (refused) return refused;
