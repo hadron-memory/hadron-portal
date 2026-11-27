@@ -1,12 +1,10 @@
 <script lang="ts">
   import LiveRegion from '$lib/components/LiveRegion.svelte';
-  // #942 slice 2: an App's Channels. A table of the Channels in this App's
-  // memories, with create / rename / delete through the sanctioned Channel
-  // mutations. Register (who attends which Channel) is the next slice.
+  // #942: an App's Channels. A table of the Channels in this App's memories, with create / rename / delete through the
+  // sanctioned Channel mutations, then the register (who attends which Channel) and the effective view.
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
@@ -18,7 +16,7 @@
   import { t } from '$lib/i18n/t';
   import type { Channel } from '$lib/types';
   import type { EffectiveRow } from '$lib/register-view';
-  import type { PageData, ActionData } from './$types';
+  import type { loadChannelsPanel } from './channels-panel';
   import {
     CHANNEL_DESCRIPTION_MAX,
     CHANNEL_NAME_MAX,
@@ -26,16 +24,30 @@
     createChannelSchema,
     deleteChannelSchema,
     renameChannelSchema,
-  } from './schema';
+  } from './channels-schema';
 
   type CreateForm = Infer<typeof createChannelSchema, 'zod4'>;
   type RenameForm = Infer<typeof renameChannelSchema, 'zod4'>;
   type DeleteForm = Infer<typeof deleteChannelSchema, 'zod4'>;
 
-  let { data, form }: { data: PageData; form: ActionData } = $props();
+  type Data = Extract<NonNullable<Awaited<ReturnType<typeof loadChannelsPanel>>>, { kind: 'ok' }>;
+  /**
+   * `data` is the section's panel (the list, the register and the forms' starting state), `form` the page's action result.
+   * A write posts to the App page's own actions (`actionUrl`) and then calls `onwrite`, which reads the section again:
+   * the page is not invalidated.
+   */
+  let { data, form, appId, orgIds = [], onwrite, actionUrl }: {
+    data: Data;
+    form: unknown;
+    appId: string;
+    /** The organizations the signed-in person belongs to: the org's register is linked only for one of them. */
+    orgIds?: string[];
+    onwrite: () => void | Promise<void>;
+    actionUrl: (name: string) => string;
+  } = $props();
 
-  const basePath = $derived(`/app/apps/${data.app.id}`);
-  const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
+  const basePath = $derived(`/app/apps/${appId}`);
+  const written = () => { void onwrite(); };
   const shared = $derived(data.app.sharedMemory);
   // null = the self-audit failed: offer the control and let the server answer.
   const canCreate = $derived(shared ? data.canWrite[shared.id] !== false : false);
@@ -45,7 +57,7 @@
     form: createData, errors: createErrors, message: createMessage, submitting: creating, enhance: createEnhance,
   } = superForm<CreateForm, App.Superforms.Message, CreateForm>(
     untrack(() => (submittedForm<CreateForm>(form, 'createChannel') as SuperValidated<CreateForm, App.Superforms.Message, CreateForm> | null) ?? data.createForm),
-    { validators: zod4Client(createChannelSchema), validationMethod: 'oninput', clearOnSubmit: 'none', resetForm: true },
+    { validators: zod4Client(createChannelSchema), validationMethod: 'oninput', clearOnSubmit: 'none', resetForm: true, invalidateAll: false, onUpdated: written },
   );
   const createError = $derived(scopedActionError<CreateForm>(form, 'createChannel', $createMessage, $createErrors, ['name', 'slug', 'description', '_kind']));
   const createDone = $derived(scopedActionSuccess<CreateForm>(form, 'createChannel', $createMessage));
@@ -59,6 +71,8 @@
     {
       validators: zod4Client(renameChannelSchema),
       clearOnSubmit: 'none',
+      invalidateAll: false,
+      onUpdated: written,
       onResult: ({ result }) => {
         if (result.type === 'success') editing = null;
       },
@@ -82,6 +96,8 @@
     untrack(() => (submittedForm<DeleteForm>(form, 'deleteChannel') as SuperValidated<DeleteForm, App.Superforms.Message, DeleteForm> | null) ?? data.deleteForm),
     {
       validators: zod4Client(deleteChannelSchema),
+      invalidateAll: false,
+      onUpdated: written,
       onResult: ({ result }) => {
         if (result.type === 'success') confirmingDelete = null;
       },
@@ -178,7 +194,7 @@
   // The organization's rows are managed on its own Channels page. Link there
   // only for an org the caller belongs to; anyone else sees them read-only.
   const orgRegisterHref = $derived(
-    data.app.organizationId && data.navOrgs?.some((o: { id: string }) => o.id === data.app.organizationId)
+    data.app.organizationId && orgIds.includes(data.app.organizationId)
       ? `/app/orgs/${data.app.organizationId}/channels`
       : null,
   );
@@ -274,27 +290,13 @@
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 </script>
 
-<svelte:head><title>{t('app.channels.head', 'Channels')} · {data.app.name} · Hadron</title></svelte:head>
-
 <div class="space-y-4">
-  <Breadcrumb items={[
-    { label: t('app.channels.crumb.apps', 'Apps'), href: appsHref },
-    { label: data.app.name, href: basePath },
-    { label: t('app.channels.crumb', 'Channels') },
-  ]} />
-
-  <div>
-    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">
-      <span class="font-normal text-zinc-400">{t('app.channels.title.prefix', 'Channels:')}</span> {data.app.name}
-    </h1>
-    <Urn value={data.app.urn} type="app" size={8} label={t('app.channels.urn.app', 'App')} />
-    <p class="mt-1 max-w-3xl text-sm text-zinc-500 dark:text-zinc-400">
-      {t(
-        'app.channels.explainer',
-        'A channel is a shared conversation that lives in one of this App’s memories. Who can read it and post to it is decided by that memory’s access. A channel adds no access of its own.',
-      )}
-    </p>
-  </div>
+  <p class="max-w-3xl text-sm text-zinc-500 dark:text-zinc-400">
+    {t(
+      'app.channels.explainer',
+      'A channel is a shared conversation that lives in one of this App’s memories. Who can read it and post to it is decided by that memory’s access. A channel adds no access of its own.',
+    )}
+  </p>
 
   {#if deleteError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{deleteError}</div>
@@ -318,7 +320,7 @@
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
           {#if editing === row.id}
-            <form method="POST" action="?/renameChannel" use:renameEnhance novalidate class="space-y-1.5">
+            <form method="POST" action={actionUrl('renameChannel')} use:renameEnhance novalidate class="space-y-1.5">
               <input type="hidden" name="_kind" value="renameChannel" />
               <input type="hidden" name="ref" value={row.id} />
               <input aria-label={t('app.channels.rename.name', 'Channel name')} name="name" bind:value={$renameData.name} maxlength={CHANNEL_NAME_MAX} class={inputClass} />
@@ -361,7 +363,7 @@
           {#if row.canWrite === false}
             <span class="text-xs text-zinc-400" title={t('app.channels.readonly.hint', 'Changing a channel needs write access to the memory it lives in.')}>{t('app.channels.readonly', 'Read-only')}</span>
           {:else if confirmingDelete === row.id}
-            <form method="POST" action="?/deleteChannel" use:deleteEnhance class="space-y-1.5">
+            <form method="POST" action={actionUrl('deleteChannel')} use:deleteEnhance class="space-y-1.5">
               <input type="hidden" name="_kind" value="deleteChannel" />
               <input type="hidden" name="ref" value={row.id} />
               <p class="text-xs text-red-700 dark:text-red-300">
@@ -396,7 +398,7 @@
   {/if}
 
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-    <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.channels.create.title', 'New channel')}</h2>
+    <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.channels.create.title', 'New channel')}</h3>
     {#if !shared}
       <!-- A null sharedMemory is "not provisioned" OR "you can't read it": the
            server doesn't say which (hrn:node:hadronmemory.com:specs:cor:api:140:03),
@@ -416,7 +418,7 @@
         {#if createDone}<p class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
       </LiveRegion>
       {#if createError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{createError}</p>{/if}
-      <form method="POST" action="?/createChannel" use:createEnhance novalidate class="mt-3 grid gap-3 sm:grid-cols-2">
+      <form method="POST" action={actionUrl('createChannel')} use:createEnhance novalidate class="mt-3 grid gap-3 sm:grid-cols-2">
         <input type="hidden" name="_kind" value="createChannel" />
         <label class="block text-xs text-zinc-600 dark:text-zinc-400">
           {t('app.channels.create.name', 'Name')}
@@ -446,7 +448,7 @@
        never grants access: reading and posting stay the host memory's call. -->
   <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
     <div>
-      <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.channels.register.title', 'Who takes part')}</h2>
+      <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.channels.register.title', 'Who takes part')}</h3>
       <p class="mt-1 max-w-3xl text-xs text-zinc-500 dark:text-zinc-400">
         {t(
           'app.channels.register.explainer',
@@ -476,13 +478,15 @@
       listKey="app:register"
       loadFailed={data.registerLoadFailed}
       inheritedHref={orgRegisterHref}
+      actions={{ add: actionUrl('addAttendance'), edit: actionUrl('editAttendance'), remove: actionUrl('removeAttendance') }}
+      {onwrite}
     >
       {#snippet between()}
         <!-- #942 slice 4: the EFFECTIVE result for one attendee. Only facts true
              about the attendee; the resolver's read/post standing is the
              viewer's, so it is not shown as theirs. -->
         <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('app.channels.effective.title', 'What someone actually follows')}</h3>
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('app.channels.effective.title', 'What someone actually follows')}</h4>
           <p class="mt-1 max-w-3xl text-xs text-zinc-500 dark:text-zinc-400">
             {t('app.channels.effective.explainer', 'One row per channel: the setting that wins for them (their own row beats their agent’s, which beats everyone’s; this App’s beats the organization’s), and how far they have read.')}
           </p>

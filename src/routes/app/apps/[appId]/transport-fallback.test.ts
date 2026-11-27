@@ -82,14 +82,14 @@ describe('Channels actions', () => {
   ] as const;
   for (const [name, fields, fallback] of cases) {
     it(`${name}: a transport failure returns the fallback`, async () => {
-      const { actions } = await import('./channels/+page.server');
+      const { actions } = await import('./+page.server');
       mockRequest.mockRejectedValueOnce(transport());
       const r = await actions[name]({ request: post(fields), params: { appId: 'app-1' }, locals: { token: 'tok' } } as never);
       expect(textOf(r)).toBe(fallback);
     });
   }
   it('typed NOT_FOUND keeps its own copy', async () => {
-    const { actions } = await import('./channels/+page.server');
+    const { actions } = await import('./+page.server');
     mockRequest.mockRejectedValueOnce(typed('NOT_FOUND'));
     const r = await actions.deleteChannel({ request: post({ _kind: 'deleteChannel', ref: 'r' }), params: { appId: 'app-1' }, locals: { token: 'tok' } } as never);
     expect(textOf(r)).toBe('That channel or its memory is not available to you.');

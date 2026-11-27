@@ -5,10 +5,10 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { expectLiveRegionLifecycle } from '$lib/test/expectLiveRegionLifecycle';
-import Page from './+page.svelte';
+import Page from '$lib/test/ChannelsBodyHarness.svelte';
 import {
   addAttendanceSchema, createChannelSchema, deleteChannelSchema, editAttendanceSchema, removeAttendanceSchema, renameChannelSchema,
-} from './schema';
+} from './channels-schema';
 
 const mounted: Mounted<Record<string, unknown>>[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });

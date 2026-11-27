@@ -1,5 +1,5 @@
 /**
- * #942 slice 2 — the App Channels page: its loader and its three actions.
+ * #942 slice 2 — the App Channels section: its panel loader and the App page's three channel actions and three attendance actions.
  *
  * Error fixtures are real `ClientError`s shaped like hadron-server's output:
  * the typed codes resolvers.channel.ts / lib/channels.ts emit, and the untyped
@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
+import { loadChannelsPanel } from './channels-panel';
 import {
   APP_CHANNELS_APP_QUERY,
   APP_CHANNELS_QUERY,
@@ -119,8 +120,7 @@ function route(opts: {
 }
 
 async function load() {
-  const { load } = await import('./+page.server');
-  return (await load({ params: { appId: 'app-1' }, locals: { token: 'tok', user: { id: 'u-1' } } } as never)) as unknown as {
+  return (await loadChannelsPanel(true, { request: mockRequest } as never, 'app-1', { token: 'tok', user: { id: 'u-1' } } as never)) as unknown as {
     channels: Array<{ id: string }>;
     defaultChannelId: string | null;
     canWrite: Record<string, boolean | null>;
@@ -226,34 +226,27 @@ describe('load', () => {
     expect((await load()).agentsWithheld).toBe(false);
   });
 
-  it('an App the caller cannot see is a 404', async () => {
+  // The App page's own read gates every tab, so a read of this section that fails is a state of the section, never a 404.
+  it('an App the caller cannot see, a typed refusal, an internal error and a transport failure are all the failed state', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     route({ app: null });
-    await expect(load()).rejects.toMatchObject({ status: 404, body: { message: 'App not found' } });
+    expect(await loadChannelsPanel(true, { request: mockRequest } as never, 'app-1', { token: 'tok', user: { id: 'u-1' } } as never)).toEqual({ kind: 'failed' });
+    for (const err of [
+      refusal('Forbidden', 'FORBIDDEN'),
+      refusal('Resolver failed', 'INTERNAL_SERVER_ERROR'),
+      new ClientError({ status: 502, headers: new Headers() } as ConstructorParameters<typeof ClientError>[0], { query: '', variables: {} }),
+      new Error('socket hang up'),
+    ]) {
+      route({ appReadError: err });
+      expect(await loadChannelsPanel(true, { request: mockRequest } as never, 'app-1', { token: 'tok', user: { id: 'u-1' } } as never)).toEqual({ kind: 'failed' });
+    }
+    warn.mockRestore();
   });
 
-  it.each([['FORBIDDEN', 'Forbidden'], ['NOT_FOUND', 'App not found']])(
-    'a typed %s refusal on the App read is the same 404 as a missing App',
-    async (code, reason) => {
-      route({ appReadError: refusal(reason, code) });
-      await expect(load()).rejects.toMatchObject({ status: 404, body: { message: 'App not found' } });
-    },
-  );
-
-  it('does not turn an internal GraphQL error or a transport failure into a false 404', async () => {
-    const internal = refusal('Resolver failed', 'INTERNAL_SERVER_ERROR');
-    route({ appReadError: internal });
-    await expect(load()).rejects.toBe(internal);
-
-    const transport = new ClientError(
-      { status: 502, headers: new Headers() } as ConstructorParameters<typeof ClientError>[0],
-      { query: '', variables: {} },
-    );
-    route({ appReadError: transport });
-    await expect(load()).rejects.toBe(transport);
-
-    const untyped = new Error('Forbidden');
-    route({ appReadError: untyped });
-    await expect(load()).rejects.toBe(untyped);
+  it('reads nothing when the section is not asked for', async () => {
+    route({ channels: [channel()] });
+    expect(await loadChannelsPanel(false, { request: mockRequest } as never, 'app-1', { token: 'tok' } as never)).toBeNull();
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it('never calls anything that marks messages read', async () => {

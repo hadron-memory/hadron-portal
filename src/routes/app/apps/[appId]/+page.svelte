@@ -184,6 +184,7 @@
   import AppSecrets from './AppSecrets.svelte';
   import AppTickers from './AppTickers.svelte';
   import AppStops from './AppStops.svelte';
+  import AppChannels from './AppChannels.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -3017,7 +3018,6 @@
 
   <TabRow items={[
     ...tabs,
-    { id: 'channels', label: t('app.tabs.channels', 'Channels'), href: `/app/apps/${app.id}/channels` },
     { id: 'tasks', label: t('app.tabs.tasks', 'Tasks'), href: `/app/apps/${app.id}/tasks` },
     { id: 'questions', label: t('app.tabs.questions', 'Questions'), href: `/app/apps/${app.id}/questions` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
@@ -4974,6 +4974,15 @@
           <AppStops appId={app.id} panel={tabData.stopsPanel} />
         {:else}
           {@render tabArriving('stops')}
+        {/if}
+      </CollapsibleSection>
+
+      <!-- #942: the former /channels page, in place. Read when the section unfolds; its writes are the page's own actions. -->
+      <CollapsibleSection id="channels" title={t('app.tabs.channels', 'Channels')} bind:open={openSections['channels']}>
+        {#if tabData.channelsPanel}
+          <AppChannels appId={app.id} panel={tabData.channelsPanel} {form} orgIds={(data.navOrgs ?? []).map((o: { id: string }) => o.id)} />
+        {:else}
+          {@render tabArriving('channels')}
         {/if}
       </CollapsibleSection>
 

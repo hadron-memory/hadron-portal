@@ -31,6 +31,10 @@ import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchOrgVisibleAgents, mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
 import {
+  APP_SHARED_MEMORY_QUERY,
+  CREATE_CHANNEL_MUTATION,
+  DELETE_CHANNEL_MUTATION,
+  UPDATE_CHANNEL_MUTATION,
   APP_DETAIL_ORG_QUERY,
   APP_ORG_MEMBERS_QUERY,
   APP_ORG_AGENTS_QUERY,
@@ -88,6 +92,9 @@ import { loadTemplatesPanel, TEMPLATES_TAB_ID } from './templates-panel';
 import { loadSecretsPanel } from './secrets-panel';
 import { loadTickersPanel } from './tickers-panel';
 import { loadStopsPanel } from './stops-panel';
+import { channelErrorText, loadChannelsPanel } from './channels-panel';
+import { channelLoc, createChannelSchema, deleteChannelSchema, renameChannelSchema } from './channels-schema';
+import { attendanceActions } from '$lib/server/register-actions';
 import { formValues, impersonationRefusal, taskWrite, writeFailure } from '$lib/server/agent-task-writes';
 import { SET_APP_DELIVERY_SETTINGS_MUTATION, buildDeliveryPatch, classifyDeliveryError } from '$lib/server/delivery-settings';
 import { CREATE_TICKER_MUTATION, classifyTickerWriteError } from '$lib/server/ticker-writes';
@@ -1180,6 +1187,8 @@ export async function _loadAppPage(
   const tickersPanel = await loadTickersPanel(wants('tickers'), client, app.id, locals);
   // portal#1139: the stops section's data, when the section is asked for. `after` is the stop list's own cursor.
   const stopsPanel = await loadStopsPanel(wants('stops'), client, app.id, locals, url.searchParams.get('after'));
+  // #942: the channels section's data (the list, the register and the forms), when the section is asked for.
+  const channelsPanel = await loadChannelsPanel(wants('channels'), client, app.id, locals);
   // The frame's stop banner named a worker: its names travel with the frame.
   if (staffLoaded) reads.add('staff');
   const full = {
@@ -1187,6 +1196,7 @@ export async function _loadAppPage(
     secretsPanel,
     tickersPanel,
     stopsPanel,
+    channelsPanel,
     runsPanel: runsSection && runsExtras && flowsData ? {
       ...runsSection,
       app,
@@ -1993,6 +2003,63 @@ export const actions: Actions = {
     } catch (e) {
       return writeFailure('setDeliverySettings', classifyDeliveryError(e), values);
     }
+  },
+
+  // #942: the register writes, shared with the organization's Channels page.
+  ...attendanceActions((params) => params.appId),
+
+  // #942: an App-scoped create targets the App's SHARED memory, where its default `chats:team` lives. Channels in other
+  // memories belong to a memory-level view, not this one.
+  createChannel: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(createChannelSchema), { id: 'createChannel' });
+    if (!form.valid) return fail(400, { form });
+    const client = gqlClient(locals.token);
+    try {
+      const { app } = await client.request<{ app: { id: string; sharedMemory: { id: string } | null } | null }>(
+        APP_SHARED_MEMORY_QUERY,
+        { ref: params.appId },
+      );
+      if (!app?.sharedMemory) {
+        return message(form, { type: 'error', text: t('app.channels.error.no-host', 'This App’s shared memory, where its channels live, isn’t available to you.') }, { status: 400 });
+      }
+      await client.request(CREATE_CHANNEL_MUTATION, {
+        input: {
+          memoryRef: app.sharedMemory.id,
+          loc: channelLoc(form.data.slug),
+          name: form.data.name,
+          description: form.data.description || null,
+        },
+      });
+    } catch (e) {
+      return message(form, { type: 'error', text: channelErrorText(e, 'The channel could not be created.') }, { status: 400 });
+    }
+    return message(form, { type: 'success', text: t('app.channels.created', 'Channel created.') });
+  },
+
+  renameChannel: async ({ request, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(renameChannelSchema), { id: 'renameChannel' });
+    if (!form.valid) return fail(400, { form });
+    try {
+      await gqlClient(locals.token).request(UPDATE_CHANNEL_MUTATION, {
+        ref: form.data.ref,
+        // An emptied description clears it; the server trims and stores null.
+        input: { name: form.data.name, description: form.data.description },
+      });
+    } catch (e) {
+      return message(form, { type: 'error', text: channelErrorText(e, 'The channel could not be renamed.') }, { status: 400 });
+    }
+    return message(form, { type: 'success', text: t('app.channels.renamed', 'Channel updated.') });
+  },
+
+  deleteChannel: async ({ request, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(deleteChannelSchema), { id: 'deleteChannel' });
+    if (!form.valid) return fail(400, { form });
+    try {
+      await gqlClient(locals.token).request(DELETE_CHANNEL_MUTATION, { ref: form.data.ref });
+    } catch (e) {
+      return message(form, { type: 'error', text: channelErrorText(e, 'The channel could not be deleted.') }, { status: 400 });
+    }
+    return message(form, { type: 'success', text: t('app.channels.deleted', 'Channel deleted.') });
   },
 
   // portal#1139: set and lift a stop signal. The server decides on every call; `viewerManages` is only a display hint.
