@@ -39,6 +39,10 @@ describe('GET /app/apps/[appId]/attachable', () => {
     expect(request.mock.calls[0][1]).toMatchObject({ offset: 0, limit: 10 });
     await call(signedIn, '?offset=abc');
     expect(request.mock.calls[1][1]).toMatchObject({ offset: 0 });
+    await call(signedIn, '?offset=1e999');
+    expect(request.mock.calls[2][1]).toMatchObject({ offset: 0 });
+    await call(signedIn, '?offset=99999999999');
+    expect(request.mock.calls[3][1]).toMatchObject({ offset: 100000 });
   });
 
   it('names a refusal by code only, and any other failure as FAILED, never with server text', async () => {

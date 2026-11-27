@@ -221,5 +221,6 @@
 <SelectMemory bind:open={pickerOpen} memories={candidates} onselect={attach}
   remote={{ total: candidatesTotal, pageSize: ATTACHABLE_PAGE_SIZE, loading: candidatesLoading, error: candidatesMessage,
     onquery: (q) => { candidatesQuery = q; candidatesPage = 0; void loadCandidates(); },
-    onpage: (i) => { candidatesPage = i; void loadCandidates(); } }}
+    onpage: (i) => { candidatesPage = i; void loadCandidates(); },
+    onretry: () => { void loadCandidates(); } }}
   placeholder={t('app.memory.pick-placeholder', 'Search memories by name or URN...')} />

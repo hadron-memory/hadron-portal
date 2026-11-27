@@ -52,16 +52,21 @@
      * pages it locally. Typing calls `onquery` (debounced, back on page one), Previous and Next call `onpage`. `error` is
      * a message the host already worded; `loading` is a read in flight.
      */
-    remote?: { total: number; pageSize: number; loading: boolean; error: string | null; onquery: (query: string) => void; onpage: (pageIndex: number) => void } | null;
+    remote?: { total: number; pageSize: number; loading: boolean; error: string | null; onquery: (query: string) => void; onpage: (pageIndex: number) => void; onretry: () => void } | null;
   } = $props();
 
   const QUERY_DEBOUNCE_MS = 300;
   let remotePage = $state(0);
   let debounce: ReturnType<typeof setTimeout> | undefined;
+  // True from a keystroke until its search is sent: the rows on screen belong to an earlier query.
+  let queryPending = $state(false);
+  // Rows that are being replaced cannot be picked: a click would attach a memory from a result set already disowned.
+  const stale = $derived(!!remote && (remote.loading || queryPending));
   function typed() {
     if (!remote) return;
     clearTimeout(debounce);
-    debounce = setTimeout(() => { remotePage = 0; remote?.onquery(query); }, QUERY_DEBOUNCE_MS);
+    queryPending = true;
+    debounce = setTimeout(() => { queryPending = false; remotePage = 0; remote?.onquery(query); }, QUERY_DEBOUNCE_MS);
   }
   function goto(index: number) { remotePage = index; remote?.onpage(index); }
   onDestroy(() => clearTimeout(debounce));
@@ -146,7 +151,7 @@
   const remotePageCount = $derived(remote ? Math.max(1, Math.ceil(remote.total / remote.pageSize)) : 0);
 
   function select(memory: Memory) {
-    if (addedIds?.has(memory.id)) return;
+    if (addedIds?.has(memory.id) || stale) return;
     onselect(memory);
     if (!keepOpen) open = false;
   }
@@ -164,6 +169,7 @@
     if (open) return;
     untrack(() => {
       clearTimeout(debounce);
+      queryPending = false;
       remotePage = 0;
       query = '';
       table.resetPageIndex();
@@ -214,10 +220,10 @@
         {#if remote}
           <!-- Persistent regions: the status and the refusal are announced as content that changes inside them (portal#2344). -->
           <LiveRegion>{#if remote.loading && rows.length === 0}<p class="px-4 py-8 text-center text-sm text-zinc-500">{t('select-memory.loading', 'Loading…')}</p>{/if}</LiveRegion>
-          <LiveRegion>{#if remote.error}<p class="px-4 py-8 text-center text-sm text-red-600 dark:text-red-400">{remote.error}</p>{/if}</LiveRegion>
+          <LiveRegion>{#if remote.error}<div class="px-4 py-8 text-center"><p class="text-sm text-red-600 dark:text-red-400">{remote.error}</p><button type="button" onclick={() => remote?.onretry()} class="mt-3 rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">{t('select-memory.retry', 'Try again')}</button></div>{/if}</LiveRegion>
         {/if}
-        {#if remote?.error || (remote?.loading && rows.length === 0)}
-        {:else if rows.length === 0}
+        {#if !(remote?.error || (remote?.loading && rows.length === 0))}
+        {#if rows.length === 0}
           <div class="px-4 py-8 text-center text-sm text-zinc-500">No memories found.</div>
         {:else}
           <table class="w-full table-fixed border-collapse text-sm sm:table-auto">
@@ -263,7 +269,7 @@
                     <button
                       type="button"
                       onclick={() => select(row.original)}
-                      aria-disabled={addedIds?.has(row.original.id) ? 'true' : undefined}
+                      aria-disabled={addedIds?.has(row.original.id) || stale ? 'true' : undefined}
                       aria-label={addedIds?.has(row.original.id) ? t('select-memory.added-named', 'Added {name}', { name: row.original.name }) : pickerStrings.selectNamed(row.original.name)}
                       class="rounded px-3 py-1 text-xs font-medium pointer-coarse:min-h-11 {addedIds?.has(row.original.id) ? 'border border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300' : 'bg-indigo-500 text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700'}"
                     >
@@ -275,13 +281,14 @@
             </tbody>
           </table>
         {/if}
+        {/if}
       </div>
 
       <!-- Footer with pagination -->
       <div class="border-t border-zinc-200 flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
         <div>
           {remote
-            ? (rows.length > 0 ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${remotePage + 1} of ${remotePageCount}` : `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''}`)
+            ? (remote?.error ? '' : rows.length > 0 ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${remotePage + 1} of ${remotePageCount}` : `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''}`)
             : rows.length > 0 && pageIndex >= 0 && pageCount > 0
             ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${pageIndex + 1} of ${pageCount}`
             : `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''}`}

@@ -13,10 +13,12 @@ import type { RequestHandler } from './$types';
 export type AttachableRead = { kind: 'ok'; memories: AttachableMemory[]; total: number } | { kind: 'failed'; code: AttachableFailure };
 
 const QUERY_MAX = 200;
+const OFFSET_MAX = 100_000;
 export const GET: RequestHandler = async ({ locals, params, url }) => {
   const headers = { 'cache-control': 'no-store' };
   if (!locals.token || !locals.user?.id) return json({ kind: 'failed', code: 'UNAUTHENTICATED' } satisfies AttachableRead, { status: 401, headers });
-  const offset = Math.max(0, Math.floor(Number(url.searchParams.get('offset'))) || 0);
+  const n = Number(url.searchParams.get('offset'));
+  const offset = Number.isFinite(n) ? Math.min(OFFSET_MAX, Math.max(0, Math.floor(n))) : 0;
   const query = (url.searchParams.get('q') ?? '').slice(0, QUERY_MAX);
   const page = await readAttachableMemoriesPage(gqlClient(locals.token), params.appId, { query, offset, limit: ATTACHABLE_PAGE_SIZE });
   return json((page.ok ? { kind: 'ok', memories: page.memories, total: page.total } : { kind: 'failed', code: page.code }) satisfies AttachableRead, { headers });

@@ -319,6 +319,51 @@ describe('adding an existing memory', () => {
   expect(get.mock.calls.at(-1)![0]).toBe('/app/apps/a/attachable?q=zed&offset=0');
   }finally{m.unmount();get.mockRestore();vi.useRealTimers();}
  });
+ it('never renders an earlier search\'s answer that resolves after a later one, and offers no pick while rows are stale',async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});
+  const mem=(n:string)=>({id:n,urn:`hrn:mem:acme.com:${n}`,name:n,visibility:null});
+  const pending:Record<string,(r:Response)=>void>={};
+  const get=vi.spyOn(globalThis,'fetch').mockImplementation(((url:string)=>{
+   const q=new URL(url,'http://x').searchParams.get('q')??'';
+   return new Promise<Response>(res=>{pending[q]=res;});
+  }) as never);
+  const reply=(q:string,name:string)=>pending[q]({ok:true,status:200,json:async()=>({kind:'ok',total:1,memories:[mem(name)]})} as Response);
+  const m=mountComponent(AppMemories as never,await listProps(rows));
+  try{await tick();
+  await press(m.target,'Add memory');
+  await press(document.body,'Choose an existing memory');
+  reply('','base-row');
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('base-row'));
+  const input=document.body.querySelector<HTMLInputElement>('[aria-label="Choose a memory"] input')!;
+  input.value='a';input.dispatchEvent(new Event('input',{bubbles:true}));
+  // during the debounce the old row cannot be picked
+  await tick();
+  expect(document.body.querySelector('[aria-label="Choose a memory"] tbody button[aria-label^="Select"]')!.getAttribute('aria-disabled')).toBe('true');
+  await vi.advanceTimersByTimeAsync(400);
+  input.value='ab';input.dispatchEvent(new Event('input',{bubbles:true}));
+  await vi.advanceTimersByTimeAsync(400);
+  reply('ab','answer-ab');
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('answer-ab'));
+  reply('a','stale-a');
+  await tick(3);
+  expect(document.body.textContent).not.toContain('stale-a');
+  }finally{m.unmount();get.mockRestore();vi.useRealTimers();}
+ });
+ it('offers Try again on a failed read and reads the same page again',async()=>{
+  const get=vi.spyOn(globalThis,'fetch')
+   .mockResolvedValueOnce({ok:true,status:200,json:async()=>({kind:'failed',code:'FAILED'})} as Response)
+   .mockResolvedValue({ok:true,status:200,json:async()=>({kind:'ok',total:1,memories:[{id:'x',urn:'hrn:mem:acme.com:x',name:'Recovered',visibility:null}]})} as Response);
+  const m=mountComponent(AppMemories as never,await listProps(rows));
+  try{await tick();
+  await press(m.target,'Add memory');
+  await press(document.body,'Choose an existing memory');
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('Could not load your memories'));
+  expect(document.body.querySelector('[aria-label="Choose a memory"]')!.textContent).not.toContain('0 results');
+  await press(document.body,'Try again');
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('Recovered'));
+  expect(get).toHaveBeenCalledTimes(2);
+  }finally{m.unmount();get.mockRestore();}
+ });
  it('says what a link does in the choice\'s help text, and promises no key read and no rename',async()=>{
   const m=mountComponent(AppMemories as never,await listProps(rows));
   try{await tick();
