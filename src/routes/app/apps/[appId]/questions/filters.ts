@@ -64,7 +64,7 @@ export function parseOffset(raw: string | null): Parsed<number> {
   return Number.isSafeInteger(n) && n <= MAX_OFFSET ? { value: n, malformed: false } : { value: 0, malformed: true };
 }
 
-export function parseQuestionsFilter(params: URLSearchParams): { filter: QuestionsFilter; malformed: string[]; canonical: boolean } {
+export function parseQuestionsFilter(params: URLSearchParams): { filter: QuestionsFilter; malformed: string[]; rewrite: Record<string, string>; canonical: boolean } {
   const status = parseStatus(params.get('status'));
   const assignee = parseAssignee(params.get('assignee'));
   const sort = parseSort(params.get('sort'));
@@ -73,10 +73,16 @@ export function parseQuestionsFilter(params: URLSearchParams): { filter: Questio
   const malformed = (
     [['status', status], ['assignee', assignee], ['sort', sort], ['priority', priority], ['offset', offset]] as const
   ).filter(([, p]) => p.malformed).map(([k]) => k);
+  // A valid priority list in another order or with repeats names the same set (the filter matches as a set), so it is
+  // rewritten to its canonical spelling rather than dropped: one view, one address.
+  const rawPriority = params.get('priority');
+  const rewrite: Record<string, string> = {};
+  if (!priority.malformed && rawPriority && rawPriority !== priority.value.join(',')) rewrite.priority = priority.value.join(',');
   return {
     filter: { status: status.value, assignee: assignee.value, sort: sort.value, priority: priority.value, offset: offset.value },
     malformed,
-    canonical: malformed.length === 0,
+    rewrite,
+    canonical: malformed.length === 0 && Object.keys(rewrite).length === 0,
   };
 }
 
@@ -132,7 +138,14 @@ export function questionsNavigation(path: string, filter: QuestionsFilter, count
     count,
     total: count > 0 ? Math.max(total, next) : total,
     firstHref: filter.offset > 0 ? questionsHref(path, filter, { offset: 0 }) : null,
-    previousHref: filter.offset > 0 ? questionsHref(path, filter, { offset: Math.max(0, filter.offset - QUESTIONS_PAGE_SIZE) }) : null,
+    // From a page past the end (nothing served, rows exist) Previous lands on the last page that has rows, not on another empty one.
+    previousHref: filter.offset > 0
+      ? questionsHref(path, filter, {
+          offset: count === 0 && total > 0
+            ? Math.floor((total - 1) / QUESTIONS_PAGE_SIZE) * QUESTIONS_PAGE_SIZE
+            : Math.max(0, filter.offset - QUESTIONS_PAGE_SIZE),
+        })
+      : null,
     nextHref: count > 0 && next < total && next <= MAX_OFFSET ? questionsHref(path, filter, { offset: next }) : null,
   };
 }

@@ -1,7 +1,6 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { APP_QUESTIONS_QUERY, APP_QUESTION_LOGS_QUERY } from '$lib/server/queries';
-import type { QuestionActor, QuestionPerson } from '$lib/questions/types';
 
 /**
  * portal#2235 — the App's Questions reads. Each says one of three things, so the view never confuses them
@@ -9,6 +8,11 @@ import type { QuestionActor, QuestionPerson } from '$lib/questions/types';
  * APP_NOT_FOUND, which is how a read refuses someone who takes no part in the App) or `failed`, never an empty list.
  */
 export type QuestionsRead<T> = { kind: 'ok'; value: T } | { kind: 'not-participant' } | { kind: 'failed' };
+
+/** The people and parties the list selects: a person by name and handle, a worker or App by name and URN. Never an account id for display. */
+export type ListPerson = { id: string; name: string | null; handle: string | null };
+export type ListParty = { id: string; name: string | null; urn: string | null };
+export type ListAsker = { user: ListPerson | null; worker: ListParty | null; app: ListParty | null };
 
 export type QuestionListRow = {
   id: string;
@@ -23,10 +27,9 @@ export type QuestionListRow = {
   askedAt: string | null;
   answeredAt: string | null;
   revSeq: number;
-  viewerMayAnswer: boolean;
   answer: { key: string | null; text: string | null; at: string } | null;
-  effectiveAssignee: QuestionPerson | null;
-  askedBy: QuestionActor | null;
+  effectiveAssignee: ListPerson | null;
+  askedBy: ListAsker | null;
 };
 export type QuestionListPage = { total: number; items: QuestionListRow[] };
 export type QuestionLogPerson = { id: string; name: string | null; handle: string | null };

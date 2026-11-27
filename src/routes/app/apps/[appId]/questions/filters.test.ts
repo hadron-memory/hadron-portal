@@ -58,6 +58,27 @@ describe('offset', () => {
     expect(parseOffset(s)).toEqual({ value: 0, malformed: true }));
 });
 
+describe('non-canonical priority lists (portal#2664)', () => {
+  it('a valid list in another order or with repeats is rewritten to its canonical spelling, not dropped', () => {
+    const a = parseQuestionsFilter(new URLSearchParams('priority=urgent,low'));
+    expect(a.canonical).toBe(false);
+    expect(a.rewrite).toEqual({ priority: 'low,urgent' });
+    expect(a.malformed).toEqual([]);
+    expect(a.filter.priority).toEqual(['low', 'urgent']);
+    expect(parseQuestionsFilter(new URLSearchParams('priority=low,low')).rewrite).toEqual({ priority: 'low' });
+  });
+  it('a canonical or absent list needs no rewrite', () => {
+    expect(parseQuestionsFilter(new URLSearchParams('priority=low,urgent')).rewrite).toEqual({});
+    expect(parseQuestionsFilter(new URLSearchParams('')).rewrite).toEqual({});
+    expect(parseQuestionsFilter(new URLSearchParams('priority=')).rewrite).toEqual({});
+  });
+  it('the spellings match the same questions: they send the same server arguments', () => {
+    const args = (q: string) => questionsServerArgs(parseQuestionsFilter(new URLSearchParams(q)).filter, 'u1');
+    expect(args('priority=urgent,low')).toEqual(args('priority=low,urgent'));
+    expect(args('priority=low,low')).toEqual(args('priority=low'));
+  });
+});
+
 describe('the whole URL', () => {
   it('is canonical when every value is absent or valid', () => {
     const r = parseQuestionsFilter(new URLSearchParams('status=answered&sort=newest'));
@@ -121,8 +142,9 @@ describe('paging', () => {
     expect(n.previousHref).toBe('/p?offset=50');
     expect(n.nextHref).toBeNull();
   });
-  it('a page past the end (everything deleted) still offers a way back', () => {
-    const n = questionsNavigation('/p', { ...f, offset: 150 }, 0, 120);
-    expect(n.previousHref).toBe('/p?offset=100');
+  it('a page past the end goes back to the last page with rows, not to another empty one', () => {
+    expect(questionsNavigation('/p', { ...f, offset: 150 }, 0, 120).previousHref).toBe('/p?offset=100');
+    expect(questionsNavigation('/p', { ...f, offset: 500 }, 0, 120).previousHref).toBe('/p?offset=100');
+    expect(questionsNavigation('/p', { ...f, offset: 500 }, 0, 100).previousHref).toBe('/p?offset=50');
   });
 });

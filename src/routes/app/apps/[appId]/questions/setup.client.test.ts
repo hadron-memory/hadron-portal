@@ -4,6 +4,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import Page from './+page.svelte';
+import pageSource from './+page.svelte?raw';
+import serverSource from './+page.server.ts?raw';
 
 const mounted: Mounted<any>[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
@@ -131,6 +133,30 @@ describe('UX seat findings (P2 x2, P3 x3)', () => {
   });
 });
 
+describe('portal#2664 follow-ups', () => {
+  it('a failed member read says so, and does not blame a permission (BLIND P2)', async () => {
+    const m = await mount(noLog({ people: { people: [], withheld: false, failed: true }, setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada')], fixed: true, reason: 'failed' }, viewer: person('u1', 'Ada') } }));
+    const help = setupForm(m)!.textContent!.replace(/\s+/g, ' ');
+    expect(help).toContain('Only you are listed because the members could not be loaded.');
+    expect(help).not.toContain('not shown to you');
+  });
+  it('the withheld and failed helps have their own i18n keys; the old shared key is not reused with a new meaning', () => {
+    expect(pageSource).toMatch(/'app\.questions\.setup\.deciders-help-withheld'/);
+    expect(pageSource).toMatch(/'app\.questions\.setup\.deciders-help-failed'/);
+    expect(pageSource).not.toMatch(/'app\.questions\.setup\.deciders-help-fixed'/);
+  });
+  it('with members withheld, the help says why only the viewer is listed (and not "They")', async () => {
+    const m = await mount(noLog({ setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada')], fixed: true, reason: 'withheld' }, viewer: person('u1', 'Ada') } }));
+    const help = setupForm(m)!.textContent!.replace(/\s+/g, ' ');
+    expect(help).toContain('Only you can be named here, because the member list is not shown to you.');
+    expect(help).not.toMatch(/\bThey\b/);
+  });
+  it('a person without a name or handle is never shown as an account id', async () => {
+    const m = await mount(noLog({ setup: { memories: [memory('m1', 'Team notes'), memory('m2', 'Runbooks')], deciders: { people: [person('u1', 'Ada'), { id: 'acct-777', name: null, handle: null }], fixed: false }, viewer: person('u1', 'Ada') } }));
+    expect(setupForm(m)!.textContent).not.toContain('acct-777');
+  });
+});
+
 describe('BLIND findings', () => {
   it('picking another memory moves the URN line and the submitted memory (F8)', async () => {
     const m = await mount(noLog());
@@ -145,7 +171,7 @@ describe('BLIND findings', () => {
     expect(new FormData(form).get('memoryId')).toBe('m2');
   });
   it('the set-deciders sentence is one translation unit, the command still in code (F2)', async () => {
-    const src = (await import('node:fs')).readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.svelte`, 'utf8');
+    const src = pageSource;
     expect(src).not.toMatch(/<code[^>]*>hadron question log set-deciders<\/code>\./);
     const m = await mount(withLog());
     const p = [...m.target.querySelectorAll('p')].find((x) => x.textContent!.includes('set-deciders'))!;
@@ -153,9 +179,8 @@ describe('BLIND findings', () => {
     expect(p.querySelector('code')?.textContent).toBe('hadron question log set-deciders');
   });
   it('the impersonation sentence has one key, shared by the page and the action (F7)', async () => {
-    const fs = await import('node:fs');
-    const page = fs.readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.svelte`, 'utf8');
-    const action = fs.readFileSync(`${process.cwd()}/src/routes/app/apps/[appId]/questions/+page.server.ts`, 'utf8');
+    const page = pageSource;
+    const action = serverSource;
     const key = (src: string) => /t\('([a-z.-]+)', 'Questions cannot be set up while impersonating\.'/.exec(src)?.[1];
     expect(key(page)).toBeDefined();
     expect(key(page)).toBe(key(action));
@@ -192,7 +217,7 @@ describe('the log lines (a log exists)', () => {
   });
 
   it('shows the log line above the list, with rows below', async () => {
-    const row = { id: 'q1', urn: 'u', portalUrl: 'https://x/q1', code: 'Q-1', title: 'T', state: 'OPEN', answered: false, priority: 'HIGH', tier: null, askedAt: null, answeredAt: null, revSeq: 1, viewerMayAnswer: true, answer: null, effectiveAssignee: null, askedBy: null };
+    const row = { id: 'q1', urn: 'u', portalUrl: 'https://x/q1', code: 'Q-1', title: 'T', state: 'OPEN', answered: false, priority: 'HIGH', tier: null, askedAt: null, answeredAt: null, revSeq: 1, answer: null, effectiveAssignee: null, askedBy: null };
     const m = await mount(withLog({ questions: { kind: 'ok', value: { total: 1, items: [row] } } }));
     const line = m.target.querySelector('[data-testid=question-log]')!;
     const table = m.target.querySelector('table')!;

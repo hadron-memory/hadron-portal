@@ -13,9 +13,10 @@ const RELOADED = /Execution context was destroyed|navigation/i;
 const VIEWS = ['list', 'empty-no-log', 'setup-single', 'setup-withheld', 'setup-refused', 'empty-no-match', 'failed'];
 
 async function mountView(page, origin, css, width, view) {
+  // Registered once per page, not once per retry.
+  await page.route('**/__blank', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>layout</title>' }));
   for (let attempt = 0; ; attempt++) {
     try {
-      await page.route('**/__blank', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>layout</title>' }));
       await page.goto(new URL('/__blank', origin).href);
       await page.evaluate((css) => {
         document.head.innerHTML = '';
@@ -63,9 +64,10 @@ try {
           });
           return { vw, scrollWidth: document.documentElement.scrollWidth, scroller: !!scroller, statusRegions, heads, controls };
         });
+        assert.equal(got.vw, width, `${label}: the viewport is not ${width}px wide (${got.vw})`);
         assert.equal(got.scrollWidth, width, `${label}: the page overflows sideways (${got.scrollWidth} > ${width})`);
         for (const c of got.controls) assert.ok(c.left >= 0 && c.right <= width, `${label}: a ${c.tag} control is cut off (${c.left.toFixed(0)}..${c.right.toFixed(0)})`);
-        assert.ok(got.statusRegions <= 1, `${label}: one status region at most, got ${got.statusRegions}`);
+        assert.equal(got.statusRegions, 1, `${label}: exactly one status region (it is always mounted), got ${got.statusRegions}`);
         if (view === 'list') {
           assert.ok(got.heads.includes('Code') && got.heads.includes('Question'), `${label}: the Code and Question columns must render`);
           assert.equal(await page.locator('tbody tr').count(), 5, `${label}: five rows`);
