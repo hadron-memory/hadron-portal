@@ -185,6 +185,7 @@
   import AppTickers from './AppTickers.svelte';
   import AppStops from './AppStops.svelte';
   import AppChannels from './AppChannels.svelte';
+  import AppRegister from './AppRegister.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -3022,7 +3023,6 @@
     { id: 'questions', label: t('app.tabs.questions', 'Questions'), href: `/app/apps/${app.id}/questions` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
     { id: 'metrics', label: t('app.tabs.metrics', 'Team metrics'), href: `/app/apps/${app.id}/metrics` },
-    { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
   ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
@@ -4983,6 +4983,15 @@
           <AppChannels appId={app.id} panel={tabData.channelsPanel} {form} orgIds={(data.navOrgs ?? []).map((o: { id: string }) => o.id)} />
         {:else}
           {@render tabArriving('channels')}
+        {/if}
+      </CollapsibleSection>
+
+      <!-- portal#1649: the former /register page, in place. Read when the section unfolds; the asking Agent and the paging are the URL's. -->
+      <CollapsibleSection id="register" title={t('app.tabs.register', 'Action register')} bind:open={openSections['register']}>
+        {#if tabData.registerPanel}
+          <AppRegister appId={app.id} panel={tabData.registerPanel} />
+        {:else}
+          {@render tabArriving('register')}
         {/if}
       </CollapsibleSection>
 
