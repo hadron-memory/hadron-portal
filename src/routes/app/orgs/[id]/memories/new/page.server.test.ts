@@ -169,3 +169,23 @@ describe('create-memory action (spec 034)', () => {
     expect(result).toMatchObject({ status: 500, data: { form: { message: { type: 'error', text: 'Something went wrong on our side.' } } } });
   });
 });
+
+// #2569 (C3): an owner at a limit is the server's refusal, shown as such: 409, the server's words, no generic text.
+describe('owner limit reached (#2569)', () => {
+  const reached = (callerCanManageOwner: boolean, message: string) => ({
+    response: { errors: [{ message, extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'memories', ownerType: 'organization', callerCanManageOwner, ...(callerCanManageOwner ? { ownerId: 'o1', limit: '3' } : {}) } }] },
+  });
+  it('answers 409 with the server text, and no link in a public build', async () => {
+    mockRequest.mockRejectedValueOnce(reached(true, 'This organization has reached its limit of 3 memories.'));
+    const result = (await runCreate({ slug: 'my-notes', displayName: 'My Notes', memoryClass: 'knowledge', visibility: 'ORGANIZATION' })) as { status: number; data: { form: { message?: { text: string; action?: unknown } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message?.text).toBe('This organization has reached its limit of 3 memories.');
+    expect(result.data.form.message?.action).toBeUndefined();
+  });
+  it('shows the no-number form unchanged for a caller who cannot manage the owner', async () => {
+    mockRequest.mockRejectedValueOnce(reached(false, 'The owner of this memory has reached a limit of their account.'));
+    const result = (await runCreate({ slug: 'my-notes', displayName: 'My Notes', memoryClass: 'knowledge', visibility: 'ORGANIZATION' })) as { status: number; data: { form: { message?: { text: string } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message?.text).toBe('The owner of this memory has reached a limit of their account.');
+  });
+});

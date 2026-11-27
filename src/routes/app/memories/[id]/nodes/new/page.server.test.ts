@@ -533,3 +533,21 @@ describe('new node load(): declared roles for managers (#1670)', () => {
     expect(calls[0][1]).toEqual({ ref: 'memory-1' });
   });
 });
+
+describe('limit and size refusals (#2569, door 11)', () => {
+  const wire = (ext: Record<string, unknown>, message: string) => ({ response: { errors: [{ message, extensions: ext }] } });
+  const fields = { name: 'Big', loc: 'big', nodeType: 'info', content: 'typed text' };
+  it('NODE_CONTENT_TOO_LARGE is 400 with the server text, and what was typed is kept', async () => {
+    mockRequest.mockRejectedValueOnce(wire({ code: 'NODE_CONTENT_TOO_LARGE', maxBytes: 100 }, 'A node can hold at most 100 bytes.'));
+    const result = (await runCreate(fields)) as { status: number };
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'A node can hold at most 100 bytes.' });
+    expect(superFormFrom(result)?.data?.content).toBe('typed text');
+  });
+  it('OWNER_LIMIT_REACHED is 409 with the server text (on main: 500, generic)', async () => {
+    mockRequest.mockRejectedValueOnce(wire({ code: 'OWNER_LIMIT_REACHED', limitKey: 'nodes', ownerType: 'user', callerCanManageOwner: false }, 'The owner of this memory has reached a limit of their account.'));
+    const result = (await runCreate(fields)) as { status: number };
+    expect(result.status).toBe(409);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'The owner of this memory has reached a limit of their account.' });
+  });
+});

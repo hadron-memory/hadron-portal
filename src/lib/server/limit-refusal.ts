@@ -6,7 +6,7 @@ import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from 
  * an owner is at a limit (`OWNER_LIMIT_REACHED`) or one node is over the
  * deployment's size ceiling (`NODE_CONTENT_TOO_LARGE`).
  *
- * The text is the SERVER's, unchanged (ruling C3-R1, cor:api:240:01): which form
+ * The text is the SERVER's, unchanged (ruling C3-R1; the server decides): which form
  * a caller gets, with or without the number, is the server's decision, and the
  * portal neither rebuilds it nor looks anything up. Only these two codes release
  * server text; every other code returns null so each door keeps its own map.

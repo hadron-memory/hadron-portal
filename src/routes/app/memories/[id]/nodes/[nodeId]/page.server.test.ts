@@ -1605,3 +1605,24 @@ describe('node-detail load drains no graph (portal#1433)', () => {
     expect(docs).not.toContain(MEMORY_EDGES_QUERY);
   });
 });
+
+describe('node over the size ceiling (#2569, door 13)', () => {
+  const tooLarge = { response: { errors: [{ message: 'A node can hold at most 100 bytes.', extensions: { code: 'NODE_CONTENT_TOO_LARGE', maxBytes: 100 } }] } };
+  it('updateContent answers 400 with the server text under contentFailed (on main: 500 "failed", generic)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk-1', memoryId: 'mem-A', loc: 'instructions', name: 'instructions', nodeType: 'info', alias: null, description: null,
+        content: 'old', tokens: null, tags: [], seq: null, data: null, ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce(tooLarge);
+    const actions = await importActions();
+    const result = (await actions.updateContent(actionEvent({ gid: 'mem-A', nodeId: 'pk-1', form: { content: 'new', expectedRevision: '3' } }))) as {
+      status: number;
+      data: { contentFailed: { code: string; detail: string } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.contentFailed).toEqual({ code: 'too-large', detail: 'A node can hold at most 100 bytes.' });
+  });
+});

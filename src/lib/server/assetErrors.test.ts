@@ -173,3 +173,18 @@ describe('mapAssetError', () => {
     expect(spy.mock.calls.flat().join(' ')).toMatch(/completeAssetUpload/);
   });
 });
+
+describe('mapAssetError: limits and size (#2569)', () => {
+  it('an owner at a limit is 409 with the server text, not INTERNAL 500', () => {
+    expect(mapAssetError(gqlError('OWNER_LIMIT_REACHED', 'This organization has reached its limit of 1 GB.'), 'begin')).toEqual([
+      { code: 'OWNER_LIMIT_REACHED', message: 'This organization has reached its limit of 1 GB.' },
+      { status: 409 },
+    ]);
+  });
+  it('a node over the size ceiling is 400 with the server text', () => {
+    expect(mapAssetError(gqlError('NODE_CONTENT_TOO_LARGE', 'A node can hold at most 100 bytes.'), 'reference')).toEqual([
+      { code: 'NODE_CONTENT_TOO_LARGE', message: 'A node can hold at most 100 bytes.' },
+      { status: 400 },
+    ]);
+  });
+});
