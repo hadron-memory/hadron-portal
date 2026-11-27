@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PortalColumnDef } from '$lib/table/features';
   import { pickerStrings } from '$lib/i18n/picker-strings';
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
@@ -25,6 +25,7 @@
     keepOpen = false,
     addedIds = null,
     note = '',
+    remote = null,
   }: {
     memories: Memory[];
     placeholder?: string;
@@ -45,7 +46,24 @@
     addedIds?: ReadonlySet<string> | null;
     /** A status line the host owns, such as how many are picked and the limit. */
     note?: string;
+    /**
+     * The host searches and pages on the server: `memories` is the current page only, and the picker neither filters nor
+     * pages it locally. Typing calls `onquery` (debounced, back on page one), Previous and Next call `onpage`. `error` is
+     * a message the host already worded; `loading` is a read in flight.
+     */
+    remote?: { total: number; pageSize: number; loading: boolean; error: string | null; onquery: (query: string) => void; onpage: (pageIndex: number) => void } | null;
   } = $props();
+
+  const QUERY_DEBOUNCE_MS = 300;
+  let remotePage = $state(0);
+  let debounce: ReturnType<typeof setTimeout> | undefined;
+  function typed() {
+    if (!remote) return;
+    clearTimeout(debounce);
+    debounce = setTimeout(() => { remotePage = 0; remote?.onquery(query); }, QUERY_DEBOUNCE_MS);
+  }
+  function goto(index: number) { remotePage = index; remote?.onpage(index); }
+  onDestroy(() => clearTimeout(debounce));
 
   const STACK_GAP = 8; // px between the host's edge and this dialog
   let clearTop = $state<number | null>(null);
@@ -101,6 +119,9 @@
     onGlobalFilterChange: (u) => {
       query = typeof u === 'function' ? u(query) : u;
     },
+    // Remote mode: the server already matched and paged, so the grid shows exactly the rows it was given.
+    get manualFiltering() { return !!remote; },
+    get manualPagination() { return !!remote; },
     globalFilterFn: (row, id, value) => {
       const searchValue = String(value ?? '').toLowerCase().trim();
       if (!searchValue) return true;
@@ -120,7 +141,8 @@
   const rows = $derived(table.getRowModel().rows);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());
-  const filteredRowCount = $derived(table.getFilteredRowModel().rows.length);
+  const filteredRowCount = $derived(remote ? remote.total : table.getFilteredRowModel().rows.length);
+  const remotePageCount = $derived(remote ? Math.max(1, Math.ceil(remote.total / remote.pageSize)) : 0);
 
   function select(memory: Memory) {
     if (addedIds?.has(memory.id)) return;
@@ -140,6 +162,8 @@
   $effect(() => {
     if (open) return;
     untrack(() => {
+      clearTimeout(debounce);
+      remotePage = 0;
       query = '';
       table.resetPageIndex();
     });
@@ -176,6 +200,7 @@
         <input
           type="text"
           bind:value={query}
+          oninput={typed}
           {placeholder}
           aria-label={placeholder}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
@@ -185,7 +210,11 @@
 
       <!-- Table -->
       <div class="flex-1 overflow-auto">
-        {#if rows.length === 0}
+        {#if remote?.error}
+          <p role="alert" class="px-4 py-8 text-center text-sm text-red-600 dark:text-red-400">{remote.error}</p>
+        {:else if remote?.loading && rows.length === 0}
+          <div role="status" class="px-4 py-8 text-center text-sm text-zinc-500">{t('select-memory.loading', 'Loading…')}</div>
+        {:else if rows.length === 0}
           <div class="px-4 py-8 text-center text-sm text-zinc-500">No memories found.</div>
         {:else}
           <table class="w-full table-fixed border-collapse text-sm sm:table-auto">
@@ -248,23 +277,25 @@
       <!-- Footer with pagination -->
       <div class="border-t border-zinc-200 flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
         <div>
-          {rows.length > 0 && pageIndex >= 0 && pageCount > 0
+          {remote
+            ? (rows.length > 0 ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${remotePage + 1} of ${remotePageCount}` : `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''}`)
+            : rows.length > 0 && pageIndex >= 0 && pageCount > 0
             ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${pageIndex + 1} of ${pageCount}`
             : `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''}`}
         </div>
         <div class="flex gap-2">
           <button
             type="button"
-            onclick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            onclick={() => (remote ? goto(remotePage - 1) : table.previousPage())}
+            disabled={remote ? remote.loading || remotePage <= 0 : !table.getCanPreviousPage()}
             class="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
           >
             ← Previous
           </button>
           <button
             type="button"
-            onclick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
+            onclick={() => (remote ? goto(remotePage + 1) : table.nextPage())}
+            disabled={remote ? remote.loading || remotePage + 1 >= remotePageCount : !table.getCanNextPage()}
             class="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
           >
             Next →

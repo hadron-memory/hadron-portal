@@ -1,4 +1,4 @@
-# Exported from hadron-server 13cd1c30543cb713baad692ba32aab6155118b40 (13cd1c30, 2026-11-27T10:00:52Z) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 20d6b9ad5ae5c2552495686b76d69f48a1f25727 (origin/main, 2026-11-27T12:57:25Z) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -2272,7 +2272,7 @@ input AiServiceConfigFilter {
 
 type AiServiceConfigTestError {
   """
-  NO_API_KEY | KEY_UNREADABLE (the stored key cannot be decrypted here; re-enter it) | CONFIG_INVALID (the config cannot be built at all, e.g. a malformed Bedrock key; no call made) | QUOTA_EXCEEDED (a platform-funded test with the org's daily token allowance used up; no call made) | LLM_CALL_FAILED (the provider call failed or timed out; see transient)
+  NO_API_KEY | KEY_UNREADABLE (the stored key cannot be decrypted here; re-enter it) | CONFIG_INVALID (the config cannot be built at all, e.g. a malformed Bedrock key; no call made) | QUOTA_EXCEEDED (a platform-funded test with the org's daily token allowance used up; no call made) | CREDITS_EXHAUSTED (a test on the platform's own key whose billable account has no AI credit left; no call made) | LLM_CALL_FAILED (the provider call failed or timed out; see transient)
   """
   code: String!
 
@@ -2540,6 +2540,8 @@ type App {
   #5185 — the memories linked to this App with 'attachMemoryToApp'. You see only entries whose memory you can read in your
   own right; others are absent and not counted. 'active' is whether the link counts right now (its attacher still reads the
   memory in their own right, the App is installed, and a personal or private memory is the App owner's and was linked by the owner).
+  #5345: a user-owned memory of any other class is never active for the App's key — the record gate refuses it, so the link
+  grants the key nothing (it stays listed, inert, until detached).
   """
   attachedMemories: [AppAttachedMemory!]!
 
@@ -3296,7 +3298,7 @@ type AppRun {
 
 type AppRunFailureReason {
   """
-  Stable category: NOT_ADOPTED, MEMORY_UNREADABLE, CHANGED, OVER_BUDGET, POLICY_DENIED, NO_AI_CONFIG, TIMED_OUT, CANCELLED or OTHER.
+  Stable category: NOT_ADOPTED, MEMORY_UNREADABLE, CHANGED, OVER_BUDGET, POLICY_DENIED, NO_AI_CONFIG, TIMED_OUT, CANCELLED, OUT_OF_CREDIT or OTHER.
   """
   kind: String!
 
@@ -9410,7 +9412,10 @@ type Mutation {
   through any App); when you lose read the link goes inert, and it works again if you regain it. A user, with or without the
   App selected, gains nothing from a link. For a 'personal' or 'private' memory the key reads it only when the memory's owner
   is the App's owner (a user-owned App whose owner linked their own memory); in an organization's App the link is inert for
-  the key. Any class except 'system', in any tenant. One memory may be linked into several Apps. A link you already hold is
+  the key. The same holds for a user-owned memory of any other class (#5345): a knowledge or group memory under a user root
+  never reaches the key through a link — attaching gives no access, and the record gate refuses it — so the link sits inert
+  (listed with 'active: false' in attachedMemories) until it is detached. Any class except 'system', in any tenant. One
+  memory may be linked into several Apps. A link you already hold is
   success and writes nothing. 'agentRef' is accepted and ignored (deployed clients keep working).
   
   Person only: a signed-in user acting as themselves, and a member of the App. Typed errors, judged in this order before any
@@ -16433,6 +16438,28 @@ type Query {
   not separate queries: mine: true, no filter, and orgRef respectively.
   """
   assets(filter: AssetFilter, limit: Int = 20, offset: Int = 0, orgRef: ID): AssetsPage!
+
+  """
+  #5393: the attachable-memory picker's search, one page of the memories the caller could
+  attach to this App with attachMemoryToApp (hrn:node:hadronmemory.com:specs:cor:dmo:060:20).
+  
+  Who may call: the callers attachMemoryToApp admits, refused the same way. No signed-in user:
+  UNAUTHENTICATED. An App key, worker session, impersonation or run: FORBIDDEN. An unknown or
+  deleted App, or a caller who is not a member of it: the same FORBIDDEN. A member of an
+  uninstalled App: APP_UNINSTALLED. A call past the caller checks takes one
+  FAN_OUT_READS rate admission before it reads anything.
+  
+  Candidates: the memories the caller reads in their own right (the same judgment attach applies,
+  so never a memory reached only through an App), except deleted ones, class system, class app,
+  and any memory already linked to this App by anyone, including a link that is inactive.
+  
+  query: case-insensitive "contains" on the name or the URN (a leading hrn:mem: is ignored for
+  the URN); omitted, empty or blank applies no text filter.
+  
+  Paging per hrn:node:hadronmemory.com:specs:cor:api:120:02: name ascending, id tiebreak;
+  limit default 20, cap 200; limit: 0 returns only the total. Accepts the App's ID or URN.
+  """
+  attachableMemories(appRef: ID!, limit: Int, offset: Int, query: String): MemoriesPage!
 
   """
   Spec 049 Phase 6 — an attendee's RESOLVED register: the rows that apply to

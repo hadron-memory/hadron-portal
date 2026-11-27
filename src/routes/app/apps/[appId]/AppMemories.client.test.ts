@@ -240,7 +240,7 @@ describe('adding an existing memory', () => {
  const press=async(root:Element,label:string)=>{[...root.querySelectorAll('button')].find(b=>b.textContent?.trim()===label)!.click();await tick(3);};
  const fetchReply=(body:unknown,ok=true)=>vi.spyOn(globalThis,'fetch').mockResolvedValue({ok,json:async()=>body} as Response);
  it('opens the picker with the user\'s memories and posts the chosen one, sending no Agent',async()=>{
-  const get=fetchReply({kind:'ok',memories:[{id:'mine',urn:'hrn:mem:acme.com:mine',name:'My notes',visibility:'ORGANIZATION'}]});
+  const get=fetchReply({kind:'ok',total:1,memories:[{id:'mine',urn:'hrn:mem:acme.com:mine',name:'My notes',visibility:'ORGANIZATION'}]});
   // the values the POST would carry, read when the submit happens, not after
   const posted:Record<string,string>[]=[];
   const submit=vi.spyOn(HTMLFormElement.prototype,'requestSubmit').mockImplementation(function(this:HTMLFormElement){posted.push(Object.fromEntries(new FormData(this) as never));});
@@ -249,7 +249,7 @@ describe('adding an existing memory', () => {
   await press(m.target,'Add memory');
   await press(document.body,'Choose an existing memory');
   await vi.waitFor(()=>expect(document.body.textContent).toContain('My notes'));
-  expect(get.mock.calls[0][0]).toBe('/app/apps/a/attachable');
+  expect(get.mock.calls[0][0]).toBe('/app/apps/a/attachable?q=&offset=0');
   await press(document.body,'Select');
   await vi.waitFor(()=>expect(submit).toHaveBeenCalled());
   expect(posted[0]).toMatchObject({memoryId:'mine',_kind:'attachAppMemory'});
@@ -260,19 +260,24 @@ describe('adding an existing memory', () => {
   expect(form.querySelector<HTMLInputElement>('input[name=_kind]')!.value).toBe('attachAppMemory');
   }finally{m.unmount();get.mockRestore();submit.mockRestore();}
  });
- it('says so, and opens no picker, when the user\'s memories could not be read',async()=>{
-  const get=fetchReply({kind:'failed'});
+ it.each([
+  ['FAILED','Could not load your memories'],
+  ['FORBIDDEN','Only a member of this App'],
+  ['APP_UNINSTALLED','This App is uninstalled'],
+  ['UNAUTHENTICATED','Sign in again'],
+ ])('says why in the picker when the server answers %s, never offering a row',async(code,words)=>{
+  const get=fetchReply({kind:'failed',code});
   const m=mountComponent(AppMemories as never,await listProps(rows));
   try{await tick();
   await press(m.target,'Add memory');
   await press(document.body,'Choose an existing memory');
-  await vi.waitFor(()=>expect(m.target.textContent).toContain('Could not load your memories'));
-  expect(document.body.querySelector('[aria-label="Choose a memory"]')).toBeNull();
+  await vi.waitFor(()=>expect(document.body.querySelector('[aria-label="Choose a memory"] [role=alert]')?.textContent).toContain(words));
+  expect(document.body.querySelector('[aria-label="Choose a memory"] table')).toBeNull();
   }finally{m.unmount();get.mockRestore();}
  });
  // portal#2635: an attach is a link, and the server ignores the Agent (agentRef is optional and ignored).
  it('offers the attach choice and opens the picker while the App has no Agent; only creating needs one',async()=>{
-  const get=fetchReply({kind:'ok',memories:[{id:'mine',urn:'hrn:mem:acme.com:mine',name:'My notes',visibility:null}]});
+  const get=fetchReply({kind:'ok',total:1,memories:[{id:'mine',urn:'hrn:mem:acme.com:mine',name:'My notes',visibility:null}]});
   const m=mountComponent(AppMemories as never,await listProps(rows,{hasAgent:false}));
   try{await tick();
   await press(m.target,'Add memory');
@@ -286,16 +291,33 @@ describe('adding an existing memory', () => {
   expect(get).toHaveBeenCalled();
   }finally{m.unmount();get.mockRestore();}
  });
- it('leaves out of the picker a memory this App already holds',async()=>{
-  const get=fetchReply({kind:'ok',memories:[{id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',visibility:null},{id:'mine',urn:'hrn:mem:acme.com:mine',name:'My notes',visibility:null}]});
+ it('searches on the server as the user types, debounced, and pages on the server',async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});
+  const mem=(n:string)=>({id:n,urn:`hrn:mem:acme.com:${n}`,name:n,visibility:null});
+  const get=vi.spyOn(globalThis,'fetch').mockImplementation((async(url:string)=>{
+   const q=new URL(url,'http://x').searchParams;
+   const body=q.get('q')==='zed'?{kind:'ok',total:1,memories:[mem('zed-notes')]}
+    :{kind:'ok',total:25,memories:[mem(q.get('offset')==='10'?'second-page':'first-page')]};
+   return {ok:true,status:200,json:async()=>body} as Response;
+  }) as never);
   const m=mountComponent(AppMemories as never,await listProps(rows));
   try{await tick();
   await press(m.target,'Add memory');
   await press(document.body,'Choose an existing memory');
-  await vi.waitFor(()=>expect(document.body.textContent).toContain('My notes'));
-  const picker=document.body.querySelector('[aria-label="Choose a memory"]')!;
-  expect(picker.textContent).not.toContain('First');
-  }finally{m.unmount();get.mockRestore();}
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('first-page'));
+  expect(document.body.textContent).toContain('25 results');
+  await press(document.body,'Next →');
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('second-page'));
+  expect(get.mock.calls.at(-1)![0]).toBe('/app/apps/a/attachable?q=&offset=10');
+  const input=document.body.querySelector<HTMLInputElement>('[aria-label="Choose a memory"] input')!;
+  const calls=get.mock.calls.length;
+  for(const v of['z','ze','zed']){input.value=v;input.dispatchEvent(new Event('input',{bubbles:true}));}
+  expect(get.mock.calls.length).toBe(calls);
+  await vi.advanceTimersByTimeAsync(400);
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('zed-notes'));
+  expect(get.mock.calls.length).toBe(calls+1);
+  expect(get.mock.calls.at(-1)![0]).toBe('/app/apps/a/attachable?q=zed&offset=0');
+  }finally{m.unmount();get.mockRestore();vi.useRealTimers();}
  });
  it('says what a link does in the choice\'s help text, and promises no key read and no rename',async()=>{
   const m=mountComponent(AppMemories as never,await listProps(rows));
