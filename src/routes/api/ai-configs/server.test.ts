@@ -302,6 +302,15 @@ describe('POST /api/ai-configs', () => {
     expect(mockRequest.mock.calls[1][1]).toEqual({ id: 'c1', override: { params: null } });
   });
 
+  it('testSaved: a CREDITS_EXHAUSTED result keeps its code (#2569; on main it became TEST_FAILED)', async () => {
+    mockRequest.mockResolvedValueOnce({ testAiServiceConfig: { ...RESULT, ok: false, reply: null, error: { code: 'CREDITS_EXHAUSTED', message: 'provider echo sk-x', transient: true } } });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'testSaved', id: 'c1' } }));
+    const body = await jsonOf(res);
+    expect(body.result.error.code).toBe('CREDITS_EXHAUSTED');
+    expect(JSON.stringify(body)).not.toContain('sk-x');
+  });
+
   it('testSaved: needs an id, and RATE_LIMITED is a 429 in words', async () => {
     const { POST } = await import('./+server');
     expect((await POST(ev({ body: { action: 'testSaved' } }))).status).toBe(400);

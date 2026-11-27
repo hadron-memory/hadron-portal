@@ -189,3 +189,18 @@ describe('parseHops (#482)', () => {
     expect(fmtHopDuration('2026-10-01T10:00:05.000Z', '2026-10-01T10:00:00.000Z')).toBe('—');
   });
 });
+
+describe('failureSentence (#2569, door 23, C3-R8 a)', () => {
+  it('words a DENIED_CREDITS stop in the portal\'s own sentence', async () => {
+    const { failureSentence } = await import('./runs');
+    expect(failureSentence({ failure: { code: 'ACTIVATION_DENIED', reason: 'DENIED_CREDITS', message: 'server prose' } })).toBe(
+      'This run stopped because the account has no AI credit left.',
+    );
+  });
+  it('is null for any other or missing reason, so the server code and message stay', async () => {
+    const { failureSentence } = await import('./runs');
+    expect(failureSentence({ failure: { code: 'ACTIVATION_DENIED', reason: 'DENIED_POLICY' } })).toBeNull();
+    expect(failureSentence({ failure: { code: 'MAX_HOPS_EXCEEDED' } })).toBeNull();
+    expect(failureSentence({ failure: null })).toBeNull();
+  });
+});

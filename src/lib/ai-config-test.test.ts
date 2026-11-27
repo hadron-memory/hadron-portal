@@ -102,3 +102,13 @@ it('#2043 never renders an unrecognized chat status as provider text', () => {
   expect(view.chat).toEqual({ ok: false, headline: 'Chat test result unavailable.' });
   expect(JSON.stringify(view)).not.toContain('SYNTHETIC_SECRET');
 });
+
+describe('out of credit (#2569, door 22)', () => {
+  it('says there is no AI credit left, with its own headline, and reads as not called', () => {
+    const v = testResultView(result({ ok: false, reply: null, error: { code: 'CREDITS_EXHAUSTED', message: 'x', transient: true } }));
+    expect(v.headline).toContain('There is no AI credit left on this account, so no test call was made.');
+    expect(v.headline).not.toBe('The test failed.');
+    expect(v.details[0]).toMatch(/^Would call .*\(no call was made\)$/);
+    expect(v.details[0]).not.toMatch(/^Called /);
+  });
+});
