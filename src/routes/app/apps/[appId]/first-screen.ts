@@ -58,6 +58,7 @@ export const READ_GROUP_KEYS = {
   tickers: ['tickersPanel'],
   stops: ['stopsPanel'],
   channels: ['channelsPanel'],
+  register: ['registerPanel'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type ReadGroup = keyof typeof READ_GROUP_KEYS;
@@ -82,6 +83,7 @@ export const TAB_READS: Record<AppTabId, readonly ReadGroup[]> = {
   tickers: ['tickers'],
   stops: ['stops'],
   channels: ['channels'],
+  register: ['register'],
   // The Client tab's plugin grid (canManage) and its key status (appKeys).
   client: ['canManage', 'appKeys'],
 };

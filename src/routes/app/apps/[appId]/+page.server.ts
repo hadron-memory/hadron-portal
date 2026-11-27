@@ -93,6 +93,7 @@ import { loadSecretsPanel } from './secrets-panel';
 import { loadTickersPanel } from './tickers-panel';
 import { loadStopsPanel } from './stops-panel';
 import { channelErrorText, loadChannelsPanel } from './channels-panel';
+import { loadRegisterPanel } from './register-panel';
 import { channelLoc, createChannelSchema, deleteChannelSchema, renameChannelSchema } from './channels-schema';
 import { attendanceActions } from '$lib/server/register-actions';
 import { formValues, impersonationRefusal, taskWrite, writeFailure } from '$lib/server/agent-task-writes';
@@ -1191,6 +1192,8 @@ export async function _loadAppPage(
   const stopsPanel = await loadStopsPanel(wants('stops'), client, app.id, locals, url.searchParams.get('after'));
   // #942: the channels section's data (the list, the register and the forms), when the section is asked for.
   const channelsPanel = await loadChannelsPanel(wants('channels'), client, app.id, locals);
+  // portal#1649: the action register's data, when the section is asked for; the asking Agent and the paging are the URL's.
+  const registerPanel = await loadRegisterPanel(wants('register'), client, app.id, url.searchParams);
   // The frame's stop banner named a worker: its names travel with the frame.
   if (staffLoaded) reads.add('staff');
   const full = {
@@ -1199,6 +1202,7 @@ export async function _loadAppPage(
     tickersPanel,
     stopsPanel,
     channelsPanel,
+    registerPanel,
     runsPanel: runsSection && runsExtras && flowsData ? {
       ...runsSection,
       app,
