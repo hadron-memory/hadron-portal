@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/server/api', () => ({ gqlClient: vi.fn() }));
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { gqlClient } from '$lib/server/api';
-import { appMemoriesFromScope, attachMemory, canCreateAppMemory, readAppMemoryScope, readAttachableMemories } from './app-memories';
+import { appMemoriesFromScope, withLinkedMemories, readAttachedMemories, attachMemory, canCreateAppMemory, readAppMemoryScope, readAttachableMemories } from './app-memories';
+import type { AppMemoryRow } from './app-memories';
 import { notYetInScope } from './attachable-candidates';
 it.each(['OWNER','ADMIN','CONTRIBUTOR','READER'])('creation visibility follows the current user org role %s', role => {
  expect(canCreateAppMemory({members:[{role,user:{id:'me'}},{role:'OWNER',user:{id:'other'}}]},'me')).toBe(['OWNER','ADMIN'].includes(role));
@@ -74,6 +75,12 @@ describe('attachMemory action', () => {
     const res = JSON.stringify(await run({ memoryId: 'm1' }, request));
     for (const old of ['already belongs to an App', 'different organization', 'personal and private memories', 'memory you own', 'Install an Agent']) expect(res).not.toContain(old);
     expect(res).toContain('500');
+  });
+  // Gravitus F1: the remedy for an uninstalled App is reinstalling it, not installing an Agent.
+  it('answers APP_UNINSTALLED with its own copy, not the Agent remedy', async () => {
+    const res = JSON.stringify(await run({ memoryId: 'm1' }, vi.fn().mockRejectedValue({ response: { errors: [{ message: 'x', extensions: { code: 'APP_UNINSTALLED' } }] } })));
+    expect(res).toContain('Reinstall it');
+    expect(res).not.toContain('Install an Agent');
   });
   it('says a system memory cannot be attached, and a missing or unreadable memory is one answer', async () => {
     const refuse = async (code: string) => JSON.stringify(await run({ memoryId: 'm1' }, vi.fn().mockRejectedValue({ response: { errors: [{ message: 'x', extensions: { code } }] } })));
@@ -196,4 +203,38 @@ it('selects every leaf field used by summaries and upload selection (GraphQL AST
  const sources=items.selectionSet!.selections.find(s=>s.kind===Kind.FIELD&&s.name.value==='sources');
  if(sources?.kind!==Kind.FIELD)throw new Error('missing sources');
  expect(sources.selectionSet!.selections.filter(s=>s.kind===Kind.FIELD).map(s=>s.name.value)).toEqual(['kind','agentId']);
+});
+
+// QA F1: the default memories() list omits a memory reached only through a share, so the picker reads that slice too.
+describe('readAttachableMemories, shared-with-me slice', () => {
+  it('reads the shared slice as well and joins the two lists, one row per memory', async () => {
+    const own = { id: 'own', urn: 'hrn:mem:e:own', name: 'Own', visibility: null };
+    const shared = { id: 'sh', urn: 'hrn:mem:u:sh', name: 'Shared', visibility: null };
+    const request = vi.fn(async (_doc: string, vars: { sharedWithMe: boolean | null }) => ({ memories: { total: 1, items: vars.sharedWithMe ? [shared, own] : [own] } }));
+    const got = await readAttachableMemories({ request } as never);
+    expect(request.mock.calls.map(c => c[1].sharedWithMe)).toEqual([null, true]);
+    expect(got?.map(m => m.id)).toEqual(['own', 'sh']);
+  });
+  it('is unavailable when either read fails, never a shorter list', async () => {
+    const request = vi.fn(async (_doc: string, vars: { sharedWithMe: boolean | null }) => { if (vars.sharedWithMe) throw new Error('offline'); return { memories: { total: 0, items: [] } }; });
+    expect(await readAttachableMemories({ request } as never)).toBeNull();
+  });
+});
+
+// QA F2 / Gravitus F2: a linked memory is not an appMemoryScope row, so the list reads it from App.attachedMemories.
+describe('linked memories in the App list', () => {
+  const row = (id: string): AppMemoryRow => ({ id, urn: `hrn:mem:e:${id}`, name: id, class: 'knowledge', appId: null });
+  it('adds each linked memory after the scope rows, once', () => {
+    expect(withLinkedMemories([row('app')], [row('k'), row('app')])?.map(r => r.id)).toEqual(['app', 'k']);
+  });
+  it('leaves the scope alone when the link read failed, and stays unavailable when the scope is', () => {
+    expect(withLinkedMemories([row('app')], null)?.map(r => r.id)).toEqual(['app']);
+    expect(withLinkedMemories(null, [row('k')])).toBeNull();
+  });
+  it('reads name, URN and class of each link, and is null when the read fails or the App is unreadable', async () => {
+    const memory = { id: 'k', urn: 'hrn:mem:e:k', name: 'K', class: 'knowledge' };
+    expect(await readAttachedMemories({ request: vi.fn().mockResolvedValue({ app: { attachedMemories: [{ memory }] } }) } as never, 'a')).toEqual([{ ...memory, appId: null }]);
+    expect(await readAttachedMemories({ request: vi.fn().mockResolvedValue({ app: null }) } as never, 'a')).toBeNull();
+    expect(await readAttachedMemories({ request: vi.fn().mockRejectedValue(new Error('x')) } as never, 'a')).toBeNull();
+  });
 });

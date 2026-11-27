@@ -33,7 +33,8 @@ describe('GET /app/apps/[appId]/attachable', () => {
       { id: 'm2', urn: 'hrn:mem:p:m2', name: 'M2', visibility: 'ORGANIZATION' },
     ] });
     expect(res.headers.get('cache-control')).toBe('no-store');
-    expect(request).toHaveBeenCalledTimes(1);
+    // The default list and the shared-with-me slice, joined to one row per memory.
+    expect(request).toHaveBeenCalledTimes(2);
     expect(request.mock.calls[0][1]).not.toHaveProperty('orgRef');
     expect(request.mock.calls[0][1]).not.toHaveProperty('ownedByMe');
     expect(JSON.stringify(request.mock.calls)).not.toContain('org-from-request');
