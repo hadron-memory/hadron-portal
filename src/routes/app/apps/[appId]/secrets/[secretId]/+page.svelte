@@ -25,6 +25,8 @@
   const hasOpen = $derived(data.pending.some((p) => p.state.toLowerCase() === 'open'));
   const staged = (action: string) => hasOpen && !!(form && 'staged' in form && form.staged && form.action === action);
   const saved = (action: string) => !!(form && 'ok' in form && form.ok && form.action === action);
+  // A change to this option already waits for the passkey: the switch stays put until it ends.
+  const daWaiting = $derived(data.pending.some((p) => p.state.toLowerCase() === 'open' && /^(SET|CLEAR)_DELETE_AFTER_USE$/i.test(p.operation)));
   const stagedText = () => t('secrets.staged', 'Not saved yet.');
   // The first Delete post only asks; the delete runs on the post that confirms (the server asks, so it holds without JavaScript).
   const confirmingDelete = $derived(!!(form && 'confirm' in form && form.confirm && form.action === 'delete'));
@@ -110,6 +112,38 @@
         </div>
       </section>
     {/if}
+
+    <section aria-labelledby="secret-dau-heading" class="max-w-lg space-y-3" data-testid="delete-after-use">
+      <h2 id="secret-dau-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.dau.heading', 'Delete after use')}</h2>
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">
+        {secret.deleteAfterUse
+          ? t('secrets.dau.on', 'A read client can delete this secret after it reads it.')
+          : t('secrets.dau.off', 'A read client cannot delete this secret after it reads it.')}
+        {#if secret.protected} {t('secrets.dau.protected', 'Changing this needs your passkey signature.')}{/if}
+      </p>
+      <form method="POST" action="?/deleteAfterUse" use:enhance>
+        <input type="hidden" name="deleteAfterUse" value={secret.deleteAfterUse ? 'false' : 'true'} />
+        <button
+          type="submit"
+          role="switch"
+          aria-checked={secret.deleteAfterUse}
+          aria-labelledby="secret-dau-heading"
+          disabled={ro || daWaiting}
+          class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50 {secret.deleteAfterUse ? 'bg-indigo-600' : 'bg-zinc-300 dark:bg-zinc-700'}"
+        >
+          <span class="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform {secret.deleteAfterUse ? 'translate-x-5' : 'translate-x-0.5'}"></span>
+        </button>
+      </form>
+      <div aria-live="polite">
+        {#if msg('deleteAfterUse')}
+          <p role="alert" class="text-sm text-red-700 dark:text-red-400">{msg('deleteAfterUse')}</p>
+        {:else if staged('deleteAfterUse') || daWaiting}
+          <p class="text-sm text-amber-800 dark:text-amber-300" data-testid="deleteAfterUse-staged">{stagedText()}</p>
+        {:else if saved('deleteAfterUse')}
+          <p class="text-sm text-emerald-700 dark:text-emerald-400" data-testid="deleteAfterUse-saved">{t('secrets.replace.done', 'Saved.')}</p>
+        {/if}
+      </div>
+    </section>
 
     <section aria-labelledby="secret-delete-heading" class="max-w-lg space-y-3">
       <h2 id="secret-delete-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('secrets.delete.heading', 'Delete')}</h2>

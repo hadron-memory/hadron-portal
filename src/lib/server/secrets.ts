@@ -9,7 +9,7 @@ import { extractGqlErrorCode } from '$lib/server/gqlError';
  */
 const SECRET_FIELDS = /* GraphQL */ `
   fragment SecretFields on Secret {
-    id ownerType ownerId name kind protected currentVersion metadata createdAt createdBy updatedAt updatedBy
+    id ownerType ownerId name kind protected deleteAfterUse currentVersion metadata createdAt createdBy updatedAt updatedBy
   }
 `;
 
@@ -36,6 +36,10 @@ export const UPDATE_SECRET_VALUE_MUTATION = /* GraphQL */ `
   ${SECRET_FIELDS}
   mutation UpdateAppSecretValue($ref: ID!, $value: JSON!) { updateSecret(ref: $ref, value: $value) { ...SecretFields } }
 `;
+export const UPDATE_SECRET_DELETE_AFTER_USE_MUTATION = /* GraphQL */ `
+  ${SECRET_FIELDS}
+  mutation UpdateAppSecretDeleteAfterUse($ref: ID!, $deleteAfterUse: Boolean!) { updateSecret(ref: $ref, deleteAfterUse: $deleteAfterUse) { ...SecretFields } }
+`;
 export const SET_SECRET_PROTECTED_MUTATION = /* GraphQL */ `
   ${SECRET_FIELDS}
   mutation SetSecretProtected($ref: ID!, $protected: Boolean!) { setSecretProtected(ref: $ref, protected: $protected) { ...SecretFields } }
@@ -56,6 +60,8 @@ export interface AppSecret {
   /** The non-secret, inspectable half of the secret (never a value). */
   metadata: unknown;
   protected: boolean;
+  /** Whether a read client's auto-delete mark may delete this secret after its use (cor:sec:060:03). */
+  deleteAfterUse: boolean;
   currentVersion: number | null;
   createdAt: string;
   createdBy: string | null;

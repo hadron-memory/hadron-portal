@@ -56,6 +56,8 @@
       case 'CREATE': return t('secrets.request.op.create', 'creating this secret');
       case 'SET_PROTECTED': return t('secrets.request.op.protect', 'turning protection on');
       case 'CLEAR_PROTECTED': return t('secrets.request.op.unprotect', 'turning protection off');
+      case 'SET_DELETE_AFTER_USE': return t('secrets.request.op.delete-after-use-on', 'turning delete after use on');
+      case 'CLEAR_DELETE_AFTER_USE': return t('secrets.request.op.delete-after-use-off', 'turning delete after use off');
       default: return operation;
     }
   });
