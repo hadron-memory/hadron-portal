@@ -1,4 +1,4 @@
-# Exported from hadron-server 20d6b9ad5ae5c2552495686b76d69f48a1f25727 (origin/main, 2026-11-27T12:57:25Z) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 059bda741828921defb255c1fdb215ebea164385 (059bda74, 2026-11-27T18:53:26Z) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -9414,9 +9414,9 @@ type Mutation {
   is the App's owner (a user-owned App whose owner linked their own memory); in an organization's App the link is inert for
   the key. The same holds for a user-owned memory of any other class (#5345): a knowledge or group memory under a user root
   never reaches the key through a link — attaching gives no access, and the record gate refuses it — so the link sits inert
-  (listed with 'active: false' in attachedMemories) until it is detached. Any class except 'system', in any tenant. One
-  memory may be linked into several Apps. A link you already hold is
-  success and writes nothing. 'agentRef' is accepted and ignored (deployed clients keep working).
+  (listed with 'active: false' in attachedMemories) until it is detached. You may attach any class except 'system', in
+  any tenant, and the attach succeeds even when the link stays inert. One memory may be linked into several Apps. A link
+  you already hold is success and writes nothing. 'agentRef' is accepted and ignored (deployed clients keep working).
   
   Person only: a signed-in user acting as themselves, and a member of the App. Typed errors, judged in this order before any
   write: UNAUTHENTICATED (no signed-in user); FORBIDDEN (an App key, run, worker session or impersonation; also an unknown or
@@ -12912,9 +12912,22 @@ type Mutation {
 
   """
   Start an AGENT CHAT (creates chat nodes, loads conversation, returns
-  compiled prompt). When called by a JWT user, the agent chat is created in
-  that user's personal memory for the agent (provisioned lazily if
-  needed).
+  compiled prompt). When called by a signed-in user, a private agent chat is
+  created in that user's personal memory for the agent in the identified App
+  (provisioned lazily if needed).
+  
+  #5394 (hrn:node:hadronmemory.com:specs:cor:cht:010:02): the App that supplies
+  the chatbot and keeps the chat is the one the call identifies: an App
+  credential's own App, or otherwise appRef (an ID or URN, as agentRef; the
+  CLI's global --app). No App is ever searched for. With neither, or with an
+  appRef that names another App than the credential's, the call is refused
+  CHAT_APP_NOT_IDENTIFIED before the Agent is resolved, so it says nothing
+  about the Agent. An appRef the caller takes no part in, or that names no
+  App, is refused exactly like an App the caller cannot use (the unknown-Agent
+  refusal for a private chat, SHARED_CHAT_REQUIRES_APP_CONTEXT for a shared
+  one), so it says nothing about the App either. Install, licence and
+  participation are judged against that App alone, and an existing home is
+  reused only if it belongs to it.
   
   #1034: an **agent chat** — deliberately not "chat session", which is
   reserved for the human's own conversation and names no row in this schema,
@@ -12936,6 +12949,11 @@ type Mutation {
     #3957 (hrn:node:hadronmemory.com:specs:cor:dmo:050:10): optional AI config choice for this chat, stored with it: `default` or one of the chat App's own config ids from chatAiConfigChoices. Omitted keeps what the chat has. Any other id is refused as a missing config, revealing nothing about it.
     """
     aiConfigChoice: String
+
+    """
+    #5394 (hrn:node:hadronmemory.com:specs:cor:cht:010:02): the App this chat runs under (ID or URN), for a caller whose credential carries no App; the CLI's global --app. Naming another App than the credential's is refused CHAT_APP_NOT_IDENTIFIED.
+    """
+    appRef: ID
     conversationName: String
     isTestRun: Boolean = false
 
@@ -15751,7 +15769,10 @@ type Query {
   """
   #5284 (hrn:node:hadronmemory.com:specs:cor:dmo:050:24) - the role task to follow, with its body, or that no
   task fits. Give a phrase, an eventCode or both; eventCode needs appRef. With an eventCode, the App's register
-  answers first (register), and a mapped task is MATCHED by REGISTER. Otherwise the phrase ranks the Agent's
+  answers first (register), and a mapped task is MATCHED by REGISTER — but an entry that maps while its task is
+  not in the Agent's list (a stale mapping) never matches by REGISTER: it falls through, so with no phrase the
+  answer is NO_MATCH with the register still MAPPED and with a phrase the search arm decides as usual — the
+  mapping is still reported, the task never invented (#5360). Otherwise the phrase ranks the Agent's
   agentTaskList tasks on their abstracts, and the tasks scoring at or above the no-match floor (default 0.45,
   TASK_MATCH_MIN_SCORE) are MATCHED by SEARCH, best first, at most 3, with the body of the first only. With no
   embedding available nothing can reach the floor, so the answer is NO_MATCH with the keyword hits as nearest.
@@ -15759,7 +15780,9 @@ type Query {
   omitted: your own Agent (a bound worker's, or a run's) is used, and a caller with none gets BAD_USER_INPUT.
   Without appRef the Agent is read as agentTaskList reads it; with appRef you must take part in the App and the
   Agent must be installed or cast there. Refused as APP_NOT_FOUND or AGENT_NOT_FOUND, alike for unknown and
-  unreadable. A phrase is 1 to 500 characters. Nothing is recorded or logged. The MCP tool
+  unreadable. A phrase is 1 to 512 characters after trimming (the one bound every search surface shares, #5360);
+  an eventCode is trimmed and 1 to 64 characters, the register loc atom bound (#5360) — both judged before
+  any read. Nothing is recorded or logged. The MCP tool
   hadron_get_instructions returns the same answer. Accepts IDs or URNs.
   """
   agentInstructions(agentRef: ID, appRef: ID, eventCode: String, phrase: String): AgentInstructions!
@@ -15867,9 +15890,12 @@ type Query {
   #2421, #5284: an optional phrase ranks only runnable effective-chain tasks
   with non-empty abstracts, by the vector similarity of the abstract (score),
   best first; with no embedding available, by keyword on the abstract, with
-  score null. limit defaults to 3 and may be at most 10; an empty phrase or a
-  limit outside 1 to 10 is BAD_USER_INPUT. Without a phrase the list is
-  unchanged and limit is ignored. matchedBy says which retrievers found a task.
+  score null. limit defaults to 3 and may be at most 10; an empty phrase, one
+  over 512 characters (the one bound every search surface shares, #5360), or a
+  limit outside 1 to 10 is BAD_USER_INPUT — judged on the arguments before the
+  Agent is read (#5360), so it wins over AGENT_NOT_FOUND. Without a phrase the
+  list is unchanged and limit is ignored. matchedBy says which retrievers
+  found a task.
   """
   agentTaskList(limit: Int, phrase: String, ref: ID!): [AgentListedTask!]!
 
@@ -17363,9 +17389,9 @@ type Query {
   (2) memories their member orgs own, (3) memories their member orgs
   subscribe to, (4) their OWN per-user Agent memories (#5026,
   hrn:node:hadronmemory.com:specs:cor:api:120:03: listed to their owner like
-  any other user-owned memory, and to nobody else, not even through
-  filter.sharedWithMe, which still omits them: a share grant on a per-user
-  memory surfaces nothing in either list).
+  any other user-owned memory, and to nobody else in this default list; a
+  personal one its owner shared appears in the grantee's
+  filter.sharedWithMe slice like any other share, #5389).
   App-key callers get the union of their installed Agents' memory items.
   A pure App key's list also holds every memory its App's links let it read
   (#5272, hrn:node:hadronmemory.com:specs:cor:api:120:03), judged at the call
@@ -21318,7 +21344,7 @@ input SetTeamStopSignalInput {
   appRef: String!
 
   """
-  HOST: the host's id. A host key may omit it: its own host is taken from its binding.
+  HOST: the host's id. A host key may omit it: its own host is taken from its binding. APP: none (a host named with APP is BAD_USER_INPUT too).
   """
   host: String
   level: StopSignalLevel!
@@ -21327,7 +21353,9 @@ input SetTeamStopSignalInput {
   """When it ends on its own; later than now. Omitted: until lifted."""
   until: DateTime
 
-  """WORKER and TEAM: the target worker (a team by its head)."""
+  """
+  WORKER and TEAM: the target worker (a team by its head). APP: none (a worker named with APP is BAD_USER_INPUT). A host key never sets APP.
+  """
   worker: String
 }
 
@@ -22194,7 +22222,9 @@ type StopSignal {
   """HOST: the target host's id."""
   targetHostId: String
 
-  """WORKER and TEAM: the target worker (a team by its head)."""
+  """
+  WORKER and TEAM: the target worker (a team by its head). APP and HOST: null.
+  """
   targetWorkerId: ID
 
   """When it ends on its own, if set to."""
@@ -22232,9 +22262,13 @@ type StopSignalPage {
 }
 
 """
-#2022 — a stop signal's scope: one worker, a team (its head and the whole reporting tree under it), or the workers a host registration lists.
+#2022 — a stop signal's scope: one worker, a team (its head and the whole reporting tree under it), every worker of the App (#5325), or the workers a host registration lists.
 """
 enum StopSignalScope {
+  """
+  #5325 (hrn:node:hadronmemory.com:specs:cor:agt:090:02) — every live worker of the App, worked out each time it is checked: a worker cast after the signal is covered from its birth. It names no target.
+  """
+  APP
   HOST
   TEAM
   WORKER
