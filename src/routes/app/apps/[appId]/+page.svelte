@@ -4379,7 +4379,7 @@
       {#key app.id}
         <AppMemories memories={tabData.appMemories ?? null} appId={app.id} agentId={app.agentId ?? installedAgents[0]?.id ?? null}
           hasAgent={installedAgents.length > 0} canCreate={tabData.canCreateMemory ?? null}
-          attachForm={data.attachMemoryForm} ownForm={data.createOwnMemoryForm} ownClasses={tabData.viewerMemoryClasses ?? null} result={form} bind:createOpen={createMemoryOpen}>
+          attachForm={data.attachMemoryForm} detachForm={data.detachMemoryForm} ownForm={data.createOwnMemoryForm} ownClasses={tabData.viewerMemoryClasses ?? null} result={form} bind:createOpen={createMemoryOpen}>
           {#snippet create()}
             <AppMemoryCreate initial={data.createMemoryForm} result={form} hasAgent={installedAgents.length > 0} onclose={() => { createMemoryOpen = false; }} />
           {/snippet}

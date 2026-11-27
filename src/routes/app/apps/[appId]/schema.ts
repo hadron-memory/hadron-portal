@@ -262,6 +262,12 @@ export const attachAppMemorySchema = z.object({
   memoryId: z.string().trim().min(1).prefault(''),
 });
 
+// portal#2674: remove a link. Only the memory to unlink; the App is the page's, and the server decides who may.
+export const detachAppMemorySchema = z.object({
+  _kind: z.literal('detachAppMemory').default('detachAppMemory'),
+  memoryId: z.string().trim().min(1).prefault(''),
+});
+
 // #487: only a NEW memory, born on this App. No caller-controlled App,
 // Agent, class, or existing-memory reference is part of this form.
 export const createAppMemorySchema = z.object({

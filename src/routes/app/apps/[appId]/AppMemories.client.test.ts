@@ -6,13 +6,14 @@ import {submitEnhancedWithResult,resetKitAppliedResults} from '$lib/test/stubs/a
 import {viewStorageErrorText} from '$lib/test/viewStorageErrorText';
 import {viewStorageErrorMessages} from '$lib/table/viewStore';
 import {savedViewsStrings} from '$lib/i18n/saved-views-strings';
-import {createAppMemorySchema,attachAppMemorySchema} from './schema';
+import {createAppMemorySchema,attachAppMemorySchema,detachAppMemorySchema} from './schema';
 import AppMemories from './AppMemories.svelte';
 import AppMemoryCreate from './AppMemoryCreate.svelte';
 
 async function listProps(memories:unknown,extra:Record<string,unknown>={}){
  const attachForm=await superValidate({},zod4(attachAppMemorySchema),{id:'attachAppMemory:a',errors:false});
- return {memories,appId:'a',hasAgent:true,canCreate:true,attachForm,result:null,...extra} as never;
+ const detachForm=await superValidate({},zod4(detachAppMemorySchema),{id:'detachAppMemory:a',errors:false});
+ return {memories,appId:'a',hasAgent:true,canCreate:true,attachForm,detachForm,result:null,...extra} as never;
 }
 it('a success identifies and links the created memory, and keeps the form open to show it',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
@@ -323,5 +324,74 @@ describe('adding an existing memory', () => {
   expect(m.target.querySelector('[role=alert]')!.textContent).toContain('Could not load');
   expect([...m.target.querySelectorAll('button')].some(b=>b.textContent?.trim()==='Add memory')).toBe(true);
   }finally{m.unmount();}
+ });
+});
+
+// portal#2674: detach a linked memory; an attachment that does not count right now is shown as what it is.
+describe('detaching a linked memory',()=>{
+ const row=(id:string,link?:{active:boolean})=>({id,urn:`hrn:mem:acme.com:${id}`,name:id.toUpperCase(),class:'knowledge',appId:link?null:'a',...(link?{link}:{})});
+ const rows=[row('own'),row('on',{active:true}),row('off',{active:false})];
+ const button=(root:ParentNode,label:string)=>[...root.querySelectorAll('button')].find(b=>b.textContent?.trim()===label) as HTMLButtonElement|undefined;
+ it('offers Detach on each linked memory and on no other row',async()=>{
+  const m=mountComponent(AppMemories as never,await listProps(rows));
+  try{await tick();
+  const labels=[...m.target.querySelectorAll('[data-testid=app-memory-detach]')].map(b=>b.getAttribute('aria-label'));
+  expect(labels).toEqual(['Detach ON','Detach OFF']);
+  }finally{m.unmount();}
+ });
+ it('marks an inactive link, with helper text under its address, and marks no other row',async()=>{
+  const m=mountComponent(AppMemories as never,await listProps(rows));
+  try{await tick();
+  const marks=m.target.querySelectorAll('[data-testid=app-memory-inactive]');
+  expect(marks).toHaveLength(1);
+  expect(marks[0].closest('tr')!.textContent).toContain('OFF');
+  expect(m.target.querySelectorAll('[data-testid=app-memory-inactive-help]')).toHaveLength(1);
+  expect(m.target.querySelector('[data-testid=app-memory-inactive-help]')!.textContent).toContain('counts again by itself');
+  }finally{m.unmount();}
+ });
+ it('an inactive link can be detached, like an active one',async()=>{
+  const m=mountComponent(AppMemories as never,await listProps(rows));
+  try{await tick();
+  const off=m.target.querySelector<HTMLButtonElement>('[data-testid=app-memory-inactive]')!.closest('tr')!.querySelector<HTMLButtonElement>('[data-testid=app-memory-detach]');
+  expect(off).not.toBeNull();
+  }finally{m.unmount();}
+ });
+ it('asks first: the dialog names the memory with its address and says only the link goes; nothing posts until confirmed',async()=>{
+  const posted:Record<string,string>[]=[];
+  const submit=vi.spyOn(HTMLFormElement.prototype,'requestSubmit').mockImplementation(function(this:HTMLFormElement){posted.push(Object.fromEntries(new FormData(this) as never));});
+  const m=mountComponent(AppMemories as never,await listProps(rows));
+  try{await tick();
+  m.target.querySelector<HTMLButtonElement>('[data-testid=app-memory-detach][aria-label="Detach ON"]')!.click();await tick(3);
+  const dialog=document.body.querySelector('[data-testid=app-memory-detach-dialog]')!;
+  expect(dialog.textContent).toContain('ON');
+  expect(dialog.querySelector('[title="hrn:mem:acme.com:on"]')).not.toBeNull();
+  expect(dialog.textContent).toContain('removes the link only');
+  expect(posted).toEqual([]);
+  button(dialog,'Cancel')!.click();await tick(3);
+  expect(document.body.querySelector('[data-testid=app-memory-detach-dialog]')).toBeNull();
+  expect(posted).toEqual([]);
+  }finally{m.unmount();submit.mockRestore();}
+ });
+ it('posts the confirmed memory to the detach action, once',async()=>{
+  const posted:Record<string,string>[]=[];
+  const submit=vi.spyOn(HTMLFormElement.prototype,'requestSubmit').mockImplementation(function(this:HTMLFormElement){posted.push(Object.fromEntries(new FormData(this) as never));});
+  const m=mountComponent(AppMemories as never,await listProps(rows));
+  try{await tick();
+  m.target.querySelector<HTMLButtonElement>('[data-testid=app-memory-detach][aria-label="Detach OFF"]')!.click();await tick(3);
+  button(document.body.querySelector('[data-testid=app-memory-detach-dialog]')!,'Detach')!.click();
+  await vi.waitFor(()=>expect(submit).toHaveBeenCalled());
+  expect(posted).toHaveLength(1);
+  expect(posted[0]).toMatchObject({memoryId:'off',_kind:'detachAppMemory'});
+  expect(m.target.querySelector('form[action="?/detachMemory"]')).not.toBeNull();
+  expect(document.body.querySelector('[data-testid=app-memory-detach-dialog]')).toBeNull();
+  }finally{m.unmount();submit.mockRestore();}
+ });
+ it('shows the server result beside the list: a refusal as an alert, a success without claiming the memory changed',async()=>{
+  const detachForm=await superValidate({},zod4(detachAppMemorySchema),{id:'detachAppMemory:a',errors:false});
+  const posted=(message:unknown)=>({form:{...detachForm,valid:true,posted:true,data:{_kind:'detachAppMemory',memoryId:'on'},message}});
+  const refused=mountComponent(AppMemories as never,await listProps(rows,{result:posted({type:'error',text:'Only whoever made the link can remove it.'})}));
+  try{await tick();expect(refused.target.querySelector('[role=alert]')!.textContent).toContain('Only whoever made the link');}finally{refused.unmount();}
+  const done=mountComponent(AppMemories as never,await listProps(rows,{result:posted({type:'success',text:'Link removed. The memory itself is unchanged.'})}));
+  try{await tick();expect(done.target.querySelector('[role=status]')!.textContent).toContain('Link removed');}finally{done.unmount();}
  });
 });

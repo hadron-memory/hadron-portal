@@ -8,7 +8,7 @@ import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { fetchAllItems } from '$lib/server/paginate';
 import { t } from '$lib/i18n/t';
-import { attachAppMemorySchema, createAppMemorySchema, createOwnAppMemorySchema } from './schema';
+import { attachAppMemorySchema, createAppMemorySchema, createOwnAppMemorySchema, detachAppMemorySchema } from './schema';
 
 export interface CreatedAppMemory { id: string; urn: string; name: string }
 // code: set only when the refusal's reason is something the page already says (AGENT_NOT_INSTALLED), so the
@@ -19,7 +19,9 @@ export type AttachMemoryMessage = App.Superforms.Message;
 
 // One row per memory the App reads from for this viewer (hrn:node:hadronmemory.com:specs:cor:dmo:050:17): its own app memories, the team
 // space, Agent-linked memories, and the viewer's own. `class` is the memory's class, shown as-is.
-export interface AppMemoryRow { id: string; urn: string; name: string; class: string; appId: string | null }
+// `link` is set when the App reaches the memory through an attachment (hrn:node:hadronmemory.com:specs:cor:dmo:060:20); `active` is
+// whether that attachment counts right now. An inactive one is still an attachment (hrn:node:hadronmemory.com:specs:cor:dmo:060:22, Proposed): listed, marked, detachable.
+export interface AppMemoryRow { id: string; urn: string; name: string; class: string; appId: string | null; link?: { active: boolean } }
 export const CREATE_APP_MEMORY_MUTATION = /* GraphQL */ `
   mutation CreateAppMemory($appRef: ID!, $name: String!, $description: String) {
     createAppMemory(appRef: $appRef, name: $name, description: $description) { id urn name }
@@ -49,22 +51,26 @@ export function appMemoriesFromScope(scope: AppScopedMemory[] | null, appId: str
 // The memories linked to this App with attachMemoryToApp: the scope has no row kind for them, so they are read from the App.
 export const APP_ATTACHED_MEMORIES_QUERY = /* GraphQL */ `
   query AppAttachedMemories($ref: ID!) {
-    app(ref: $ref) { attachedMemories { memory { id urn name class } } }
+    app(ref: $ref) { attachedMemories { active memory { id urn name class } } }
   }
 `;
 /** Null means unavailable, never "none linked". */
 export async function readAttachedMemories(client: ReturnType<typeof gqlClient>, appId: string): Promise<AppMemoryRow[] | null> {
   try {
-    const data = await withTimeout(client.request<{ app: { attachedMemories: { memory: { id: string; urn: string; name: string; class: string } }[] } | null }>(APP_ATTACHED_MEMORIES_QUERY, { ref: appId }), OPTIONAL_LIST_TIMEOUT_MS, null);
+    const data = await withTimeout(client.request<{ app: { attachedMemories: { active: boolean; memory: { id: string; urn: string; name: string; class: string } }[] } | null }>(APP_ATTACHED_MEMORIES_QUERY, { ref: appId }), OPTIONAL_LIST_TIMEOUT_MS, null);
     if (!data?.app) return null;
-    return data.app.attachedMemories.map(({ memory: m }) => ({ id: m.id, urn: m.urn, name: m.name, class: m.class, appId: null }));
+    return data.app.attachedMemories.map(({ active, memory: m }) => ({ id: m.id, urn: m.urn, name: m.name, class: m.class, appId: null, link: { active } }));
   } catch { return null; }
 }
-/** The scope's rows, then each linked memory the scope does not already hold. An unavailable link read leaves the scope as it is. */
+/**
+ * The scope's rows, then each linked memory the scope does not already hold. A scope row that is also a link is marked as
+ * one, so it can be detached and an inactive link is never shown as a plain row. An unavailable link read leaves the scope as it is.
+ */
 export function withLinkedMemories(rows: AppMemoryRow[] | null, linked: AppMemoryRow[] | null): AppMemoryRow[] | null {
   if (rows === null || linked === null) return rows;
+  const links = new Map(linked.map(m => [m.id, m.link]));
   const held = new Set(rows.map(r => r.id));
-  return [...rows, ...linked.filter(m => !held.has(m.id))];
+  return [...rows.map(r => (links.get(r.id) ? { ...r, link: links.get(r.id) } : r)), ...linked.filter(m => !held.has(m.id))];
 }
 
 // Whether to OFFER the form; the server's createAppMemory gate stays the
@@ -126,6 +132,34 @@ export async function attachMemory({ request, params, locals }: { request: Reque
       : code === 'MEMORY_NOT_FOUND' ? [404, t('app.memory.attach-not-found', 'That memory couldn’t be found, or you can’t read it.')] as const
       : code === 'UNSUPPORTED_MEMORY_CLASS' ? [400, t('app.memory.attach-class', 'A system memory cannot be attached to an App.')] as const
       : [500, t('app.memory.attach-failed', 'Could not add the memory. Please try again.')] as const;
+    return message(form, { type: 'error', text: refusal[1] }, { status: refusal[0] });
+  }
+}
+
+export const DETACH_MEMORY_FROM_APP_MUTATION = /* GraphQL */ `
+  mutation DetachMemoryFromApp($memoryRef: ID!, $appRef: ID!) {
+    detachMemoryFromApp(memoryRef: $memoryRef, appRef: $appRef)
+  }
+`;
+
+/**
+ * Remove a link (hrn:node:hadronmemory.com:specs:cor:dmo:060:20): the attachment only, never the memory. The server decides who may
+ * (whoever made the link, the memory's strict owner, whoever manages the App) and answers a link that is already gone with
+ * success, so the portal adds no check and speaks only fixed copy.
+ */
+export async function detachMemory({ request, params, locals }: { request: Request; params: { appId: string }; locals: { token?: string | null } }) {
+  const form = await superValidate<Infer<typeof detachAppMemorySchema, 'zod4'>, AttachMemoryMessage>(await request.formData(), zod4(detachAppMemorySchema), { id: `detachAppMemory:${params.appId}` });
+  if (!form.valid) return fail(400, { form });
+  try {
+    await gqlClient(locals.token).request(DETACH_MEMORY_FROM_APP_MUTATION, { memoryRef: form.data.memoryId, appRef: params.appId });
+    return message(form, { type: 'success', text: t('app.memory.detached', 'Link removed. The memory itself is unchanged.') });
+  } catch (e: unknown) {
+    // Only known codes select fixed copy; no raw GraphQL or transport text.
+    const code = extractGqlErrorCode(e);
+    const refusal = code === 'FORBIDDEN' ? [403, t('app.memory.detach-forbidden', 'Only whoever made the link, the memory’s owner, or whoever manages this App can remove it.')] as const
+      : code === 'UNAUTHENTICATED' ? [401, t('app.memory.sign-in-detach', 'Sign in again to remove a link.')] as const
+      : code === 'MEMORY_NOT_FOUND' ? [404, t('app.memory.detach-not-found', 'That memory couldn’t be found, or you can’t read it.')] as const
+      : [500, t('app.memory.detach-failed', 'Could not remove the link. Please try again.')] as const;
     return message(form, { type: 'error', text: refusal[1] }, { status: refusal[0] });
   }
 }

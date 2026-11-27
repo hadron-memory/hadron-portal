@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/server/api', () => ({ gqlClient: vi.fn() }));
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { gqlClient } from '$lib/server/api';
-import { appMemoriesFromScope, withLinkedMemories, readAttachedMemories, attachMemory, canCreateAppMemory, readAppMemoryScope, readAttachableMemories } from './app-memories';
+import { appMemoriesFromScope, withLinkedMemories, readAttachedMemories, attachMemory, detachMemory, APP_ATTACHED_MEMORIES_QUERY, DETACH_MEMORY_FROM_APP_MUTATION, canCreateAppMemory, readAppMemoryScope, readAttachableMemories } from './app-memories';
 import type { AppMemoryRow } from './app-memories';
 import { notYetInScope } from './attachable-candidates';
 it.each(['OWNER','ADMIN','CONTRIBUTOR','READER'])('creation visibility follows the current user org role %s', role => {
@@ -233,8 +233,72 @@ describe('linked memories in the App list', () => {
   });
   it('reads name, URN and class of each link, and is null when the read fails or the App is unreadable', async () => {
     const memory = { id: 'k', urn: 'hrn:mem:e:k', name: 'K', class: 'knowledge' };
-    expect(await readAttachedMemories({ request: vi.fn().mockResolvedValue({ app: { attachedMemories: [{ memory }] } }) } as never, 'a')).toEqual([{ ...memory, appId: null }]);
+    expect(await readAttachedMemories({ request: vi.fn().mockResolvedValue({ app: { attachedMemories: [{ active: true, memory }] } }) } as never, 'a')).toEqual([{ ...memory, appId: null, link: { active: true } }]);
     expect(await readAttachedMemories({ request: vi.fn().mockResolvedValue({ app: null }) } as never, 'a')).toBeNull();
     expect(await readAttachedMemories({ request: vi.fn().mockRejectedValue(new Error('x')) } as never, 'a')).toBeNull();
+  });
+});
+
+// portal#2674: detach a linked memory, and show an attachment that does not count right now as what it is.
+describe('portal#2674: linked memories carry their link', () => {
+  const row = (id: string): AppMemoryRow => ({ id, urn: `hrn:mem:e:${id}`, name: id, class: 'knowledge', appId: null });
+  const link = (id: string, active = true): AppMemoryRow => ({ ...row(id), link: { active } });
+  it('reads whether each link counts right now', () => {
+    expect(APP_ATTACHED_MEMORIES_QUERY).toMatch(/attachedMemories\s*{\s*active\b/);
+  });
+  it('lists an inactive link, marked, rather than leaving it out or showing it plain', () => {
+    const rows = withLinkedMemories([row('app')], [link('k', false)])!;
+    expect(rows.map(r => r.id)).toEqual(['app', 'k']);
+    expect(rows[1].link).toEqual({ active: false });
+    expect(rows[0].link).toBeUndefined();
+  });
+  it('marks a scope row that is also a link, instead of dropping the link', () => {
+    const rows = withLinkedMemories([row('k')], [link('k', false)])!;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].link).toEqual({ active: false });
+  });
+  it('never offers a linked memory as attachable, active or not', () => {
+    const rows = withLinkedMemories([], [link('on'), link('off', false)])!;
+    const candidate = (id: string) => ({ id, urn: `hrn:mem:e:${id}`, name: id, visibility: null });
+    expect(notYetInScope([candidate('on'), candidate('off'), candidate('free')], rows).map(m => m.id)).toEqual(['free']);
+  });
+});
+
+describe('detachMemory action', () => {
+  const run = (fields: Record<string, string>, request: ReturnType<typeof vi.fn>) => {
+    vi.mocked(gqlClient).mockReturnValue({ request } as never);
+    const body = new FormData();
+    for (const [k, v] of Object.entries({ _kind: 'detachAppMemory', ...fields })) body.set(k, v);
+    return detachMemory({ request: new Request('http://x/', { method: 'POST', body }), params: { appId: 'app-1' }, locals: { token: 'tok' } });
+  };
+  it('detaches the chosen memory with the two refs and reports success', async () => {
+    const request = vi.fn().mockResolvedValue({ detachMemoryFromApp: true });
+    const res = await run({ memoryId: 'm1' }, request) as { form: { message?: { type: string; text: string } } };
+    expect(request.mock.calls[0][0]).toBe(DETACH_MEMORY_FROM_APP_MUTATION);
+    expect(request.mock.calls[0][1]).toEqual({ memoryRef: 'm1', appRef: 'app-1' });
+    expect(res.form.message?.type).toBe('success');
+  });
+  it('says the link is removed and the memory is not touched (hrn:node:hadronmemory.com:specs:cor:dmo:060:20), and never says deleted', async () => {
+    const res = await run({ memoryId: 'm1' }, vi.fn().mockResolvedValue({ detachMemoryFromApp: true })) as { form: { message?: { text: string } } };
+    expect(res.form.message?.text).toMatch(/link/i);
+    expect(res.form.message?.text).not.toMatch(/delet/i);
+  });
+  it('refuses a request with no memory before asking the server', async () => {
+    const request = vi.fn();
+    await run({ memoryId: '' }, request);
+    expect(request).not.toHaveBeenCalled();
+  });
+  it.each([['FORBIDDEN', 403], ['UNAUTHENTICATED', 401], ['MEMORY_NOT_FOUND', 404], ['SOMETHING_ELSE', 500]])('answers a %s refusal with fixed copy and status %i, never server text', async (code, status) => {
+    const request = vi.fn().mockRejectedValue({ response: { errors: [{ message: 'SECRET server text', extensions: { code } }] } });
+    const res = await run({ memoryId: 'm1' }, request) as { status?: number };
+    const text = JSON.stringify(res);
+    expect(text).not.toContain('SECRET');
+    expect(text).toContain('"error"');
+    expect(text).toContain(String(status));
+  });
+  it('names who may detach only as the specs state it, in the FORBIDDEN copy', async () => {
+    const res = JSON.stringify(await run({ memoryId: 'm1' }, vi.fn().mockRejectedValue({ response: { errors: [{ message: 'x', extensions: { code: 'FORBIDDEN' } }] } })));
+    expect(res).toContain('made the link');
+    expect(res).toContain('manages this App');
   });
 });
