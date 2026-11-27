@@ -44,6 +44,9 @@ async function mountPanel(appOver: Record<string, unknown>, members: unknown[] =
   }) as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
+  // The add form opens from the round "+" (the one Add member button outside a form).
+  [...m.target.querySelectorAll('button')].find((b) => !b.form && b.textContent?.trim() === 'Add member')?.click();
+  await tick(2);
   return m.target;
 }
 
@@ -70,7 +73,7 @@ describe('App members panel: roles come from App.availableMemberRoles (portal#14
   it('an empty union says so in plain words and disables Add', async () => {
     const target = await mountPanel({ availableMemberRoles: [] });
     expect(target.textContent).toContain('This App offers no member roles yet.');
-    const add = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add member');
+    const add = [...target.querySelectorAll('button')].find((b) => b.form && b.textContent?.trim() === 'Add member');
     expect(add).toBeDefined();
     expect((add as HTMLButtonElement).disabled).toBe(true);
   });
@@ -109,17 +112,19 @@ describe('App members panel: the linked Agent shows its URN (portal#1417)', () =
   };
   const paragraphWith = (target: HTMLElement, text: string) => [...target.querySelectorAll('p')].find((p) => p.textContent?.includes(text)) ?? null;
 
-  it('the "defined by the linked Agent" line shows the Agent’s URN after its name', async () => {
+  it('the header no longer carries a "defined by the linked Agent" line', async () => {
     const target = await mountPanel({ availableMemberRoles: ['owner'] });
-    const line = paragraphWith(target, 'Roles below are defined by the linked Agent');
+    expect(target.textContent).not.toContain('Roles below are defined by');
+  });
+
+  it('the Role field says where roles come from, with the Agent’s name and URN', async () => {
+    const target = await mountPanel({ availableMemberRoles: ['owner'] });
+    const line = paragraphWith(target, 'Roles come from the Agent linked to this App');
     expect(line).not.toBeNull();
-    expect(chips(line)).toHaveLength(1);
-    expect(copyButtons(line)).toHaveLength(2);
-    for (const button of copyButtons(line)) expect(clippingAncestors(button, target)).toEqual([]);
-    const link = line!.querySelector('a[href="/app/agents/ag1"]')!;
-    expect(link.textContent).toBe('One');
-    // Below the name: the chip follows the link in document order.
-    expect(link.compareDocumentPosition(chips(line)[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(line!.querySelector('a[href="/app/agents/ag1"]')!.textContent).toBe('One');
+    const chip = chips(target);
+    expect(chip).toHaveLength(1);
+    for (const button of copyButtons(target)) expect(clippingAncestors(button, target)).toEqual([]);
   });
 
   it('the empty-roles line shows the Agent’s URN after its name', async () => {
@@ -134,7 +139,7 @@ describe('App members panel: the linked Agent shows its URN (portal#1417)', () =
     expect(link.compareDocumentPosition(chips(line)[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('known-empty control: a non-empty union has no empty-roles line, so only the header chip is there', async () => {
+  it('known-empty control: a non-empty union has no empty-roles line, so only the Role field’s chip is there', async () => {
     const target = await mountPanel({ availableMemberRoles: ['owner'] });
     expect(paragraphWith(target, 'This App offers no member roles yet.')).toBeNull();
     expect(chips(target)).toHaveLength(1);
@@ -209,5 +214,19 @@ describe('App members panel: action result is announced in a persistent live reg
     const region = announcedStatusRegion(target);
     expect(region?.textContent).toContain('Member removed.');
     expect(idle).toContain(region);
+  });
+
+  it('at the member limit the reason is visible text with the form never opened, and the round "+" stays focusable but inert', async () => {
+    const target = await mountPanel({
+      availableMemberRoles: ['owner'],
+      agent: { id: 'ag1', urn: 'hrn:agent:acme.com:one', name: 'One', installationPolicy: { memberRoles: ['owner'], maxMembers: '1' } },
+    }, [member]);
+    const plus = [...target.querySelectorAll('button')].find((b) => !b.form && b.textContent?.trim() === 'Add member')!;
+    expect(plus.getAttribute('aria-disabled')).toBe('true');
+    plus.focus();
+    expect(document.activeElement).toBe(plus);
+    // mountPanel clicked it: an inert button opens nothing.
+    expect(target.querySelector('form[action="?/addMember"]')).toBeNull();
+    expect(target.querySelector('#add-member-limit')?.textContent).toContain('at the member limit');
   });
 });

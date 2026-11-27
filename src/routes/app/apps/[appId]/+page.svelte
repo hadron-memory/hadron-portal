@@ -1,5 +1,7 @@
 <script lang="ts">
   import LiveOutcome from '$lib/components/LiveOutcome.svelte';
+  import ViewToggle from '$lib/components/ViewToggle.svelte';
+  import FloatingAddButton from '$lib/components/FloatingAddButton.svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import AppSweepMode from './AppSweepMode.svelte';
   import TabRow from '$lib/components/TabRow.svelte';
@@ -1644,7 +1646,7 @@
       // Its own guard: a URL the router will not take must not cost the focus restore below.
       if (!ownNavigationHref) { try { syncTabParam(id); } catch { /* the address bar stays as it was; the tab is still shown */ } }
       await tick();
-      if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
+      if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id === 'members' ? 'staff' : id}`)?.focus(); // the Team tab is `staff`; Human team is its second view
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
     finally {
       if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;
@@ -3026,8 +3028,9 @@
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
   ]} active={activeTab === 'members' ? 'staff' : activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => {
-    // The Team tab opens the view the reader last had, not always the AI team.
-    void focusTab(id === 'staff' && activeTab === 'members' ? 'members' : (id as TabId));
+    // The Team tab opens the Human team, the view most readers want; from either Team view it stays put.
+    // `?tab=staff` stays the address of the AI team.
+    void focusTab(id === 'staff' && activeTab !== 'staff' ? 'members' : (id as TabId));
   }} />
   {#if tabNavigationFailed}
     <p role="alert" class="mt-2 text-sm text-red-700 dark:text-red-400">{t('app.tabs.navigation-failed', 'Could not open this tab. Try again.')}</p>
@@ -3552,27 +3555,19 @@
        makes them unambiguous here). The app-qualified compound belongs on
        org-wide surfaces, never here. -->
   {#if activeTab === 'staff' || activeTab === 'members'}
-    <div
-      role="group"
-      aria-label={t('app.team.view-label', 'Team view')}
-      class="mb-3 inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
-    >
-      <button
-        type="button"
-        onclick={() => { void focusTab('staff'); }}
-        aria-pressed={activeTab === 'staff'}
-        class="px-2.5 py-1 text-xs {activeTab === 'staff' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
-      >{t('app.team.view-ai', 'AI team')}</button>
-      <button
-        type="button"
-        onclick={() => { void focusTab('members'); }}
-        aria-pressed={activeTab === 'members'}
-        class="px-2.5 py-1 text-xs {activeTab === 'members' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
-      >{t('app.team.view-human', 'Human team')}</button>
-    </div>
+    <ViewToggle
+      label={t('app.team.view-label', 'Team view')}
+      class="mb-3 ml-auto"
+      options={[
+        { id: 'members', label: t('app.team.view-human', 'Human team') },
+        { id: 'staff', label: t('app.team.view-ai', 'AI team') },
+      ]}
+      value={activeTab === 'members' ? 'members' : 'staff'}
+      onselect={(id) => { void focusTab(id); }}
+    />
   {/if}
   {#if activeTab === 'staff' && tabShown('staff')}
-    <div id="panel-staff" role="tabpanel" aria-labelledby="tab-staff" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    <div id="panel-staff" role="tabpanel" aria-labelledby="tab-staff" tabindex="0" class="rounded-lg pb-14 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div class="flex items-start justify-between gap-4">
         <div>
@@ -3584,19 +3579,14 @@
             )}
           </p>
         </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            bind:this={castOpener}
-            onclick={() => (castOpen = !castOpen)}
-            aria-expanded={castOpen}
-            class="rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            style="background: #fb8500;"
-            disabled={castableAgents.length === 0}
-          >
-            {t('app.staff.cast', 'Cast a worker')}
-          </button>
-        </div>
+        <FloatingAddButton
+          label={t('app.staff.cast', 'Cast a worker')}
+          bind:element={castOpener}
+          onclick={() => (castOpen = !castOpen)}
+          expanded={castOpen}
+          disabled={castableAgents.length === 0}
+          disabledReason={t('app.staff.cast.disabled', 'This App has no agent with a role, so there is nothing to cast.')}
+        />
       </div>
 
       <!-- portal#1715: mounted empty, as the install notice above; the gap sits on the notice. -->

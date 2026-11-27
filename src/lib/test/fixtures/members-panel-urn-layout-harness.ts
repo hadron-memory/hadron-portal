@@ -2,7 +2,7 @@
 // Chromium by scripts/test-members-panel-urn-layout.mjs, with a very long Agent URN so the
 // Agent chip has to give way. Synthetic data only: no server, no form is submitted. The runner
 // aliases `$app/*` to the recorder stubs, as the client test lane does.
-import { mount, unmount, type ComponentProps } from 'svelte';
+import { mount, tick, unmount, type ComponentProps } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import type { App } from '$lib/types';
@@ -13,8 +13,8 @@ import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from
 export const LONG_AGENT_URN = `hrn:agent:example.com:${'a-very-long-agent-slug-that-cannot-wrap-'.repeat(3)}end`;
 
 /**
- * The two places the panel names its Agent by URN: the "Roles below are defined by the linked
- * Agent" line (`roles`), and the empty-roles line above the add form (`empty`).
+ * The two places the panel names its Agent by URN, both inside the add form: the "Roles come from"
+ * helper under the Role field (`roles`), and the empty-roles line above it (`empty`).
  */
 export type MembersPanelVariant = 'roles' | 'empty';
 
@@ -38,5 +38,9 @@ export async function mountMembersPanel(target: HTMLElement, variant: MembersPan
     form: null,
   };
   const component = mount(AppMembersPanel, { target, props });
+  // Both lines are in the add form, which opens from the round "+": the one Add member button outside a form.
+  await tick();
+  [...target.querySelectorAll('button')].find((b) => !b.form && b.textContent?.trim() === 'Add member')?.click();
+  await tick();
   return () => unmount(component);
 }

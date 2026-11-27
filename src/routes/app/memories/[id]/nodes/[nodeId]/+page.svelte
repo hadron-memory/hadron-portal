@@ -48,6 +48,7 @@
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
+  import NodeStatusIcons from '$lib/components/NodeStatusIcons.svelte';
   import NodeDiscussion from '$lib/components/NodeDiscussion.svelte';
   import QuestionCard from '$lib/components/questions/QuestionCard.svelte';
   import { questionResultOf } from '$lib/questions/action-kinds';
@@ -2221,6 +2222,21 @@
     });
   });
   const signatureState = $derived(signaturesView(signatureResult));
+  // The header's status panel the page holds open: an outcome (an approval, a refusal, a verify result) is shown, not
+  // left behind a shut panel.
+  let statusPinned = $state<'approval' | 'mint' | 'signature' | null>(null);
+  // Pinned from the superforms message stores, which hold a NEW object per answer: a repeat of the same outcome after
+  // the reader shut the panel pins it again, which a check on the message text alone would not.
+  $effect(() => {
+    if ($approveMessage || $verifyMessage) statusPinned = 'approval';
+  });
+  // A no-JS answer arrives as `form`, with no store behind it.
+  $effect(() => {
+    if (pageApproveError || verifyActionError || pageApproveSuccess || verifyActionSuccess) statusPinned = 'approval';
+  });
+  $effect(() => {
+    if (typeof form?.requestSignatureError === 'string') statusPinned = 'signature';
+  });
   // portal#1022 links half: whether to offer the Sign affordance at all. Same
   // streamed-and-guarded shape, fed by the loader's capability answer — the
   // very promise that gates the signature query, so the button and the
@@ -2857,9 +2873,98 @@
   {/each}
 
   <!-- Header -->
+  <!-- The panels behind the header's status icons (NodeStatusIcons). The forms are the page's own actions. -->
+  {#snippet approvalOutcome(live: boolean)}
+    <!-- In the status panel the page's persistent announcer already says the outcome, so this copy is hidden from
+         assistive technology there (still seen): a second live copy would read it twice. -->
+    <div aria-hidden={live ? undefined : 'true'}>
+      {#if pageApproveError || verifyActionError}
+        <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{pageApproveError ?? verifyActionError}</p>
+      {/if}
+      <LiveRegion>
+        {#if !(pageApproveError || verifyActionError) && (pageApproveSuccess || verifyActionSuccess)}
+          <p data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{pageApproveSuccess ?? verifyActionSuccess}</p>
+        {/if}
+      </LiveRegion>
+    </div>
+    {#if verifyHashes && (verifyHashes.expectedHash || verifyHashes.actualHash)}
+      <dl data-testid="verify-hashes" class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {#if verifyHashes.expectedHash}
+          <dt>{t('node.approval.verify.expected-hash', 'Approved hash')}</dt>
+          <dd class="select-all break-all font-mono">{verifyHashes.expectedHash}</dd>
+        {/if}
+        {#if verifyHashes.actualHash}
+          <dt>{t('node.approval.verify.actual-hash', 'Current hash')}</dt>
+          <dd class="select-all break-all font-mono">{verifyHashes.actualHash}</dd>
+        {/if}
+      </dl>
+    {/if}
+  {/snippet}
+  {#snippet approvalPanel()}
+    {#if approvalState}
+      <NodeApprovalBadge view={approvalState} currentRevision={node.revision} />
+      <div class="flex flex-wrap items-center gap-2">
+        {#if !readOnly && approvalState.canApprove}
+          <form method="POST" action="?/approveNode" use:approveEnhance novalidate class="flex items-center">
+            <input type="hidden" name="_kind" value="approveNode" />
+            <input type="hidden" name="revision" value={node.revision} />
+            <ApproveRevisionButton revision={node.revision} submitting={$approveSubmitting} />
+          </form>
+        {/if}
+        {#if approvalState.approval}
+          <form method="POST" action="?/verifyNode" use:verifyEnhance novalidate>
+            <input type="hidden" name="_kind" value="verifyNode" />
+            <button type="submit" disabled={$verifySubmitting} class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+              {t('node.approval.verify', 'Verify')}
+            </button>
+          </form>
+        {/if}
+      </div>
+    {:else}
+      <span class="text-xs text-zinc-400" aria-busy="true">{t('node.approval.loading', 'Loading approval status…')}</span>
+    {/if}
+    {@render approvalOutcome(false)}
+  {/snippet}
+  {#snippet mintPanel()}
+    {#if mintState}<NodeMintLabel view={mintState} />{/if}
+  {/snippet}
+  {#snippet signaturePanel()}
+    <!-- portal#1022: passkey signatures (hadron-server#1864); renders nothing with nothing to report. -->
+    <NodeSignatures view={signatureState} />
+    {#if signingOn}
+      <!-- portal#1022 links half (hrn:node:hadronmemory.com:specs:cor:dmo:130:08): the portal's whole leg is to create
+           the signing request and hand over the server-hosted ceremony page's link; the ceremony itself never runs here.
+           The hidden revision input pins the request to the text on screen.
+
+           No readOnly gate, deliberately: hrn:node:hadronmemory.com:specs:cor:dmo:130:03 gives ANY reader the right to
+           request ("anyone who may read the node"), so the affordance is not hidden from view-only readers. The copy says
+           what the click does (a request, then the server's page), never "Sign". -->
+      <form method="POST" action="?/requestSignature" use:enhance={requestSignatureEnhance} data-testid="request-signature-form">
+        <input type="hidden" name="revision" value={node.revision} />
+        <button
+          type="submit"
+          data-testid="request-signature"
+          disabled={requestingSignature}
+          title={t('node.signatures.request.hint', 'Creates a signing request and opens the server-hosted signing page for this revision.')}
+          class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          {t('node.signatures.request.action', 'Request a signature…')}
+        </button>
+      </form>
+    {/if}
+    <!-- Live region stays mounted; only its content changes — a region that mounts populated announces nothing
+         (hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted).
+         empty:hidden keeps the always-present region from taking a line. -->
+    <p role="alert" data-testid="signature-request-error" class="mt-1 empty:hidden text-xs text-red-700 dark:text-red-300">
+      {#if typeof form?.requestSignatureError === 'string'}{form.requestSignatureError}{/if}
+    </p>
+  {/snippet}
+
   <div class="flex items-start justify-between gap-3">
     <div class="min-w-0">
-      <h1 class="flex flex-wrap items-center gap-2 text-xl font-bold text-zinc-900 dark:text-white">
+      <!-- `relative`: the status panels are anchored to this row (NodeStatusIcons), not to the icons. -->
+      <div class="relative flex items-start gap-2">
+      <h1 class="flex min-w-0 flex-wrap items-center gap-2 text-xl font-bold text-zinc-900 dark:text-white">
         {#if node.isRunnable}
           <svg class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="12" r="3"></circle>
@@ -2894,6 +2999,16 @@
           <span class="min-w-0 break-words rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs font-normal text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300" title={t('node.object-type.badge-title', 'Object type (collection)')}>{node.objectType}</span>
         {/if}
       </h1>
+      {#if !(isComment || isQuestion)}
+        <!-- Approval, mint and signature state as icons beside the name; each opens its detail and controls. -->
+        <div class="mt-0.5">
+          <!-- Always mounted, outside the panels: a panel is display:none until it opens, and content that appears inside
+               a hidden region is not announced. The panels show the same outcome for sighted readers. -->
+          <LiveRegion class="sr-only" data-testid="status-outcome-announcer">{pageApproveError ?? verifyActionError ?? pageApproveSuccess ?? verifyActionSuccess ?? (typeof form?.requestSignatureError === 'string' ? form.requestSignatureError : '')}</LiveRegion>
+          <NodeStatusIcons approval={approvalState} mint={mintState} signatures={signatureState} signingOn={signingOn === true} bind:pinned={statusPinned} {approvalPanel} {mintPanel} {signaturePanel} />
+        </div>
+      {/if}
+      </div>
       <Urn value={fullUrn} type="node" />
       <NodeEmbeddingBadges enabled={data.graph.vectorIndexEnabled === true}
         pendingAt={node.embeddingPendingAt} failedAt={node.embeddingFailedAt} error={node.embeddingError} />
@@ -2903,94 +3018,20 @@
              so its page offers no approval row at all. portal#1175: and needs no note saying so. -->
       {:else}
       <!-- #1129: content approval, bound to the revision on screen, with Approve / Verify. -->
-      <div data-testid="node-approval" class="mt-1 flex flex-wrap items-center gap-2">
-        {#if approvalState}
-          {#if mintState}<NodeMintLabel view={mintState} />{/if}
-          <NodeApprovalBadge view={approvalState} currentRevision={node.revision} />
-          {#if !readOnly && approvalState.canApprove}
-            <form method="POST" action="?/approveNode" use:approveEnhance novalidate class="flex items-center">
-              <input type="hidden" name="_kind" value="approveNode" />
-              <input type="hidden" name="revision" value={node.revision} />
-              <ApproveRevisionButton revision={node.revision} submitting={$approveSubmitting} />
-            </form>
-          {/if}
-          {#if approvalState.approval}
-            <form method="POST" action="?/verifyNode" use:verifyEnhance novalidate>
-              <input type="hidden" name="_kind" value="verifyNode" />
-              <button type="submit" disabled={$verifySubmitting} class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-                {t('node.approval.verify', 'Verify')}
-              </button>
-            </form>
-          {/if}
-        {:else}
-          <span class="text-xs text-zinc-400" aria-busy="true">{t('node.approval.loading', 'Loading approval status…')}</span>
-        {/if}
-        {#if feedbackCue}
+      {#if feedbackCue}
+        <div data-testid="node-approval" class="mt-1">
           <button
             type="button"
             data-testid="open-feedback-cue"
             class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300"
             onclick={() => (activeTab = 'discussion')}
           >{feedbackCue}</button>
-        {/if}
-      </div>
-      <!-- portal#1022: passkey signatures (hadron-server#1864); renders nothing with nothing to report. -->
-      <NodeSignatures view={signatureState} />
-      {#if signingOn}
-        <!-- portal#1022 links half (hrn:node:hadronmemory.com:specs:cor:dmo:130:08):
-             the portal's whole leg is to create the signing request and hand
-             over the server-hosted ceremony page's link — the ceremony itself
-             never runs here. The hidden revision input, like the approval
-             forms above, pins the request to the text on screen.
-
-             No readOnly gate, deliberately:
-             hrn:node:hadronmemory.com:specs:cor:dmo:130:03 gives ANY reader
-             the right to request ("anyone who may read the node"), and the
-             requester need not be the signer — so the affordance is not
-             hidden from view-only readers the way writer actions are. The
-             copy says what the click does (a request, then the server's
-             page), never "Sign", which a reader the ceremony would refuse
-             could not finish. -->
-        <form method="POST" action="?/requestSignature" use:enhance={requestSignatureEnhance} class="mt-1" data-testid="request-signature-form">
-          <input type="hidden" name="revision" value={node.revision} />
-          <button
-            type="submit"
-            data-testid="request-signature"
-            disabled={requestingSignature}
-            title={t('node.signatures.request.hint', 'Creates a signing request and opens the server-hosted signing page for this revision.')}
-            class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            {t('node.signatures.request.action', 'Request a signature…')}
-          </button>
-        </form>
+        </div>
       {/if}
-      <!-- Live region stays mounted; only its content changes — a region that
-           mounts populated announces nothing
-           (hrn:node:hadronmemory.com:hadron-portal:review:live-region-persistent-not-conditionally-mounted).
-           empty:hidden keeps the always-present region from taking a line. -->
-      <p role="alert" data-testid="signature-request-error" class="mt-1 empty:hidden text-xs text-red-700 dark:text-red-300">
-        {#if typeof form?.requestSignatureError === 'string'}{form.requestSignatureError}{/if}
-      </p>
       {/if}
-      {#if pageApproveError || verifyActionError}
-        <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{pageApproveError ?? verifyActionError}</p>
-      {/if}
-      <LiveRegion>
-        {#if !(pageApproveError || verifyActionError) && (pageApproveSuccess || verifyActionSuccess)}
-          <p data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{pageApproveSuccess ?? verifyActionSuccess}</p>
-        {/if}
-      </LiveRegion>
-      {#if verifyHashes && (verifyHashes.expectedHash || verifyHashes.actualHash)}
-        <dl data-testid="verify-hashes" class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
-          {#if verifyHashes.expectedHash}
-            <dt>{t('node.approval.verify.expected-hash', 'Approved hash')}</dt>
-            <dd class="select-all break-all font-mono">{verifyHashes.expectedHash}</dd>
-          {/if}
-          {#if verifyHashes.actualHash}
-            <dt>{t('node.approval.verify.actual-hash', 'Current hash')}</dt>
-            <dd class="select-all break-all font-mono">{verifyHashes.actualHash}</dd>
-          {/if}
-        </dl>
+      {#if isComment || isQuestion}
+        <!-- A question's own approval is in its card, so its outcome (if any) is said here. -->
+        {@render approvalOutcome(true)}
       {/if}
       {#if node.description}
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>

@@ -10,6 +10,7 @@
   import { SvelteMap } from 'svelte/reactivity';
   import NodeList from './NodeList.svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
+  import ViewToggle from '$lib/components/ViewToggle.svelte';
   import { t } from '$lib/i18n/t';
   import { appendUnique, readTablePage, readTreePage } from '$lib/nodes-tab-client';
   import type { MemoryNode } from '$lib/types';
@@ -188,18 +189,19 @@
     }
     ensureLoaded();
   });
-
-  const tabClass = (on: boolean) =>
-    `rounded-md px-3 py-1.5 text-sm pointer-coarse:min-h-11 ${on ? 'bg-zinc-200 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-white' : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900'}`;
 </script>
 
 <section class="space-y-3" data-testid="lazy-nodes-browser" aria-label={t('nodes-tab.label', 'Nodes')}>
-  <div class="flex flex-wrap items-center gap-2">
-    <div role="group" aria-label={t('nodes-tab.view', 'Nodes view')} class="flex gap-1">
-      <button type="button" aria-pressed={pane === 'table'} class={tabClass(pane === 'table')} onclick={() => show('table')}>{t('nodes-tab.table', 'Table')}</button>
-      <button type="button" aria-pressed={pane === 'tree'} class={tabClass(pane === 'tree')} onclick={() => show('tree')}>{t('nodes-tab.tree', 'Tree')}</button>
-    </div>
-  </div>
+  <ViewToggle
+    label={t('nodes-tab.view', 'Nodes view')}
+    class="ml-auto"
+    options={[
+      { id: 'table', label: t('nodes-tab.table', 'Table') },
+      { id: 'tree', label: t('nodes-tab.tree', 'Tree') },
+    ]}
+    value={pane}
+    onselect={show}
+  />
   <p class="text-xs text-zinc-500" data-testid="nodes-scope">
     {t('nodes-tab.scope', 'Listing live nodes. System nodes and comments are not listed here. Pages load as you ask; the list can skip or repeat a row if the memory changes while you browse.')}
   </p>

@@ -1,7 +1,8 @@
 <script lang="ts">
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import { untrack } from 'svelte';
+  import FloatingAddButton from '$lib/components/FloatingAddButton.svelte';
+  import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import SelectUser from '$lib/components/SelectUser.svelte';
@@ -92,9 +93,18 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
     onUpdated: ({ form }) => {
-      if (form.message?.type === 'success') reseedAddForm(form.data.role);
+      if (form.message?.type === 'success') {
+        reseedAddForm(form.data.role);
+        addOpen = false;
+        // The form that held focus is gone: hand focus back to the button that opened it.
+        void tick().then(() => (atLimit ? limitNotice : addButton)?.focus());
+      }
     },
   });
+  // The form opens from the round "+". A page that arrives with an add answer (a no-JS submit) opens it.
+  let addButton = $state<HTMLButtonElement>();
+  let limitNotice = $state<HTMLElement>();
+  let addOpen = $state(untrack(() => !!($addMessage || Object.keys($addErrors).length > 0)));
   const addUserError = $derived($addErrors.userId?.[0] ?? null);
   const addRoleError = $derived($addErrors.role?.[0] ?? null);
   const addActionError = $derived(
@@ -168,7 +178,7 @@
   }
 </script>
 
-<div class="space-y-8">
+<div class="space-y-8 pb-14">
   <div>
     <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">
       {t('app.members.title', 'Human Team')}
@@ -185,11 +195,7 @@
       {/if}
     </LiveRegion>
     {#if app.agent}
-      <p class="mt-1 text-sm text-zinc-500">
-        Roles below are defined by the linked Agent
-        <a href="/app/agents/{app.agent.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{app.agent.name}</a>.
-        <span class="mt-1 block min-w-0 max-w-full"><Urn value={app.agent.urn} type="agent" size={8} /></span>
-      </p>
+      <!-- Where the roles come from is said under the Role field of the add form, where it helps. -->
     {:else if agentsWithheld}
       <!-- announced by the region above -->
     {:else}
@@ -276,13 +282,25 @@
        bulk-loaded user list, so a personal-app owner / non-admin can add the
        first member. -->
   {#if app.agent && !membersWithheld}
+    <FloatingAddButton
+      label={t('app-members.add.open', 'Add member')}
+      bind:element={addButton}
+      expanded={addOpen}
+      disabled={atLimit}
+      disabledReason={t('app-members.add.at-limit', 'This App is at the member limit set by the Agent. Remove a member first.')}
+      onclick={() => (addOpen = !addOpen)}
+    />
+  {/if}
+  {#if app.agent && !membersWithheld && atLimit}
+    <!-- Outside the add form: the round "+" is inert at the limit and the form never opens, so this is the only
+         place a sighted touch or keyboard user is told why. Focus lands here after the add that reached the limit. -->
+    <p bind:this={limitNotice} id="add-member-limit" tabindex="-1" class="text-sm text-amber-600 dark:text-amber-400">
+      This App is at the member limit set by the Agent ({memberLimit}). Remove a member or ask the Agent author to raise the cap.
+    </p>
+  {/if}
+  {#if app.agent && !membersWithheld && addOpen && !atLimit}
     <section>
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Add member</h2>
-      {#if atLimit}
-        <p class="mb-3 text-sm text-amber-600 dark:text-amber-400">
-          This App is at the member limit set by the Agent ({memberLimit}). Remove a member or ask the Agent author to raise the cap.
-        </p>
-      {:else}
         <form method="POST" action="?/addMember" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
           <input type="hidden" name="_kind" value="addAppMember" />
           <input type="hidden" name="userId" bind:value={$addForm.userId} />
@@ -334,6 +352,15 @@
           <button type="submit" disabled={$addSubmitting || memberRoles.length === 0 || !selectedUser || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
             {$addSubmitting ? 'Adding...' : 'Add member'}
           </button>
+          {#if memberRoles.length > 0}
+            <!-- A form-level line like the empty-roles one above: inside the Role field's flex item a long Agent URN would
+                 widen the item instead of truncating. -->
+            <p class="basis-full min-w-0 max-w-full text-xs text-zinc-500">
+              {t('app-members.add.roles-from', 'Roles come from the Agent linked to this App,')}
+              <a href="/app/agents/{app.agent.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{app.agent.name}</a>.
+              <span class="mt-1 block min-w-0 max-w-full"><Urn value={app.agent.urn} type="agent" size={8} /></span>
+            </p>
+          {/if}
         </form>
 
         <SelectUser
@@ -341,7 +368,6 @@
           bind:open={selectUserOpen}
           onselect={selectAddUser}
         />
-      {/if}
     </section>
   {/if}
 </div>

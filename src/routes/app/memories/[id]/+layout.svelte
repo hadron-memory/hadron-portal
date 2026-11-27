@@ -1,6 +1,7 @@
 <script lang="ts">
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import LazyNodesBrowser from '$lib/components/LazyNodesBrowser.svelte';
+  import FloatingAddButton from '$lib/components/FloatingAddButton.svelte';
   // #266: memory-detail is a tab layout. The layout renders the breadcrumb +
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
   import { page } from '$app/stores';
@@ -256,33 +257,43 @@
 <div class="space-y-4">
   {#if !isNodeDetail}
     {@const isAgentSystem = isSystemMemory}
-    <div class="mb-4">
-      <!-- #709: memory chrome, whatever the class — an agent system memory is
-           still a memory. Its agent-ness shows as the single "Owned by agent"
-           link below, not as an Agents breadcrumb + an "Agent system:" title. -->
-      <Breadcrumb items={[
-        { label: 'Memories', href: orgListHref },
-        { label: data.graph.name },
-      ]} />
-      <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
-        <span class="text-zinc-400 font-normal">Memory:</span> {data.graph.name}
-      </h1>
-      <Urn value={data.graph.urn} type="memory" />
-      {#if isAgentSystem && data.graph.agent}
-        <p class="mt-1 text-xs text-zinc-500">
-          Owned by agent
-          <a href={`/app/agents/${data.graph.agent.id}`} class="text-indigo-500 hover:underline">{data.graph.agent.name}</a>
-        </p>
-      {/if}
+    <div class="mb-4 flex items-start justify-between gap-4">
+      <div class="min-w-0">
+        <!-- #709: memory chrome, whatever the class — an agent system memory is
+             still a memory. Its agent-ness shows as the single "Owned by agent"
+             link below, not as an Agents breadcrumb + an "Agent system:" title. -->
+        <Breadcrumb items={[
+          { label: 'Memories', href: orgListHref },
+          { label: data.graph.name },
+        ]} />
+        <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
+          <span class="text-zinc-400 font-normal">Memory:</span> {data.graph.name}
+        </h1>
+        <Urn value={data.graph.urn} type="memory" />
+        {#if isAgentSystem && data.graph.agent}
+          <p class="mt-1 text-xs text-zinc-500">
+            Owned by agent
+            <a href={`/app/agents/${data.graph.agent.id}`} class="text-indigo-500 hover:underline">{data.graph.agent.name}</a>
+          </p>
+        {/if}
+      </div>
+      <!-- #520: ⋯ actions menu (Add node / Edit / Clone / Delete), in the heading row where the
+           node-detail page keeps its own, not down on the tab strip. -->
+      <div class="shrink-0">
+        <NodeActionsMenu
+          actions={memoryActions}
+          onselect={onMenuSelect}
+          label={t('memory-actions.label', 'Memory actions')}
+        />
+      </div>
     </div>
-
-    <div class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
+    <div class="mb-4 flex items-end border-b border-zinc-200 dark:border-zinc-800">
       <!-- #747: the same un-scrollable tab strip #746 fixed on the App detail
            page, on a second page. At 390px these tabs ran 374px past the right
            edge and took the whole layout with them.
 
            `min-w-0` is load-bearing next to `overflow-x-auto`: this sits in a
-           `justify-between` row beside the ⋯ menu, and without it the flex item
+           flex row, and without it the flex item
            refuses to shrink below its content and never scrolls.
            `shrink-0 whitespace-nowrap` on each tab is what makes the strip
            SCROLL rather than squash the labels.
@@ -299,15 +310,6 @@
                 : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
           >{tab.label}</a>
         {/each}
-      </div>
-      <!-- #520: ⋯ actions menu (Add node / Edit / Clone / Delete), replacing the
-           lone "New node" button — mirrors the node-detail page. -->
-      <div class="mb-1">
-        <NodeActionsMenu
-          actions={memoryActions}
-          onselect={onMenuSelect}
-          label={t('memory-actions.label', 'Memory actions')}
-        />
       </div>
     </div>
   {/if}
@@ -361,8 +363,12 @@
        MemoryBrowser is not rendered here (it takes a loaded array). -->
   {#if !isNodeDetail && activeTab === 'nodes'}
     {#key g.id}
-      <LazyNodesBrowser memoryId={g.id} />
+      <div class="pb-14"><LazyNodesBrowser memoryId={g.id} /></div>
     {/key}
+    <!-- The same destination as the ⋯ menu's Add node, offered where the nodes are listed. -->
+    {#if memoryActions.some((action) => action.id === 'add-node')}
+      <FloatingAddButton label={t('memory-actions.add-node', 'Add node')} onclick={() => goto(`${basePath}/nodes/new`)} />
+    {/if}
   {/if}
   <LiveRegion data-testid="memory-views-off-region">
     {#if !isNodeDetail && activeTab === 'graph'}
