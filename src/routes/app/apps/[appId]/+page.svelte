@@ -4375,11 +4375,11 @@
          because it only echoes the tab label
          (hrn:node:hadronmemory.com:hadron-portal:conventions:tabpanel-heading-landmark). -->
     <h2 class="sr-only">{t('app.tabs.memory', 'Memories')}</h2>
-    {#if data.createMemoryForm && data.attachMemoryForm}
+    {#if data.createMemoryForm && data.attachMemoryForm && data.createOwnMemoryForm}
       {#key app.id}
         <AppMemories memories={tabData.appMemories ?? null} appId={app.id} agentId={app.agentId ?? installedAgents[0]?.id ?? null}
           hasAgent={installedAgents.length > 0} canCreate={tabData.canCreateMemory ?? null}
-          attachForm={data.attachMemoryForm} result={form} bind:createOpen={createMemoryOpen}>
+          attachForm={data.attachMemoryForm} ownForm={data.createOwnMemoryForm} ownClasses={tabData.viewerMemoryClasses ?? null} result={form} bind:createOpen={createMemoryOpen}>
           {#snippet create()}
             <AppMemoryCreate initial={data.createMemoryForm} result={form} hasAgent={installedAgents.length > 0} onclose={() => { createMemoryOpen = false; }} />
           {/snippet}
