@@ -582,7 +582,7 @@
   {/if}
   {/snippet}
   {#if !hideSearch || !orderable}
-    <TableFrame active={globalFilter.trim() !== ''}>
+    <TableFrame active={globalFilter.trim() !== ''} showSearch={!hideSearch} showViews={!orderable && !!listKey}>
       {#snippet controls()}
     {#if !hideSearch}
       <input

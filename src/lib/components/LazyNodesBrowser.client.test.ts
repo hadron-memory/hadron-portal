@@ -158,6 +158,14 @@ describe('Table (default)', () => {
     expect(m.target.textContent).toContain('(root node)');
     expect(m.target.querySelectorAll('[data-testid="node-inherited"]')).toHaveLength(0);
   });
+
+  it('the header toggle names only what it holds: Columns, not search or views (#2693)', async () => {
+    replies['page?offset=0'] = [{ rows: [node(0)], hasMore: false }];
+    const m = await mount();
+    const toggle = m.target.querySelector('[data-testid="table-header-toggle"]');
+    expect(toggle?.textContent?.trim()).toBe('Columns');
+    expect(toggle?.textContent).not.toMatch(/search|views/i);
+  });
 });
 
 describe('Tree', () => {
