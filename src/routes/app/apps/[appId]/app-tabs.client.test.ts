@@ -90,10 +90,11 @@ const tabLabels = (target: HTMLElement) =>
   [...target.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim());
 
 describe('App page tab strip (#1005, #1006)', () => {
-  it('names the worker tab "AI Team" and adds "Human Team"; Agents is a Settings section, not a tab', async () => {
+  it('has one "Team" tab for both teams; Agents is a Settings section, not a tab', async () => {
     const labels = tabLabels(await mountTab('chats'));
-    expect(labels).toContain('AI Team');
-    expect(labels).toContain('Human Team');
+    expect(labels).toContain('Team');
+    expect(labels).not.toContain('AI Team');
+    expect(labels).not.toContain('Human Team');
     expect(labels).not.toContain('Agents');
     expect(labels).not.toContain('Worker agents');
   });
@@ -109,8 +110,8 @@ describe('App page tab strip (#1005, #1006)', () => {
 
   it('keeps the `staff` id behind the renamed worker tab: a label is not an address', async () => {
     const target = await mountTab('chats');
-    expect(target.querySelector('#tab-staff')?.textContent?.trim()).toBe('AI Team');
-    expect(target.querySelector('#tab-members')?.textContent?.trim()).toBe('Human Team');
+    expect(target.querySelector('#tab-staff')?.textContent?.trim()).toBe('Team');
+    expect(target.querySelector('#tab-members')).toBeNull();
     expect(target.querySelector('#tab-agents')).toBeNull();
   });
 
@@ -150,6 +151,59 @@ describe('Settings no longer carries the agent section (#1004, #1006)', () => {
     expect(target.querySelector('a[href$="/members"]')).toBeNull();
     // Absence by behavior, not caption: a renamed section would still post these.
     expect(target.querySelector('form[action="?tab=settings&section=agents&/addAgent"], form[action="?tab=settings&section=agents&/removeAgent"]')).toBeNull();
+  });
+});
+
+describe('Team tab: AI team | Human team toggle', () => {
+  const toggle = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Team view"] button')];
+
+  it('marks the AI team pressed on the staff view, and keeps the one Team tab selected', async () => {
+    const target = await mountTab('staff');
+    const [ai, human] = toggle(target);
+    expect([ai?.textContent?.trim(), human?.textContent?.trim()]).toEqual(['AI team', 'Human team']);
+    expect([ai.getAttribute('aria-pressed'), human.getAttribute('aria-pressed')]).toEqual(['true', 'false']);
+  });
+
+  it('marks the Human team pressed on the members view; the Team tab stays selected and labels the panel', async () => {
+    const target = await mountTab('members');
+    const [ai, human] = toggle(target);
+    expect([ai.getAttribute('aria-pressed'), human.getAttribute('aria-pressed')]).toEqual(['false', 'true']);
+    expect(target.querySelector('#tab-staff')?.getAttribute('aria-selected')).toBe('true');
+    expect(target.querySelector('#panel-members')?.getAttribute('aria-labelledby')).toBe('tab-staff');
+  });
+
+  it('the placeholder panel of a Human team view still being read is labelled by the Team tab (there is no tab-members)', async () => {
+    const target = await mountTab('staff');
+    const { members: _m, membersError: _e, membersWithheld: _w, ...rest } = lastProps.data as Record<string, unknown>;
+    lastProps.data = rest;
+    await tick(4);
+    toggle(target)[1].click();
+    await tick(2);
+    const panel = target.querySelector('#panel-members')!;
+    expect(panel.textContent).toContain('Loading');
+    expect(target.querySelector(`#${panel.getAttribute('aria-labelledby')}`)).not.toBeNull();
+  });
+
+  it('keeps the Human team view on a page whose tab list has no members entry (the validity guard exempts it)', async () => {
+    const target = await mountTab('members');
+    expect(target.querySelector('#panel-members')).not.toBeNull();
+    expect(target.querySelector('#panel-staff')).toBeNull();
+  });
+
+  it('shows no toggle on other tabs', async () => {
+    expect(toggle(await mountTab('agents'))).toHaveLength(0);
+  });
+
+  it('clicking Human team switches to the members panel, and back', async () => {
+    const target = await mountTab('staff');
+    toggle(target)[1].click();
+    await tick(6);
+    expect(target.querySelector('#panel-members')).not.toBeNull();
+    expect(target.querySelector('#panel-staff')).toBeNull();
+    toggle(target)[0].click();
+    await tick(6);
+    expect(target.querySelector('#panel-staff')).not.toBeNull();
+    expect(target.querySelector('#panel-members')).toBeNull();
   });
 });
 
