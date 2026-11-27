@@ -1090,7 +1090,7 @@
     if (submittedForm<AddAgentForm>(result, 'addAgent') || submittedForm<RemoveAppAgentForm>(result, 'removeAgent')) {
       return 'agents';
     }
-    // #1005: member changes land back on the Human Team tab.
+    // #1005: member changes land back on the Human team view of the Team tab.
     if (
       submittedForm(result, 'addAppMember') ||
       submittedForm(result, 'ensureAppMember') ||
@@ -1374,11 +1374,11 @@
     // carry through the URN resolver, so changing 'staff' here would break
     // every `?tab=staff` link already shared — the exact thing that fix
     // rescued. A label is presentation; an id is an address.
-    // #1005: "AI Team" is the label the issue asks for; the id stays.
-    { id: 'staff', label: t('app.tabs.staff', 'AI Team') },
-    // #1005: the people of the App — the former /members page, in place.
-    // Always present: an App with no members yet still needs the way to add one.
-    { id: 'members', label: t('app.tabs.members', 'Human Team') },
+    // One "Team" tab holds both views: the AI team (`staff`) and the human team (`members`), switched by a
+    // toggle inside the tab like Tree | Table on a memory's nodes. The strip shows ONE entry (id `staff`,
+    // active for either view); `?tab=staff` and `?tab=members` stay the addresses of the two views.
+    // `members` (#1005) is always present: an App with no members yet still needs the way to add one.
+    { id: 'staff', label: t('app.tabs.team', 'Team') },
     // #1006: the agents installed in the App, and the way to install another.
     { id: 'agents', label: t('app.tabs.agents', 'Agents') },
     // #733: the worklog — the authoritative artifact-to-worker-session join.
@@ -1395,13 +1395,13 @@
   ]);
   $effect(() => {
     const current = untrack(() => activeTab);
-    if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
+    if (current !== 'members' && !tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
   });
   // portal#2292: the label the tab strip shows for the active tab (so a locale change moves both). The
   // default tab (what the URL carries without `?tab=`) leads with nothing. portal#2308: it is the loader's
   // own DEFAULT_TAB, not a copy, so a new default (#2241) moves the title with the tab it opens on.
   const TITLE_UNLABELLED_TAB: TabId = DEFAULT_TAB;
-  const tabTitleLabel = $derived(activeTab === TITLE_UNLABELLED_TAB ? '' : (tabs.find((tab) => tab.id === activeTab)?.label ?? ''));
+  const tabTitleLabel = $derived(activeTab === TITLE_UNLABELLED_TAB ? '' : (tabs.find((tab) => tab.id === (activeTab === 'members' ? 'staff' : activeTab))?.label ?? ''));
   // "Read once at init" is not enough on its own: SvelteKit REUSES this
   // component for a query-only navigation, so a same-App link to
   // `?tab=chats&chat=chats:team&view=full` followed from the Worklog tab
@@ -3025,7 +3025,10 @@
     { id: 'metrics', label: t('app.tabs.metrics', 'Team metrics'), href: `/app/apps/${app.id}/metrics` },
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
-  ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
+  ]} active={activeTab === 'members' ? 'staff' : activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => {
+    // The Team tab opens the view the reader last had, not always the AI team.
+    void focusTab(id === 'staff' && activeTab === 'members' ? 'members' : (id as TabId));
+  }} />
   {#if tabNavigationFailed}
     <p role="alert" class="mt-2 text-sm text-red-700 dark:text-red-400">{t('app.tabs.navigation-failed', 'Could not open this tab. Try again.')}</p>
   {/if}
@@ -3548,6 +3551,26 @@
        App context, so names render BARE (`hrn:node:hadronmemory.com:specs:cor:agt:020:02` — per-App uniqueness
        makes them unambiguous here). The app-qualified compound belongs on
        org-wide surfaces, never here. -->
+  {#if activeTab === 'staff' || activeTab === 'members'}
+    <div
+      role="group"
+      aria-label={t('app.team.view-label', 'Team view')}
+      class="mb-3 inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+    >
+      <button
+        type="button"
+        onclick={() => { void focusTab('staff'); }}
+        aria-pressed={activeTab === 'staff'}
+        class="px-2.5 py-1 text-xs {activeTab === 'staff' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+      >{t('app.team.view-ai', 'AI team')}</button>
+      <button
+        type="button"
+        onclick={() => { void focusTab('members'); }}
+        aria-pressed={activeTab === 'members'}
+        class="px-2.5 py-1 text-xs {activeTab === 'members' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+      >{t('app.team.view-human', 'Human team')}</button>
+    </div>
+  {/if}
   {#if activeTab === 'staff' && tabShown('staff')}
     <div id="panel-staff" role="tabpanel" aria-labelledby="tab-staff" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
@@ -4121,7 +4144,7 @@
   <!-- ───────────── MEMORY TAB ───────────── -->
   <!-- ───────────── HUMAN TEAM TAB (#1005) ───────────── -->
   {#if activeTab === 'members' && tabShown('members')}
-    <div id="panel-members" role="tabpanel" aria-labelledby="tab-members" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    <div id="panel-members" role="tabpanel" aria-labelledby="tab-staff" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       <AppMembersPanel
         {app}
         members={tabData.members}
@@ -4144,7 +4167,7 @@
         <p class="mt-1 max-w-2xl text-sm text-zinc-500">
           {t(
             'app.agents.description',
-            'The agents installed in this App. Cast a worker from one of them on the AI Team tab.',
+            'The agents installed in this App. Cast a worker from one of them on the Team tab.',
           )}
         </p>
       </div>

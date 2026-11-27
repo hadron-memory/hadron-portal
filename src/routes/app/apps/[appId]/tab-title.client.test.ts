@@ -56,10 +56,14 @@ const clientTabIds = (target: HTMLElement) =>
 describe('portal#2292: the document title leads with the shown tab', () => {
   it('names the named tabs exactly', async () => {
     const target = await mountAt(null);
-    for (const [id, label] of [['runs', 'Runs'], ['memory', 'Memories'], ['settings', 'Settings'], ['staff', 'AI Team']] as const) {
+    for (const [id, label] of [['runs', 'Runs'], ['memory', 'Memories'], ['settings', 'Settings'], ['staff', 'Team']] as const) {
       await select(target, id);
       expect(document.title, id).toBe(`${label} · ${TAIL}`);
     }
+    // The Human team view has no tab of its own (a toggle inside Team), and the title still says Team.
+    [...target.querySelectorAll<HTMLElement>('[role="group"][aria-label="Team view"] button')][1].click();
+    await tick(15);
+    expect(document.title, 'members').toBe(`Team · ${TAIL}`);
   });
 
   it('gives every tab its own label, so a new tab cannot ship without a title', async () => {
