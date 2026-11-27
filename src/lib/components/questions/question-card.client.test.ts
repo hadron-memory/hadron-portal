@@ -287,12 +287,17 @@ describe('question card', () => {
         }
         expect(pill({ state: 'DECIDED', answered: true, tier: 'SIGNED' })!.dataset.needed).toBe('false');
       });
+      it('signed tier: a withdrawn, tampered or unverifiable question owes no signature', () => {
+        for (const state of ['WITHDRAWN', 'TAMPERED', 'UNVERIFIABLE'] as const) {
+          expect(pill({ state, answered: true, tier: 'SIGNED' })!.dataset.needed, state).toBe('false');
+        }
+      });
       it('the answered tier has no pill', () => {
         expect(pill({ state: 'ANSWERED_UNCONFIRMED', answered: true, tier: 'ANSWERED' })).toBeNull();
       });
     });
     describe('portal#2665: the approve result renders in the card', () => {
-      const withResult = (extra: Record<string, unknown>) => ({ ...view('NOT_APPROVED', true), ...extra });
+      const withResult = (extra: { error?: string; success?: string }) => ({ ...view('NOT_APPROVED', true), ...extra });
       it('shows a refusal inside the approval block, as an alert', () => {
         const el = mountCard(answered, true, null, withResult({ error: 'Only a decider can approve.' }));
         const err = el.querySelector('[data-testid=question-approval]')!.querySelector('[data-testid=question-approval-error]')!;

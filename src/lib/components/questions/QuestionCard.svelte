@@ -53,9 +53,10 @@
   const tierPill = $derived.by((): { text: string; needed: boolean } | null => {
     if (!question.tier || question.tier === 'ANSWERED') return null;
     if (question.tier === 'SIGNED') {
-      return question.state === 'DECIDED'
-        ? { text: t('question.card.tier.signature-tier', 'signature tier'), needed: false }
-        : { text: t('question.card.tier.signature', 'needs signature'), needed: true };
+      // A signature is still owed only while the question is live; withdrawn, tampered and unverifiable ones owe nothing.
+      return ['OPEN', 'ANSWERED_UNCONFIRMED', 'STALE'].includes(question.state)
+        ? { text: t('question.card.tier.signature', 'needs signature'), needed: true }
+        : { text: t('question.card.tier.signature-tier', 'signature tier'), needed: false };
     }
     return question.state === 'ANSWERED_UNCONFIRMED' || question.state === 'STALE'
       ? { text: t('question.card.tier.approval', 'needs approval'), needed: true }
