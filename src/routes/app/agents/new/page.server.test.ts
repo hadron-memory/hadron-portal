@@ -86,8 +86,16 @@ describe('personal (org-less) create-agent action (#636)', () => {
   });
 });
 
+import type { PortalExtension } from '$lib/ext/types';
+const limitFx = vi.hoisted(() => ({ exts: [] as PortalExtension[] }));
+vi.mock('$lib/ext/registry', async (orig) => {
+  const real = await orig<typeof import('$lib/ext/registry')>();
+  return { ...real, extensionLimitAction: (c: Parameters<typeof real.extensionLimitAction>[0]) => real.extensionLimitAction(c, limitFx.exts) };
+});
+
 // #2569 (C3): an owner at a limit is the server's refusal, shown as such: 409, the server's words, no generic text.
 describe('owner limit reached (#2569)', () => {
+  beforeEach(() => { limitFx.exts = []; });
   const reached = (callerCanManageOwner: boolean, message: string) => ({
     response: { errors: [{ message, extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'agents', ownerType: 'organization', callerCanManageOwner, ...(callerCanManageOwner ? { ownerId: 'o1', limit: '3' } : {}) } }] },
   });
@@ -103,5 +111,12 @@ describe('owner limit reached (#2569)', () => {
     const result = (await runCreate({ displayName: 'My Assistant', slug: 'my-assistant' })) as { status: number; data: { form: { message?: { text: string } } } };
     expect(result.status).toBe(409);
     expect(result.data.form.message?.text).toBe('The owner of this memory has reached a limit of their account.');
+  });
+  it('carries the extension link to the form message when the server says the caller can manage the owner', async () => {
+    limitFx.exts = [{ id: 'fx', limitAction: () => ({ label: 'See limits', href: '/app/orgs/o1/x' }) }];
+    mockRequest.mockRejectedValueOnce(reached(true, 'This organization has reached its limit of 3 agents.'));
+    const result = (await runCreate({ displayName: 'My Assistant', slug: 'my-assistant' })) as { data: { form: { message?: { action?: unknown } } } };
+    expect(result.data.form.message?.action).toEqual({ label: 'See limits', href: '/app/orgs/o1/x' });
+    limitFx.exts = [];
   });
 });

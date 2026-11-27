@@ -97,7 +97,7 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('commands.merge-node.success', 'Node merged.') }),
       };
     } catch (e) {
-      const limit = limitRefusal(e);
+      const limit = limitRefusal(e, { link: false });
       if (limit) return message(form, limitMessage(limit), { status: limit.status });
       // portal#1142 S2b: an include refusal merged nothing; say so, without
       // offering the kept selections as a draft.

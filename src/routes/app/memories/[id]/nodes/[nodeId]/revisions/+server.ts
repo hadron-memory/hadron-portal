@@ -65,7 +65,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     }
     return json({ error: 'Unknown action.' }, { status: 400 });
   } catch (e: unknown) {
-    const limit = limitRefusal(e);
+    const limit = limitRefusal(e, { link: false });
     if (limit) return json(limitBody(limit), { status: limit.status });
     // portal#1142 S2b: a restore refused for an include tag restored nothing.
     // 409 with the server's words, the tag and a restore-safe next step; the

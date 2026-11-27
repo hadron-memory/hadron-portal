@@ -169,3 +169,13 @@ describe('merge refused for an include tag', () => {
     expect(message.text).not.toContain('Nothing was merged');
   });
 });
+
+describe('size refusal (#2569, door 16)', () => {
+const wire = (ext: Record<string, unknown>, message: string) => ({ response: { errors: [{ message, extensions: ext }] } });
+  it('merge nodes: 400 with the server text (on main: 500, generic)', async () => {
+    mockRequest.mockRejectedValueOnce(wire({ code: 'NODE_CONTENT_TOO_LARGE', maxBytes: 100 }, 'A node can hold at most 100 bytes.'));
+    const result = (await run({ _kind: 'mergeNode', source: 'hrn:node:hadronmemory.com::demo::source', target: 'hrn:node:hadronmemory.com::demo::target', include: ['CONTENT'] })) as { status: number; data?: { form?: { message?: unknown } } };
+    expect(result.status).toBe(400);
+    expect(JSON.stringify(result)).toContain('A node can hold at most 100 bytes.');
+  });
+});

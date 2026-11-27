@@ -195,7 +195,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
-    const limit = limitRefusal(e);
+    const limit = limitRefusal(e, { link: false });
     if (limit) {
       return new Response(JSON.stringify(limitBody(limit)), { status: limit.status, headers: { 'Content-Type': 'application/json' } });
     }

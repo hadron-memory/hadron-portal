@@ -175,7 +175,7 @@ export async function writeCustomisation(
     }
     return { saved: true };
   } catch (e) {
-    const limit = limitRefusal(e);
+    const limit = limitRefusal(e, { link: false });
     if (limit) return fail(limit.status, { customisationFailed: { code: limit.code, detail: limit.text } });
     const code = extractGqlErrorCode(e);
     const fixed = t(

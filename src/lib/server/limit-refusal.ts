@@ -1,4 +1,5 @@
 import { extensionLimitAction } from '$lib/ext/registry';
+import { t } from '$lib/i18n/t';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/gql-error';
 
 /**
@@ -23,16 +24,34 @@ export type LimitAction = { label: string; href: string };
 const STATUS = { OWNER_LIMIT_REACHED: 409, NODE_CONTENT_TOO_LARGE: 400 } as const;
 
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
-/** A same-origin path only (ruling C3-R5): starts with one `/`, never `//` or a scheme. */
-const sameOriginPath = (href: unknown): href is string => typeof href === 'string' && href.startsWith('/') && !href.startsWith('//');
+/**
+ * A same-origin path only (ruling C3-R5). A browser strips tabs and newlines and reads `\` as `/`, so
+ * `/\example.com` and `/\t/example.com` resolve to `//example.com`: the string checks are not enough, so the
+ * href is also parsed against a throwaway origin and must stay on it.
+ */
+const sameOriginPath = (href: unknown): href is string => {
+  if (typeof href !== 'string' || !href.startsWith('/') || href.startsWith('//') || /[\\\u0000-\u001f]/.test(href)) return false;
+  try {
+    return new URL(href, 'http://same.invalid').origin === 'http://same.invalid';
+  } catch {
+    return false;
+  }
+};
 
 function linkFor(ext: Record<string, unknown> | null): LimitAction | null {
   if (!ext || ext.callerCanManageOwner !== true) return null;
   const { limitKey, ownerType, ownerId } = ext;
   if (!nonEmpty(limitKey) || !nonEmpty(ownerId) || (ownerType !== 'organization' && ownerType !== 'user')) return null;
   // `limit` is deliberately never passed on: the context type has no such field.
-  const action = extensionLimitAction({ limitKey, ownerType, callerCanManageOwner: true, ownerId });
-  if (!action) return null;
+  let action: { label: string; href: string } | null;
+  try {
+    action = extensionLimitAction({ limitKey, ownerType, callerCanManageOwner: true, ownerId });
+  } catch {
+    // An extension's fault must not turn the refusal into a 500.
+    console.warn('An extension limit link was dropped: its limitAction threw.');
+    return null;
+  }
+  if (!action || !nonEmpty(action.label)) return null;
   if (!sameOriginPath(action.href)) {
     console.warn('An extension limit link was dropped: its href is not a same-origin path.');
     return null;
@@ -40,15 +59,23 @@ function linkFor(ext: Record<string, unknown> | null): LimitAction | null {
   return { label: action.label, href: action.href };
 }
 
-export function limitRefusal(e: unknown): LimitRefusal | null {
+/**
+ * `link: false` is for a door whose page never renders the link: the extension is not called at all (no wasted
+ * call, and nothing for it to count), and the result's `action` is null.
+ */
+export function limitRefusal(e: unknown, options: { link?: boolean } = {}): LimitRefusal | null {
   const code = extractGqlErrorCode(e);
   if (code !== 'OWNER_LIMIT_REACHED' && code !== 'NODE_CONTENT_TOO_LARGE') return null;
-  const text = extractGqlError(e, '', [code]);
+  // An empty server message must not leave a form blank: a fixed fallback per code.
+  const fallback = code === 'OWNER_LIMIT_REACHED'
+    ? t('limit.reached', 'This account has reached a limit.')
+    : t('limit.too-large', 'This content is too large to save.');
+  const text = extractGqlError(e, '', [code]) || fallback;
   return {
     code,
     status: STATUS[code],
     text,
-    action: code === 'OWNER_LIMIT_REACHED' ? linkFor(extractGqlErrorExtensions(e)) : null,
+    action: code === 'OWNER_LIMIT_REACHED' && options.link !== false ? linkFor(extractGqlErrorExtensions(e)) : null,
   };
 }
 

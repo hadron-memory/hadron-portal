@@ -8,5 +8,5 @@
 </script>
 
 {#if action}
-  <a href={action.href} class="mt-1 inline-block text-sm font-medium underline underline-offset-2" data-testid="limit-action">{action.label}</a>
+  <a href={action.href} class="mt-1 block w-fit text-sm font-medium underline underline-offset-2" data-testid="limit-action">{action.label}</a>
 {/if}

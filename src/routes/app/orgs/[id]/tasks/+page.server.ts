@@ -168,7 +168,7 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       if (e instanceof NoNodeDoorError) return exportFail(409, nodeId, 'no-door', e.message);
-      const limit = limitRefusal(e);
+      const limit = limitRefusal(e, { link: false });
       if (limit) return exportFail(limit.status, nodeId, 'rejected', limit.text);
       const text = extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"]);
       // #588 / server#1286: a memory-schema verdict — a strict collection, or

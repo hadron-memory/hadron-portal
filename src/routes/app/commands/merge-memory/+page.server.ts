@@ -94,7 +94,7 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('commands.merge-memory.success', 'Memory merged.') }),
       };
     } catch (e) {
-      const limit = limitRefusal(e);
+      const limit = limitRefusal(e, { link: false });
       if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const code = extractGqlErrorCode(e);
       const errorText = extractGqlError(e, t('commands.merge-memory.error.failed', 'Merge failed.'));

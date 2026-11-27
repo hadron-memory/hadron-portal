@@ -33,7 +33,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       // The server's own refusal says what to do first (e.g. restore a deleted
       // ancestor), so it is shown as-is rather than paraphrased.
-      const limit = limitRefusal(e);
+      const limit = limitRefusal(e, { link: false });
       if (limit) return fail(limit.status, { error: limit.text });
       return fail(409, { error: nodeWriteErrorText(e, 'Failed to restore', ["CONFLICT"]) });
     }

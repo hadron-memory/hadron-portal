@@ -138,7 +138,7 @@ export async function updateStorage({ request, params, locals }: RequestEvent<{ 
   try {
     await client.request(nodeUpdateDocument(currentNode, input), { input });
   } catch (e: unknown) {
-    const limit = limitRefusal(e);
+    const limit = limitRefusal(e, { link: false });
     if (limit) return message(form, limitMessage(limit), { status: limit.status });
     const text = nodeWriteErrorText(e, 'Failed to save', ["BAD_USER_INPUT"]);
     // #588: a memory-schema violation (undeclared collection, missing

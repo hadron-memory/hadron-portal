@@ -27,8 +27,8 @@ const manager = {
   limit: '10',
 };
 
-function fixture(href = '/app/orgs/o1/x') {
-  const limitAction = vi.fn(() => ({ label: 'See limits', href }));
+function fixture(href = "/app/orgs/o1/x") {
+  const limitAction = vi.fn((_ctx?: unknown) => ({ label: 'See limits', href }));
   fx.exts = [{ id: 'fx', limitAction }];
   return limitAction;
 }
@@ -90,6 +90,9 @@ describe('limitRefusal (#2569, C3)', () => {
     ['a missing limitKey', { ...manager, limitKey: '' }, '/app/x'],
     ['an absolute extension href', manager, 'https://example.com/x'],
     ['a protocol-relative extension href', manager, '//example.com/x'],
+    ['a backslash href a browser reads as //', manager, '/\\example.com'],
+    ['a tab-prefixed href a browser reads as //', manager, '/\t/example.com'],
+    ['an href with a newline', manager, '/a\nb'],
   ])('gives no link for %s, and still returns the text', (_name, ext, href) => {
     fixture(href);
     const r = limitRefusal(refusal(ext, 'text stays'));
@@ -104,10 +107,43 @@ describe('limitRefusal (#2569, C3)', () => {
     expect(r).toMatchObject({ action: null, text: 'plain', status: 409 });
   });
 
-  it('never carries the limit or the owner id into the result', () => {
-    fixture();
+  it('never carries the limit or the owner id into the result, nor into the extension call', () => {
+    const limitAction = fixture();
     const r = limitRefusal(refusal(manager));
-    expect(JSON.stringify(r)).not.toContain('"limit"');
-    expect(JSON.stringify(r)).not.toContain('o1"');
+    expect(Object.keys(r ?? {}).sort()).toEqual(['action', 'code', 'status', 'text']);
+    expect(Object.keys(limitAction.mock.calls[0][0] as object).sort()).toEqual(['callerCanManageOwner', 'limitKey', 'ownerId', 'ownerType']);
+  });
+
+  it('a throwing extension leaves the refusal as it was, without the link', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fx.exts = [{ id: 'fx', limitAction: () => { throw new Error('boom'); } }];
+    expect(limitRefusal(refusal(manager, 'still here'))).toMatchObject({ status: 409, text: 'still here', action: null });
+  });
+
+  it('an empty server message gets a fixed fallback, never a blank form', () => {
+    expect(limitRefusal(refusal(manager, ''))?.text).toBe('This account has reached a limit.');
+    expect(limitRefusal(refusal({ code: 'NODE_CONTENT_TOO_LARGE' }, ''))?.text).toBe('This content is too large to save.');
+  });
+
+  it('an extension link with no label is dropped', () => {
+    fx.exts = [{ id: 'fx', limitAction: () => ({ label: '', href: '/a' }) }];
+    expect(limitRefusal(refusal(manager))?.action).toBeNull();
+  });
+
+  it('link: false never calls the extension', () => {
+    const limitAction = fixture();
+    expect(limitRefusal(refusal(manager), { link: false })).toMatchObject({ status: 409, action: null });
+    expect(limitAction).not.toHaveBeenCalled();
+  });
+
+  it('limitMessage, limitBody and cloneRefusal carry the link through to the door result', async () => {
+    fixture();
+    const { limitMessage, limitBody } = await import('./limit-refusal');
+    const { cloneRefusal } = await import('./clone-refusal');
+    const link = { label: 'See limits', href: '/app/orgs/o1/x' };
+    const r = limitRefusal(refusal(manager, 'm'))!;
+    expect(limitMessage(r)).toEqual({ type: 'error', text: 'm', action: link });
+    expect(limitBody(r)).toEqual({ error: 'm', code: 'OWNER_LIMIT_REACHED', action: link });
+    expect(cloneRefusal(refusal(manager, 'm'))).toEqual({ status: 409, text: 'm', action: link });
   });
 });

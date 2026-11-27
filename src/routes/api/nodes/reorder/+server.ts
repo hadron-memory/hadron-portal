@@ -58,7 +58,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     return json({ ok: true });
   } catch (e: unknown) {
-    const limit = limitRefusal(e);
+    const limit = limitRefusal(e, { link: false });
     if (limit) return json(limitBody(limit), { status: limit.status });
     return json({ error: extractGqlError(e, 'Failed to reorder') }, { status: 500 });
   }

@@ -187,4 +187,13 @@ describe('mapAssetError: limits and size (#2569)', () => {
       { status: 400 },
     ]);
   });
+  it('carries the extension link on an OWNER_LIMIT_REACHED for a manager, for the upload button to render', async () => {
+    vi.resetModules();
+    vi.doMock('$lib/ext/registry', () => ({ extensionLimitAction: () => ({ label: 'See limits', href: '/app/orgs/o1/x' }) }));
+    const { mapAssetError: map } = await import('./assetErrors');
+    const err = new ClientError({ status: 200, errors: [{ message: 'm', extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'assetBytes', ownerType: 'organization', callerCanManageOwner: true, ownerId: 'o1' } }] } as never, { query: 'q' });
+    expect(map(err, 'begin')[0]).toEqual({ code: 'OWNER_LIMIT_REACHED', message: 'm', action: { label: 'See limits', href: '/app/orgs/o1/x' } });
+    vi.doUnmock('$lib/ext/registry');
+    vi.resetModules();
+  });
 });

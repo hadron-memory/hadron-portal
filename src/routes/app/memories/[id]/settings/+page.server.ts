@@ -407,7 +407,7 @@ export const actions: Actions = {
       }
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      const limit = limitRefusal(e);
+      const limit = limitRefusal(e, { link: false });
       if (limit) return fail(limit.status, { _kind: 'applyTransfer' as const, transferSelection: selection, transferError: limit.text });
       const stale = extractGqlErrorCode(e) === 'STALE_TRANSFER_PREVIEW';
       return fail(stale ? 409 : 400, {
