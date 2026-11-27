@@ -5,11 +5,11 @@
   import type { OwnMemoryClass } from './app-memories';
   let { open = $bindable(false), hasAgent, canCreate, ownClasses = null, loading = false, onexisting, onnew, onown }: {
     open?: boolean;
-    // A memory is added through an installed Agent, so with none neither choice can work.
+    // Only creating a new memory needs an installed Agent: linking an existing one does not.
     hasAgent: boolean;
     // Creating a new memory is the App owner's or an org admin's; false hides that choice behind a plain note.
     canCreate: boolean | null;
-    // The user's own memories are being read for the picker.
+    // The memories the user can read are being read for the picker.
     loading?: boolean;
     onexisting: () => void;
     onnew: () => void;
@@ -30,19 +30,19 @@
       class="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       onclick={(e) => e.stopPropagation()} onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}>
       <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">{title}</h2>
-      {#if !hasAgent}
-        <p data-testid="app-memory-needs-agent" class="mt-3 text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.needs-agent', 'Install an Agent in this App before adding a memory.')}</p>
-      {/if}
       <div class="mt-4 space-y-3">
         <div>
           <!-- aria-disabled, not disabled: a refused press must not drop focus out of the dialog. -->
-          <button type="button" aria-disabled={!hasAgent || loading ? 'true' : undefined} aria-describedby="app-memory-existing-help" onclick={() => { if (hasAgent && !loading) onexisting(); }} class={buttonClass}>
+          <button type="button" aria-disabled={loading ? 'true' : undefined} aria-describedby="app-memory-existing-help" onclick={() => { if (!loading) onexisting(); }} class={buttonClass}>
             {loading ? t('app.memory.loading', 'Loading…') : t('app.memory.choose-existing', 'Choose an existing memory')}
           </button>
-          <p id="app-memory-existing-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.choose-existing.help', 'One of your own personal or private memories.')}</p>
+          <p id="app-memory-existing-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.choose-existing.help', 'The memory keeps its name and address. It is not copied and not changed, and the App cannot write to it.')}</p>
         </div>
         {#if canCreate === true}
-          <button type="button" aria-disabled={!hasAgent ? 'true' : undefined} onclick={() => { if (hasAgent) onnew(); }} class={buttonClass}>{t('app.memory.create-new', 'Create a new memory')}</button>
+          <button type="button" aria-disabled={!hasAgent ? 'true' : undefined} aria-describedby={!hasAgent ? 'app-memory-needs-agent' : undefined} onclick={() => { if (hasAgent) onnew(); }} class={buttonClass}>{t('app.memory.create-new', 'Create a new memory')}</button>
+          {#if !hasAgent}
+            <p id="app-memory-needs-agent" data-testid="app-memory-needs-agent" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.needs-agent', 'Install an Agent in this App before adding a memory.')}</p>
+          {/if}
         {:else if canCreate === false}
           <!-- portal#1391: display only. It states no role or membership and no authorization rule the server did not
                state; the server's createAppMemory gate stays the authority. -->

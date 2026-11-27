@@ -12,7 +12,7 @@ import AppMemoryCreate from './AppMemoryCreate.svelte';
 
 async function listProps(memories:unknown,extra:Record<string,unknown>={}){
  const attachForm=await superValidate({},zod4(attachAppMemorySchema),{id:'attachAppMemory:a',errors:false});
- return {memories,appId:'a',agentId:'ag1',hasAgent:true,canCreate:true,attachForm,result:null,...extra} as never;
+ return {memories,appId:'a',hasAgent:true,canCreate:true,attachForm,result:null,...extra} as never;
 }
 it('a success identifies and links the created memory, and keeps the form open to show it',async()=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
@@ -238,7 +238,7 @@ describe('adding an existing memory', () => {
  const rows=[{id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',class:'app',appId:'a'}];
  const press=async(root:Element,label:string)=>{[...root.querySelectorAll('button')].find(b=>b.textContent?.trim()===label)!.click();await tick(3);};
  const fetchReply=(body:unknown,ok=true)=>vi.spyOn(globalThis,'fetch').mockResolvedValue({ok,json:async()=>body} as Response);
- it('opens the picker with the user\'s memories and posts the chosen one with the primary Agent',async()=>{
+ it('opens the picker with the user\'s memories and posts the chosen one, sending no Agent',async()=>{
   const get=fetchReply({kind:'ok',memories:[{id:'mine',urn:'hrn:mem:acme.com:mine',name:'My notes',visibility:'ORGANIZATION'}]});
   // the values the POST would carry, read when the submit happens, not after
   const posted:Record<string,string>[]=[];
@@ -251,10 +251,11 @@ describe('adding an existing memory', () => {
   expect(get.mock.calls[0][0]).toBe('/app/apps/a/attachable');
   await press(document.body,'Select');
   await vi.waitFor(()=>expect(submit).toHaveBeenCalled());
-  expect(posted[0]).toMatchObject({memoryId:'mine',agentId:'ag1',_kind:'attachAppMemory'});
+  expect(posted[0]).toMatchObject({memoryId:'mine',_kind:'attachAppMemory'});
+  expect(posted[0]).not.toHaveProperty('agentId');
   const form=m.target.querySelector<HTMLFormElement>('form[action="?/attachMemory"]')!;
   expect(form.querySelector<HTMLInputElement>('input[name=memoryId]')!.value).toBe('mine');
-  expect(form.querySelector<HTMLInputElement>('input[name=agentId]')!.value).toBe('ag1');
+  expect(form.querySelector('input[name=agentId]')).toBeNull();
   expect(form.querySelector<HTMLInputElement>('input[name=_kind]')!.value).toBe('attachAppMemory');
   }finally{m.unmount();get.mockRestore();submit.mockRestore();}
  });
@@ -268,15 +269,46 @@ describe('adding an existing memory', () => {
   expect(document.body.querySelector('[aria-label="Choose a memory"]')).toBeNull();
   }finally{m.unmount();get.mockRestore();}
  });
- it('reads nothing and offers no choice while the App has no Agent',async()=>{
-  const get=fetchReply({kind:'ok',memories:[]});
-  const m=mountComponent(AppMemories as never,await listProps(rows,{hasAgent:false,agentId:null}));
+ // portal#2635: an attach is a link, and the server ignores the Agent (agentRef is optional and ignored).
+ it('offers the attach choice and opens the picker while the App has no Agent; only creating needs one',async()=>{
+  const get=fetchReply({kind:'ok',memories:[{id:'mine',urn:'hrn:mem:acme.com:mine',name:'My notes',visibility:null}]});
+  const m=mountComponent(AppMemories as never,await listProps(rows,{hasAgent:false}));
+  try{await tick();
+  await press(m.target,'Add memory');
+  const existing=[...document.body.querySelectorAll('button')].find(b=>b.textContent?.trim()==='Choose an existing memory')!;
+  expect(existing.getAttribute('aria-disabled')).toBeNull();
+  const create=[...document.body.querySelectorAll('button')].find(b=>b.textContent?.trim()==='Create a new memory')!;
+  expect(create.getAttribute('aria-disabled')).toBe('true');
+  expect(document.body.querySelector('[data-testid=app-memory-needs-agent]')).not.toBeNull();
+  await press(document.body,'Choose an existing memory');
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('My notes'));
+  expect(get).toHaveBeenCalled();
+  }finally{m.unmount();get.mockRestore();}
+ });
+ it('leaves out of the picker a memory this App already holds',async()=>{
+  const get=fetchReply({kind:'ok',memories:[{id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',visibility:null},{id:'mine',urn:'hrn:mem:acme.com:mine',name:'My notes',visibility:null}]});
+  const m=mountComponent(AppMemories as never,await listProps(rows));
   try{await tick();
   await press(m.target,'Add memory');
   await press(document.body,'Choose an existing memory');
-  expect(get).not.toHaveBeenCalled();
-  expect(document.body.querySelector('[data-testid=app-memory-needs-agent]')).not.toBeNull();
+  await vi.waitFor(()=>expect(document.body.textContent).toContain('My notes'));
+  const picker=document.body.querySelector('[aria-label="Choose a memory"]')!;
+  expect(picker.textContent).not.toContain('First');
   }finally{m.unmount();get.mockRestore();}
+ });
+ it('says what a link does in the choice\'s help text, and promises no key read and no rename',async()=>{
+  const m=mountComponent(AppMemories as never,await listProps(rows));
+  try{await tick();
+  await press(m.target,'Add memory');
+  const help=document.body.querySelector('#app-memory-existing-help')!.textContent!;
+  expect(help).not.toMatch(/personal or private|one of your own/i);
+  expect(help).toContain('keeps its name and address');
+  expect(help).toMatch(/not copied/);
+  expect(help).toMatch(/cannot write/);
+  // Victor's rule (hadron-server#5185): a shared personal memory linked into an organization's App is inert for the key.
+  expect(help).not.toMatch(/key can read|runs can read|can read it/i);
+  expect(help).not.toMatch(/renam/i);
+  }finally{m.unmount();}
  });
  it('still offers Add memory when the list is empty',async()=>{
   const m=mountComponent(AppMemories as never,await listProps([]));

@@ -46,6 +46,27 @@ export function appMemoriesFromScope(scope: AppScopedMemory[] | null, appId: str
   return scope === null ? null : scope.map(m => ({ id: m.memoryId, urn: m.memoryUrn, name: m.name, class: m.class, appId }));
 }
 
+// The memories linked to this App with attachMemoryToApp: the scope has no row kind for them, so they are read from the App.
+export const APP_ATTACHED_MEMORIES_QUERY = /* GraphQL */ `
+  query AppAttachedMemories($ref: ID!) {
+    app(ref: $ref) { attachedMemories { memory { id urn name class } } }
+  }
+`;
+/** Null means unavailable, never "none linked". */
+export async function readAttachedMemories(client: ReturnType<typeof gqlClient>, appId: string): Promise<AppMemoryRow[] | null> {
+  try {
+    const data = await withTimeout(client.request<{ app: { attachedMemories: { memory: { id: string; urn: string; name: string; class: string } }[] } | null }>(APP_ATTACHED_MEMORIES_QUERY, { ref: appId }), OPTIONAL_LIST_TIMEOUT_MS, null);
+    if (!data?.app) return null;
+    return data.app.attachedMemories.map(({ memory: m }) => ({ id: m.id, urn: m.urn, name: m.name, class: m.class, appId: null }));
+  } catch { return null; }
+}
+/** The scope's rows, then each linked memory the scope does not already hold. An unavailable link read leaves the scope as it is. */
+export function withLinkedMemories(rows: AppMemoryRow[] | null, linked: AppMemoryRow[] | null): AppMemoryRow[] | null {
+  if (rows === null || linked === null) return rows;
+  const held = new Set(rows.map(r => r.id));
+  return [...rows, ...linked.filter(m => !held.has(m.id))];
+}
+
 // Whether to OFFER the form; the server's createAppMemory gate stays the
 // authority. An org App follows the viewer's org role. A user-owned App has no
 // org, so it follows the viewer's manage right on the App (effectiveAccess
@@ -80,55 +101,58 @@ export async function createMemory({ request, params, locals }: { request: Reque
 }
 
 export const ATTACH_MEMORY_TO_APP_MUTATION = /* GraphQL */ `
-  mutation AttachMemoryToApp($memoryRef: ID!, $appRef: ID!, $agentRef: ID!) {
-    attachMemoryToApp(memoryRef: $memoryRef, appRef: $appRef, agentRef: $agentRef) { id urn name }
+  mutation AttachMemoryToApp($memoryRef: ID!, $appRef: ID!) {
+    attachMemoryToApp(memoryRef: $memoryRef, appRef: $appRef) { id urn name }
   }
 `;
 
-/** Put an existing memory of the caller's into this App. Authorization is the server's alone. */
+/**
+ * Link a memory the caller can read into this App (hrn:node:hadronmemory.com:specs:cor:dmo:060:20). The memory is
+ * unchanged: same owner, class, URN and name, and it does not count toward a class limit. Authorization is the server's alone.
+ */
 export async function attachMemory({ request, params, locals }: { request: Request; params: { appId: string }; locals: { token?: string | null } }) {
   const form = await superValidate<Infer<typeof attachAppMemorySchema, 'zod4'>, AttachMemoryMessage>(await request.formData(), zod4(attachAppMemorySchema), { id: `attachAppMemory:${params.appId}` });
   if (!form.valid) return fail(400, { form });
   try {
-    await gqlClient(locals.token).request(ATTACH_MEMORY_TO_APP_MUTATION, { memoryRef: form.data.memoryId, appRef: params.appId, agentRef: form.data.agentId });
-    return message(form, { type: 'success', text: t('app.memory.attached', 'Memory added to this App.') });
+    await gqlClient(locals.token).request(ATTACH_MEMORY_TO_APP_MUTATION, { memoryRef: form.data.memoryId, appRef: params.appId });
+    return message(form, { type: 'success', text: t('app.memory.attached', 'Memory linked to this App.') });
   } catch (e: unknown) {
     // Only known codes select fixed copy; no raw GraphQL or transport text.
     const code = extractGqlErrorCode(e);
-    const refusal = code === 'FORBIDDEN' ? [403, t('app.memory.attach-forbidden', 'You can only add a memory you own, and only as a member of this App.')] as const
+    // The server answers FORBIDDEN and MEMORY_NOT_FOUND identically for every reason it has, so the copy names none.
+    const refusal = code === 'FORBIDDEN' ? [403, t('app.memory.attach-forbidden', 'Only a member of this App, signed in as themselves, can add a memory.')] as const
       : code === 'UNAUTHENTICATED' ? [401, t('app.memory.sign-in', 'Sign in again to add a memory.')] as const
-      : code === 'AGENT_NOT_INSTALLED' || code === 'APP_UNINSTALLED' ? [409, t('app.memory.no-agent', 'Install an Agent in this App before adding a memory.')] as const
-      : code === 'MEMORY_ALREADY_APP_SCOPED' ? [409, t('app.memory.already-scoped', 'This memory already belongs to an App.')] as const
-      : code === 'UNSUPPORTED_MEMORY_CLASS' ? [400, t('app.memory.attach-class', 'Only your personal and private memories can be added to an App.')] as const
-      : code === 'ORGANIZATION_MISMATCH' ? [400, t('app.memory.attach-org', 'This memory belongs to a different organization than the App.')] as const
+      : code === 'APP_UNINSTALLED' ? [409, t('app.memory.app-uninstalled', 'This App is uninstalled. Reinstall it to add a memory.')] as const
+      : code === 'MEMORY_NOT_FOUND' ? [404, t('app.memory.attach-not-found', 'That memory couldn’t be found, or you can’t read it.')] as const
+      : code === 'UNSUPPORTED_MEMORY_CLASS' ? [400, t('app.memory.attach-class', 'A system memory cannot be attached to an App.')] as const
       : [500, t('app.memory.attach-failed', 'Could not add the memory. Please try again.')] as const;
     return message(form, { type: 'error', text: refusal[1] }, { status: refusal[0] });
   }
 }
 
-// The caller's own free-standing memories that an attach could take, for the picker. The read gate already
-// limits personal and private memories to their owner; the server's attach stays the authority.
+// The memories a link could take, for the picker: every memory the caller can read except `system`, whoever owns it,
+// whichever organization it is in and whichever App already links it (the link law, hrn:node:hadronmemory.com:specs:cor:dmo:060:20). The server's
+// attach stays the authority on what links.
 export const ATTACHABLE_MEMORIES_QUERY = /* GraphQL */ `
-  query AttachableMemories($orgRef: ID, $ownedByMe: Boolean, $limit: Int, $offset: Int) {
-    memories(orgRef: $orgRef, filter: { memoryClasses: [personal, private], ownedByMe: $ownedByMe }, limit: $limit, offset: $offset) {
-      items { id urn name visibility appId organizationId }
+  query AttachableMemories($limit: Int, $offset: Int, $sharedWithMe: Boolean) {
+    memories(filter: { memoryClasses: [app, group, knowledge, personal, private], sharedWithMe: $sharedWithMe }, limit: $limit, offset: $offset) {
+      items { id urn name visibility }
       total
     }
   }
 `;
-export const APP_ORG_QUERY = /* GraphQL */ `query AppOrg($ref: ID!) { app(ref: $ref) { organizationId } }`;
 export interface AttachableMemory { id: string; urn: string; name: string; visibility: string | null }
 /**
- * Null means the read failed, never "none to add". An org App reads the caller's own memories of its org (ownedByMe is sent in both cases, so the list never offers a memory only shared with the caller); a user-owned App the caller's org-less ones.
- * The org list also carries the caller's personal memories from elsewhere, and an attach across organizations is refused
- * (ORGANIZATION_MISMATCH), so only memories of the App's own organization are offered. The server stays the authority.
+ * Null means the read failed, never "none to add". The default list leaves out a memory reached only through a share, so
+ * the shared-with-me slice is read as well and the two are joined, one row per memory.
  */
-export async function readAttachableMemories(client: ReturnType<typeof gqlClient>, orgId: string | null): Promise<AttachableMemory[] | null> {
+export async function readAttachableMemories(client: ReturnType<typeof gqlClient>): Promise<AttachableMemory[] | null> {
   try {
-    const rows = await withTimeout(
-      fetchAllItems<AttachableMemory & { appId: string | null; organizationId: string | null }>(client, ATTACHABLE_MEMORIES_QUERY, 'memories', orgId ? { orgRef: orgId, ownedByMe: true } : { ownedByMe: true }),
-      OPTIONAL_LIST_TIMEOUT_MS, null);
-    return rows === null ? null : rows.filter(m => !m.appId && (m.organizationId ?? null) === orgId).map(({ id, urn, name, visibility }) => ({ id, urn, name, visibility }));
+    const read = (sharedWithMe: boolean) => fetchAllItems<AttachableMemory>(client, ATTACHABLE_MEMORIES_QUERY, 'memories', { sharedWithMe: sharedWithMe || null });
+    const both = await withTimeout(Promise.all([read(false), read(true)]), OPTIONAL_LIST_TIMEOUT_MS, null);
+    if (!both) return null;
+    const seen = new Set<string>();
+    return both.flat().filter(m => !seen.has(m.id) && !!seen.add(m.id));
   } catch { return null; }
 }
 

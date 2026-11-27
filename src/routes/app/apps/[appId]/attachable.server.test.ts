@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { APP_ORG_QUERY } from './app-memories';
 
-// The route a picker reads on demand: 401 without a session, the org taken from the App and never from the
-// request, and a failed read that never throws or carries server text.
+// The route a picker reads on demand: 401 without a session, a list that is the person's readable memories whatever
+// their owner or organization (portal#2635), and a failed read that never throws or carries server text.
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: (...a: unknown[]) => request(...a) }) }));
 import { GET } from './attachable/+server';
@@ -23,24 +22,22 @@ describe('GET /app/apps/[appId]/attachable', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("takes the organization from the App, not from the request, and asks only for the caller's own", async () => {
-    request.mockImplementation(async (query: string) => query === APP_ORG_QUERY
-      ? { app: { organizationId: 'org-from-app' } }
-      : { memories: { total: 1, items: [{ id: 'm1', urn: 'hrn:mem:o:m1', name: 'M1', visibility: null, appId: null, organizationId: 'org-from-app' }] } });
+  it('lists every memory the caller reads, asking for no organization or owner and ignoring one in the request', async () => {
+    request.mockResolvedValue({ memories: { total: 2, items: [
+      { id: 'm1', urn: 'hrn:mem:o:m1', name: 'M1', visibility: null },
+      { id: 'm2', urn: 'hrn:mem:p:m2', name: 'M2', visibility: 'ORGANIZATION' },
+    ] } });
     const res = await call({ token: 't', user: { id: 'u' } }, 'http://x/app/apps/app-1/attachable?orgId=org-from-request');
-    expect(await res.json()).toEqual({ kind: 'ok', memories: [{ id: 'm1', urn: 'hrn:mem:o:m1', name: 'M1', visibility: null }] });
+    expect(await res.json()).toEqual({ kind: 'ok', memories: [
+      { id: 'm1', urn: 'hrn:mem:o:m1', name: 'M1', visibility: null },
+      { id: 'm2', urn: 'hrn:mem:p:m2', name: 'M2', visibility: 'ORGANIZATION' },
+    ] });
     expect(res.headers.get('cache-control')).toBe('no-store');
-    expect(request.mock.calls[0][1]).toEqual({ ref: 'app-1' });
-    expect(request.mock.calls[1][1]).toMatchObject({ orgRef: 'org-from-app', ownedByMe: true });
+    // The default list and the shared-with-me slice, joined to one row per memory.
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls[0][1]).not.toHaveProperty('orgRef');
+    expect(request.mock.calls[0][1]).not.toHaveProperty('ownedByMe');
     expect(JSON.stringify(request.mock.calls)).not.toContain('org-from-request');
-  });
-
-  it('answers failed, with status 200, for a missing App', async () => {
-    request.mockResolvedValue({ app: null });
-    const res = await call({ token: 't', user: { id: 'u' } });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ kind: 'failed' });
-    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it('answers failed, without server text, when a read throws', async () => {

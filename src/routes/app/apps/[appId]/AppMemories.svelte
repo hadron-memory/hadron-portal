@@ -12,6 +12,7 @@
   import { failedSubmission, submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { AppMemoryRow, AttachableMemory, AttachMemoryMessage, OwnMemoryClass, OwnMemoryMessage } from './app-memories';
+  import { notYetInScope } from './attachable-candidates';
   import type { AttachableRead } from './attachable/+server';
   import AppMemoryAddDialog from './AppMemoryAddDialog.svelte';
   import { attachAppMemorySchema, createOwnAppMemorySchema } from './schema';
@@ -22,6 +23,7 @@
     appId: string;
     // The installed Agent a memory is added through: the App's primary one.
     agentId: string | null;
+    // Whether an Agent is installed: only creating a new memory needs one. Linking an existing memory does not.
     hasAgent: boolean;
     // Whether to OFFER creating a new memory (null: unknown, offered not). The server's gate stays the authority.
     canCreate: boolean | null;
@@ -49,7 +51,7 @@
     initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
   });
 
-  // Adding an EXISTING memory: pick one of the user's own, then submit the attach.
+  // Linking an EXISTING memory: pick any memory the user can read, then submit the attach.
   const { form, message, enhance, submit, submitting } = superForm(untrack(() => {
     const submitted = submittedForm<AttachFields>(result, 'attachAppMemory') as SuperValidated<AttachFields, AttachMemoryMessage> | null;
     return (failedSubmission<AttachFields>(result, 'attachAppMemory') as SuperValidated<AttachFields, AttachMemoryMessage> | null) ?? { ...attachForm, message: submitted?.message };
@@ -84,7 +86,7 @@
       const body = res.ok ? ((await res.json()) as AttachableRead) : { kind: 'failed' as const };
       if (mine !== candidatesRequest) return;
       if (body.kind !== 'ok') { candidatesFailed = true; chooserOpen = false; return; }
-      candidates = body.memories;
+      candidates = notYetInScope(body.memories, memories);
       chooserOpen = false; pickerOpen = true;
     } catch {
       if (mine === candidatesRequest) { candidatesFailed = true; chooserOpen = false; }
@@ -93,10 +95,9 @@
     }
   }
   async function attach(memory: { id: string }) {
-    // One attach at a time: a second pick while the first is in flight would be refused as already attached.
-    if (!agentId || $submitting) return;
+    // One attach at a time: a second pick while the first is in flight would link the same memory twice.
+    if ($submitting) return;
     $form.memoryId = memory.id;
-    $form.agentId = agentId;
     // The hidden inputs take their values from the store on the next flush; submitting before it would post the
     // previous pick, or nothing.
     await tick();
@@ -150,7 +151,6 @@
 <form method="POST" action="?/attachMemory" use:enhance class="hidden">
   <input type="hidden" name="_kind" value="attachAppMemory" />
   <input type="hidden" name="memoryId" value={$form.memoryId} />
-  <input type="hidden" name="agentId" value={$form.agentId} />
 </form>
 <form method="POST" action="?/createOwnMemory" use:ownEnhance class="hidden">
   <input type="hidden" name="_kind" value="createOwnAppMemory" />
@@ -158,4 +158,4 @@
   <input type="hidden" name="agentId" value={$ownValues.agentId} />
 </form>
 <AppMemoryAddDialog bind:open={chooserOpen} hasAgent={hasAgent && agentId !== null} {canCreate} {ownClasses} onown={createOwn} loading={loadingCandidates} onexisting={chooseExisting} onnew={chooseNew} />
-<SelectMemory bind:open={pickerOpen} memories={candidates} onselect={attach} placeholder={t('app.memory.pick-placeholder', 'Search your memories by name or URN...')} />
+<SelectMemory bind:open={pickerOpen} memories={candidates} onselect={attach} placeholder={t('app.memory.pick-placeholder', 'Search memories by name or URN...')} />

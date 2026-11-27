@@ -72,6 +72,7 @@ const h = vi.hoisted(() => {
     AppInstallMarks: () => ({ app: { appAgents: [] } }),
     TeamStopSignals: () => ({ teamStopSignals: { signals: signals(), pageInfo: { hasNextPage: false, endCursor: null } } }),
     AppMemoryScope: () => ({ appMemoryScope: { items: [], total: 0 } }),
+    AppAttachedMemories: () => ({ app: { attachedMemories: [] } }),
     AppUserMemoryClasses: () => ({ app: { viewerAppUserMemoryClasses: [] } }),
     AppMemories: () => ({ memories: { items: [], total: 0 } }),
     // Runs (already tab-gated before #2240; kept as it was).
@@ -141,17 +142,17 @@ const TAB_OPS: Record<string, string[]> = {
   // portal#2241: the frame's App read, plus the manage gate on its Edit in Settings link.
   profile: ['SelfCanManage'],
   // Team chat, chat list, author chips (staff), AI-config picker, writable memories.
-  chats: ['Workers', 'TeamChatMessages', 'AppChatRootsPage', 'AppChannels', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'AppMemoryScope'],
+  chats: ['Workers', 'TeamChatMessages', 'AppChatRootsPage', 'AppChannels', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'AppMemoryScope', 'AppAttachedMemories'],
   worklog: ['TeamWorkItems'],
   runs: ['AppRuns', 'AgentTasksApp', 'AppInstalledAgents', 'AppNodes', 'AppFlowsPage'],
   // The roster read is #2238's and stays as it landed there.
   staff: ['Workers', 'AppTeamRoster', 'AppInstallMarks'],
   members: ['AppMembers'],
   agents: ['MyAgents', 'PublicAgents', 'MemberOrgIds', 'AppBootPointers', 'AppInstallMarks', 'SelfCanManage'],
-  memory: ['AppNodesPage', 'AppMemoryScope', 'AppUserMemoryClasses', 'SelfCanManage'],
+  memory: ['AppNodesPage', 'AppMemoryScope', 'AppAttachedMemories', 'AppUserMemoryClasses', 'SelfCanManage'],
   keys: ['AppKeys', 'AppKeyScopes'],
   'ai-configs': ['AiServiceConfigs', 'SelfCanManage'],
-  settings: ['Workers', 'AppChatbotAiConfig', 'AppSaturationAlarmWakeRoles', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'SelfCanManage', 'AppMemoryScope'],
+  settings: ['Workers', 'AppChatbotAiConfig', 'AppSaturationAlarmWakeRoles', 'ChatAiConfigChoices', 'ResolveAiServiceConfigs', 'SelfCanManage', 'AppMemoryScope', 'AppAttachedMemories'],
   'node-role-templates': ['RoleTemplates', 'AppViewerManages', 'ConfigMemoryChoices'],
   secrets: ['AppSecrets', 'SecretChangeRequestState'],
   tickers: ['AppTickers', 'AppTickerSettings', 'AppDeliverySettings'],
