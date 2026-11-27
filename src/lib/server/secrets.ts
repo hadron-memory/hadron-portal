@@ -60,7 +60,7 @@ export interface AppSecret {
   /** The non-secret, inspectable half of the secret (never a value). */
   metadata: unknown;
   protected: boolean;
-  /** Whether a read client's auto-delete mark may delete this secret after its use (cor:sec:060:03). */
+  /** Whether a read client's auto-delete mark may delete this secret after its use (hrn:node:hadronmemory.com:specs:cor:sec:060:03). */
   deleteAfterUse: boolean;
   currentVersion: number | null;
   createdAt: string;
