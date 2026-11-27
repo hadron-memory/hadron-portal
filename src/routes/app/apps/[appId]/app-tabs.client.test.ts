@@ -595,6 +595,14 @@ describe('App tab navigation failure feedback (#2288)', () => {
     expect(target.querySelector('[role="tablist"]')?.contains(document.activeElement)).toBe(true);
   });
 
+  it('choosing Team from another tab lands focus on the Team tab (`tab-staff`; there is no `tab-members`)', async () => {
+    const target = await mountTab('chats');
+    await pick(target, 'staff');
+    await tick(10);
+    expect(target.querySelector('#tab-staff')?.getAttribute('aria-selected')).toBe('true');
+    expect((document.activeElement as HTMLElement | null)?.id).toBe('tab-staff');
+  });
+
   it('a superseded choice whose goto rejects shows no alert', async () => {
     const target = await mountTab('chats');
     const first = deferred();

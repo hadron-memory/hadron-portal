@@ -8,8 +8,13 @@
 
   A panel shows while the pointer rests on its icon (or on the panel, so its buttons can be reached) and stays
   while pinned by a click or a keypress; the page can pin one too, to show an outcome. Escape and a click outside
-  unpin it. The panels stay mounted while shut and are only hidden, so a form inside one is still the page's form
-  and a panel that fills in late costs no remount.
+  unpin it, and so does moving keyboard focus out of the cluster. The panels stay mounted while shut and are only
+  hidden, so a form inside one is still the page's form and a panel that fills in late costs no remount.
+
+  Each panel follows its own icon in the tab order. It is positioned and sized against the nearest positioned
+  ancestor, which the page makes the whole title row, not this cluster: anchored to the icons, a panel as wide as the
+  phone would start where a short name ends and run off the right edge, and a viewport-based width ignores the
+  gutter and an open side menu.
 -->
 <script lang="ts">
   import { onDestroy, type Snippet } from 'svelte';
@@ -112,6 +117,14 @@
       shut(true);
     }
   }
+  // Tabbing on past the panel closes it; a null target (a click on plain text inside the panel) does not.
+  function onFocusout(e: FocusEvent) {
+    const to = e.relatedTarget as Node | null;
+    if (to && root && !root.contains(to)) {
+      pinned = null;
+      hovered = null;
+    }
+  }
   function onWindowClick(e: MouseEvent) {
     if (root && !root.contains(e.target as Node)) {
       pinned = null;
@@ -128,7 +141,7 @@
     bind:this={openers[kind]}
     data-testid="status-icon-{kind}"
     data-look={state.look}
-    aria-expanded={open === kind}
+    aria-expanded={pinned === kind}
     aria-controls="node-status-{kind}"
     aria-label="{label}: {state.text}"
     title="{label}: {state.text}"
@@ -150,23 +163,30 @@
   </button>
 {/snippet}
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div bind:this={root} class="relative inline-flex shrink-0 items-center gap-1" data-testid="node-status-icons" onkeydown={onKeydown}>
-  {@render icon('approval', approvalLook, t('node.status.approval', 'Approval'))}
-  {#if mintLook}{@render icon('mint', mintLook, t('node.status.mint', 'Mint'))}{/if}
-  {#if signatureLook}{@render icon('signature', signatureLook, t('node.status.signature', 'Signature'))}{/if}
+{#snippet panel(kind: Kind, label: string, body: Snippet)}
+  <div
+    id="node-status-{kind}"
+    role="group"
+    aria-label={label}
+    hidden={open !== kind}
+    onmouseenter={() => enter(kind)}
+    onmouseleave={leave}
+    class="absolute top-full left-0 z-20 mt-1 w-[min(30rem,100%)] space-y-2 rounded-lg border border-zinc-200 bg-white p-3 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+  >
+    {@render body()}
+  </div>
+{/snippet}
 
-  {#each [{ kind: 'approval', body: approvalPanel }, { kind: 'mint', body: mintPanel }, { kind: 'signature', body: signaturePanel }] as panel (panel.kind)}
-    <div
-      id="node-status-{panel.kind}"
-      role="group"
-      aria-label={panel.kind === 'approval' ? t('node.status.approval', 'Approval') : panel.kind === 'mint' ? t('node.status.mint', 'Mint') : t('node.status.signature', 'Signature')}
-      hidden={open !== panel.kind}
-      onmouseenter={() => enter(panel.kind as Kind)}
-      onmouseleave={leave}
-      class="absolute top-full left-0 z-20 mt-1 w-[min(30rem,calc(100vw-2rem))] space-y-2 rounded-lg border border-zinc-200 bg-white p-3 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-    >
-      {@render panel.body()}
-    </div>
-  {/each}
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div bind:this={root} class="inline-flex shrink-0 items-center gap-1" data-testid="node-status-icons" onkeydown={onKeydown} onfocusout={onFocusout}>
+  {@render icon('approval', approvalLook, t('node.status.approval', 'Approval'))}
+  {@render panel('approval', t('node.status.approval', 'Approval'), approvalPanel)}
+  {#if mintLook}
+    {@render icon('mint', mintLook, t('node.status.mint', 'Mint'))}
+    {@render panel('mint', t('node.status.mint', 'Mint'), mintPanel)}
+  {/if}
+  {#if signatureLook}
+    {@render icon('signature', signatureLook, t('node.status.signature', 'Signature'))}
+    {@render panel('signature', t('node.status.signature', 'Signature'), signaturePanel)}
+  {/if}
 </div>

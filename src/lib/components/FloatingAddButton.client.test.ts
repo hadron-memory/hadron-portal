@@ -27,10 +27,17 @@ describe('FloatingAddButton', () => {
     expect(mountButton({ expanded: true }).querySelector('button')!.getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('disabled: inert, and the reason is given to assistive technology', () => {
-    const t = mountButton({ disabled: true, disabledReason: 'Nothing to cast.' });
+  it('disabled: inert but focusable, and the reason is given to assistive technology', () => {
+    const onclick = vi.fn();
+    const t = mountButton({ disabled: true, disabledReason: 'Nothing to cast.', onclick });
     const b = t.querySelector('button')!;
-    expect(b.disabled).toBe(true);
+    expect(b.getAttribute('aria-disabled')).toBe('true');
+    expect(b.disabled).toBe(false); // a native `disabled` could take no focus, so no keyboard user would hear the reason
+    document.body.append(t);
+    b.focus();
+    expect(document.activeElement).toBe(b);
+    b.click();
+    expect(onclick).not.toHaveBeenCalled();
     expect(t.querySelector(`#${b.getAttribute('aria-describedby')}`)!.textContent).toBe('Nothing to cast.');
   });
 

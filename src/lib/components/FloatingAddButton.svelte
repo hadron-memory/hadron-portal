@@ -6,9 +6,12 @@
   /**
    * The round "+" that sits in the page's bottom-right corner and opens an add form.
    *
-   * It names its action through `label` (the accessible name), turns into a "×" while the form it
-   * opens is showing, and stays visible but inert when `disabled`; `disabledReason` then says why,
-   * to everyone, not only to a pointer hover.
+   * It names its action through `label` (the accessible name), and turns into a "×" while the form it
+   * opens is showing. When `disabled` it stays focusable (`aria-disabled`, not the `disabled` attribute) so
+   * a keyboard or screen-reader user lands on it and hears `disabledReason`, and focus can be handed to it
+   * even when the click that did so is what disabled it. The reason reaches assistive technology and a
+   * pointer's hover; touch and sighted keyboard users see nothing of it, so the page that disables the
+   * button shows the reason as text of its own.
    */
   let { label, expanded, disabled = false, disabledReason = '', onclick, element = $bindable() }: {
     label: string;
@@ -26,12 +29,12 @@
 <button
   type="button"
   bind:this={element}
-  {onclick}
-  {disabled}
+  onclick={() => { if (!disabled) onclick(); }}
+  aria-disabled={disabled || undefined}
   aria-expanded={expanded}
   aria-describedby={disabled && disabledReason ? reasonId : undefined}
   title={disabled && disabledReason ? disabledReason : label}
-  class="fixed right-6 bottom-6 z-30 flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 items-center justify-center rounded-full text-white shadow-md hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+  class="fixed right-6 bottom-6 z-30 flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 items-center justify-center rounded-full text-white shadow-md hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:brightness-100"
   style="background: #fb8500;"
 >
   <svg aria-hidden="true" viewBox="0 0 24 24" class="h-4 w-4 transition-transform {expanded ? 'rotate-45' : ''}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">

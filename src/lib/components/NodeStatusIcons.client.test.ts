@@ -143,4 +143,43 @@ describe('NodeStatusIcons', () => {
     await tick(2);
     expect(shown(t, 'approval')).toBe(false);
   });
+
+  it('puts each panel straight after its own icon, so Tab goes from the icon into its panel', () => {
+    const t = mountIcons({ mint: { kind: 'minted', status: { minted: true, revision: 2 }, minter: null, editedSince: false }, signingOn: true });
+    for (const kind of ['approval', 'mint', 'signature']) {
+      expect(icon(t, kind)!.nextElementSibling?.id).toBe(`node-status-${kind}`);
+    }
+  });
+
+  it('shuts a pinned panel when keyboard focus moves out of the cluster; a click on plain text inside does not', async () => {
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    const t = mountIcons();
+    icon(t, 'approval')!.click();
+    await tick(2);
+    // Focus leaves to nothing (a click on text in the panel): stays open.
+    icon(t, 'approval')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    await tick(2);
+    expect(shown(t, 'approval')).toBe(true);
+    // Focus moves to another control inside the cluster: stays open.
+    icon(t, 'approval')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: t.querySelector('#node-status-approval button') }));
+    await tick(2);
+    expect(shown(t, 'approval')).toBe(true);
+    // Tab on to a control elsewhere: shut.
+    t.querySelector('#node-status-approval button')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside }));
+    await tick(2);
+    expect(shown(t, 'approval')).toBe(false);
+    outside.remove();
+  });
+
+  it('aria-expanded follows the pin, not the hover', async () => {
+    const t = mountIcons();
+    hover(icon(t, 'approval')!, 'mouseenter');
+    await tick(2);
+    expect(shown(t, 'approval')).toBe(true);
+    expect(icon(t, 'approval')!.getAttribute('aria-expanded')).toBe('false');
+    icon(t, 'approval')!.click();
+    await tick(2);
+    expect(icon(t, 'approval')!.getAttribute('aria-expanded')).toBe('true');
+  });
 });

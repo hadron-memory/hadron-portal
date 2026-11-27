@@ -1646,7 +1646,7 @@
       // Its own guard: a URL the router will not take must not cost the focus restore below.
       if (!ownNavigationHref) { try { syncTabParam(id); } catch { /* the address bar stays as it was; the tab is still shown */ } }
       await tick();
-      if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
+      if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id === 'members' ? 'staff' : id}`)?.focus(); // the Team tab is `staff`; Human team is its second view
     } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
     finally {
       if (ownNavigationHref && tabNavigationHref === ownNavigationHref) tabNavigationHref = null;

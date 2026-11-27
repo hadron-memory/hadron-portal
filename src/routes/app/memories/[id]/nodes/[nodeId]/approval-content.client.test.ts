@@ -55,14 +55,14 @@ async function settle() {
   flushSync();
 }
 
-async function mountPage(search = '', parent: typeof PARENT = PARENT) {
+async function mountPage(search = '', parent: typeof PARENT = PARENT, form: unknown = null) {
   const loaded = (await load({
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk${search}`),
     parent: vi.fn().mockResolvedValue(parent),
   } as never)) as Record<string, unknown>;
-  const props = reactiveProps<Record<string, unknown>>({ data: { ...parent, ...loaded }, form: null });
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...parent, ...loaded }, form });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await settle();
@@ -90,4 +90,27 @@ it.each(['APPROVED', 'SUPERSEDED'] as const)('renders server %s after metadata r
     expect(badge.querySelector('form[action="?/approveNode"]')).not.toBeNull();
     expect(badge.querySelector<HTMLInputElement>('input[name="revision"]')!.value).toBe('4');
   }
+});
+
+describe('an approve outcome is said once: by the persistent announcer, not again by the panel it pins open', () => {
+  const outcome = (type: 'error' | 'success', text: string) => ({
+    form: { id: 'approveNode', valid: true, posted: true, errors: {}, data: { _kind: 'approveNode', revision: 4 }, message: { type, text } },
+  });
+  const heardAlerts = (target: HTMLElement) => [...target.querySelectorAll('[role=alert]')].filter((a) => !a.closest('[aria-hidden="true"]'));
+
+  it('a refusal: the announcer holds the text; the panel copy is shown but hidden from assistive technology', async () => {
+    const { target } = await mountPage('', PARENT, outcome('error', 'Only a decider can approve.'));
+    expect(target.querySelector('[data-testid="status-outcome-announcer"]')!.textContent).toContain('Only a decider can approve.');
+    const panel = target.querySelector<HTMLElement>('#node-status-approval')!;
+    expect(panel.hidden).toBe(false); // pinned open to show it
+    expect(panel.querySelector('[data-testid=approval-error]')!.textContent).toContain('Only a decider can approve.');
+    expect(heardAlerts(target)).toEqual([]);
+  });
+
+  it('a success line: the same, so it is not read twice', async () => {
+    const { target } = await mountPage('', PARENT, outcome('success', 'Revision 4 approved.'));
+    expect(target.querySelector('[data-testid="status-outcome-announcer"]')!.textContent).toContain('Revision 4 approved.');
+    const line = target.querySelector('#node-status-approval [data-testid=approval-success]')!;
+    expect(line.closest('[aria-hidden="true"]')).not.toBeNull();
+  });
 });

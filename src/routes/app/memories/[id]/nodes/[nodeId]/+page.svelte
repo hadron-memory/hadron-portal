@@ -2874,15 +2874,19 @@
 
   <!-- Header -->
   <!-- The panels behind the header's status icons (NodeStatusIcons). The forms are the page's own actions. -->
-  {#snippet approvalOutcome()}
-    {#if pageApproveError || verifyActionError}
-      <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{pageApproveError ?? verifyActionError}</p>
-    {/if}
-    <LiveRegion>
-      {#if !(pageApproveError || verifyActionError) && (pageApproveSuccess || verifyActionSuccess)}
-        <p data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{pageApproveSuccess ?? verifyActionSuccess}</p>
+  {#snippet approvalOutcome(live: boolean)}
+    <!-- In the status panel the page's persistent announcer already says the outcome, so this copy is hidden from
+         assistive technology there (still seen): a second live copy would read it twice. -->
+    <div aria-hidden={live ? undefined : 'true'}>
+      {#if pageApproveError || verifyActionError}
+        <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{pageApproveError ?? verifyActionError}</p>
       {/if}
-    </LiveRegion>
+      <LiveRegion>
+        {#if !(pageApproveError || verifyActionError) && (pageApproveSuccess || verifyActionSuccess)}
+          <p data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{pageApproveSuccess ?? verifyActionSuccess}</p>
+        {/if}
+      </LiveRegion>
+    </div>
     {#if verifyHashes && (verifyHashes.expectedHash || verifyHashes.actualHash)}
       <dl data-testid="verify-hashes" class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
         {#if verifyHashes.expectedHash}
@@ -2919,7 +2923,7 @@
     {:else}
       <span class="text-xs text-zinc-400" aria-busy="true">{t('node.approval.loading', 'Loading approval status…')}</span>
     {/if}
-    {@render approvalOutcome()}
+    {@render approvalOutcome(false)}
   {/snippet}
   {#snippet mintPanel()}
     {#if mintState}<NodeMintLabel view={mintState} />{/if}
@@ -2958,7 +2962,8 @@
 
   <div class="flex items-start justify-between gap-3">
     <div class="min-w-0">
-      <div class="flex items-start gap-2">
+      <!-- `relative`: the status panels are anchored to this row (NodeStatusIcons), not to the icons. -->
+      <div class="relative flex items-start gap-2">
       <h1 class="flex min-w-0 flex-wrap items-center gap-2 text-xl font-bold text-zinc-900 dark:text-white">
         {#if node.isRunnable}
           <svg class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -3026,7 +3031,7 @@
       {/if}
       {#if isComment || isQuestion}
         <!-- A question's own approval is in its card, so its outcome (if any) is said here. -->
-        {@render approvalOutcome()}
+        {@render approvalOutcome(true)}
       {/if}
       {#if node.description}
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
