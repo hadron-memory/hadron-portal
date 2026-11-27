@@ -119,8 +119,18 @@ describe('Urn: the class matchers are token-exact (portal#2538 blind F12)', () =
   });
 });
 
+describe('Urn: a compact chip never drops a part of the URN', () => {
+  // A URN is shown whole: ellipsis at the end is fine, a missing `hrn:<type>:` is not (Holger, #2644).
+  it('shows hrn:<type>: at the start, with no reveal needed', () => {
+    stubPointer(false);
+    const m = mountUrn({ compact: true });
+    expect(valueSpan(m).textContent).toBe(URN);
+    expect(valueSpan(m).textContent?.startsWith('hrn:')).toBe(true);
+  });
+});
+
 describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
-  it('a compact unlinked chip toggles between truncated and the full URN', () => {
+  it('a compact unlinked chip toggles between the ellipsed full URN and the wrapped full URN', () => {
     stubPointer(true);
     const m = mountUrn({ compact: true });
     const t = toggle(m);
@@ -128,7 +138,7 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
     expect(t!.getAttribute('type')).toBe('button');
     expect(t!.getAttribute('aria-expanded')).toBe('false');
     expect(collapsedClasses(valueSpan(m).className), valueSpan(m).className).toBe(true);
-    expect(valueSpan(m).textContent).toBe('hadronmemory.com:hadron-dev-team');
+    expect(valueSpan(m).textContent).toBe(URN); // always the whole URN, hrn:<type>: included; only the END may be ellipsed
     // #1642 UX P2: a purpose in the name (with the value kept in it) and a
     // visible cue. #1686 keeps fine rows dense and uses 44px coarse targets.
     expect(t!.getAttribute('aria-label')).toBe(`Show full URN ${URN}`);
@@ -189,7 +199,7 @@ describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
 
     media.setNarrow(true);
     expect(toggle(m)!.getAttribute('aria-expanded')).toBe('false');
-    expect(valueSpan(m).textContent).toBe('hadronmemory.com:hadron-dev-team');
+    expect(valueSpan(m).textContent).toBe(URN); // always the whole URN, hrn:<type>: included; only the END may be ellipsed
   });
 
   it('removes both media-query listeners on unmount', () => {

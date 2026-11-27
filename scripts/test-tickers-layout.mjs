@@ -192,13 +192,19 @@ try {
           assert.ok(geo.ann.top >= geo.chip.bottom - 1, `${label}: the caveat runs into the Urn chip (caveat top ${geo.ann.top.toFixed(1)}, chip bottom ${geo.chip.bottom.toFixed(1)})`);
           assert.ok(geo.ref.top >= geo.ann.bottom - 1, `${label}: the two caveats join into one line (refresh top ${geo.ref.top.toFixed(1)}, announcement bottom ${geo.ann.bottom.toFixed(1)})`);
           if (width === 390) {
-            // Prove the pin can see the defect: force the caveats back inline
-            // and hide #1686's new linked reveal (the old chip had no 24px
-            // sibling making the line taller), so this reproduces the old markup.
-            const mutant = await page.addStyleTag({ content: '[data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-announcement"], [data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-refresh-failed"] { display: inline !important; } [data-testid="ticker-remove-outcome-mounted"] button[aria-expanded] { display: none !important; }' });
-            const runIn = await stacked();
-            assert.ok(runIn.ann.top < runIn.chip.bottom - 1, `${label}: the inline mutant must run the caveat into the chip, or this pin proves nothing ${JSON.stringify(runIn)}`);
-            await mutant.evaluate((el) => el.remove());
+            // Prove each pin can see its defect, one mutant per leg. The chip now shows the whole URN and fills its line, so
+            // inline text wraps BELOW it: the "runs into the chip" leg needs the chip squeezed beside the text to be seen.
+            const INLINE = '[data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-announcement"], [data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-refresh-failed"] { display: inline !important; } [data-testid="ticker-remove-outcome-mounted"] button[aria-expanded] { display: none !important; }';
+            // Leg 1, the two caveats join into one line: both forced inline.
+            const joinMutant = await page.addStyleTag({ content: INLINE });
+            const joined = await stacked();
+            assert.ok(joined.ref.top < joined.ann.bottom - 1, `${label}: the inline mutant must join the two caveats, or the join pin proves nothing ${JSON.stringify(joined)}`);
+            await joinMutant.evaluate((el) => el.remove());
+            // Leg 2, a caveat runs into the chip: inline, with the chip squeezed so the text can sit beside it.
+            const chipMutant = await page.addStyleTag({ content: `${INLINE} [data-testid="ticker-remove-outcome-mounted"] [title^="hrn:worker:"] { display: inline-block !important; max-width: 9ch !important; overflow: hidden !important; vertical-align: top !important; }` });
+            const squeezed = await stacked();
+            assert.ok(squeezed.ann.top < squeezed.chip.bottom - 1, `${label}: the squeezed-chip mutant must run the caveat into the chip, or the chip pin proves nothing ${JSON.stringify(squeezed)}`);
+            await chipMutant.evaluate((el) => el.remove());
             const again = await stacked();
             assert.ok(again.ann.top >= again.chip.bottom - 1, `${label}: the caveat must return to its own line after the mutant`);
           }

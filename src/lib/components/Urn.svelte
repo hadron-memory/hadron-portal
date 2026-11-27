@@ -70,8 +70,8 @@
 
   // #1604: a compact chip truncates, and its full URN is only in a `title`
   // tooltip, which a touch device cannot show. On a coarse pointer a compact,
-  // UNLINKED chip becomes a toggle between the truncated bare value and the
-  // whole fully-qualified URN (hrn:<type>: included), wrapped. #1686 extends
+  // UNLINKED chip becomes a toggle between the whole URN cut off at the end
+  // (hrn:<type>: always included) and the same URN wrapped in full. #1686 extends
   // reveal below the sm breakpoint so a keyboard-only user can read the value
   // too. A linked chip stays an anchor and gets a SEPARATE reveal button;
   // activation still navigates. A wide, fine-pointer chip keeps its plain
@@ -262,7 +262,7 @@
            guarantees the ellipsis lands at the END of whatever width it
            gets (pinned: first line fills the span). -->
       <span class="block min-w-0 max-w-full bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-        <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'line-clamp-1 [overflow-wrap:anywhere]'}" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{bareValue}{/if}</span>
+        <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'line-clamp-1 [overflow-wrap:anywhere]'}" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{displayFullUrn}{/if}</span>
       </span>
       {#if chipToggle}
         <!-- The cue that this chip opens (#1642 UX P2): a chevron that turns
