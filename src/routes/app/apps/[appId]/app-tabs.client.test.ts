@@ -90,11 +90,11 @@ const tabLabels = (target: HTMLElement) =>
   [...target.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim());
 
 describe('App page tab strip (#1005, #1006)', () => {
-  it('names the worker tab "AI Team" and adds "Human Team" and "Agents"', async () => {
+  it('names the worker tab "AI Team" and adds "Human Team"; Agents is a Settings section, not a tab', async () => {
     const labels = tabLabels(await mountTab('chats'));
     expect(labels).toContain('AI Team');
     expect(labels).toContain('Human Team');
-    expect(labels).toContain('Agents');
+    expect(labels).not.toContain('Agents');
     expect(labels).not.toContain('Worker agents');
   });
 
@@ -111,7 +111,7 @@ describe('App page tab strip (#1005, #1006)', () => {
     const target = await mountTab('chats');
     expect(target.querySelector('#tab-staff')?.textContent?.trim()).toBe('AI Team');
     expect(target.querySelector('#tab-members')?.textContent?.trim()).toBe('Human Team');
-    expect(target.querySelector('#tab-agents')?.textContent?.trim()).toBe('Agents');
+    expect(target.querySelector('#tab-agents')).toBeNull();
   });
 
   // #1052: Tasks is a sub-route like Channels: a link styled as a
@@ -172,7 +172,7 @@ describe('Human Team tab (#1005)', () => {
 describe('Agents tab (#1006)', () => {
   it('lists every installed agent in a table with its URN, not only the first', async () => {
     const target = await mountTab('agents');
-    const panel = target.querySelector('#panel-agents')!;
+    const panel = target.querySelector('#section-agents-body')!;
     expect(panel.querySelector('table')).not.toBeNull();
     const text = panel.textContent!.replace(/\s+/g, '');
     expect(text).toContain('hrn:agent:acme.com:scribe');
@@ -181,7 +181,7 @@ describe('Agents tab (#1006)', () => {
 
   it('offers to add an agent that is not installed yet, even with agents installed', async () => {
     const target = await mountTab('agents');
-    const form = target.querySelector<HTMLFormElement>('#panel-agents form[action="?/addAgent"]')!;
+    const form = target.querySelector<HTMLFormElement>('#section-agents-body form[action="?/addAgent"]')!;
     expect(form).not.toBeNull();
     const options = [...form.querySelectorAll('option')].map((o) => o.textContent);
     expect(options.some((o) => o?.includes('Extra'))).toBe(true);
@@ -192,7 +192,7 @@ describe('Agents tab (#1006)', () => {
   // says the subscribed ones are missing; it must not look like a complete list.
   it('says the subscribed agents are missing when only their read failed (#1172)', async () => {
     const target = await mountTab('agents', { data: { subscribedAgentsError: true } });
-    const panel = target.querySelector('#panel-agents')!;
+    const panel = target.querySelector('#section-agents-body')!;
     expect(panel.textContent).toContain('subscribes to could not be loaded');
     expect(panel.querySelector('form[action="?/addAgent"]')).not.toBeNull();
   });
@@ -201,28 +201,28 @@ describe('Agents tab (#1006)', () => {
   // being something to pick, or "no other agent to add" reads as a complete list.
   it('still says the subscribed agents are missing when there is no owned agent to offer (#1172)', async () => {
     const target = await mountTab('agents', { data: { subscribedAgentsError: true, availableAgents: [] } });
-    expect(target.querySelector('#panel-agents')!.textContent).toContain('subscribes to could not be loaded');
+    expect(target.querySelector('#section-agents-body')!.textContent).toContain('subscribes to could not be loaded');
   });
 
   it('still says it when every owned agent is already installed (#1172)', async () => {
     const target = await mountTab('agents', { data: { subscribedAgentsError: true, availableAgents: [agentOne, agentTwo] } });
-    expect(target.querySelector('#panel-agents')!.textContent).toContain('subscribes to could not be loaded');
+    expect(target.querySelector('#section-agents-body')!.textContent).toContain('subscribes to could not be loaded');
   });
 
   it('control: an empty list after a SUCCESSFUL grants read carries no such warning (#1172)', async () => {
     const target = await mountTab('agents', { data: { subscribedAgentsError: false, availableAgents: [] } });
-    expect(target.querySelector('#panel-agents')!.textContent).not.toContain('subscribes to could not be loaded');
+    expect(target.querySelector('#section-agents-body')!.textContent).not.toContain('subscribes to could not be loaded');
   });
 
   it('says nothing about subscribed agents when their read worked (#1172)', async () => {
     const target = await mountTab('agents');
-    expect(target.querySelector('#panel-agents')!.textContent).not.toContain('subscribes to could not be loaded');
+    expect(target.querySelector('#section-agents-body')!.textContent).not.toContain('subscribes to could not be loaded');
   });
 
   it('keeps the canonical install URN, on the primary agent’s row only (P2 from step 5)', async () => {
     const urn = 'hrn:agent:acme.com:team:scribe';
     const target = await mountTab('agents', { app: { installedAgentUrn: urn } });
-    const shown = [...target.querySelectorAll('#panel-agents [data-testid="install-urn"]')];
+    const shown = [...target.querySelectorAll('#section-agents-body [data-testid="install-urn"]')];
     expect(shown).toHaveLength(1);
     expect(shown[0].textContent!.replace(/\s+/g, '')).toContain(urn);
     expect(shown[0].closest('tr')!.textContent).toContain('Scribe');
@@ -230,14 +230,14 @@ describe('Agents tab (#1006)', () => {
 
   it('shows no install URN when the server did not derive one', async () => {
     const target = await mountTab('agents', { app: { installedAgentUrn: null } });
-    expect(target.querySelector('#panel-agents [data-testid="install-urn"]')).toBeNull();
+    expect(target.querySelector('#section-agents-body [data-testid="install-urn"]')).toBeNull();
   });
 
   it('unlinks the agent of THAT row', async () => {
     const target = await mountTab('agents');
     // #1020: Unlink sits in each row's ⋯ menu; ONE hidden form below the
     // table is the submit target, filled for whichever row was picked.
-    const hidden = [...target.querySelectorAll<HTMLFormElement>('#panel-agents form[action="?/removeAgent"]')];
+    const hidden = [...target.querySelectorAll<HTMLFormElement>('#section-agents-body form[action="?/removeAgent"]')];
     expect(hidden).toHaveLength(1);
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
     // Critic's row (ag2), not Scribe's (ag1).
@@ -348,7 +348,7 @@ describe('paged node lists on the App page (#1881)', () => {
 describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
   const URN = 'hrn:node:acme.com:team-install:boot';
   const bootPointers = { ok: true, byAgent: { ag1: { ref: URN, deleted: false } } };
-  const rows = (target: HTMLElement) => [...target.querySelectorAll<HTMLTableRowElement>('#panel-agents tbody tr')];
+  const rows = (target: HTMLElement) => [...target.querySelectorAll<HTMLTableRowElement>('#section-agents-body tbody tr')];
   const rowOf = (target: HTMLElement, name: string) => rows(target).find((r) => r.textContent?.includes(name))!;
   // #1020: Set boot prompt sits in the row's ⋯ menu, next to Unlink.
   const menuItems = (target: HTMLElement, name: string) => {
@@ -374,13 +374,13 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
     expect(rowOf(target, 'Critic').textContent).toContain('Couldn’t load the pointer.');
   });
 
-  it('the panel opens for that row, posts that row’s agentRef, and carries the tab', async () => {
+  it('the panel opens for that row, posts that row’s agentRef, and carries the tab and section', async () => {
     const target = await mountTab('agents', { data: { bootPointers, canManageApp: null } });
     await openFor(target, 'Critic');
     const panel = target.querySelector('#app-agent-pointer-panel')!;
     expect(panel.textContent).toContain('Boot prompt for Critic in this App');
     expect(panel.querySelector<HTMLInputElement>('input[name="agentRef"]')!.value).toBe('ag2');
-    expect(panel.querySelector('form')!.getAttribute('action')).toBe('?tab=agents&/setAppAgentBootPrompt');
+    expect(panel.querySelector('form')!.getAttribute('action')).toBe('?tab=settings&section=agents&/setAppAgentBootPrompt');
     expect(panel.textContent).toContain('Agents start with the newest approved revision of the compiled prompt named by the highest set pointer: the worker’s, else the App’s, else the Agent’s.');
   });
 
@@ -452,7 +452,7 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
 
   it('the grid’s search finds a row by its pointer', async () => {
     const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
-    const search = target.querySelector<HTMLInputElement>('#panel-agents input[type="text"][aria-label]');
+    const search = target.querySelector<HTMLInputElement>('#section-agents-body input[type="text"][aria-label]');
     expect(search).not.toBeNull();
     search!.value = 'team-install:boot';
     search!.dispatchEvent(new Event('input', { bubbles: true }));

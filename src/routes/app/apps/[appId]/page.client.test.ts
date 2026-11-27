@@ -1444,7 +1444,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     expect(m.target.textContent).toContain('Key revoked.');
   });
 
-  it('opens Agents for an agent action result that arrives on a fresh page (#1006)', async () => {
+  it('opens the Agents section of Settings for an agent action result that arrives on a fresh page (#1006)', async () => {
     setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
     const f = await superValidate({ _kind: 'removeAgent', agentId: 'ag1' }, zod4(removeAppAgentSchema));
     f.message = { type: 'success', text: 'Agent removed.' };
@@ -1454,7 +1454,8 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     mounted.push(m);
     await tick(2);
     await enterNavigation();
-    expect(selectedTab(m)).toBe('tab-agents');
+    expect(selectedTab(m)).toBe('tab-settings');
+    expect(m.target.querySelector('#section-agents-toggle')!.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('still follows the loader on an enter navigation with no action result', async () => {
@@ -2343,7 +2344,7 @@ describe('App key inventory states (portal#1068)', () => {
     const m = mountComponent(Page as never, reactiveProps({ data: { ...data, initialTab: tab, appKeys, keyScopes: { kind: 'hidden' } }, form: null }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' ? `#section-${tab}-body` : `#panel-${tab}`)!;
   }
   it.each(['keys', 'client'] as const)('%s tab: a manager with keys sees them and no refusal copy', async (tab) => {
     const panel = await mountTab(tab, { kind: 'ok', keys: [key] });
@@ -2388,7 +2389,7 @@ describe('withheld App rosters (portal#1148)', () => {
     }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' || tab === 'agents' ? `#section-${tab}-body` : `#panel-${tab}`)!;
   }
   const WITHHELD_AGENTS = 'The agents installed in this App aren’t visible to you.';
 
@@ -2985,7 +2986,7 @@ describe('key controls follow App.viewerManages (portal#1153)', () => {
     }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' ? `#section-${tab}-body` : `#panel-${tab}`)!;
   }
   const manager = { viewerManages: { kind: 'known', manages: true } };
   const nonManager = { viewerManages: { kind: 'known', manages: false } };

@@ -18,12 +18,12 @@ describe('resolveTabIntent', () => {
     expect(intent('tab=worklog')).toEqual({ initialTab: 'worklog', requestedChat: null });
   });
 
-  // App Keys, AI Service Configs, Node-role templates, Secrets, Tickers, Stops, Channels and the Action register are sections of Settings now: their old tab ids resolve to Settings (below).
-  it.each(APP_TAB_IDS.filter((tab) => !['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops', 'channels', 'register'].includes(tab)))('accepts the known tab id %s', (tab) => {
+  // App Keys, AI Service Configs, Node-role templates, Secrets, Tickers, Stops, Channels, the Action register and Agents are sections of Settings now: their old tab ids resolve to Settings (below).
+  it.each(APP_TAB_IDS.filter((tab) => !['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops', 'channels', 'register', 'agents'].includes(tab)))('accepts the known tab id %s', (tab) => {
     expect(intent(`tab=${tab}`).initialTab).toBe(tab);
   });
 
-  it.each(['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops', 'channels', 'register'])('resolves the retired tab id %s to Settings, with that section open', (id) => {
+  it.each(['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops', 'channels', 'register', 'agents'])('resolves the retired tab id %s to Settings, with that section open', (id) => {
     expect(intent(`tab=${id}`).initialTab).toBe('settings');
     expect(resolveSectionIntent(new URLSearchParams(`tab=${id}`))).toBe(id);
     expect(visibleTabFor(id)).toBe('settings');
@@ -101,9 +101,9 @@ describe('resolveTabIntent', () => {
   );
 });
 
-// #1005/#1006: the Human Team and Agents tabs are addressable.
+// #1005: the Human Team tab is addressable (Agents is a Settings section, above).
 describe('team tabs (#1005, #1006)', () => {
-  it.each(['members', 'agents'])('accepts ?tab=%s', (tab) => {
+  it.each(['members'])('accepts ?tab=%s', (tab) => {
     expect(resolveTabIntent(new URLSearchParams(`tab=${tab}`)).initialTab).toBe(tab);
   });
 });
