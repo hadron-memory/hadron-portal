@@ -156,7 +156,7 @@
           {/if}
           <div class="mt-1"><Urn value={memory.urn} type="memory" size={10} /></div>
           {#if memory.link && !memory.link.active}
-            <p data-testid="app-memory-inactive-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.inactive-help', 'This link does not count right now. It counts again by itself when the reason ends.')}</p>
+            <p data-testid="app-memory-inactive-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.memory.inactive-help', 'This attachment does not count right now. It counts again by itself when the reason ends.')}</p>
           {/if}
         {:else if cell.column.id === 'actions'}
           {#if memory.link}

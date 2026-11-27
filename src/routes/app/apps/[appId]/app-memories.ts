@@ -153,14 +153,14 @@ export async function detachMemory({ request, params, locals }: { request: Reque
   if (!form.valid) return message(form, { type: 'error', text: t('app.memory.detach-invalid', 'Choose a memory to detach and try again.') }, { status: 400 });
   try {
     await gqlClient(locals.token).request(DETACH_MEMORY_FROM_APP_MUTATION, { memoryRef: form.data.memoryId, appRef: params.appId });
-    return message(form, { type: 'success', text: t('app.memory.detached', 'Link removed. The memory itself is unchanged.') });
+    return message(form, { type: 'success', text: t('app.memory.detached', 'Attachment removed. The memory itself is unchanged.') });
   } catch (e: unknown) {
     // Only known codes select fixed copy; no raw GraphQL or transport text.
     const code = extractGqlErrorCode(e);
-    const refusal = code === 'FORBIDDEN' ? [403, t('app.memory.detach-forbidden', 'Only whoever made the link, the memory’s owner, or whoever manages this App can remove it.')] as const
-      : code === 'UNAUTHENTICATED' ? [401, t('app.memory.sign-in-detach', 'Sign in again to remove a link.')] as const
+    const refusal = code === 'FORBIDDEN' ? [403, t('app.memory.detach-forbidden', 'Only whoever made the attachment, the memory’s strict owner, or whoever manages this App can remove it.')] as const
+      : code === 'UNAUTHENTICATED' ? [401, t('app.memory.sign-in-detach', 'Sign in again to remove an attachment.')] as const
       : code === 'MEMORY_NOT_FOUND' ? [404, t('app.memory.detach-not-found', 'That memory couldn’t be found, or you can’t read it.')] as const
-      : [500, t('app.memory.detach-failed', 'Could not remove the link. Please try again.')] as const;
+      : [500, t('app.memory.detach-failed', 'Could not remove the attachment. Please try again.')] as const;
     return message(form, { type: 'error', text: refusal[1] }, { status: refusal[0] });
   }
 }

@@ -278,9 +278,10 @@ describe('detachMemory action', () => {
     expect(request.mock.calls[0][1]).toEqual({ memoryRef: 'm1', appRef: 'app-1' });
     expect(res.form.message?.type).toBe('success');
   });
-  it('says the link is removed and the memory is not touched (hrn:node:hadronmemory.com:specs:cor:dmo:060:20), and never says deleted', async () => {
+  it('says the attachment is removed and the memory is not touched (hrn:node:hadronmemory.com:specs:cor:dmo:060:20), and never says deleted', async () => {
     const res = await run({ memoryId: 'm1' }, vi.fn().mockResolvedValue({ detachMemoryFromApp: true })) as { form: { message?: { text: string } } };
-    expect(res.form.message?.text).toMatch(/link/i);
+    expect(res.form.message?.text).toMatch(/attachment/i);
+    expect(res.form.message?.text).not.toMatch(/\blink/i);
     expect(res.form.message?.text).not.toMatch(/delet/i);
   });
   it('refuses a request with no memory before asking the server, and says so', async () => {
@@ -299,7 +300,9 @@ describe('detachMemory action', () => {
   });
   it('names who may detach only as the specs state it, in the FORBIDDEN copy', async () => {
     const res = JSON.stringify(await run({ memoryId: 'm1' }, vi.fn().mockRejectedValue({ response: { errors: [{ message: 'x', extensions: { code: 'FORBIDDEN' } }] } })));
-    expect(res).toContain('made the link');
+    expect(res).toContain('made the attachment');
+    expect(res).toContain('strict owner');
+    expect(res).not.toMatch(/\blink/i);
     expect(res).toContain('manages this App');
   });
 });

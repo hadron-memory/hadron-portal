@@ -365,7 +365,7 @@ describe('detaching a linked memory',()=>{
   const dialog=document.body.querySelector('[data-testid=app-memory-detach-dialog]')!;
   expect(dialog.textContent).toContain('ON');
   expect(dialog.querySelector('[title="hrn:mem:acme.com:on"]')).not.toBeNull();
-  expect(dialog.textContent).toContain('removes the link only');
+  expect(dialog.textContent).toContain('removes the attachment only');
   expect(posted).toEqual([]);
   button(dialog,'Cancel')!.click();await tick(3);
   expect(document.body.querySelector('[data-testid=app-memory-detach-dialog]')).toBeNull();
@@ -391,10 +391,10 @@ describe('detaching a linked memory',()=>{
  it('shows the server result beside the list: a refusal as an alert, a success without claiming the memory changed',async()=>{
   const detachForm=await superValidate({},zod4(detachAppMemorySchema),{id:'detachAppMemory:a',errors:false});
   const posted=(message:unknown)=>({form:{...detachForm,valid:true,posted:true,data:{_kind:'detachAppMemory',memoryId:'on'},message}});
-  const refused=mountComponent(AppMemories as never,await listProps(rows,{result:posted({type:'error',text:'Only whoever made the link can remove it.'})}));
-  try{await tick();expect(refused.target.querySelector('[role=alert]')!.textContent).toContain('Only whoever made the link');}finally{refused.unmount();}
-  const done=mountComponent(AppMemories as never,await listProps(rows,{result:posted({type:'success',text:'Link removed. The memory itself is unchanged.'})}));
-  try{await tick();expect(done.target.querySelector('[role=status]')!.textContent).toContain('Link removed');}finally{done.unmount();}
+  const refused=mountComponent(AppMemories as never,await listProps(rows,{result:posted({type:'error',text:'Only whoever made the attachment can remove it.'})}));
+  try{await tick();expect(refused.target.querySelector('[role=alert]')!.textContent).toContain('Only whoever made the attachment');}finally{refused.unmount();}
+  const done=mountComponent(AppMemories as never,await listProps(rows,{result:posted({type:'success',text:'Attachment removed. The memory itself is unchanged.'})}));
+  try{await tick();expect(done.target.querySelector('[role=status]')!.textContent).toContain('Attachment removed');}finally{done.unmount();}
  });
  it('a click that starts inside the dialog and ends on the backdrop does not cancel it',async()=>{
   const m=mountComponent(AppMemories as never,await listProps(rows));
@@ -434,13 +434,13 @@ describe('the outcome region follows the latest submission',()=>{
   try{await tick();
   await send('?/createOwnMemory',ownForm,'success',200,{type:'success',text:'Memory created.'});
   expect(m.target.textContent).toContain('Memory created.');
-  await send('?/detachMemory',detachForm,'failure',403,{type:'error',text:'Only whoever made the link can remove it.'});
-  expect(m.target.textContent).toContain('Only whoever made the link can remove it.');
+  await send('?/detachMemory',detachForm,'failure',403,{type:'error',text:'Only whoever made the attachment can remove it.'});
+  expect(m.target.textContent).toContain('Only whoever made the attachment can remove it.');
   expect(m.target.textContent).not.toContain('Memory created.');
-  expect(m.target.querySelector('[role=alert]')!.textContent).toContain('Only whoever made the link');
+  expect(m.target.querySelector('[role=alert]')!.textContent).toContain('Only whoever made the attachment');
   await send('?/attachMemory',attachForm,'failure',404,{type:'error',text:'That memory couldn’t be found.'});
   expect(m.target.textContent).toContain('couldn’t be found');
-  expect(m.target.textContent).not.toContain('Only whoever made the link');
+  expect(m.target.textContent).not.toContain('Only whoever made the attachment');
   }finally{m.unmount();resetKitAppliedResults();}
  });
 });

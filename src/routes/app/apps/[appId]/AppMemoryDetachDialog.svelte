@@ -3,8 +3,8 @@
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
-  // portal#2674: asks once before a link is removed. The link is the only thing that goes; the memory keeps its
-  // name, address and content (hrn:node:hadronmemory.com:specs:cor:dmo:060:20), and it can be linked again.
+  // portal#2674: asks once before an attachment is removed. The attachment is the only thing that goes; the memory keeps its
+  // name, address and content (hrn:node:hadronmemory.com:specs:cor:dmo:060:20), and it can be attached again.
   let { memory, onconfirm, oncancel }: {
     memory: { name: string; urn: string };
     onconfirm: () => void;
@@ -23,7 +23,7 @@
     <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">{title}</h2>
     <p class="mt-3 text-sm font-medium text-zinc-900 dark:text-white">{memory.name}</p>
     <div class="mt-1"><Urn value={memory.urn} type="memory" size={10} /></div>
-    <p class="mt-3 text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.detach-help', 'This removes the link only. The memory keeps its name, address and content, and can be linked again.')}</p>
+    <p class="mt-3 text-sm text-zinc-600 dark:text-zinc-300">{t('app.memory.detach-help', 'This removes the attachment only. The memory keeps its name, address and content, and can be attached again.')}</p>
     <div class="mt-5 flex justify-end gap-2">
       <button type="button" onclick={() => oncancel()} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.memory.detach-cancel', 'Cancel')}</button>
       <button type="button" onclick={() => onconfirm()} data-testid="app-memory-detach-confirm"
