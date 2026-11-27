@@ -149,7 +149,7 @@ describe('Settings no longer carries the agent section (#1004, #1006)', () => {
     expect(headings).not.toContain('Agent');
     expect(target.querySelector('a[href$="/members"]')).toBeNull();
     // Absence by behavior, not caption: a renamed section would still post these.
-    expect(target.querySelector('form[action="?/addAgent"], form[action="?/removeAgent"]')).toBeNull();
+    expect(target.querySelector('form[action="?tab=settings&section=agents&/addAgent"], form[action="?tab=settings&section=agents&/removeAgent"]')).toBeNull();
   });
 });
 
@@ -170,6 +170,15 @@ describe('Human Team tab (#1005)', () => {
 });
 
 describe('Agents tab (#1006)', () => {
+  // Griffen on #2682: a no-JS answer re-renders at the form's own URL; with no tab and section there the Agents data is not read.
+  it('all three agent forms post under the section’s URL, so a no-JS answer opens the section and carries its data', async () => {
+    const target = await mountTab('agents');
+    const section = '?tab=settings&section=agents&/';
+    expect(target.querySelectorAll(`#section-agents-body form[action="${section}addAgent"]`).length).toBeGreaterThanOrEqual(2);
+    expect(target.querySelectorAll(`#section-agents-body form[action="${section}removeAgent"]`)).toHaveLength(1);
+    expect(target.querySelector('#section-agents-body form[action^="?/"]')).toBeNull();
+  });
+
   it('lists every installed agent in a table with its URN, not only the first', async () => {
     const target = await mountTab('agents');
     const panel = target.querySelector('#section-agents-body')!;
@@ -181,7 +190,7 @@ describe('Agents tab (#1006)', () => {
 
   it('offers to add an agent that is not installed yet, even with agents installed', async () => {
     const target = await mountTab('agents');
-    const form = target.querySelector<HTMLFormElement>('#section-agents-body form[action="?/addAgent"]')!;
+    const form = target.querySelector<HTMLFormElement>('#section-agents-body form[action="?tab=settings&section=agents&/addAgent"]')!;
     expect(form).not.toBeNull();
     const options = [...form.querySelectorAll('option')].map((o) => o.textContent);
     expect(options.some((o) => o?.includes('Extra'))).toBe(true);
@@ -194,7 +203,7 @@ describe('Agents tab (#1006)', () => {
     const target = await mountTab('agents', { data: { subscribedAgentsError: true } });
     const panel = target.querySelector('#section-agents-body')!;
     expect(panel.textContent).toContain('subscribes to could not be loaded');
-    expect(panel.querySelector('form[action="?/addAgent"]')).not.toBeNull();
+    expect(panel.querySelector('form[action="?tab=settings&section=agents&/addAgent"]')).not.toBeNull();
   });
 
   // portal#1188 READ (George, P2 residual): the warning must not depend on there
@@ -237,7 +246,7 @@ describe('Agents tab (#1006)', () => {
     const target = await mountTab('agents');
     // #1020: Unlink sits in each row's ⋯ menu; ONE hidden form below the
     // table is the submit target, filled for whichever row was picked.
-    const hidden = [...target.querySelectorAll<HTMLFormElement>('#section-agents-body form[action="?/removeAgent"]')];
+    const hidden = [...target.querySelectorAll<HTMLFormElement>('#section-agents-body form[action="?tab=settings&section=agents&/removeAgent"]')];
     expect(hidden).toHaveLength(1);
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
     // Critic's row (ag2), not Scribe's (ag1).

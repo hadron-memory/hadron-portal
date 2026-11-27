@@ -4278,7 +4278,7 @@
 
       <!-- #1020: Unlink's submit target — one hidden form for every row. -->
       {#key app.id}
-        <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
+        <form bind:this={removeAgentFormEl} method="POST" action="?tab=settings&section=agents&/removeAgent" use:removeAgentEnhance class="hidden">
           <input type="hidden" name="__superform_id" value={$removeAgentFormId} />
           <input type="hidden" name="_kind" value="removeAgent" />
           <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
@@ -4314,7 +4314,7 @@
           </p>
         {:else if addableAgents.length > 0}
           {#key app.id}
-          <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
+          <form method="POST" action="?tab=settings&section=agents&/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
             <input type="hidden" name="__superform_id" value={$addAgentFormId} />
             <input type="hidden" name="_kind" value={$addAgentForm._kind} />
             <div class="flex-1 min-w-[200px]">
@@ -4356,7 +4356,7 @@
            so a late answer can be told from B's own (installRequestGeneration). -->
       {#if !agentsWithheld}
         {#key app.id}
-          <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+          <form bind:this={installAgentFormEl} method="POST" action="?tab=settings&section=agents&/addAgent" use:installAgentEnhance class="hidden">
             <input type="hidden" name="_kind" value="addAgent" />
             <input type="hidden" name="__superform_id" value={installFormId} />
             <input type="hidden" name="agentId" value={$installAgentForm.agentId} />

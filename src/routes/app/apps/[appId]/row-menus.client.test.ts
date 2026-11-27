@@ -96,7 +96,7 @@ describe('App Agents tab row ⋯ menu (#1020)', () => {
     openMenu(target, 'Actions for Beta').find((i) => i.textContent?.trim() === 'Unlink')!.click();
     await tick(2);
     const form = requestSubmit.mock.contexts[0] as HTMLFormElement;
-    expect(form.getAttribute('action')).toBe('?/removeAgent');
+    expect(form.getAttribute('action')).toBe('?tab=settings&section=agents&/removeAgent');
     expect(form.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).toBe('ag1');
     expect((await submitEnhanced(form)).cancelled).toBe(false);
   });
@@ -155,7 +155,7 @@ describe('A derived agent on the Agents tab (#1684)', () => {
     openMenu(target, 'Actions for Beta').find((i) => i.textContent?.trim() === 'Install')!.click();
     await tick(2);
     const form = requestSubmit.mock.contexts[0] as HTMLFormElement;
-    expect(form.getAttribute('action')).toBe('?/addAgent');
+    expect(form.getAttribute('action')).toBe('?tab=settings&section=agents&/addAgent');
     expect(form.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).toBe('ag1');
     expect(form.querySelector<HTMLInputElement>('input[name="__superform_id"]')!.value).toMatch(/^installAgent:/);
     expect((await submitEnhanced(form)).cancelled).toBe(false);
