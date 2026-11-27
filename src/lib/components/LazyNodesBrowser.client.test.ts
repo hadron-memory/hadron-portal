@@ -151,10 +151,10 @@ describe('Table (default)', () => {
     expect([...m.target.querySelectorAll('[title]')].some((e) => e.getAttribute('title') === 'hrn:node:acme.com:base:a:n0001')).toBe(true);
   });
 
-  it('the Table has no search box (hideSearch holds) and labels the empty-loc root node', async () => {
+  it('the Table itself has no local filter box (hideSearch holds; the tab\'s own box is the server search) and labels the empty-loc root node', async () => {
     replies['page?offset=0'] = [{ rows: [node(0), node(1, { loc: '', name: '' })], hasMore: false }];
     const m = await mount();
-    expect(m.target.querySelector('input')).toBeNull();
+    expect(m.target.querySelector('[data-testid="table-header"] input')).toBeNull();
     expect(m.target.textContent).toContain('(root node)');
     expect(m.target.querySelectorAll('[data-testid="node-inherited"]')).toHaveLength(0);
   });
@@ -268,6 +268,116 @@ describe('Tree', () => {
     const m = await mountTree();
     expect(text(m)).toContain('(root node)');
     expect(text(m)).toContain('inherited');
+  });
+});
+
+describe('content search (#2693)', () => {
+  const box = (m: Mounted<Record<string, unknown>>) => m.target.querySelector('[data-testid="nodes-search"]') as HTMLInputElement;
+  const type = async (m: Mounted<Record<string, unknown>>, v: string, settle = 340) => {
+    const el = box(m);
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(settle);
+    flushSync();
+  };
+  const found = (rows: unknown[], hasMore = false) => ({ rows, hasMore });
+
+  it('has an accessibly named search box that asks the SERVER (debounced, one read for a burst), never filtering loaded rows', async () => {
+    replies['page?offset=0'] = [found(range(0, 3))];
+    replies['page?offset=0&q=zeta'] = [found([node(7, { name: 'Zeta hit' })])];
+    const m = await mount();
+    expect(box(m).getAttribute('aria-label')).toBeTruthy();
+    // typing the first letters does not read yet; only the settled text does, once
+    for (const v of ['z', 'ze', 'zet', 'zeta']) { box(m).value = v; box(m).dispatchEvent(new Event('input', { bubbles: true })); await wait(20); }
+    expect(fetched).toEqual(['page?offset=0']);
+    await wait(340);
+    flushSync();
+    expect(fetched).toEqual(['page?offset=0', 'page?offset=0&q=zeta']);
+    // the old loaded rows are gone: the list is the server's answer, not a local filter
+    expect(text(m)).toContain('Zeta hit');
+    expect(text(m)).not.toContain('Node 0');
+    expect(text(m)).toMatch(/Searched the whole memory for “zeta”/);
+  });
+
+  it('pages a search with q kept, and Clear returns to the normal paged list', async () => {
+    replies['page?offset=0'] = [found(range(0, 2)), found(range(0, 2))];
+    replies['page?offset=0&q=a'] = [found(range(10, 50), true)];
+    replies['page?offset=50&q=a'] = [found(range(60, 2))];
+    const m = await mount();
+    await type(m, 'a');
+    await click(btn(m, /Load more nodes/));
+    expect(fetched.slice(-1)).toEqual(['page?offset=50&q=a']);
+    await click(m.target.querySelector('[data-testid="nodes-search-clear"]') as HTMLButtonElement);
+    expect(fetched.slice(-1)).toEqual(['page?offset=0']);
+    expect(box(m).value).toBe('');
+    expect(text(m)).toContain('Node 0');
+  });
+
+  it('a stale answer to an older search never lands, even while the newer read is still pending', async () => {
+    let releaseOld!: (r: Response) => void;
+    let releaseNew!: (r: Response) => void;
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=old'] = [new Promise<Response>((r) => { releaseOld = r; }) as never];
+    replies['page?offset=0&q=new'] = [new Promise<Response>((r) => { releaseNew = r; }) as never];
+    const m = await mount();
+    await type(m, 'old');
+    await type(m, 'new');
+    releaseOld(new Response(JSON.stringify(found([node(8, { name: 'Stale answer' })])), { status: 200 }));
+    await wait(10);
+    flushSync();
+    expect(text(m)).not.toContain('Stale answer');
+    releaseNew(new Response(JSON.stringify(found([node(9, { name: 'Fresh answer' })])), { status: 200 }));
+    await wait(10);
+    flushSync();
+    expect(text(m)).toContain('Fresh answer');
+    expect(text(m)).not.toContain('Stale answer');
+  });
+
+  it('a failed search says it failed, offers Retry, and is never "no nodes match"', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=boom'] = ['fail', found([node(5, { name: 'Recovered' })])];
+    const m = await mount();
+    await type(m, 'boom');
+    expect(text(m)).toMatch(/Could not load this page/);
+    expect(text(m)).not.toMatch(/No nodes match/);
+    await click(btn(m, /Retry/));
+    expect(text(m)).toContain('Recovered');
+  });
+
+  it('a search with no hit says it searched the whole memory', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=nothing'] = [found([])];
+    const m = await mount();
+    await type(m, 'nothing');
+    expect(text(m)).toMatch(/No nodes match “nothing” anywhere in this memory/);
+  });
+
+  it('an unmount with a search in flight, or a debounce pending, leaves no rejection and no later read', async () => {
+    let release!: (r: Response) => void;
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=gone'] = [new Promise<Response>((r) => { release = r; }) as never];
+    const rejections = await captureUnhandledRejections(async () => {
+      const m = mountComponent(LazyNodesBrowser as never, { memoryId: MEM } as never) as Mounted<Record<string, unknown>>;
+      await wait(5);
+      flushSync();
+      await type(m, 'gone');
+      m.unmount();
+      release(new Response(JSON.stringify(found(range(0, 3))), { status: 200 }));
+      await wait(10);
+    });
+    expect(rejections).toEqual([]);
+    expect(fetched).toEqual(['page?offset=0', 'page?offset=0&q=gone']);
+
+    fetched.length = 0;
+    const m2 = mountComponent(LazyNodesBrowser as never, { memoryId: MEM } as never) as Mounted<Record<string, unknown>>;
+    replies['page?offset=0'] = [found(range(0, 1))];
+    await wait(5);
+    flushSync();
+    box(m2).value = 'late';
+    box(m2).dispatchEvent(new Event('input', { bubbles: true }));
+    m2.unmount();
+    await wait(340);
+    expect(fetched).not.toContain('page?offset=0&q=late');
   });
 });
 

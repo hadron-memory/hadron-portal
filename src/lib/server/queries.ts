@@ -3512,6 +3512,15 @@ export const NODES_PAGE_QUERY = /* GraphQL */ `
   }
 `;
 
+/** portal#2693: the same page, narrowed by a keyword search over the whole memory (server-side, never a local filter). */
+export const NODES_SEARCH_PAGE_QUERY = /* GraphQL */ `
+  query NodesSearchPage($memoryId: ID!, $query: String!, $limit: Int!, $offset: Int!) {
+    findNodes(query: $query, mode: keyword, filter: { memoryRefs: [$memoryId] }, limit: $limit, offset: $offset) {
+      hits { node { id urn loc name description nodeType tags seq isRunnable memoryId updatedAt memory { id urn name } commentSummary { openThreads } } }
+    }
+  }
+`;
+
 export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodesByLocPrefix(

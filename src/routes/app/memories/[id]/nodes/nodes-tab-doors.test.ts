@@ -5,7 +5,7 @@
  * failure, never an empty page.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MEMORY_SCOPE_QUERY, NODES_PAGE_QUERY, NODE_CHILDREN_QUERY } from '$lib/server/queries';
+import { MEMORY_SCOPE_QUERY, NODES_PAGE_QUERY, NODES_SEARCH_PAGE_QUERY, NODE_CHILDREN_QUERY } from '$lib/server/queries';
 import { fakeFindNodesChildren } from '$lib/test/fakeFindNodesChildren';
 
 const mockRequest = vi.fn();
@@ -20,7 +20,7 @@ function serve({ readable = true, tree = rows(45), fail = false }: Opts = {}) {
   mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
     if (doc === MEMORY_SCOPE_QUERY) return { memory: readable ? { id: MEM, urn: 'hrn:mem:acme.com:m' } : null };
     if (fail) throw new Error('boom');
-    if (doc === NODES_PAGE_QUERY) {
+    if (doc === NODES_PAGE_QUERY || doc === NODES_SEARCH_PAGE_QUERY) {
       const off = vars!.offset as number;
       const lim = vars!.limit as number;
       return { findNodes: { hits: tree.slice(off, off + lim).map((node) => ({ node })) } };
@@ -139,6 +139,51 @@ describe('GET nodes/page', () => {
     const r = await call('page', '?offset=0');
     expect(r.body.rows.map((x: { memoryId: string }) => x.memoryId)).toEqual([MEM, 'mem-base']);
     expect(r.body.rows[1].memory.id).toBe('mem-base');
+  });
+});
+
+describe('GET nodes/page?q (portal#2693)', () => {
+  it('searches on the server: keyword mode, the memory pinned, 51 rows from the offset', async () => {
+    serve({ tree: rows(120) });
+    const r = await call('page', '?offset=50&q=%20hello%20world%20');
+    const read = mockRequest.mock.calls.find(([d]) => d === NODES_SEARCH_PAGE_QUERY)!;
+    expect(read[1]).toEqual({ memoryId: MEM, query: 'hello world', limit: 51, offset: 50 });
+    expect(NODES_SEARCH_PAGE_QUERY).toMatch(/mode: keyword/);
+    expect(NODES_SEARCH_PAGE_QUERY).toMatch(/memoryRefs: \[\$memoryId\]/);
+    expect(docs()).not.toContain(NODES_PAGE_QUERY);
+    expect(r.body.rows).toHaveLength(50);
+    expect(r.body.hasMore).toBe(true);
+  });
+
+  it.each(['', '&q=', '&q=%20%20'])('an absent or blank q (%s) browses exactly as before', async (q) => {
+    serve({ tree: rows(60) });
+    await call('page', `?offset=0${q}`);
+    expect(docs()).toContain(NODES_PAGE_QUERY);
+    expect(docs()).not.toContain(NODES_SEARCH_PAGE_QUERY);
+  });
+
+  it('refuses a repeated q and a q over the cap with a 400 before any read; the cap itself passes', async () => {
+    serve();
+    for (const search of ['?offset=0&q=a&q=b', `?offset=0&q=${'x'.repeat(201)}`]) {
+      const r = await call('page', search);
+      expect(r.status).toBe(400);
+      expect(r.body).toEqual({ failed: true });
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect((await call('page', `?offset=0&q=${'x'.repeat(200)}`)).status).toBe(200);
+  });
+
+  it('an unreadable memory answers the same empty page for a search, and reads nothing', async () => {
+    serve({ readable: false });
+    const r = await call('page', '?offset=0&q=secret');
+    expect(r.body).toEqual({ rows: [], hasMore: false });
+    expect(docs()).toEqual([MEMORY_SCOPE_QUERY]);
+  });
+
+  it('a failed search is a retryable failure, never an empty result', async () => {
+    serve({ fail: true });
+    const r = await call('page', '?offset=0&q=x');
+    expect(r.body).toEqual({ failed: true });
   });
 });
 

@@ -42,9 +42,15 @@
   // One controller for everything in flight; destroy (a memory switch re-keys this component) aborts it.
   const controller = new AbortController();
   let alive = true;
+  // portal#2693: the Table's own controller, replaced when the search changes so an answer to an
+  // older search is aborted, and (guarded again by identity below) never applied.
+  let tableCtl = new AbortController();
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
   onDestroy(() => {
     alive = false;
     controller.abort();
+    tableCtl.abort();
+    clearTimeout(searchTimer);
   });
 
   // ── Tree ─────────────────────────────────────────────────────────────
@@ -139,12 +145,47 @@
   let tableHasMore = $state(false);
   let tableStatus = $state<Status>('idle');
 
+  // portal#2693: content search is run by the SERVER over the whole memory (the nodes/page door's
+  // `q`); it is never a filter over the rows loaded so far. `typed` is the box, `searched` the
+  // trimmed query the list currently answers (undefined = the plain paged list).
+  const SEARCH_MAX = 200;
+  const SEARCH_DEBOUNCE_MS = 300;
+  let typed = $state('');
+  let searched = $state<string | undefined>(undefined);
+
+  function applySearch(raw: string) {
+    const q = raw.trim();
+    const next = q === '' ? undefined : q;
+    if (next === searched) return;
+    searched = next;
+    tableCtl.abort();
+    tableCtl = new AbortController();
+    tableRows = [];
+    tableConsumed = 0;
+    tableHasMore = false;
+    tableStatus = 'idle';
+    void loadTablePage();
+  }
+
+  function onSearchInput() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => applySearch(typed), SEARCH_DEBOUNCE_MS);
+  }
+
+  function clearSearch() {
+    clearTimeout(searchTimer);
+    typed = '';
+    applySearch('');
+  }
+
   async function loadTablePage() {
     if (tableStatus === 'loading') return;
     tableStatus = 'loading';
     const offset = tableConsumed;
-    const page = await readTablePage(memoryId, offset, controller.signal);
-    if (!alive) return;
+    const ctl = tableCtl;
+    const page = await readTablePage(memoryId, offset, ctl.signal, searched);
+    // A newer search replaced this one while it was in flight: its answer is not ours to show.
+    if (!alive || ctl !== tableCtl) return;
     if (!page) {
       tableStatus = 'failed';
       return;
@@ -254,11 +295,30 @@
       </ul>
     </div>
   {:else}
+    <div class="flex flex-wrap items-center gap-2">
+      <input
+        type="search"
+        data-testid="nodes-search"
+        class="min-w-[10rem] max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+        placeholder={t('nodes-tab.search-placeholder', 'Search this memory')}
+        aria-label={t('nodes-tab.search-label', 'Search the content of every node in this memory')}
+        maxlength={SEARCH_MAX}
+        bind:value={typed}
+        oninput={onSearchInput}
+      />
+      {#if typed !== '' || searched !== undefined}
+        <button type="button" data-testid="nodes-search-clear" class="rounded-md px-2 py-1.5 text-sm text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-3" onclick={clearSearch}>{t('nodes-tab.search-clear', 'Clear')}</button>
+      {/if}
+    </div>
     <LiveRegion data-testid="nodes-tab-none">
-      {#if tableStatus === 'done' && tableRows.length === 0}<p class="text-sm text-zinc-500">{t('nodes-tab.none', 'No matching or visible nodes.')}</p>{/if}
+      {#if tableStatus === 'done' && tableRows.length === 0}
+        <p class="text-sm text-zinc-500">{searched === undefined ? t('nodes-tab.none', 'No matching or visible nodes.') : t('nodes-tab.search-none', 'No nodes match “{q}” anywhere in this memory.', { q: searched })}</p>
+      {/if}
     </LiveRegion>
     <p class="text-xs text-zinc-500" data-testid="table-partial">
-      {#if tableStatus === 'done' && !tableHasMore}
+      {#if searched !== undefined && tableStatus === 'done' && tableRows.length > 0}
+        {tableHasMore ? t('nodes-tab.search-more', 'Searched the whole memory for “{q}”; more matches are available.', { q: searched }) : t('nodes-tab.search-all', 'Searched the whole memory for “{q}”; these are all the matches.', { q: searched })}
+      {:else if tableStatus === 'done' && !tableHasMore}
         {t('nodes-tab.table-end', 'End of the list.')}
       {:else}
         {t('nodes-tab.table-partial', 'Sorting and paging below apply to the rows loaded so far, not the whole memory.')}
@@ -266,7 +326,7 @@
       {#if tableRows.length > 0}{t('nodes-tab.loaded-count', '{n} loaded', { n: tableRows.length })}{/if}
     </p>
     {#if tableRows.length > 0}
-      <NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />
+      {#key searched}<NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />{/key}
     {/if}
     <LiveRegion>{#if tableStatus === 'loading'}<p class="text-sm text-zinc-500">{t('nodes-tab.loading', 'Loading…')}</p>{/if}</LiveRegion>
     {#if tableStatus === 'loading'}

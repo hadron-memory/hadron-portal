@@ -25,8 +25,8 @@ async function readPage(url: string, signal?: AbortSignal): Promise<NodesPage | 
 export const readTreePage = (memoryRef: string, parentLoc: string, offset: number, signal?: AbortSignal) =>
   readPage(`/app/memories/${encodeURIComponent(memoryRef)}/nodes/children?parent=${encodeURIComponent(parentLoc)}&offset=${offset}`, signal);
 
-export const readTablePage = (memoryRef: string, offset: number, signal?: AbortSignal) =>
-  readPage(`/app/memories/${encodeURIComponent(memoryRef)}/nodes/page?offset=${offset}`, signal);
+export const readTablePage = (memoryRef: string, offset: number, signal?: AbortSignal, search?: string) =>
+  readPage(`/app/memories/${encodeURIComponent(memoryRef)}/nodes/page?offset=${offset}${search ? `&q=${encodeURIComponent(search)}` : ''}`, signal);
 
 /** Append `incoming` to `rows`, dropping any id already shown (offset paging can repeat rows). */
 export function appendUnique<T extends { id: string }>(rows: T[], incoming: T[]): T[] {
