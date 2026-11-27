@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The route a picker reads on demand: 401 without a session, a list that is the person's readable memories whatever
-// their owner or organization (portal#2635), and a failed read that never throws or carries server text.
+// The route the picker reads as the user types and pages (portal#2674): 401 without a session, a straight pass-through to
+// the server's attachableMemories door, and a failed read that never throws or carries server text.
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: (...a: unknown[]) => request(...a) }) }));
 import { GET } from './attachable/+server';
 
-const call = (locals: Record<string, unknown>, url = 'http://x/app/apps/app-1/attachable') =>
-  GET({ params: { appId: 'app-1' }, locals, url: new URL(url) } as never);
+const call = (locals: Record<string, unknown>, qs = '') =>
+  GET({ params: { appId: 'app-1' }, locals, url: new URL(`http://x/app/apps/app-1/attachable${qs}`) } as never);
+const signedIn = { token: 't', user: { id: 'u' } };
 
 beforeEach(() => { request.mockReset(); });
 
@@ -16,36 +17,41 @@ describe('GET /app/apps/[appId]/attachable', () => {
     for (const locals of [{}, { token: 't' }, { user: { id: 'u' } }]) {
       const res = await call(locals);
       expect(res.status).toBe(401);
-      expect(await res.json()).toEqual({ kind: 'failed' });
+      expect(await res.json()).toEqual({ kind: 'failed', code: 'UNAUTHENTICATED' });
       expect(res.headers.get('cache-control')).toBe('no-store');
     }
     expect(request).not.toHaveBeenCalled();
   });
 
-  it('lists every memory the caller reads, asking for no organization or owner and ignoring one in the request', async () => {
-    request.mockResolvedValue({ memories: { total: 2, items: [
-      { id: 'm1', urn: 'hrn:mem:o:m1', name: 'M1', visibility: null },
-      { id: 'm2', urn: 'hrn:mem:p:m2', name: 'M2', visibility: 'ORGANIZATION' },
-    ] } });
-    const res = await call({ token: 't', user: { id: 'u' } }, 'http://x/app/apps/app-1/attachable?orgId=org-from-request');
-    expect(await res.json()).toEqual({ kind: 'ok', memories: [
-      { id: 'm1', urn: 'hrn:mem:o:m1', name: 'M1', visibility: null },
-      { id: 'm2', urn: 'hrn:mem:p:m2', name: 'M2', visibility: 'ORGANIZATION' },
-    ] });
+  it('returns the server page and total, with the text and offset passed straight to the server', async () => {
+    const items = [{ id: 'm1', urn: 'hrn:mem:o:m1', name: 'M1', visibility: null }];
+    request.mockResolvedValue({ attachableMemories: { total: 11, items } });
+    const res = await call(signedIn, '?q=m1&offset=10');
+    expect(await res.json()).toEqual({ kind: 'ok', memories: items, total: 11 });
     expect(res.headers.get('cache-control')).toBe('no-store');
-    // The default list and the shared-with-me slice, joined to one row per memory.
-    expect(request).toHaveBeenCalledTimes(2);
-    expect(request.mock.calls[0][1]).not.toHaveProperty('orgRef');
-    expect(request.mock.calls[0][1]).not.toHaveProperty('ownedByMe');
-    expect(JSON.stringify(request.mock.calls)).not.toContain('org-from-request');
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][1]).toEqual({ appRef: 'app-1', query: 'm1', limit: 10, offset: 10 });
   });
 
-  it('answers failed, without server text, when a read throws', async () => {
-    request.mockImplementation(async () => { throw new Error('SECRET server text'); });
-    const res = await call({ token: 't', user: { id: 'u' } });
+  it('clamps a bad offset to the first page and ignores a limit from the request', async () => {
+    request.mockResolvedValue({ attachableMemories: { total: 0, items: [] } });
+    await call(signedIn, '?offset=-5&limit=5000');
+    expect(request.mock.calls[0][1]).toMatchObject({ offset: 0, limit: 10 });
+    await call(signedIn, '?offset=abc');
+    expect(request.mock.calls[1][1]).toMatchObject({ offset: 0 });
+    await call(signedIn, '?offset=1e999');
+    expect(request.mock.calls[2][1]).toMatchObject({ offset: 0 });
+    await call(signedIn, '?offset=99999999999');
+    expect(request.mock.calls[3][1]).toMatchObject({ offset: 100000 });
+  });
+
+  it('names a refusal by code only, and any other failure as FAILED, never with server text', async () => {
+    request.mockRejectedValueOnce({ response: { errors: [{ message: 'SECRET', extensions: { code: 'APP_UNINSTALLED' } }] } });
+    const res = await call(signedIn);
     expect(res.status).toBe(200);
-    const text = JSON.stringify(await res.json());
-    expect(text).toBe('{"kind":"failed"}');
-    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ kind: 'failed', code: 'APP_UNINSTALLED' });
+    request.mockImplementationOnce(async () => { throw new Error('SECRET server text'); });
+    const text = JSON.stringify(await (await call(signedIn)).json());
+    expect(text).toBe('{"kind":"failed","code":"FAILED"}');
   });
 });

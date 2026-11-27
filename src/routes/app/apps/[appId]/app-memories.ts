@@ -8,6 +8,7 @@ import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { fetchAllItems } from '$lib/server/paginate';
 import { t } from '$lib/i18n/t';
+import { ATTACHABLE_PAGE_SIZE, type AttachableFailure } from './attachable-page';
 import { attachAppMemorySchema, createAppMemorySchema, createOwnAppMemorySchema, detachAppMemorySchema } from './schema';
 
 export interface CreatedAppMemory { id: string; urn: string; name: string }
@@ -165,30 +166,30 @@ export async function detachMemory({ request, params, locals }: { request: Reque
   }
 }
 
-// The memories a link could take, for the picker: every memory the caller can read except `system`, whoever owns it,
-// whichever organization it is in and whichever App already links it (the link law, hrn:node:hadronmemory.com:specs:cor:dmo:060:20). The server's
-// attach stays the authority on what links.
+// The memories an attachment could take, for the picker: one page per request from the server's search door
+// (attachableMemories, hadron-server#5393). The server decides the candidates (what the caller reads in their own right,
+// minus system and app memories and anything already attached to this App, active or not) and does the matching and the
+// paging; the portal keeps no list of its own and no local filter. The server's attach stays the authority on what attaches.
 export const ATTACHABLE_MEMORIES_QUERY = /* GraphQL */ `
-  query AttachableMemories($limit: Int, $offset: Int, $sharedWithMe: Boolean) {
-    memories(filter: { memoryClasses: [app, group, knowledge, personal, private], sharedWithMe: $sharedWithMe }, limit: $limit, offset: $offset) {
+  query AttachableMemories($appRef: ID!, $query: String, $limit: Int, $offset: Int) {
+    attachableMemories(appRef: $appRef, query: $query, limit: $limit, offset: $offset) {
       items { id urn name visibility }
       total
     }
   }
 `;
 export interface AttachableMemory { id: string; urn: string; name: string; visibility: string | null }
-/**
- * Null means the read failed, never "none to add". The default list leaves out a memory reached only through a share, so
- * the shared-with-me slice is read as well and the two are joined, one row per memory.
- */
-export async function readAttachableMemories(client: ReturnType<typeof gqlClient>): Promise<AttachableMemory[] | null> {
+export type AttachablePage = { ok: true; memories: AttachableMemory[]; total: number } | { ok: false; code: AttachableFailure };
+/** One page of attachable memories matching `query`. A failure is a code, never "none to add" and never server text. */
+export async function readAttachableMemoriesPage(client: ReturnType<typeof gqlClient>, appId: string, args: { query: string; offset: number; limit?: number }): Promise<AttachablePage> {
   try {
-    const read = (sharedWithMe: boolean) => fetchAllItems<AttachableMemory>(client, ATTACHABLE_MEMORIES_QUERY, 'memories', { sharedWithMe: sharedWithMe || null });
-    const both = await withTimeout(Promise.all([read(false), read(true)]), OPTIONAL_LIST_TIMEOUT_MS, null);
-    if (!both) return null;
-    const seen = new Set<string>();
-    return both.flat().filter(m => !seen.has(m.id) && !!seen.add(m.id));
-  } catch { return null; }
+    const data = await withTimeout(client.request<{ attachableMemories: { items: AttachableMemory[]; total: number } }>(ATTACHABLE_MEMORIES_QUERY, { appRef: appId, query: args.query.trim() || null, limit: args.limit ?? ATTACHABLE_PAGE_SIZE, offset: args.offset }), OPTIONAL_LIST_TIMEOUT_MS, null);
+    if (!data?.attachableMemories) return { ok: false, code: 'FAILED' };
+    return { ok: true, memories: data.attachableMemories.items, total: data.attachableMemories.total };
+  } catch (e: unknown) {
+    const code = extractGqlErrorCode(e);
+    return { ok: false, code: code === 'FORBIDDEN' || code === 'APP_UNINSTALLED' || code === 'UNAUTHENTICATED' ? code : 'FAILED' };
+  }
 }
 
 // portal#2634 — a member's own personal or private memory (hrn:node:hadronmemory.com:specs:cor:dmo:060:20). The class

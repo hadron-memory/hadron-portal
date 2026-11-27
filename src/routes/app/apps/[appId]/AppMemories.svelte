@@ -11,8 +11,8 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { failedSubmission, submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
-  import type { AppMemoryRow, AttachableMemory, AttachMemoryMessage, OwnMemoryClass, OwnMemoryMessage } from './app-memories';
-  import { notYetInScope } from './attachable-candidates';
+  import { type AppMemoryRow, type AttachableMemory, type AttachMemoryMessage, type OwnMemoryClass, type OwnMemoryMessage } from './app-memories';
+  import { ATTACHABLE_PAGE_SIZE, type AttachableFailure } from './attachable-page';
   import type { AttachableRead } from './attachable/+server';
   import AppMemoryAddDialog from './AppMemoryAddDialog.svelte';
   import AppMemoryDetachDialog from './AppMemoryDetachDialog.svelte';
@@ -44,7 +44,7 @@
   // so showing the first message set would let an old result hide a newer refusal (portal#2680 blind review).
   type Outcome = 'attach' | 'own' | 'detach';
   let lastOutcome = $state<Outcome>(untrack(() => submittedForm(result, 'detachAppMemory') ? 'detach' : submittedForm(result, 'createOwnAppMemory') ? 'own' : 'attach'));
-  const submitted = (which: Outcome) => () => { lastOutcome = which; candidatesFailed = false; };
+  const submitted = (which: Outcome) => () => { lastOutcome = which; };
 
   let search = $state('');
   const columns: PortalColumnDef<AppMemoryRow>[] = [
@@ -99,27 +99,43 @@
 
   let chooserOpen = $state(false);
   let pickerOpen = $state(false);
-  let loadingCandidates = $state(false);
   let candidates = $state<AttachableMemory[]>([]);
-  let candidatesFailed = $state(false);
-  // Latest-wins: a late answer for an earlier press must not open a picker the user already left.
+  let candidatesTotal = $state(0);
+  let candidatesLoading = $state(false);
+  let candidatesError = $state<AttachableFailure | null>(null);
+  let candidatesQuery = '';
+  let candidatesPage = 0;
+  // Latest-wins: a late answer for an earlier search or page must not overwrite what the user is now looking at.
   let candidatesRequest = 0;
-  async function chooseExisting() {
+  async function loadCandidates() {
     const mine = ++candidatesRequest;
-    loadingCandidates = true; candidatesFailed = false;
+    candidatesLoading = true; candidatesError = null;
     try {
-      const res = await fetch(`/app/apps/${encodeURIComponent(appId)}/attachable`);
-      const body = res.ok ? ((await res.json()) as AttachableRead) : { kind: 'failed' as const };
+      const params = new URLSearchParams({ q: candidatesQuery, offset: String(candidatesPage * ATTACHABLE_PAGE_SIZE) });
+      const res = await fetch(`/app/apps/${encodeURIComponent(appId)}/attachable?${params}`);
+      const body = (res.ok || res.status === 401 ? ((await res.json()) as AttachableRead) : { kind: 'failed' as const, code: 'FAILED' as const });
       if (mine !== candidatesRequest) return;
-      if (body.kind !== 'ok') { candidatesFailed = true; chooserOpen = false; return; }
-      candidates = notYetInScope(body.memories, memories);
-      chooserOpen = false; pickerOpen = true;
+      if (body.kind === 'ok') { candidates = body.memories; candidatesTotal = body.total; } else { candidates = []; candidatesTotal = 0; candidatesError = body.code; }
     } catch {
-      if (mine === candidatesRequest) { candidatesFailed = true; chooserOpen = false; }
+      if (mine === candidatesRequest) { candidates = []; candidatesTotal = 0; candidatesError = 'FAILED'; }
     } finally {
-      if (mine === candidatesRequest) loadingCandidates = false;
+      if (mine === candidatesRequest) candidatesLoading = false;
     }
   }
+  // The server's own words for why it refused; no other text reaches the page.
+  const candidatesMessage = $derived(
+    candidatesError === 'FORBIDDEN' ? t('app.memory.attach-forbidden', 'Only a member of this App, signed in as themselves, can add a memory.')
+    : candidatesError === 'APP_UNINSTALLED' ? t('app.memory.app-uninstalled', 'This App is uninstalled. Reinstall it to add a memory.')
+    : candidatesError === 'UNAUTHENTICATED' ? t('app.memory.sign-in', 'Sign in again to add a memory.')
+    : candidatesError ? t('app.memory.candidates-failed', 'Could not load your memories. Please try again.') : null,
+  );
+  // The picker opens at once on an empty first page; the server answers the first search.
+  function chooseExisting() {
+    candidates = []; candidatesTotal = 0; candidatesQuery = ''; candidatesPage = 0;
+    chooserOpen = false; pickerOpen = true;
+    void loadCandidates();
+  }
+  $effect(() => { if (!pickerOpen) candidatesRequest++; });
   async function attach(memory: { id: string }) {
     // One attach at a time: a second pick while the first is in flight would link the same memory twice.
     if ($submitting) return;
@@ -168,10 +184,8 @@
     </DataTable>
   {/if}
   <!-- The outcome of adding an existing memory, beside the list it changed. -->
-  <LiveOutcome failed={candidatesFailed || (lastOutcome === 'own' ? $ownMessage : lastOutcome === 'detach' ? $detachMessage : $message)?.type === 'error'}>
-    {#if candidatesFailed}
-      <p class="text-sm text-red-600 dark:text-red-400">{t('app.memory.candidates-failed', 'Could not load your memories. Please try again.')}</p>
-    {:else if lastOutcome === 'own' && $ownMessage}
+  <LiveOutcome failed={(lastOutcome === 'own' ? $ownMessage : lastOutcome === 'detach' ? $detachMessage : $message)?.type === 'error'}>
+    {#if lastOutcome === 'own' && $ownMessage}
       <div class="text-sm {$ownMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">
         <p>{$ownMessage.text}</p>
         {#if $ownMessage.type === 'success' && $ownMessage.created}
@@ -203,5 +217,10 @@
   <input type="hidden" name="memoryClass" value={$ownValues.memoryClass} />
   <input type="hidden" name="agentId" value={$ownValues.agentId} />
 </form>
-<AppMemoryAddDialog bind:open={chooserOpen} hasAgent={hasAgent && agentId !== null} {canCreate} {ownClasses} onown={createOwn} loading={loadingCandidates} onexisting={chooseExisting} onnew={chooseNew} />
-<SelectMemory bind:open={pickerOpen} memories={candidates} onselect={attach} placeholder={t('app.memory.pick-placeholder', 'Search memories by name or URN...')} />
+<AppMemoryAddDialog bind:open={chooserOpen} hasAgent={hasAgent && agentId !== null} {canCreate} {ownClasses} onown={createOwn} onexisting={chooseExisting} onnew={chooseNew} />
+<SelectMemory bind:open={pickerOpen} memories={candidates} onselect={attach}
+  remote={{ total: candidatesTotal, pageSize: ATTACHABLE_PAGE_SIZE, loading: candidatesLoading, error: candidatesMessage,
+    onquery: (q) => { candidatesQuery = q; candidatesPage = 0; void loadCandidates(); },
+    onpage: (i) => { candidatesPage = i; void loadCandidates(); },
+    onretry: () => { void loadCandidates(); } }}
+  placeholder={t('app.memory.pick-placeholder', 'Search memories by name or URN...')} />
