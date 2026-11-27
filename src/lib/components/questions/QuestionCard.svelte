@@ -1,3 +1,11 @@
+<script module lang="ts">
+  import type { QuestionState } from '$lib/questions/types';
+
+  // The states in which a signed-tier question still owes its signature. Typed against QuestionState so a
+  // misspelt state name fails to compile instead of silently never matching.
+  const SIGNATURE_OWED_STATES = ['OPEN', 'ANSWERED_UNCONFIRMED', 'STALE'] as const satisfies readonly QuestionState[];
+</script>
+
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
@@ -36,8 +44,7 @@
     : question.priority === 'LOW' ? t('question.card.priority.low', 'Low priority')
     : null,
   );
-  const APPROVABLE = ['ANSWERED_UNCONFIRMED', 'STALE', 'DECIDED'];
-  const showApproval = $derived(!!approval && APPROVABLE.includes(question.state));
+  const APPROVABLE = ['ANSWERED_UNCONFIRMED', 'STALE', 'DECIDED'];  const showApproval = $derived(!!approval && APPROVABLE.includes(question.state));
   // Approve follows the decider, not `viewerMayAnswer`: that goes false once the answer history is full, while a
   // decider can still approve. The server refuses a non-decider (QUESTION_NOT_DECIDER) and an impersonated session.
   const mayApprove = $derived(showApproval && question.viewerIsDecider && !question.impersonating && question.answered && approval!.view.canApprove);
@@ -53,8 +60,8 @@
   const tierPill = $derived.by((): { text: string; needed: boolean } | null => {
     if (!question.tier || question.tier === 'ANSWERED') return null;
     if (question.tier === 'SIGNED') {
-      // A signature is still owed only while the question is live; withdrawn, tampered and unverifiable ones owe nothing.
-      return ['OPEN', 'ANSWERED_UNCONFIRMED', 'STALE'].includes(question.state)
+      // A signature is still owed only in SIGNATURE_OWED_STATES; withdrawn, tampered and unverifiable ones owe nothing.
+      return (SIGNATURE_OWED_STATES as readonly QuestionState[]).includes(question.state)
         ? { text: t('question.card.tier.signature', 'needs signature'), needed: true }
         : { text: t('question.card.tier.signature-tier', 'signature tier'), needed: false };
     }

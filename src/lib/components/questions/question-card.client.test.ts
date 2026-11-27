@@ -258,10 +258,16 @@ describe('question card', () => {
       expect(note('SIGNED')).toContain('needs a signature');
     });
     describe('portal#2665: the tier pill follows the worked-out state', () => {
-      const pill = (q: Partial<QuestionCardView>) => mountCard(q, true, null, null).querySelector<HTMLElement>('[data-testid=question-tier]');
+      const pillOrNull = (q: Partial<QuestionCardView>) => mountCard(q, true, null, null).querySelector<HTMLElement>('[data-testid=question-tier]');
+      // A missing pill fails with a readable assertion, not a TypeError on `null.textContent`.
+      const pill = (q: Partial<QuestionCardView>): HTMLElement => {
+        const el = pillOrNull(q);
+        expect(el, `no tier pill rendered for state=${q.state} tier=${q.tier}`).not.toBeNull();
+        return el!;
+      };
       it('approved tier: "needs approval" only while ANSWERED_UNCONFIRMED or STALE', () => {
         for (const state of ['ANSWERED_UNCONFIRMED', 'STALE'] as const) {
-          const p = pill({ state, answered: true, tier: 'APPROVED' })!;
+          const p = pill({ state, answered: true, tier: 'APPROVED' });
           expect(p.textContent).toBe('needs approval');
           expect(p.dataset.needed).toBe('true');
         }
@@ -274,26 +280,26 @@ describe('question card', () => {
         expect(el.querySelector('[data-testid=question-state]')!.textContent).toMatch(/decided/i);
       });
       it('the pill returns when an edit makes the decided question stale', () => {
-        expect(pill({ state: 'DECIDED', answered: true, tier: 'APPROVED' })!.dataset.needed).toBe('false');
-        expect(pill({ state: 'STALE', answered: true, tier: 'APPROVED' })!.dataset.needed).toBe('true');
+        expect(pill({ state: 'DECIDED', answered: true, tier: 'APPROVED' }).dataset.needed).toBe('false');
+        expect(pill({ state: 'STALE', answered: true, tier: 'APPROVED' }).dataset.needed).toBe('true');
       });
       it('approved tier, OPEN: nothing is claimed needed', () => {
-        expect(pill({ state: 'OPEN', tier: 'APPROVED' })!.dataset.needed).toBe('false');
+        expect(pill({ state: 'OPEN', tier: 'APPROVED' }).dataset.needed).toBe('false');
       });
       it('signed tier: "needs signature" stays until DECIDED, and an approval on the page does not clear it', () => {
         for (const state of ['OPEN', 'ANSWERED_UNCONFIRMED', 'STALE'] as const) {
           const el = mountCard({ state, answered: state !== 'OPEN', tier: 'SIGNED' }, true, null, { view: { state: 'APPROVED', tone: 'neutral', approval: null, canApprove: false }, submitting: false, enhance: () => ({}) });
           expect(el.querySelector('[data-testid=question-tier]')!.textContent).toBe('needs signature');
         }
-        expect(pill({ state: 'DECIDED', answered: true, tier: 'SIGNED' })!.dataset.needed).toBe('false');
+        expect(pill({ state: 'DECIDED', answered: true, tier: 'SIGNED' }).dataset.needed).toBe('false');
       });
       it('signed tier: a withdrawn, tampered or unverifiable question owes no signature', () => {
         for (const state of ['WITHDRAWN', 'TAMPERED', 'UNVERIFIABLE'] as const) {
-          expect(pill({ state, answered: true, tier: 'SIGNED' })!.dataset.needed, state).toBe('false');
+          expect(pill({ state, answered: true, tier: 'SIGNED' }).dataset.needed, state).toBe('false');
         }
       });
       it('the answered tier has no pill', () => {
-        expect(pill({ state: 'ANSWERED_UNCONFIRMED', answered: true, tier: 'ANSWERED' })).toBeNull();
+        expect(pillOrNull({ state: 'ANSWERED_UNCONFIRMED', answered: true, tier: 'ANSWERED' })).toBeNull();
       });
     });
     describe('portal#2665: the approve result renders in the card', () => {
