@@ -91,3 +91,18 @@ describe('#1308 defensive source and feedback pins', () => {
     expect(parseSyncReport(report({ entries: [{ ...entry, [field]: exact }] }), 'OK', at).entries[0][field]).toBe(exact);
   });
 });
+
+describe("a sync refused for the owner's limit (#2569, door 20, C3-R7 a)", () => {
+  const stored = report({ outcome: 'failed', code: 'OWNER_LIMIT_REACHED', entries: [] });
+  it('parses the stored marker as a failed attempt carrying the code (on main: unavailable)', () => {
+    expect(parseSyncReport(stored, 'ERROR', null)).toMatchObject({ state: 'failed', code: 'OWNER_LIMIT_REACHED' });
+  });
+  it('says the owner has reached a limit, in fixed copy, never the stored text', () => {
+    const text = syncOutcomeMessage({ lastSyncReport: stored, syncStatus: 'ERROR', syncError: 'ghp_secrettoken leaked here' });
+    expect(text).toEqual({ type: 'error', text: 'The sync was refused: the owner of this memory has reached a limit of their account.' });
+  });
+  it('still rejects an unknown failed code, and a limit code with entries', () => {
+    expect(parseSyncReport(report({ outcome: 'failed', code: 'OTHER', entries: [] }), 'ERROR', null).state).toBe('unavailable');
+    expect(parseSyncReport(report({ outcome: 'failed', code: 'OWNER_LIMIT_REACHED' }), 'ERROR', null).state).toBe('unavailable');
+  });
+});

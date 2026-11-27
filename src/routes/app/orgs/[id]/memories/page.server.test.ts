@@ -939,3 +939,21 @@ it('#1308 bulk OK without completion reports uncertainty, not failure to finish'
   expect(result.form.message.text).not.toContain('didn’t finish');
   expect(result.form.message.text).not.toContain('All memories synced.');
 });
+
+describe("syncAll refused for the owner's limit (#2569, door 20)", () => {
+  it('names the memory with the server text, and answers 409 when every refusal is a limit', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'mem-1', name: 'Git One', source: { type: 'git' } }] } });
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'This organization has reached its limit of 5 nodes.', extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'nodes', ownerType: 'organization', callerCanManageOwner: true, ownerId: 'o1', limit: '5' } }] } });
+    const result = (await runAction('syncAll', {})) as { status: number; data: { form: { message: { text: string } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message.text).toContain('Git One: This organization has reached its limit of 5 nodes.');
+  });
+  it('a stored limit marker in the sync result is worded in fixed copy and is also a 409', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'mem-1', name: 'Git One', source: { type: 'git' } }] } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'ERROR', syncError: 'The owner of this memory has reached a limit of their account.', lastSyncedAt: null,
+      lastSyncReport: JSON.stringify({ version: 1, outcome: 'failed', recordedAt: '2026-10-26T01:02:03.000Z', entries: [], code: 'OWNER_LIMIT_REACHED' }) } });
+    const result = (await runAction('syncAll', {})) as { status: number; data: { form: { message: { text: string } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message.text).toContain('Git One: The sync was refused: the owner of this memory has reached a limit of their account.');
+  });
+});

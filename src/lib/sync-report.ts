@@ -34,7 +34,7 @@ export interface SyncReportView {
   state: SyncReportState;
   entries: SyncReportEntry[];
   recordedAt?: string;
-  code?: 'SYNC_FAILED' | 'BAD_USER_INPUT';
+  code?: 'SYNC_FAILED' | 'BAD_USER_INPUT' | 'OWNER_LIMIT_REACHED';
 }
 export interface SyncOutcomeFields {
   lastSyncReport?: string | null;
@@ -70,7 +70,7 @@ export function parseSyncReport(raw: unknown, status?: string | null, completedA
         !isSyncInstant(value.recordedAt) || !Array.isArray(value.entries)) return unavailable;
     const codes: Partial<Record<SyncReportKind, readonly string[]>> = value.version === 1 ? v1Codes : v2Codes;
     if (value.outcome === 'failed') {
-      if (value.entries.length !== 0 || (value.code !== 'SYNC_FAILED' && value.code !== 'BAD_USER_INPUT')) return unavailable;
+      if (value.entries.length !== 0 || (value.code !== 'SYNC_FAILED' && value.code !== 'BAD_USER_INPUT' && value.code !== 'OWNER_LIMIT_REACHED')) return unavailable;
       return { state: 'failed', recordedAt: value.recordedAt, code: value.code, entries: [] };
     }
     const entries: SyncReportEntry[] = [];
@@ -106,6 +106,11 @@ export function syncOutcomeMessage(memory: SyncOutcomeFields | null | undefined)
   return classifySyncOutcome(memory).message;
 }
 function messageForSyncOutcome(memory: SyncOutcomeFields | null | undefined, view: SyncReportView): { type: 'success' | 'error'; text: string } {
+  // #2569 (C3-R7 a): a whole import refused for the owner's limit is stored as a typed marker. Fixed copy: the
+  // stored `syncError` is never shown (it is only the no-number sentence, but the rule for sync text is the same).
+  if (view.state === 'failed' && view.code === 'OWNER_LIMIT_REACHED') {
+    return { type: 'error', text: t('sync-report.owner-limit', 'The sync was refused: the owner of this memory has reached a limit of their account.') };
+  }
   if (memory?.syncStatus === 'ERROR' || view.state === 'failed') {
     return { type: 'error', text: gitFailureMessage(memory?.syncError, 'sync') };
   }
