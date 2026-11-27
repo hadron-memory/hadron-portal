@@ -42,8 +42,9 @@ const server = await createServer({
 
 const WIDTH = 390;
 const VARIANTS = ['roles', 'empty'];
-// How many lines name the Agent by URN in each variant (the panel's two places; `empty` shows both).
-const EXPECTED_LINES = { roles: 1, empty: 2 };
+// How many lines name the Agent by URN in each variant (the panel's two places, both in the add form: `roles` shows
+// the helper under the Role field, `empty` the empty-roles warning).
+const EXPECTED_LINES = { roles: 1, empty: 1 };
 
 /** Measured inside the page: every box the checks need, for one mounted variant. */
 function measure(variant) {
@@ -51,7 +52,7 @@ function measure(variant) {
   const box = (el) => { const b = el.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width, height: b.height }; };
   // Every line that names the Agent is found by the Agent link it holds, not by its copy: that copy
   // goes through t() and would break this script on a wording or locale change. The `roles` variant
-  // renders one such line; `empty` renders two (the roles line, then the empty-roles warning).
+  // renders one such line (the Role field's helper); `empty` renders one (the empty-roles warning).
   const lines = [...host.querySelectorAll('a[href="/app/agents/ag1"]')].map((a) => a.closest('p'));
   if (lines.some((l) => !l)) throw new Error(`an Agent link in the ${variant} variant is not inside a paragraph`);
   // One line per link: two links in one paragraph would count twice and measure the same chip twice.

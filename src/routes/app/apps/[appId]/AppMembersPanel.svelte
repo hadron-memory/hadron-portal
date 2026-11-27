@@ -345,17 +345,19 @@
             {#if addRoleError}
               <p id="addRoleError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addRoleError}</p>
             {/if}
-            {#if memberRoles.length > 0}
-              <p class="mt-1 text-xs text-zinc-500">
-                {t('app-members.add.roles-from', 'Roles come from the agents installed in this App, such as')}
-                <a href="/app/agents/{app.agent.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{app.agent.name}</a>.
-              </p>
-              <span class="mt-1 block min-w-0 max-w-full"><Urn value={app.agent.urn} type="agent" size={8} /></span>
-            {/if}
           </div>
           <button type="submit" disabled={$addSubmitting || memberRoles.length === 0 || !selectedUser || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
             {$addSubmitting ? 'Adding...' : 'Add member'}
           </button>
+          {#if memberRoles.length > 0}
+            <!-- A form-level line like the empty-roles one above: inside the Role field's flex item a long Agent URN would
+                 widen the item instead of truncating. -->
+            <p class="basis-full min-w-0 max-w-full text-xs text-zinc-500">
+              {t('app-members.add.roles-from', 'Roles come from the agents installed in this App, such as')}
+              <a href="/app/agents/{app.agent.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{app.agent.name}</a>.
+              <span class="mt-1 block min-w-0 max-w-full"><Urn value={app.agent.urn} type="agent" size={8} /></span>
+            </p>
+          {/if}
         </form>
 
         <SelectUser
