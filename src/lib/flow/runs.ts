@@ -200,6 +200,22 @@ export function failureCode(run: Pick<AppRun, 'failure'>): string | null {
   return typeof code === 'string' ? code : null;
 }
 
+/** The stored reason (`failure.reason`), if any. */
+export function failureReason(run: Pick<AppRun, 'failure'>): string | null {
+  const reason = run.failure && typeof run.failure === 'object' ? (run.failure as Record<string, unknown>).reason : null;
+  return typeof reason === 'string' ? reason : null;
+}
+
+/**
+ * The portal's own sentence for a stored failure reason it knows (C3-R8 (a)); null otherwise, so the page keeps
+ * showing the server's code and message. A run stopped before any work, with no amount named.
+ */
+export function failureSentence(run: Pick<AppRun, 'failure'>): string | null {
+  return failureReason(run) === 'DENIED_CREDITS'
+    ? t('run.failure.denied-credits', 'This run stopped because the account has no AI credit left.')
+    : null;
+}
+
 export function failureMessage(run: Pick<AppRun, 'failure'>): string | null {
   const msg = run.failure && typeof run.failure === 'object' ? (run.failure as Record<string, unknown>).message : null;
   return typeof msg === 'string' ? msg : null;

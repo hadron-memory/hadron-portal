@@ -328,7 +328,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         // The server's structured failure may still contain raw provider text
         // on an older deployment. Keep only a known code and fixed message.
         const code = result.error?.code;
-        const safeCode = code === 'NO_API_KEY' || code === 'KEY_UNREADABLE' || code === 'QUOTA_EXCEEDED' || code === 'CONFIG_INVALID' || code === 'LLM_CALL_FAILED'
+        const safeCode = code === 'NO_API_KEY' || code === 'KEY_UNREADABLE' || code === 'QUOTA_EXCEEDED' || code === 'CREDITS_EXHAUSTED' || code === 'CONFIG_INVALID' || code === 'LLM_CALL_FAILED'
           ? code : 'TEST_FAILED';
         return json({ result: result.error ? {
           ...result,

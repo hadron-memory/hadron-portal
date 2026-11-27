@@ -91,3 +91,28 @@ describe('#1308 defensive source and feedback pins', () => {
     expect(parseSyncReport(report({ entries: [{ ...entry, [field]: exact }] }), 'OK', at).entries[0][field]).toBe(exact);
   });
 });
+
+describe("a sync refused for the owner's limit (#2569, door 20, C3-R7 a)", () => {
+  // The server writes this report as version 3 (failedSyncReport: v1's failed codes are closed).
+  const stored = report({ version: 3, outcome: 'failed', code: 'OWNER_LIMIT_REACHED', entries: [] });
+  it('parses the stored marker as a failed attempt carrying the code (on main: unavailable)', () => {
+    expect(parseSyncReport(stored, 'ERROR', null)).toMatchObject({ state: 'failed', code: 'OWNER_LIMIT_REACHED' });
+  });
+  it('says the owner has reached a limit, in fixed copy, never the stored text', () => {
+    const text = syncOutcomeMessage({ lastSyncReport: stored, syncStatus: 'ERROR', syncError: 'ghp_secrettoken leaked here' });
+    expect(text).toEqual({ type: 'error', text: 'The sync was refused: the owner of this memory has reached a limit of their account.' });
+  });
+  it('still rejects an unknown failed code, a limit code with entries, and the limit code in a version the server never wrote it in', () => {
+    expect(parseSyncReport(report({ version: 3, outcome: 'failed', code: 'OTHER', entries: [] }), 'ERROR', null).state).toBe('unavailable');
+    expect(parseSyncReport(report({ version: 3, outcome: 'failed', code: 'OWNER_LIMIT_REACHED' }), 'ERROR', null).state).toBe('unavailable');
+    expect(parseSyncReport(report({ version: 2, outcome: 'failed', code: 'OWNER_LIMIT_REACHED', entries: [] }), 'ERROR', null).state).toBe('unavailable');
+    // a v3 report is only ever the failed limit report: partial or unknown with entries stays unavailable
+    for (const outcome of ['partial', 'unknown']) {
+      expect(parseSyncReport(report({ version: 3, outcome }), 'OK', null).state).toBe('unavailable');
+    }
+  });
+  it('also reads the version 1 limit report that merged #5127 wrote before #5019 moved it to version 3', () => {
+    expect(parseSyncReport(report({ version: 1, outcome: 'failed', code: 'OWNER_LIMIT_REACHED', entries: [] }), 'ERROR', null)).toMatchObject({ state: 'failed', code: 'OWNER_LIMIT_REACHED' });
+    expect(parseSyncReport(report({ version: 3, outcome: 'failed', code: 'SYNC_FAILED', entries: [] }), 'ERROR', null).state).toBe('unavailable');
+  });
+});

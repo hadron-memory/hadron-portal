@@ -58,6 +58,8 @@ function errorHeadline(e: NonNullable<AiConfigTestResult['error']>): string {
       return t('ai-config.test.error.unreadable', 'The stored key can’t be read on this server. Re-enter it and save.');
     case 'QUOTA_EXCEEDED':
       return t('ai-config.test.error.quota', 'Today’s token allowance is used up, so no test call was made.');
+    case 'CREDITS_EXHAUSTED':
+      return t('ai-config.test.error.credits', 'There is no AI credit left on this account, so no test call was made.');
     case 'LLM_CALL_FAILED':
       return e.transient
         ? t('ai-config.test.error.transient', 'The provider didn’t answer this time. Try again.')

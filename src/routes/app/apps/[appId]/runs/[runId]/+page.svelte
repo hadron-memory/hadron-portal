@@ -15,6 +15,7 @@
     describeTrigger,
     failureCode,
     failureMessage,
+    failureSentence,
     fmtRunTime,
     fmtHopDuration,
     fmtHopTokens,
@@ -209,7 +210,9 @@
       <h2 class="text-sm font-semibold text-red-700 dark:text-red-300">
         {failureCode(run) ?? t('run.failure', 'Failure')}
       </h2>
-      {#if failureMessage(run)}
+      {#if failureSentence(run)}
+        <p class="mt-1 text-sm text-red-700/90 dark:text-red-300/90">{failureSentence(run)}</p>
+      {:else if failureMessage(run)}
         <p class="mt-1 text-sm text-red-700/90 dark:text-red-300/90">{failureMessage(run)}</p>
       {/if}
       <pre class="mt-3 overflow-x-auto rounded-lg bg-white/60 p-3 font-mono text-xs text-red-900 dark:bg-black/30 dark:text-red-200">{JSON.stringify(run.failure, null, 2)}</pre>

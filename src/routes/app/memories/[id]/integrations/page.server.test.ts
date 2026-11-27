@@ -385,3 +385,13 @@ it('#1308 a returned per-memory failed report uses HTTP 500 even when syncStatus
   expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
   expect(JSON.stringify(superFormFrom(result)?.message)).not.toContain('SYNTHETIC');
 });
+
+describe("sync refused for the owner's limit (#2569, door 20, thrown path)", () => {
+  it('answers 409 with the server text (on main: 500, a generic git failure)', async () => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'The owner of this memory has reached a limit of their account.', extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'nodes', ownerType: 'organization', callerCanManageOwner: false } }] } });
+    const { actions } = await importMod();
+    const result = await actions.sync(commandEvent());
+    expect(result).toMatchObject({ status: 409 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'The owner of this memory has reached a limit of their account.' });
+  });
+});

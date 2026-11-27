@@ -29,6 +29,7 @@ import {
   unsubscribeOrgMemorySchema,
 } from './schema';
 import { gitFailureMessage } from '$lib/sync-error';
+import { limitRefusal } from '$lib/server/limit-refusal';
 
 type DeleteOrgMemoryForm = Infer<typeof deleteOrgMemorySchema, 'zod4'>;
 type OrgMemorySubscribeForm = Infer<typeof orgMemorySubscribeSchema, 'zod4'>;
@@ -284,24 +285,31 @@ export const actions: Actions = {
     const unfinished: string[] = [];
     const unconfirmed: string[] = [];
     const notes: string[] = [];
+    let limitRefusals = 0;
     for (const m of memories) {
       if (!m.source) continue;
       try {
         const res = await client.request<{ syncMemory: SyncOutcomeFields | null }>(SYNC_MEMORY_MUTATION, { ref: m.id });
         const { view, message: outcome } = classifySyncOutcome(res.syncMemory);
-        if (outcome.type === 'error') errors.push(`${m.name}: ${outcome.text}`);
+        if (outcome.type === 'error') {
+          errors.push(`${m.name}: ${outcome.text}`);
+          if (view.state === 'failed' && view.code === 'OWNER_LIMIT_REACHED') limitRefusals += 1;
+        }
         else if (res.syncMemory?.syncStatus !== 'OK') unfinished.push(m.name);
         else if (['partial', 'unknown', 'unavailable'].includes(view.state)) notes.push(m.name);
         else if (view.state !== 'clean') unconfirmed.push(m.name);
       } catch (e: unknown) {
-        errors.push(`${m.name}: ${gitFailureMessage(extractGqlError(e, ''), 'sync')}`);
+        // #2569 (door 20): a refusal for the owner's limit carries the server's text.
+        const limit = limitRefusal(e, { link: false });
+        if (limit) limitRefusals += 1;
+        errors.push(`${m.name}: ${limit ? limit.text : gitFailureMessage(extractGqlError(e, ''), 'sync')}`);
       }
     }
     if (errors.length) {
       return message(form, {
         type: 'error',
         text: t('org-memories.sync-errors', 'Sync errors: {errors}', { errors: errors.join(' · ') }),
-      }, { status: 500 });
+      }, { status: limitRefusals === errors.length ? 409 : 500 });
     }
     if (notes.length || unfinished.length || unconfirmed.length) {
       const parts: string[] = [];

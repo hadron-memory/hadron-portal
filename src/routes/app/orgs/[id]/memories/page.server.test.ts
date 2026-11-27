@@ -939,3 +939,49 @@ it('#1308 bulk OK without completion reports uncertainty, not failure to finish'
   expect(result.form.message.text).not.toContain('didn’t finish');
   expect(result.form.message.text).not.toContain('All memories synced.');
 });
+
+describe("syncAll refused for the owner's limit (#2569, door 20)", () => {
+  it('names the memory with the server text, and answers 409 when every refusal is a limit', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'mem-1', name: 'Git One', source: { type: 'git' } }] } });
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'This organization has reached its limit of 5 nodes.', extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'nodes', ownerType: 'organization', callerCanManageOwner: true, ownerId: 'o1', limit: '5' } }] } });
+    const result = (await runAction('syncAll', {})) as { status: number; data: { form: { message: { text: string } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message.text).toContain('Git One: This organization has reached its limit of 5 nodes.');
+  });
+  it('a stored limit marker in the sync result is worded in fixed copy and is also a 409', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'mem-1', name: 'Git One', source: { type: 'git' } }] } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'ERROR', syncError: 'The owner of this memory has reached a limit of their account.', lastSyncedAt: null,
+      lastSyncReport: JSON.stringify({ version: 3, outcome: 'failed', recordedAt: '2026-10-26T01:02:03.000Z', entries: [], code: 'OWNER_LIMIT_REACHED' }) } });
+    const result = (await runAction('syncAll', {})) as { status: number; data: { form: { message: { text: string } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message.text).toContain('Git One: The sync was refused: the owner of this memory has reached a limit of their account.');
+  });
+  it('a mix of a limit refusal and another failure is 500, not 409', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [
+      { id: 'mem-1', name: 'Git One', source: { type: 'git' } },
+      { id: 'mem-2', name: 'Git Two', source: { type: 'git' } },
+    ] } });
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'This organization has reached its limit of 5 nodes.', extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'nodes', ownerType: 'organization', callerCanManageOwner: true, ownerId: 'o1', limit: '5' } }] } });
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('syncAll', {})) as { status: number; data: { form: { message: { text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.text).toContain('Git One: This organization has reached its limit of 5 nodes.');
+    expect(result.data.form.message.text).toContain('Git Two: The last sync failed.');
+  });
+  it.each([
+    ['other then limit', ['other', 'limit']],
+    ['two limits then one other', ['limit', 'limit', 'other']],
+  ])('mixed refusals (%s) are 500, and all-limit refusals are 409 whatever the count', async (_name, order) => {
+    const limitErr = { response: { errors: [{ message: 'This organization has reached its limit of 5 nodes.', extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'nodes', ownerType: 'organization', callerCanManageOwner: true, ownerId: 'o1', limit: '5' } }] } };
+    mockRequest.mockResolvedValueOnce({ organization: { memories: order.map((_, i) => ({ id: `mem-${i}`, name: `Git ${i}`, source: { type: 'git' } })) } });
+    for (const kind of order) mockRequest.mockRejectedValueOnce(kind === 'limit' ? limitErr : new Error('nope'));
+    const result = (await runAction('syncAll', {})) as { status: number };
+    expect(result.status).toBe(500);
+  });
+  it('two limit refusals are 409', async () => {
+    const limitErr = { response: { errors: [{ message: 'm', extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'nodes', ownerType: 'organization', callerCanManageOwner: false } }] } };
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [0, 1].map((i) => ({ id: `mem-${i}`, name: `Git ${i}`, source: { type: 'git' } })) } });
+    mockRequest.mockRejectedValueOnce(limitErr).mockRejectedValueOnce(limitErr);
+    expect(((await runAction('syncAll', {})) as { status: number }).status).toBe(409);
+  });
+});

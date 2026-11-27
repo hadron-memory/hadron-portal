@@ -20,6 +20,7 @@ import {
 } from './schema';
 import { syncOutcomeMessage, type SyncOutcomeFields } from '$lib/sync-report';
 import { gitFailureMessage } from '$lib/sync-error';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 const memoryIntegrationFormAdapter = zod4(memoryIntegrationSchema);
 const pushMemoryIntegrationFormAdapter = zod4(pushMemoryIntegrationSchema);
@@ -122,6 +123,9 @@ export const actions: Actions = {
       const outcome = syncOutcomeMessage(res.syncMemory);
       return message(form, outcome, outcome.type === 'error' ? { status: 500 } : undefined);
     } catch (e: unknown) {
+      // #2569 (door 20): the server refused the whole import for the owner's limit; its text, as a 409.
+      const limit = limitRefusal(e, { link: false });
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       return message(form, { type: 'error', text: gitFailureMessage(extractGqlError(e, ''), 'sync') }, { status: 500 });
     }
   },
