@@ -121,7 +121,7 @@ export async function attachMemory({ request, params, locals }: { request: Reque
   if (!form.valid) return fail(400, { form });
   try {
     await gqlClient(locals.token).request(ATTACH_MEMORY_TO_APP_MUTATION, { memoryRef: form.data.memoryId, appRef: params.appId });
-    return message(form, { type: 'success', text: t('app.memory.attached', 'Memory linked to this App.') });
+    return message(form, { type: 'success', text: t('app.memory.attached', 'Memory attached to this App.') });
   } catch (e: unknown) {
     // Only known codes select fixed copy; no raw GraphQL or transport text.
     const code = extractGqlErrorCode(e);
