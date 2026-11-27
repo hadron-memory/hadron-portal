@@ -283,18 +283,19 @@ describe('detachMemory action', () => {
     expect(res.form.message?.text).toMatch(/link/i);
     expect(res.form.message?.text).not.toMatch(/delet/i);
   });
-  it('refuses a request with no memory before asking the server', async () => {
+  it('refuses a request with no memory before asking the server, and says so', async () => {
     const request = vi.fn();
-    await run({ memoryId: '' }, request);
+    const res = await run({ memoryId: '' }, request) as { status: number; data: { form: { message?: { type: string; text: string } } } };
     expect(request).not.toHaveBeenCalled();
+    expect(res.status).toBe(400);
+    expect(res.data.form.message).toMatchObject({ type: 'error', text: 'Choose a memory to detach and try again.' });
   });
   it.each([['FORBIDDEN', 403], ['UNAUTHENTICATED', 401], ['MEMORY_NOT_FOUND', 404], ['SOMETHING_ELSE', 500]])('answers a %s refusal with fixed copy and status %i, never server text', async (code, status) => {
     const request = vi.fn().mockRejectedValue({ response: { errors: [{ message: 'SECRET server text', extensions: { code } }] } });
-    const res = await run({ memoryId: 'm1' }, request) as { status?: number };
-    const text = JSON.stringify(res);
-    expect(text).not.toContain('SECRET');
-    expect(text).toContain('"error"');
-    expect(text).toContain(String(status));
+    const res = await run({ memoryId: 'm1' }, request) as { status?: number; data?: { form: { message?: { type: string; text: string } } } };
+    expect(res.status).toBe(status);
+    expect(res.data?.form.message?.type).toBe('error');
+    expect(JSON.stringify(res)).not.toContain('SECRET');
   });
   it('names who may detach only as the specs state it, in the FORBIDDEN copy', async () => {
     const res = JSON.stringify(await run({ memoryId: 'm1' }, vi.fn().mockRejectedValue({ response: { errors: [{ message: 'x', extensions: { code: 'FORBIDDEN' } }] } })));

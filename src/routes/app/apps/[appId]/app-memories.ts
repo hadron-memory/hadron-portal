@@ -149,7 +149,8 @@ export const DETACH_MEMORY_FROM_APP_MUTATION = /* GraphQL */ `
  */
 export async function detachMemory({ request, params, locals }: { request: Request; params: { appId: string }; locals: { token?: string | null } }) {
   const form = await superValidate<Infer<typeof detachAppMemorySchema, 'zod4'>, AttachMemoryMessage>(await request.formData(), zod4(detachAppMemorySchema), { id: `detachAppMemory:${params.appId}` });
-  if (!form.valid) return fail(400, { form });
+  // The hidden form has no field to show an error in, so a request with no memory says so in the outcome region.
+  if (!form.valid) return message(form, { type: 'error', text: t('app.memory.detach-invalid', 'Choose a memory to detach and try again.') }, { status: 400 });
   try {
     await gqlClient(locals.token).request(DETACH_MEMORY_FROM_APP_MUTATION, { memoryRef: form.data.memoryId, appRef: params.appId });
     return message(form, { type: 'success', text: t('app.memory.detached', 'Link removed. The memory itself is unchanged.') });

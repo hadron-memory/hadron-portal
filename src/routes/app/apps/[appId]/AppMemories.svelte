@@ -40,6 +40,12 @@
     create?: Snippet;
   } = $props();
 
+  // Which form's result the outcome region shows: the one submitted last. Each superForm clears only its own message,
+  // so showing the first message set would let an old result hide a newer refusal (portal#2680 blind review).
+  type Outcome = 'attach' | 'own' | 'detach';
+  let lastOutcome = $state<Outcome>(untrack(() => submittedForm(result, 'detachAppMemory') ? 'detach' : submittedForm(result, 'createOwnAppMemory') ? 'own' : 'attach'));
+  const submitted = (which: Outcome) => () => { lastOutcome = which; candidatesFailed = false; };
+
   let search = $state('');
   const columns: PortalColumnDef<AppMemoryRow>[] = [
     { accessorKey: 'name', header: t('app.memory.name', 'Name'), enableHiding: false, size: 300 },
@@ -59,19 +65,21 @@
   const { form, message, enhance, submit, submitting } = superForm(untrack(() => {
     const submitted = submittedForm<AttachFields>(result, 'attachAppMemory') as SuperValidated<AttachFields, AttachMemoryMessage> | null;
     return (failedSubmission<AttachFields>(result, 'attachAppMemory') as SuperValidated<AttachFields, AttachMemoryMessage> | null) ?? { ...attachForm, message: submitted?.message };
-  }), { validators: zod4Client(attachAppMemorySchema), invalidateAll: 'force', resetForm: true });
+  }), { validators: zod4Client(attachAppMemorySchema), invalidateAll: 'force', resetForm: true, onSubmit: submitted('attach') });
 
   // Removing a link: one memory, after a confirmation. The server decides who may and answers a link already gone with success.
   const { form: detachValues, message: detachMessage, enhance: detachEnhance, submit: detachSubmit, submitting: detachSubmitting } = superForm(untrack(() => {
     const submitted = submittedForm<DetachFields>(result, 'detachAppMemory') as SuperValidated<DetachFields, AttachMemoryMessage> | null;
     return (failedSubmission<DetachFields>(result, 'detachAppMemory') as SuperValidated<DetachFields, AttachMemoryMessage> | null) ?? { ...detachForm, message: submitted?.message };
-  }), { validators: zod4Client(detachAppMemorySchema), invalidateAll: 'force', resetForm: true });
-  let detaching = $state<AppMemoryRow | null>(null);
+  }), { validators: zod4Client(detachAppMemorySchema), invalidateAll: 'force', resetForm: true, onSubmit: submitted('detach') });
+  let pendingDetach = $state<AppMemoryRow | null>(null);
   async function detach() {
-    if (!detaching || $detachSubmitting) return;
-    $detachValues.memoryId = detaching.id;
+    // Close first, synchronously: a second press on Confirm finds nothing pending, so the memory posts once.
+    const row = pendingDetach;
+    if (!row || $detachSubmitting) return;
+    pendingDetach = null;
+    $detachValues.memoryId = row.id;
     await tick();
-    detaching = null;
     detachSubmit();
   }
 
@@ -79,7 +87,7 @@
   const { form: ownValues, message: ownMessage, enhance: ownEnhance, submit: ownSubmit, submitting: ownSubmitting } = superForm(untrack(() => {
     const submitted = submittedForm<OwnFields>(result, 'createOwnAppMemory') as SuperValidated<OwnFields, OwnMemoryMessage> | null;
     return (failedSubmission<OwnFields>(result, 'createOwnAppMemory') as SuperValidated<OwnFields, OwnMemoryMessage> | null) ?? { ...ownForm, message: submitted?.message };
-  }), { validators: zod4Client(createOwnAppMemorySchema), invalidateAll: 'force', resetForm: true });
+  }), { validators: zod4Client(createOwnAppMemorySchema), invalidateAll: 'force', resetForm: true, onSubmit: submitted('own') });
   async function createOwn(memoryClass: OwnMemoryClass) {
     if (!agentId || $ownSubmitting) return;
     $ownValues.memoryClass = memoryClass;
@@ -152,7 +160,7 @@
           {/if}
         {:else if cell.column.id === 'actions'}
           {#if memory.link}
-            <button type="button" data-testid="app-memory-detach" aria-label={t('app.memory.detach-aria', 'Detach {name}', { name: memory.name })} onclick={() => { detaching = memory; }}
+            <button type="button" data-testid="app-memory-detach" aria-label={t('app.memory.detach-aria', 'Detach {name}', { name: memory.name })} onclick={() => { pendingDetach = memory; }}
               class="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.memory.detach-button', 'Detach')}</button>
           {/if}
         {:else}{memory.class}{/if}
@@ -160,10 +168,10 @@
     </DataTable>
   {/if}
   <!-- The outcome of adding an existing memory, beside the list it changed. -->
-  <LiveOutcome failed={$message?.type === 'error' || $ownMessage?.type === 'error' || $detachMessage?.type === 'error' || candidatesFailed}>
+  <LiveOutcome failed={candidatesFailed || (lastOutcome === 'own' ? $ownMessage : lastOutcome === 'detach' ? $detachMessage : $message)?.type === 'error'}>
     {#if candidatesFailed}
       <p class="text-sm text-red-600 dark:text-red-400">{t('app.memory.candidates-failed', 'Could not load your memories. Please try again.')}</p>
-    {:else if $ownMessage}
+    {:else if lastOutcome === 'own' && $ownMessage}
       <div class="text-sm {$ownMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">
         <p>{$ownMessage.text}</p>
         {#if $ownMessage.type === 'success' && $ownMessage.created}
@@ -171,9 +179,9 @@
           <div class="mt-1"><Urn value={$ownMessage.created.urn} type="memory" size={10} /></div>
         {/if}
       </div>
-    {:else if $detachMessage}
+    {:else if lastOutcome === 'detach' && $detachMessage}
       <p class="text-sm {$detachMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$detachMessage.text}</p>
-    {:else if $message}
+    {:else if lastOutcome === 'attach' && $message}
       <p class="text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>
     {/if}
   </LiveOutcome>
@@ -187,8 +195,8 @@
   <input type="hidden" name="_kind" value="detachAppMemory" />
   <input type="hidden" name="memoryId" value={$detachValues.memoryId} />
 </form>
-{#if detaching}
-  <AppMemoryDetachDialog memory={detaching} pending={$detachSubmitting} onconfirm={detach} oncancel={() => { detaching = null; }} />
+{#if pendingDetach}
+  <AppMemoryDetachDialog memory={pendingDetach} onconfirm={detach} oncancel={() => { pendingDetach = null; }} />
 {/if}
 <form method="POST" action="?/createOwnMemory" use:ownEnhance class="hidden">
   <input type="hidden" name="_kind" value="createOwnAppMemory" />
