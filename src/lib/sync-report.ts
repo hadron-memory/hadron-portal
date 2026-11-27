@@ -72,10 +72,11 @@ export function parseSyncReport(raw: unknown, status?: string | null, completedA
     // Version 3 is read only as the failed limit report below; a version 3 report with entries stays unavailable.
     if (value.version === 3 && value.outcome !== 'failed') return unavailable;
     if (value.outcome === 'failed') {
-      // The server writes a failed report as version 1 (SYNC_FAILED, BAD_USER_INPUT) or version 3 (OWNER_LIMIT_REACHED, #5015/#5019);
-      // a code in any other version is one it never writes, so the report is not trusted.
+      // The server writes a failed report as version 1 (SYNC_FAILED, BAD_USER_INPUT) or, for OWNER_LIMIT_REACHED, version 3
+      // (#5019); merged #5127 wrote that code as version 1 for a few hours first, so a stored v1 limit report can exist.
+      // A code in any other version is one the server never wrote, so the report is not trusted.
       const code = value.code;
-      const allowed = value.version === 3 ? code === 'OWNER_LIMIT_REACHED' : code === 'SYNC_FAILED' || code === 'BAD_USER_INPUT';
+      const allowed = code === 'OWNER_LIMIT_REACHED' ? value.version === 1 || value.version === 3 : value.version !== 3 && (code === 'SYNC_FAILED' || code === 'BAD_USER_INPUT');
       if (value.entries.length !== 0 || !allowed) return unavailable;
       return { state: 'failed', recordedAt: value.recordedAt, code: code as 'SYNC_FAILED' | 'BAD_USER_INPUT' | 'OWNER_LIMIT_REACHED', entries: [] };
     }
