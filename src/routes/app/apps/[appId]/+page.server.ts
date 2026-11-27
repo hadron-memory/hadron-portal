@@ -7,7 +7,7 @@ import { runAppFlow } from '$lib/server/run-app-flow';
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
 
-import { attachMemory, createMemory, createOwnMemory, readViewerMemoryClasses, readAppMemoryScope, readAttachedMemories, withLinkedMemories, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
+import { attachMemory, detachMemory, createMemory, createOwnMemory, readViewerMemoryClasses, readAppMemoryScope, readAttachedMemories, withLinkedMemories, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
 import { writeCustomisation } from '$lib/server/install-customisation';
 import { readDeleteWorkerPost, deleteWorkerFailureRefusal, type DeleteWorkerRefusal, type DeleteWorkerResult } from '$lib/workers/delete-worker';
 
@@ -130,6 +130,7 @@ import {
   createAppMemorySchema,
   createOwnAppMemorySchema,
   attachAppMemorySchema,
+  detachAppMemorySchema,
   addAgentSchema,
   appSettingsSchema,
   castWorkerSchema,
@@ -1163,12 +1164,13 @@ export async function _loadAppPage(
           })
       : null;
 
-  const [appMemoryScope, attachedMemories, viewerMemoryClasses, createMemoryForm, attachMemoryForm, createOwnMemoryForm] = await Promise.all([
+  const [appMemoryScope, attachedMemories, viewerMemoryClasses, createMemoryForm, attachMemoryForm, detachMemoryForm, createOwnMemoryForm] = await Promise.all([
     wants('memoryScope') ? readAppMemoryScope(client, app.id) : null,
     wants('memoryScope') ? readAttachedMemories(client, app.id) : null,
     wants('appMemories') ? readViewerMemoryClasses(client, app.id) : null,
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
     superValidate(zod4(attachAppMemorySchema), { id: `attachAppMemory:${app.id}`, errors: false }),
+    superValidate(zod4(detachAppMemorySchema), { id: `detachAppMemory:${app.id}`, errors: false }),
     superValidate(zod4(createOwnAppMemorySchema), { id: `createOwnAppMemory:${app.id}`, errors: false }),
   ]);
 
@@ -1213,6 +1215,7 @@ export async function _loadAppPage(
     appMemories: withLinkedMemories(appMemoriesFromScope(appMemoryScope, app.id), attachedMemories),
     createMemoryForm,
     attachMemoryForm,
+    detachMemoryForm,
     createOwnMemoryForm,
     viewerMemoryClasses,
     canCreateMemory: canCreateAppMemory({ members: orgMembers ?? [] }, locals.user?.id ?? null, { userOwned: !app.organizationId, canManageApp: canManageApp as boolean | null }),
@@ -1339,6 +1342,7 @@ export const actions: Actions = {
   run: runAppFlow,
   createMemory,
   attachMemory,
+  detachMemory,
   createOwnMemory,
   createCustomisation: async ({ request, params, locals }) =>
     writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
