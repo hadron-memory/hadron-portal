@@ -185,6 +185,7 @@
   import AppTickers from './AppTickers.svelte';
   import AppStops from './AppStops.svelte';
   import AppChannels from './AppChannels.svelte';
+  import AppRegister from './AppRegister.svelte';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { holderForHold, holderLabel, workerHold } from '$lib/worker-hold';
   import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
@@ -3022,7 +3023,6 @@
     { id: 'questions', label: t('app.tabs.questions', 'Questions'), href: `/app/apps/${app.id}/questions` },
     { id: 'usage', label: t('app.tabs.token-use', 'Token use'), href: `/app/apps/${app.id}/usage` },
     { id: 'metrics', label: t('app.tabs.metrics', 'Team metrics'), href: `/app/apps/${app.id}/metrics` },
-    { id: 'register', label: t('app.tabs.register', 'Action register'), href: `/app/apps/${app.id}/register` },
     ...(data.viewerManages?.kind === 'known' && data.viewerManages.manages ? [{ id: 'grants', label: t('app.tabs.grants', 'Grants'), href: `/app/apps/${app.id}/grants` }] : []),
     { id: 'automations', label: t('app.tabs.automations', 'Automations'), href: `/app/apps/${app.id}/automations` }
   ]} active={activeTab} label={t('app.tabs-label', 'App sections')} onselect={(id) => { void focusTab(id as TabId); }} />
@@ -4891,13 +4891,36 @@
       </div>
       </CollapsibleSection>
 
-      <!-- portal#2194: the host-sweep switch. Everyone who can read it sees the mode;
-           only an App manager acting as themselves gets the controls. -->
-      {#if data.app.sweepMode}
-        <CollapsibleSection id="sweep-mode" title={t('app.sweep-mode.heading', 'Sweep mode')} bind:open={openSections['sweep-mode']}>
-          <AppSweepMode embedded ownerId={app.id} mode={data.app.sweepMode} canManage={tabData.canManageApp === true && !impersonating} />
-        </CollapsibleSection>
-      {/if}
+      <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
+      <CollapsibleSection id="accessible-memories" title={`${t('app.memory-scope.heading', 'Accessible Memories')}${memoryScope !== null ? ` (${memoryScope.length})` : ''}`} bind:open={openSections['accessible-memories']}>
+        <div class="max-w-4xl"><AccessibleMemories rows={memoryScope} /></div>
+      </CollapsibleSection>
+
+      <!-- portal#1649: the former /register page, in place. Read when the section unfolds; the asking Agent and the paging are the URL's. -->
+      <CollapsibleSection id="register" title={t('app.tabs.register', 'Action register')} bind:open={openSections['register']}>
+        {#if tabData.registerPanel}
+          <AppRegister appId={app.id} panel={tabData.registerPanel} />
+        {:else}
+          {@render tabArriving('register')}
+        {/if}
+      </CollapsibleSection>
+
+      <CollapsibleSection id="ai-configs" title={t('app.tabs.ai-configs', 'AI Service Configs')} bind:open={openSections['ai-configs']}>
+        <div class="max-w-2xl">{@render aiConfigsBody()}</div>
+      </CollapsibleSection>
+
+      <CollapsibleSection id="keys" title={t('app.tabs.keys', 'App Keys')} bind:open={openSections['keys']}>
+        {#if tabShown('keys')}{@render keysBody()}{:else}{@render tabArriving('keys')}{/if}
+      </CollapsibleSection>
+
+      <!-- #942: the former /channels page, in place. Read when the section unfolds; its writes are the page's own actions. -->
+      <CollapsibleSection id="channels" title={t('app.tabs.channels', 'Channels')} bind:open={openSections['channels']}>
+        {#if tabData.channelsPanel}
+          <AppChannels appId={app.id} panel={tabData.channelsPanel} {form} orgIds={(data.navOrgs ?? []).map((o: { id: string }) => o.id)} />
+        {:else}
+          {@render tabArriving('channels')}
+        {/if}
+      </CollapsibleSection>
 
       <!-- portal#1963: the App's chatbot AI config. Keyed on the App, so a pick never follows the person to another App. -->
       {#if app.agentId}
@@ -4913,6 +4936,17 @@
         </CollapsibleSection>
       {/if}
 
+      <!-- #1936: the former /node-role-templates page, in place: shown to everyone who saw the old link (the page itself);
+           writes stay gated on `canManage`. The manager guards an unsaved draft against route changes itself; the Settings
+           panel stays mounted, so a tab switch cannot lose it. -->
+      <CollapsibleSection id="node-role-templates" title={t('config.templates', 'Node-role templates')} bind:open={openSections['node-role-templates']}>
+        {#if tabData.templatesPanel}
+          <AppNodeRoleTemplates embedded data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />
+        {:else}
+          {@render tabArriving('node-role-templates')}
+        {/if}
+      </CollapsibleSection>
+
       <!-- portal#2464: the roles this App's saturation alarms wake. Keyed on the App, so a draft never follows the person to another App. -->
       {#if tabData.saturationWakeRoles && tabData.saturationWakeRoles.kind !== 'hidden'}
       <CollapsibleSection id="wake-roles" title={t('app.wake-roles.title', 'Saturation alarm wake roles')} bind:open={openSections['wake-roles']}>
@@ -4926,45 +4960,12 @@
       </CollapsibleSection>
       {/if}
 
-      <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
-      <CollapsibleSection id="accessible-memories" title={`${t('app.memory-scope.heading', 'Accessible Memories')}${memoryScope !== null ? ` (${memoryScope.length})` : ''}`} bind:open={openSections['accessible-memories']}>
-        <div class="max-w-4xl"><AccessibleMemories rows={memoryScope} /></div>
-      </CollapsibleSection>
-
-      <CollapsibleSection id="keys" title={t('app.tabs.keys', 'App Keys')} bind:open={openSections['keys']}>
-        {#if tabShown('keys')}{@render keysBody()}{:else}{@render tabArriving('keys')}{/if}
-      </CollapsibleSection>
-
-      <CollapsibleSection id="ai-configs" title={t('app.tabs.ai-configs', 'AI Service Configs')} bind:open={openSections['ai-configs']}>
-        <div class="max-w-2xl">{@render aiConfigsBody()}</div>
-      </CollapsibleSection>
-
-      <!-- #1936: the former /node-role-templates page, in place: shown to everyone who saw the old link (the page itself);
-           writes stay gated on `canManage`. The manager guards an unsaved draft against route changes itself; the Settings
-           panel stays mounted, so a tab switch cannot lose it. -->
-      <CollapsibleSection id="node-role-templates" title={t('config.templates', 'Node-role templates')} bind:open={openSections['node-role-templates']}>
-        {#if tabData.templatesPanel}
-          <AppNodeRoleTemplates embedded data={tabData.templatesPanel} bind:leaveMessage={templatesLeaveMessage} />
-        {:else}
-          {@render tabArriving('node-role-templates')}
-        {/if}
-      </CollapsibleSection>
-
       <!-- portal#2380: the former /secrets page, in place. Read when the section unfolds; its writes are the page's own actions. -->
       <CollapsibleSection id="secrets" title={t('app.settings.section.secrets', 'Secrets store')} bind:open={openSections['secrets']}>
         {#if tabData.secretsPanel}
           <AppSecrets appId={app.id} appUrn={app.urn} panel={tabData.secretsPanel} {form} />
         {:else}
           {@render tabArriving('secrets')}
-        {/if}
-      </CollapsibleSection>
-
-      <!-- portal#1099: the former /tickers list, in place. Read when the section unfolds; its writes are the page's own actions. -->
-      <CollapsibleSection id="tickers" title={t('app.tabs.tickers', 'Tickers')} bind:open={openSections['tickers']}>
-        {#if tabData.tickersPanel}
-          <AppTickers appId={app.id} panel={tabData.tickersPanel} />
-        {:else}
-          {@render tabArriving('tickers')}
         {/if}
       </CollapsibleSection>
 
@@ -4977,12 +4978,20 @@
         {/if}
       </CollapsibleSection>
 
-      <!-- #942: the former /channels page, in place. Read when the section unfolds; its writes are the page's own actions. -->
-      <CollapsibleSection id="channels" title={t('app.tabs.channels', 'Channels')} bind:open={openSections['channels']}>
-        {#if tabData.channelsPanel}
-          <AppChannels appId={app.id} panel={tabData.channelsPanel} {form} orgIds={(data.navOrgs ?? []).map((o: { id: string }) => o.id)} />
+      <!-- portal#2194: the host-sweep switch. Everyone who can read it sees the mode;
+           only an App manager acting as themselves gets the controls. -->
+      {#if data.app.sweepMode}
+        <CollapsibleSection id="sweep-mode" title={t('app.sweep-mode.heading', 'Sweep mode')} bind:open={openSections['sweep-mode']}>
+          <AppSweepMode embedded ownerId={app.id} mode={data.app.sweepMode} canManage={tabData.canManageApp === true && !impersonating} />
+        </CollapsibleSection>
+      {/if}
+
+      <!-- portal#1099: the former /tickers list, in place. Read when the section unfolds; its writes are the page's own actions. -->
+      <CollapsibleSection id="tickers" title={t('app.tabs.tickers', 'Tickers')} bind:open={openSections['tickers']}>
+        {#if tabData.tickersPanel}
+          <AppTickers appId={app.id} panel={tabData.tickersPanel} />
         {:else}
-          {@render tabArriving('channels')}
+          {@render tabArriving('tickers')}
         {/if}
       </CollapsibleSection>
 

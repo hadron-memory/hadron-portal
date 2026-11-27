@@ -26,7 +26,7 @@ const DROPPED: Array<{ file: string; marker: string; why: string }> = [
   { file: 'src/routes/app/apps/[appId]/AppMembersPanel.svelte', marker: 'app-members.add.no-roles', why: 'the offered roles are loader data' },
   { file: 'src/routes/app/apps/[appId]/automations/+page.svelte', marker: 'automations-empty', why: 'the rows are loader data' },
   { file: 'src/routes/app/apps/[appId]/grants/+page.svelte', marker: 'grants.impersonating', why: 'a static note about the viewer, not a result' },
-  { file: 'src/routes/app/apps/[appId]/register/+page.svelte', marker: 'action-register.no-agents', why: 'the options are loader data' },
+  { file: 'src/routes/app/apps/[appId]/AppRegister.svelte', marker: 'action-register.no-agents', why: 'the options are loader data' },
   { file: 'src/routes/app/apps/[appId]/AppStops.svelte', marker: 'stops-empty', why: 'the rows are loader data' },
   { file: 'src/routes/app/apps/[appId]/AppTickers.svelte', marker: 'tickers-empty', why: 'the rows are loader data' },
   { file: 'src/routes/app/apps/[appId]/tickers/[tickerId]/+page.svelte', marker: 'subscribers-empty', why: 'the rows are loader data' },
