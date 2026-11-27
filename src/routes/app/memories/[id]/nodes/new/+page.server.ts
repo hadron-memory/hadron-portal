@@ -19,6 +19,7 @@ import {
 } from '$lib/i18n/create-node-strings';
 import type { Actions, PageServerLoad } from './$types';
 import { createNodeSchema } from './schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 type CreateNodeForm = Infer<typeof createNodeSchema, 'zod4'>;
 
@@ -146,6 +147,8 @@ export const actions: Actions = {
       });
       newId = result.createNode.id;
     } catch (e: unknown) {
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       // portal#1142 S2b: an include refusal created nothing; the form keeps
       // what was typed, with the server's words, the tag and the next step.
       const include = includeRefusalOf(e);

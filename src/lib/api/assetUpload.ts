@@ -107,7 +107,7 @@ export interface UploadAssetOptions {
 }
 
 export class AssetUploadError extends Error {
-  constructor(public code: string, message: string) {
+  constructor(public code: string, message: string, public action?: { label: string; href: string }) {
     super(message);
     this.name = 'AssetUploadError';
   }
@@ -190,7 +190,7 @@ function putToStorage(
 }
 
 async function asUploadError(res: Response): Promise<AssetUploadError> {
-  let body: { code?: string; message?: string } = {};
+  let body: { code?: string; message?: string; action?: { label?: unknown; href?: unknown } } = {};
   try {
     body = await res.json();
   } catch {
@@ -199,6 +199,7 @@ async function asUploadError(res: Response): Promise<AssetUploadError> {
   return new AssetUploadError(
     body.code ?? `HTTP_${res.status}`,
     body.message ?? `request failed: ${res.status} ${res.statusText}`,
+    typeof body.action?.label === 'string' && typeof body.action.href === 'string' ? { label: body.action.label, href: body.action.href } : undefined,
   );
 }
 

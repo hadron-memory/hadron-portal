@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LimitActionLink from '$lib/components/LimitActionLink.svelte';
   import { Paperclip, X } from 'lucide-svelte';
   import { uploadAsset, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
   import { assetErrorMessage } from '$lib/assets/error-messages';
@@ -17,6 +18,7 @@
   let uploading = $state(false);
   let progress = $state(0);
   let error = $state<string | null>(null);
+  let errorAction = $state<{ label: string; href: string } | null>(null);
   let controller: AbortController | null = null;
 
   async function pick() {
@@ -26,6 +28,7 @@
 
   async function onChange(e: Event) {
     error = null;
+    errorAction = null;
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!file) return;
     if (maxSizeBytes && file.size > maxSizeBytes) {
@@ -49,6 +52,7 @@
     } catch (err) {
       if (err instanceof AssetUploadError) {
         error = assetErrorMessage(err.code, err.message);
+        errorAction = err.action ?? null;
         onerror?.(err);
       } else {
         error = (err as Error).message;
@@ -102,5 +106,6 @@
 
   {#if error}
     <span class="text-xs text-red-600 dark:text-red-400">{error}</span>
+    <LimitActionLink action={errorAction} />
   {/if}
 </div>

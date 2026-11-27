@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LimitActionLink from '$lib/components/LimitActionLink.svelte';
   import { t } from '$lib/i18n/t';
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
@@ -116,7 +117,7 @@
   </div>
 
   {#if actionError}
-    <div class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
+    <div class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}<LimitActionLink action={$message?.type === 'error' ? $message.action : null} /></div>
   {/if}
 
   <form method="POST" onsubmit={markSubmitAttempted} use:enhance novalidate>

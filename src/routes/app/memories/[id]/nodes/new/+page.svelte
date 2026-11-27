@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LimitActionLink from '$lib/components/LimitActionLink.svelte';
   import { t } from '$lib/i18n/t';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { untrack } from 'svelte';
@@ -173,6 +174,7 @@
   {#if actionError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
       {actionError}
+      <LimitActionLink action={$message?.type === 'error' ? $message.action : null} />
     </div>
   {/if}
 

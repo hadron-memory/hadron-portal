@@ -37,6 +37,7 @@ import type { Organization, Agent, App } from '$lib/types';
 import { t } from '$lib/i18n/t';
 import type { Actions, PageServerLoad } from './$types';
 import { installAgentSchema, installExistingAppSchema } from './schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 type AppChoice = Pick<App, 'id' | 'name' | 'urn'>;
 type InstallAgentForm = Infer<typeof installAgentSchema, 'zod4'>;
@@ -231,6 +232,8 @@ export const actions: Actions = {
       });
       createdApp = result.createApp;
     } catch (e) {
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const msg = extractGqlError(e, 'Install failed.', CREATE_APP_REFUSALS);
       if (/already exists/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'urn', installStrings.errorUrnCollision(), { status: 409 });

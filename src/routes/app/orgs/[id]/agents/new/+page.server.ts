@@ -8,6 +8,7 @@ import { CREATE_AGENT_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createAgentSchema } from './schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 const createAgentFormAdapter = zod4(createAgentSchema);
 
@@ -42,6 +43,8 @@ export const actions: Actions = {
       redirect(303, `/app/orgs/${params.id}/agents`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const msg = extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"]);
       if (extractGqlErrorCode(e) === 'AGENT_URN_TAKEN' || /agent with URN/i.test(gqlErrorTextForBranching(e, ['AGENT_URN_TAKEN']))) return setError(form, 'slug', msg, { status: 409 });
       return message(form, { type: 'error', text: msg }, { status: 500 });

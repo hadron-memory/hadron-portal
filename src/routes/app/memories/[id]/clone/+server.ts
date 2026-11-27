@@ -3,6 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { CLONE_MEMORY_MUTATION } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
+import { limitRefusal } from '$lib/server/limit-refusal';
 
 // #520: clone the memory (params.id) into a new memory at `targetUrn`. The
 // client owns the full `<org>::<slug>` URN string (composed via the Clone
@@ -28,6 +29,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     }>(CLONE_MEMORY_MUTATION, { ref: params.id, targetUrn });
     return json({ memory: res.cloneMemory });
   } catch (e: unknown) {
+    const limit = limitRefusal(e, { link: false });
+    if (limit) return json({ error: limit.text, code: limit.code, ...(limit.action ? { action: limit.action } : {}) }, { status: limit.status });
     // A malformed/occupied targetUrn, or a system/encrypted source, comes back
     // as BAD_USER_INPUT — surface the server's message as a friendly 400 rather
     // than a generic 500 (matches the /api/nodes/search + move endpoints).

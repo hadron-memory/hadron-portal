@@ -6,6 +6,7 @@ import { extractGqlErrorCode, gqlErrorTextForBranching, extractGqlError } from '
 import { CREATE_PERSONAL_AGENT_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { createPersonalAgentSchema } from './schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 const adapter = zod4(createPersonalAgentSchema);
 
@@ -38,6 +39,8 @@ export const actions: Actions = {
       redirect(303, `/app/agents/${result.createAgent.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const error = extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"]);
       if (extractGqlErrorCode(e) === 'AGENT_URN_TAKEN' || /agent with URN/i.test(gqlErrorTextForBranching(e, ['AGENT_URN_TAKEN']))) {
         return setError(form, 'slug', error, { status: 409 });
