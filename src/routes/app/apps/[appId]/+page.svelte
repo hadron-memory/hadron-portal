@@ -3132,7 +3132,7 @@
   <!-- The visible line sits in a panel that unmounts when the tab arrives, so a persistent region beside it does the announcing. -->
   <LiveRegion class="sr-only" data-testid="tab-loading-region">{#if wantedTabIds.some((id) => !tabShown(id) && !tabFailedFor(id))}{t('app.tab.loading', 'Loading…')}{/if}</LiveRegion>
   {#if !tabShown(activeTab as AppTabId)}
-    <div id="panel-{activeTab}" role="tabpanel" aria-labelledby="tab-{activeTab}" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    <div id="panel-{activeTab}" role="tabpanel" aria-labelledby="tab-{activeTab === 'members' ? 'staff' : activeTab}" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       {@render tabArriving()}
     </div>
   {/if}

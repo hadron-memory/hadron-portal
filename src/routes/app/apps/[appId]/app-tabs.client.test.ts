@@ -172,6 +172,24 @@ describe('Team tab: AI team | Human team toggle', () => {
     expect(target.querySelector('#panel-members')?.getAttribute('aria-labelledby')).toBe('tab-staff');
   });
 
+  it('the placeholder panel of a Human team view still being read is labelled by the Team tab (there is no tab-members)', async () => {
+    const target = await mountTab('staff');
+    const { members: _m, membersError: _e, membersWithheld: _w, ...rest } = lastProps.data as Record<string, unknown>;
+    lastProps.data = rest;
+    await tick(4);
+    toggle(target)[1].click();
+    await tick(2);
+    const panel = target.querySelector('#panel-members')!;
+    expect(panel.textContent).toContain('Loading');
+    expect(target.querySelector(`#${panel.getAttribute('aria-labelledby')}`)).not.toBeNull();
+  });
+
+  it('keeps the Human team view on a page whose tab list has no members entry (the validity guard exempts it)', async () => {
+    const target = await mountTab('members');
+    expect(target.querySelector('#panel-members')).not.toBeNull();
+    expect(target.querySelector('#panel-staff')).toBeNull();
+  });
+
   it('shows no toggle on other tabs', async () => {
     expect(toggle(await mountTab('agents'))).toHaveLength(0);
   });
