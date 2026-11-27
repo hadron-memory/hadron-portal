@@ -1,4 +1,4 @@
-# Exported from hadron-server 399b2d6b33cf5f1237f0a918c4edc1a7c4157221 (399b2d6b33cf5f1237f0a918c4edc1a7c4157221, 2026-11-27T08:46:16Z) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 13cd1c30543cb713baad692ba32aab6155118b40 (13cd1c30, 2026-11-27T10:00:52Z) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -7837,7 +7837,7 @@ secret keeps its values as versions: every store adds one
 """
 input IssueSecretReadClientInput {
   """
-  Delete the secret at the client's last read or when its window ends. Needs a window or a read budget. Refusals, in the order they are judged: holderKind APP in REVEAL mode (GRANT_HOLDER_NOT_ALLOWED); an unreadable startsAt or expiresAt (BAD_USER_INPUT); a marked request without a window or a read budget (SECRET_AUTO_DELETE_NEEDS_LIMIT); a caller who is neither an App manager nor the writer of the secret's current version (SECRET_AUTO_DELETE_NOT_ALLOWED, where an unmarked request would get FORBIDDEN or SECRET_READ_CLIENT_SUPERSEDED).
+  Delete the secret at the client's last read or when its window ends. Needs a window or a read budget. Refusals, in the order they are judged: holderKind APP in REVEAL mode (GRANT_HOLDER_NOT_ALLOWED); an unreadable startsAt or expiresAt (BAD_USER_INPUT); a marked request without a window or a read budget (SECRET_AUTO_DELETE_NEEDS_LIMIT); a caller who is neither an App manager nor the writer of the secret's current version (SECRET_AUTO_DELETE_NOT_ALLOWED, where an unmarked request would get FORBIDDEN or SECRET_READ_CLIENT_SUPERSEDED); then a protected secret without deleteAfterUse (SECRET_AUTO_DELETE_NOT_ALLOWED, hrn:node:hadronmemory.com:specs:cor:sec:060:03).
   """
   autoDelete: Boolean! = false
   bindingHeader: String
@@ -13614,8 +13614,18 @@ type Mutation {
   while a metadata-only edit of such a row is refused (the stored type is
   unavailable) until a value rewrite restores it. This holds for protected
   and unprotected App rows alike; it is not part of the passkey rules above.
+  deleteAfterUse (App secrets only; refused on org and user secrets) is the
+  consent that lets a read client's auto-delete mark delete a PROTECTED secret
+  (hrn:node:hadronmemory.com:specs:cor:sec:060:03). On an unprotected secret it is
+  a plain field any member may set, and changes nothing by itself; turning protection
+  on (here or through setSecretProtected) clears it, so a protected secret is armed only
+  through the ceremony below. On a protected
+  secret it must be passed alone and is staged as SET_DELETE_AFTER_USE or
+  CLEAR_DELETE_AFTER_USE through the requester's ceremony, as above; setting it
+  needs the secret's creator or whoever manages the App. Asking for the value it
+  already has returns the Secret and changes nothing.
   """
-  updateSecret(metadata: JSON, protected: Boolean, ref: ID!, value: JSON): Secret!
+  updateSecret(deleteAfterUse: Boolean, metadata: JSON, protected: Boolean, ref: ID!, value: JSON): Secret!
 
   """
   #931: update a live session's mutable provenance fields (a PR is usually
@@ -20439,6 +20449,11 @@ type Secret {
   The newest version's number. App secrets only; null for org and user secrets (they have no versions).
   """
   currentVersion: Int
+
+  """
+  Whether a read client's auto-delete mark may delete this secret after its use (hrn:node:hadronmemory.com:specs:cor:sec:060:03). Needed only on a protected secret: without it a mark is refused there, and none deletes it. Turning protection on (updateSecret(protected: true) or setSecretProtected) clears it, so a protected secret is armed only through the passkey ceremony. App secrets only; always false for org and user secrets.
+  """
+  deleteAfterUse: Boolean!
   id: ID!
 
   """Extensible kind; v1: generic | webfetch-auth."""
@@ -20491,7 +20506,7 @@ type SecretChangeRequest {
   id: ID!
 
   """
-  The requested operation: STORE, DELETE, SET_PROTECTED or CLEAR_PROTECTED. STORE is staged by createSecret and updateSecret (a create, a new value version, a metadata edit or a protection change); DELETE by deleteSecret; the protection pair by setSecretProtected.
+  The requested operation: STORE, DELETE, SET_PROTECTED, CLEAR_PROTECTED, SET_DELETE_AFTER_USE or CLEAR_DELETE_AFTER_USE. STORE is staged by createSecret and updateSecret (a create, a new value version, a metadata edit or a protection change); DELETE by deleteSecret; the protection pair by setSecretProtected; the deleteAfterUse pair by updateSecret(deleteAfterUse:) on a protected secret.
   """
   operation: String!
 
@@ -20510,7 +20525,7 @@ type SecretEvent {
   id: ID!
 
   """
-  STORE | VERSION | METADATA | DELETE | PROTECT | UNPROTECT | REVEAL | PURGE (a superseded version removed by retention or the kept-versions cap).
+  STORE | VERSION | METADATA | DELETE | PROTECT | UNPROTECT | DELETE_AFTER_USE_ON | DELETE_AFTER_USE_OFF | REVEAL | PURGE (a superseded version removed by retention or the kept-versions cap).
   """
   kind: String!
   outcome: String!

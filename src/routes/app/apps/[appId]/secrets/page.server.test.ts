@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
 import {
   APP_SECRETS_QUERY, CREATE_SECRET_MUTATION, DELETE_SECRET_MUTATION, SECRET_CHANGE_REQUEST_QUERY, SECRET_QUERY,
-  SET_SECRET_PROTECTED_MUTATION, UPDATE_SECRET_VALUE_MUTATION, WITHDRAW_CHANGE_REQUEST_MUTATION,
+  SET_SECRET_PROTECTED_MUTATION, UPDATE_SECRET_DELETE_AFTER_USE_MUTATION, UPDATE_SECRET_VALUE_MUTATION, WITHDRAW_CHANGE_REQUEST_MUTATION,
 } from '$lib/server/secrets';
 import { TRACKED_COOKIE } from '$lib/secrets/tracked';
 import { env } from '$env/dynamic/public';
@@ -216,10 +216,12 @@ describe('portal#2436 polish', () => {
       ['update', await actions.update(ev(jar(), { request: form({ value: 'v' }) }))],
       ['protect', await actions.protect(ev(jar(), { request: form({ protected: 'true' }) }))],
       ['delete', await actions.delete(ev(jar(), { request: confirmed }))],
+      ['deleteAfterUse', await actions.deleteAfterUse(ev(jar(), { request: form({ deleteAfterUse: 'true' }) }))],
     ] as const) expect(r, name).toMatchObject({ status: 404 });
     expect(request.mock.calls.map((c) => c[0])).not.toContain(UPDATE_SECRET_VALUE_MUTATION);
     expect(request.mock.calls.map((c) => c[0])).not.toContain(DELETE_SECRET_MUTATION);
     expect(request.mock.calls.map((c) => c[0])).not.toContain(SET_SECRET_PROTECTED_MUTATION);
+    expect(request.mock.calls.map((c) => c[0])).not.toContain(UPDATE_SECRET_DELETE_AFTER_USE_MUTATION);
   });
   it('item 3: an ownership read that fails is not a license to write', async () => {
     const { actions } = await import('./[secretId]/+page.server');

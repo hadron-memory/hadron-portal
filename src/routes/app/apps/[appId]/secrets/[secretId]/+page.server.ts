@@ -2,7 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
 import {
-  DELETE_SECRET_MUTATION, SET_SECRET_PROTECTED_MUTATION, UPDATE_SECRET_VALUE_MUTATION,
+  DELETE_SECRET_MUTATION, SET_SECRET_PROTECTED_MUTATION, UPDATE_SECRET_DELETE_AFTER_USE_MUTATION, UPDATE_SECRET_VALUE_MUTATION,
   loadAppSecret, probeSigning, type AppSecret,
 } from '$lib/server/secrets';
 import { PLAIN_PROTECTED_TEXT, parseSecretValue, secretWrite, type SecretWrite } from '$lib/server/secret-writes';
@@ -30,7 +30,7 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
   };
 };
 
-type Action = 'update' | 'protect' | 'delete' | 'withdraw';
+type Action = 'update' | 'protect' | 'deleteAfterUse' | 'delete' | 'withdraw';
 const readOnly = (action: Action) => fail(403, { action, message: t('secrets.impersonating', 'Impersonation sessions are read-only.') });
 
 /**
@@ -76,6 +76,20 @@ export const actions: Actions = {
     if (refused) return refused;
     const r = await secretWrite<{ setSecretProtected: AppSecret }>(client, SET_SECRET_PROTECTED_MUTATION, { ref: params.secretId, protected: on });
     return outcome('protect', r, params.secretId, cookies);
+  },
+
+  deleteAfterUse: async ({ request, params, locals, cookies }) => {
+    if (locals.impersonation) return readOnly('deleteAfterUse');
+    const value = (await request.formData()).get('deleteAfterUse');
+    // Only the two values the switch posts; anything else is a tampered or broken post, not "off".
+    if (value !== 'true' && value !== 'false') return fail(400, { action: 'deleteAfterUse' as const, message: t('secrets.dau.invalid', 'That change could not be read. Reload the page and try again.') });
+    const on = value === 'true';
+    const client = gqlClient(locals.token);
+    const refused = await ownedSecret(client, params, 'deleteAfterUse');
+    if (refused) return refused;
+    // Passed alone, as the server requires on a protected secret; there it is staged for the passkey.
+    const r = await secretWrite<{ updateSecret: AppSecret }>(client, UPDATE_SECRET_DELETE_AFTER_USE_MUTATION, { ref: params.secretId, deleteAfterUse: on });
+    return outcome('deleteAfterUse', r, params.secretId, cookies);
   },
 
   delete: async ({ request, params, locals, cookies }) => {
