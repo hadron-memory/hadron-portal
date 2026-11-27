@@ -66,12 +66,18 @@ export function parseSyncReport(raw: unknown, status?: string | null, completedA
   if (typeof raw !== 'string') return unavailable;
   try {
     const value: unknown = JSON.parse(raw);
-    if (!object(value) || (value.version !== 1 && value.version !== 2) || typeof value.outcome !== 'string' || !['partial', 'unknown', 'failed'].includes(value.outcome) ||
+    if (!object(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3) || typeof value.outcome !== 'string' || !['partial', 'unknown', 'failed'].includes(value.outcome) ||
         !isSyncInstant(value.recordedAt) || !Array.isArray(value.entries)) return unavailable;
     const codes: Partial<Record<SyncReportKind, readonly string[]>> = value.version === 1 ? v1Codes : v2Codes;
+    // Version 3 is read only as the failed limit report below; a version 3 report with entries stays unavailable.
+    if (value.version === 3 && value.outcome !== 'failed') return unavailable;
     if (value.outcome === 'failed') {
-      if (value.entries.length !== 0 || (value.code !== 'SYNC_FAILED' && value.code !== 'BAD_USER_INPUT' && value.code !== 'OWNER_LIMIT_REACHED')) return unavailable;
-      return { state: 'failed', recordedAt: value.recordedAt, code: value.code, entries: [] };
+      // The server writes a failed report as version 1 (SYNC_FAILED, BAD_USER_INPUT) or version 3 (OWNER_LIMIT_REACHED, #5015/#5019);
+      // a code in any other version is one it never writes, so the report is not trusted.
+      const code = value.code;
+      const allowed = value.version === 3 ? code === 'OWNER_LIMIT_REACHED' : code === 'SYNC_FAILED' || code === 'BAD_USER_INPUT';
+      if (value.entries.length !== 0 || !allowed) return unavailable;
+      return { state: 'failed', recordedAt: value.recordedAt, code: code as 'SYNC_FAILED' | 'BAD_USER_INPUT' | 'OWNER_LIMIT_REACHED', entries: [] };
     }
     const entries: SyncReportEntry[] = [];
     for (const entry of value.entries) {
@@ -107,7 +113,8 @@ export function syncOutcomeMessage(memory: SyncOutcomeFields | null | undefined)
 }
 function messageForSyncOutcome(memory: SyncOutcomeFields | null | undefined, view: SyncReportView): { type: 'success' | 'error'; text: string } {
   // #2569 (C3-R7 a): a whole import refused for the owner's limit is stored as a typed marker. Fixed copy: the
-  // stored `syncError` is never shown (it is only the no-number sentence, but the rule for sync text is the same).
+  // stored `syncError` is not shown: stored text stays out of this view, while the thrown refusal is a typed server
+  // message shown unchanged, like every other door's.
   if (view.state === 'failed' && view.code === 'OWNER_LIMIT_REACHED') {
     return { type: 'error', text: t('sync-report.owner-limit', 'The sync was refused: the owner of this memory has reached a limit of their account.') };
   }

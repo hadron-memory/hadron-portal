@@ -93,7 +93,8 @@ describe('#1308 defensive source and feedback pins', () => {
 });
 
 describe("a sync refused for the owner's limit (#2569, door 20, C3-R7 a)", () => {
-  const stored = report({ outcome: 'failed', code: 'OWNER_LIMIT_REACHED', entries: [] });
+  // The server writes this report as version 3 (failedSyncReport: v1's failed codes are closed).
+  const stored = report({ version: 3, outcome: 'failed', code: 'OWNER_LIMIT_REACHED', entries: [] });
   it('parses the stored marker as a failed attempt carrying the code (on main: unavailable)', () => {
     expect(parseSyncReport(stored, 'ERROR', null)).toMatchObject({ state: 'failed', code: 'OWNER_LIMIT_REACHED' });
   });
@@ -101,8 +102,11 @@ describe("a sync refused for the owner's limit (#2569, door 20, C3-R7 a)", () =>
     const text = syncOutcomeMessage({ lastSyncReport: stored, syncStatus: 'ERROR', syncError: 'ghp_secrettoken leaked here' });
     expect(text).toEqual({ type: 'error', text: 'The sync was refused: the owner of this memory has reached a limit of their account.' });
   });
-  it('still rejects an unknown failed code, and a limit code with entries', () => {
-    expect(parseSyncReport(report({ outcome: 'failed', code: 'OTHER', entries: [] }), 'ERROR', null).state).toBe('unavailable');
-    expect(parseSyncReport(report({ outcome: 'failed', code: 'OWNER_LIMIT_REACHED' }), 'ERROR', null).state).toBe('unavailable');
+  it('still rejects an unknown failed code, a limit code with entries, and the limit code in a version the server never writes it in', () => {
+    expect(parseSyncReport(report({ version: 3, outcome: 'failed', code: 'OTHER', entries: [] }), 'ERROR', null).state).toBe('unavailable');
+    expect(parseSyncReport(report({ version: 3, outcome: 'failed', code: 'OWNER_LIMIT_REACHED' }), 'ERROR', null).state).toBe('unavailable');
+    for (const version of [1, 2]) {
+      expect(parseSyncReport(report({ version, outcome: 'failed', code: 'OWNER_LIMIT_REACHED', entries: [] }), 'ERROR', null).state).toBe('unavailable');
+    }
   });
 });
