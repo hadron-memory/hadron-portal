@@ -317,6 +317,7 @@ describe('adding an existing memory', () => {
   await vi.waitFor(()=>expect(document.body.textContent).toContain('zed-notes'));
   expect(get.mock.calls.length).toBe(calls+1);
   expect(get.mock.calls.at(-1)![0]).toBe('/app/apps/a/attachable?q=zed&offset=0');
+  expect(document.body.textContent).toContain('Page 1 of 1');
   }finally{m.unmount();get.mockRestore();vi.useRealTimers();}
  });
  it('never renders an earlier search\'s answer that resolves after a later one, and offers no pick while rows are stale',async()=>{
@@ -345,6 +346,7 @@ describe('adding an existing memory', () => {
   reply('ab','answer-ab');
   await vi.waitFor(()=>expect(document.body.textContent).toContain('answer-ab'));
   reply('a','stale-a');
+  await vi.advanceTimersByTimeAsync(100);
   await tick(3);
   expect(document.body.textContent).not.toContain('stale-a');
   }finally{m.unmount();get.mockRestore();vi.useRealTimers();}
