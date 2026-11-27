@@ -4,6 +4,7 @@
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import type { DriftVerdict, FixtureRunSummary, Verdict } from '$lib/agent-tester/verdict-types';
+  import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ProbeForm from '$lib/components/agent-tester/ProbeForm.svelte';
   import RouteTrace from '$lib/components/agent-tester/RouteTrace.svelte';
@@ -21,6 +22,13 @@
   // #928: why not, when not — or which config, when ready.
   const llm = $derived(data.llm);
   const fixtures = $derived(data.fixtures ?? []);
+
+  // portal#2683: a Tester run runs under one App that installs this Agent, named, never searched for. With exactly
+  // one the choice is made for the reader; with several it is theirs, and nothing is run until they make it.
+  const apps = $derived(data.apps ?? []);
+  let pickedAppId = $state('');
+  const appId = $derived(apps.some((a) => a.id === pickedAppId) ? pickedAppId : apps.length === 1 ? apps[0].id : '');
+  const chosenApp = $derived(apps.find((a) => a.id === appId) ?? null);
 
   function configLevelLabel(ownerType: string): string {
     switch (ownerType) {
@@ -117,6 +125,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: agent.id,
+          appId,
           message: payload.message,
           persona: payload.persona,
           resetSession: payload.resetSession,
@@ -196,7 +205,7 @@
       const res = await fetch('/api/agent-chat/fixtures/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: agent.id, fixtureLoc: loc, costCapAcknowledged: ackCap }),
+        body: JSON.stringify({ agentId: agent.id, appId, fixtureLoc: loc, costCapAcknowledged: ackCap }),
       });
       await handleRunResponse(res, () => runOneFixture(loc, true));
     } finally {
@@ -212,7 +221,7 @@
       const res = await fetch('/api/agent-chat/fixtures/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: agent.id, costCapAcknowledged: ackCap }),
+        body: JSON.stringify({ agentId: agent.id, appId, costCapAcknowledged: ackCap }),
       });
       await handleRunResponse(res, () => runAllFixtures(true));
     } finally {
@@ -269,7 +278,7 @@
       const res = await fetch('/api/agent-chat/fixtures/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: agent.id, fixtureLoc: loc, acceptNewBaseline: true }),
+        body: JSON.stringify({ agentId: agent.id, appId, fixtureLoc: loc, acceptNewBaseline: true }),
       });
       await handleRunResponse(res, () => acceptBaseline(loc));
       await invalidateAll();
@@ -331,6 +340,45 @@
       {/if}
     </section>
   {:else}
+    <!-- portal#2683: the App this Tester runs under. -->
+    <section class="space-y-2 rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" data-testid="tester-app">
+      {#if data.appsError}
+        <p role="alert" class="text-sm text-amber-800 dark:text-amber-200">
+          {t('agent-tester.app.load-failed', 'Could not load the Apps that install this Agent. Reload to try again.')}
+        </p>
+      {:else if apps.length === 0}
+        <p class="text-sm text-zinc-700 dark:text-zinc-300">
+          {t('agent-tester.app.none', 'This Agent must be installed in an App to be tested. Install it in an App first, then come back.')}
+          <a href={`/app/agents/${agent.id}`} class="font-medium text-indigo-600 underline hover:text-indigo-500 dark:text-indigo-400">
+            {t('agent-tester.app.none.link', 'Open the Agent →')}
+          </a>
+        </p>
+      {:else if apps.length === 1}
+        <h2 class="text-sm font-medium text-zinc-900 dark:text-white">{t('agent-tester.app.label', 'App')}</h2>
+        <p class="text-sm text-zinc-700 dark:text-zinc-300">{apps[0].name}</p>
+        <Urn value={apps[0].urn} type="app" size={8} />
+      {:else}
+        <label for="tester-app-select" class="block text-sm font-medium text-zinc-900 dark:text-white">{t('agent-tester.app.label', 'App')}</label>
+        <select
+          id="tester-app-select"
+          bind:value={pickedAppId}
+          disabled={running}
+          aria-describedby="tester-app-help"
+          class="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+        >
+          <option value="" disabled>{t('agent-tester.app.choose', 'Choose an App')}</option>
+          {#each apps as app (app.id)}
+            <option value={app.id}>{app.name}</option>
+          {/each}
+        </select>
+        <p id="tester-app-help" class="text-xs text-zinc-500 dark:text-zinc-400">
+          {t('agent-tester.app.help', 'Every run is a chat in the App you choose. These are the Apps that install this Agent.')}
+        </p>
+        {#if chosenApp}<Urn value={chosenApp.urn} type="app" size={8} />{/if}
+      {/if}
+    </section>
+
+  {#if appId}
     <section class="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       {#if llm?.status === 'ready'}
         <!-- #928: say WHERE the config came from — an inherited one is the case
@@ -420,7 +468,8 @@
       <DriftReport results={driftResults} onacceptbaseline={acceptBaseline} />
     {/if}
 
-    <PersonaScript agentId={agent.id} />
+    <PersonaScript agentId={agent.id} {appId} />
+  {/if}
   {/if}
 
   {#if org}

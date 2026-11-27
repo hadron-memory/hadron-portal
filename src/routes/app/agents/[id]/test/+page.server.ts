@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { AI_CONFIG_READINESS_QUERY, FIXTURE_NODES_QUERY } from '$lib/server/queries';
+import { AGENT_APPS_QUERY, AGENT_OWNED_APPS_QUERY, AI_CONFIG_READINESS_QUERY, FIXTURE_NODES_QUERY } from '$lib/server/queries';
 import { extractGqlError, extractGqlErrorCode, gqlErrorTextForBranching } from '$lib/server/gqlError';
 import {
   EFFECTIVE_ENDPOINT_UNSUPPORTED,
@@ -11,7 +11,7 @@ import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent
 import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import type { PageServerLoad } from './$types';
 import { CREDENTIAL_UNAVAILABLE, hasRuntimeCredential } from '$lib/server/llm/chatAi';
-import { drainFindNodes } from '$lib/server/paginate';
+import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { t } from '$lib/i18n/t';
 
 const KNOWN_ERROR_CLASSES = ['TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'EvalError', 'URIError', 'AggregateError'];
@@ -80,8 +80,36 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }
   }
 
-  return { agent, org, llmProviderConfigured, llm, fixtures, fixturesError };
+  const { apps, appsError } = await loadTesterApps(client, agent.id);
+
+  return { agent, org, llmProviderConfigured, llm, fixtures, fixturesError, apps, appsError };
 };
+
+/** One App the Tester can run under. */
+export type TesterApp = { id: string; name: string; urn: string };
+
+/**
+ * portal#2683 (hadron-server#5394, hrn:node:hadronmemory.com:specs:cor:cht:010:02): a Tester start runs under an App,
+ * named, never searched for. The choices are the Apps that install this Agent and that the caller can see: member-org
+ * Apps, plus the caller's own org-less ones (`apps()` routes on org membership, so those need `ownedByMe`). The
+ * server still judges the install and the caller's part in it on every start. A failed read is `appsError`, never an
+ * empty list: "this Agent is installed nowhere" must not be said about an outage.
+ */
+async function loadTesterApps(client: ReturnType<typeof gqlClient>, agentId: string): Promise<{ apps: TesterApp[]; appsError: boolean }> {
+  try {
+    const [inOrgs, owned] = await Promise.all([
+      fetchAllItems<TesterApp>(client, AGENT_APPS_QUERY, 'apps', { agentId }),
+      fetchAllItems<TesterApp>(client, AGENT_OWNED_APPS_QUERY, 'apps', { agentId }),
+    ]);
+    const byId = new Map<string, TesterApp>();
+    // Explicit projection: the lite fragment also carries agents and installs the picker does not need.
+    for (const a of [...inOrgs, ...owned]) if (!byId.has(a.id)) byId.set(a.id, { id: a.id, name: a.name, urn: a.urn });
+    return { apps: [...byId.values()].sort((a, b) => a.name.localeCompare(b.name)), appsError: false };
+  } catch (e) {
+    console.error('[agent-tester] app lookup failed:', extractGqlErrorCode(e) ?? errorClassLabel(e));
+    return { apps: [], appsError: true };
+  }
+}
 
 /**
  * #928 — whether the tester can run, by the runtime's own resolution.

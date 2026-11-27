@@ -518,6 +518,8 @@
         if (body.error === 'shared-chat-not-available-for-app-sessions') {
           throw new Error(chatScopeStrings.errorAppSessionShared());
         }
+        // portal#2683: a start with no App is refused before it is sent; the route's own sentence is the message.
+        if (body.error === 'app-required' && typeof body.message === 'string') throw new Error(body.message);
         throw new Error(body.error ?? 'Failed to start chat');
       }
       activeChatId = body.chatId;

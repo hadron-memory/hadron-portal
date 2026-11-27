@@ -67,6 +67,16 @@ describe.each(ROUTES)('portal#2683 $name', ({ body, call, name }) => {
   });
 });
 
+describe('portal#2683 the document', () => {
+  // The route tests replace the transport, so a variable the document never declares passes them and is dropped on
+  // the wire. These pin the document itself.
+  it('declares $appRef as an ID and passes it to startChat', () => {
+    expect(START_CHAT_MUTATION).toMatch(/\$appRef: ID\b/);
+    expect(START_CHAT_MUTATION).toMatch(/\bappRef: \$appRef\b/);
+    expect(START_CHAT_MUTATION).not.toMatch(/\$appRef: ID!/);
+  });
+});
+
 describe('portal#2683 start', () => {
   it('sends the trimmed App as appRef', async () => {
     mockRequest.mockImplementation(async (doc: string) => {
