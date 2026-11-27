@@ -6,12 +6,14 @@
 import { extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import type { CloneBlocker } from '$lib/agents/clone';
+import { limitRefusal } from '$lib/server/limit-refusal';
 
 export type CloneRefusal = {
   status: number;
   text: string;
   field?: 'slug';
   blockers?: CloneBlocker[];
+  action?: { label: string; href: string };
 };
 
 const MAX_NAME = 200;
@@ -39,6 +41,9 @@ function parseBlockers(raw: unknown): CloneBlocker[] | undefined {
 export function cloneRefusal(err: unknown): CloneRefusal {
   const code = extractGqlErrorCode(err);
   const ext = extractGqlErrorExtensions(err);
+  // #2569 (C3-R3): a known code, so its server text is shown; `blockers` stays absent.
+  const limit = limitRefusal(err);
+  if (limit) return limit.action ? { status: limit.status, text: limit.text, action: limit.action } : { status: limit.status, text: limit.text };
   switch (code) {
     case 'AGENT_NOT_PUBLIC':
       return { status: 403, text: t('agent.clone.err.not-public', 'This Agent is not public, so it cannot be cloned.') };

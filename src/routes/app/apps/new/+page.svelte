@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LimitActionLink from '$lib/components/LimitActionLink.svelte';
   // #648 part 2: create a personal (org-less) app by installing a PUBLIC or your
   // own personal agent. Modeled on the org install form, plus an agent picker
   // (the org route gets its agent from the URL; here you choose one).
@@ -108,6 +109,7 @@
     {#if actionError}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {actionError}
+        <LimitActionLink action={$formMessage?.type === 'error' ? $formMessage.action : null} />
       </div>
     {/if}
 

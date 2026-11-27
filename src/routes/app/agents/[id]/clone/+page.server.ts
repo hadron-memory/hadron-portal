@@ -62,7 +62,7 @@ export const actions: Actions = {
       if (r.field) {
         form.errors = { ...form.errors, [r.field]: [r.text] };
       } else {
-        form.message = { type: 'error', text: r.text };
+        form.message = r.action ? { type: 'error', text: r.text, action: r.action } : { type: 'error', text: r.text };
       }
       form.valid = false;
       return fail(r.status, { form, blockers: r.blockers ?? [] });

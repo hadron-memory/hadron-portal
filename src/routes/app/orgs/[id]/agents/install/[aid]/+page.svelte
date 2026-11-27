@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LimitActionLink from '$lib/components/LimitActionLink.svelte';
   import LiveOutcome from '$lib/components/LiveOutcome.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -101,6 +102,7 @@
   {#if installActionError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
       {installActionError}
+      <LimitActionLink action={$installMessage?.type === 'error' ? $installMessage.action : null} />
     </div>
   {/if}
 

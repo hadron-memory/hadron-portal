@@ -22,7 +22,7 @@ declare global {
       } | null;
     }
     namespace Superforms {
-      type Message = { type: 'success' | 'error'; text: string };
+      type Message = { type: 'success' | 'error'; text: string; action?: { label: string; href: string } };
     }
     interface Error { message: string; requestId?: string }
     // interface PageData {}

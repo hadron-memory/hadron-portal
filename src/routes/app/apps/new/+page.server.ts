@@ -26,6 +26,7 @@ import { deriveDefaultUrn } from '$lib/install/derive-default-urn';
 import { deriveDefaultName } from '$lib/install/derive-default-name';
 import type { Actions, PageServerLoad } from './$types';
 import { createPersonalAppSchema } from './schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 type CreatePersonalAppForm = Infer<typeof createPersonalAppSchema, 'zod4'>;
 const adapter = zod4(createPersonalAppSchema);
@@ -166,6 +167,8 @@ export const actions: Actions = {
       });
       createdId = res.createApp.id;
     } catch (e) {
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const msg = extractGqlError(e, 'Failed to create app.', CREATE_APP_REFUSALS);
       if (/already exists/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'urn', 'An app with that URN already exists.', { status: 409 });
