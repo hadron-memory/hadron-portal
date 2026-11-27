@@ -159,14 +159,14 @@ describe('Team tab: AI team | Human team toggle', () => {
 
   it('marks the AI team pressed on the staff view, and keeps the one Team tab selected', async () => {
     const target = await mountTab('staff');
-    const [ai, human] = toggle(target);
-    expect([ai?.textContent?.trim(), human?.textContent?.trim()]).toEqual(['AI team', 'Human team']);
+    const [human, ai] = toggle(target);
+    expect([human?.textContent?.trim(), ai?.textContent?.trim()]).toEqual(['Human team', 'AI team']);
     expect([ai.getAttribute('aria-pressed'), human.getAttribute('aria-pressed')]).toEqual(['true', 'false']);
   });
 
   it('marks the Human team pressed on the members view; the Team tab stays selected and labels the panel', async () => {
     const target = await mountTab('members');
-    const [ai, human] = toggle(target);
+    const [human, ai] = toggle(target);
     expect([ai.getAttribute('aria-pressed'), human.getAttribute('aria-pressed')]).toEqual(['false', 'true']);
     expect(target.querySelector('#tab-staff')?.getAttribute('aria-selected')).toBe('true');
     expect(target.querySelector('#panel-members')?.getAttribute('aria-labelledby')).toBe('tab-staff');
@@ -177,7 +177,7 @@ describe('Team tab: AI team | Human team toggle', () => {
     const { members: _m, membersError: _e, membersWithheld: _w, ...rest } = lastProps.data as Record<string, unknown>;
     lastProps.data = rest;
     await tick(4);
-    toggle(target)[1].click();
+    toggle(target)[0].click();
     await tick(2);
     const panel = target.querySelector('#panel-members')!;
     expect(panel.textContent).toContain('Loading');
@@ -194,13 +194,30 @@ describe('Team tab: AI team | Human team toggle', () => {
     expect(toggle(await mountTab('agents'))).toHaveLength(0);
   });
 
+  it('opens the Human team from the Team tab, and leaves the AI team alone when already on it', async () => {
+    const target = await mountTab('chats');
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await tick(8);
+    expect(target.querySelector('#panel-members')).not.toBeNull();
+    toggle(target)[1].click();
+    await tick(6);
+    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await tick(6);
+    expect(target.querySelector('#panel-staff')).not.toBeNull();
+  });
+
+  it('puts the toggle on the right of the page', async () => {
+    const target = await mountTab('staff');
+    expect(toggle(target)[0].parentElement!.className).toContain('ml-auto');
+  });
+
   it('clicking Human team switches to the members panel, and back', async () => {
     const target = await mountTab('staff');
-    toggle(target)[1].click();
+    toggle(target)[0].click();
     await tick(6);
     expect(target.querySelector('#panel-members')).not.toBeNull();
     expect(target.querySelector('#panel-staff')).toBeNull();
-    toggle(target)[0].click();
+    toggle(target)[1].click();
     await tick(6);
     expect(target.querySelector('#panel-staff')).not.toBeNull();
     expect(target.querySelector('#panel-members')).toBeNull();
@@ -214,7 +231,18 @@ describe('Human Team tab (#1005)', () => {
     expect(panel.textContent).toContain('Rae Reader');
     expect(panel.querySelector('a[href$="/members"]')).toBeNull();
     const actions = [...panel.querySelectorAll('form')].map((f) => f.getAttribute('action'));
-    expect(actions).toEqual(expect.arrayContaining(['?/ensureMember', '?/removeMember', '?/addMember']));
+    // The add form is behind the round "+" until it is opened.
+    expect(actions).toEqual(expect.arrayContaining(['?/ensureMember', '?/removeMember']));
+    expect(actions).not.toContain('?/addMember');
+    const plus = [...panel.querySelectorAll('button')].find((b) => !b.form && b.textContent?.trim() === 'Add member') as HTMLButtonElement;
+    expect(plus.getAttribute('aria-expanded')).toBe('false');
+    plus.click();
+    await tick(4);
+    expect(plus.getAttribute('aria-expanded')).toBe('true');
+    expect([...panel.querySelectorAll('form')].map((f) => f.getAttribute('action'))).toContain('?/addMember');
+    plus.click();
+    await tick(4);
+    expect([...panel.querySelectorAll('form')].map((f) => f.getAttribute('action'))).not.toContain('?/addMember');
   });
 
   it('renders no second h1: the page heading is the only one', async () => {

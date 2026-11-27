@@ -43,7 +43,7 @@ import type { TeamRosterRead } from '$lib/server/app-team-roster';
 import { ROSTER_FETCH_TIMEOUT_MS } from '$lib/roster-fetch';
 import type { z } from 'zod';
 import Page from './+page.svelte';
-import { castWorkerSchema, releaseWorkerSchema, type ReleaseWorkerMessage } from './schema';
+import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema, castWorkerSchema, releaseWorkerSchema, type ReleaseWorkerMessage } from './schema';
 import { pageData } from './app-page.fixture';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -100,10 +100,26 @@ const settled = async (flushes = 2) => {
   await tick(flushes);
 };
 
+/** The Team tab opens the Human team; the roster is read when the AI team view is shown. */
+const openAiTeam = async (target: HTMLElement) => {
+  target.querySelector<HTMLElement>('#tab-staff')!.click();
+  await tick(10); // not `settled`: some tests run on fake timers
+  [...target.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Team view"] button')]
+    .find((b) => b.textContent?.trim() === 'AI team')!.click();
+};
+
+/** The Team tab opens the Human team, which mounts AppMembersPanel: it needs its roster and three forms. */
+const memberData = async () => ({
+  members: [], membersError: false, membersWithheld: false,
+  addMemberForm: await superValidate(zod4(addAppMemberSchema), { errors: false }),
+  ensureMemberForm: await superValidate(zod4(ensureAppMemberSchema), { errors: false, id: 'ensure-member' }),
+  removeMemberForm: await superValidate(zod4(removeAppMemberSchema), { errors: false }),
+});
+
 async function mountPage(data: Record<string, unknown>) {
   setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
   window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
-  const props = reactiveProps<Record<string, unknown>>({ data: { ...(await pageData()), ...data }, form: null });
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...(await pageData()), ...(await memberData()), ...data }, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -119,7 +135,7 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     const calls = stubFetch(gate);
     const target = await mountPage({ teamRoster: null });
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled();
     expect(rosterCalls(calls)).toEqual(['/app/apps/a1/roster']);
     // Loading, not the failure text: the UX line in the #2238 body.
@@ -136,13 +152,13 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     const calls = stubFetch({ read: () => rosterOk });
     const target = await mountPage({ teamRoster: null });
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
 
     target.querySelector<HTMLElement>('#tab-chats')!.click();
     await settled();
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     expect(rosterCalls(calls)).toHaveLength(1);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
@@ -152,7 +168,7 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     const calls = stubFetch({ read: () => ({ kind: 'failed' }) });
     const target = await mountPage({ teamRoster: null });
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     const panel = target.querySelector('#panel-staff')!;
     expect(rosterCalls(calls)).toHaveLength(1);
@@ -161,7 +177,7 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     // No re-ask after the failure either: one fetch per visit.
     target.querySelector<HTMLElement>('#tab-chats')!.click();
     await settled();
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     expect(rosterCalls(calls)).toHaveLength(1);
   });
@@ -170,11 +186,11 @@ describe('AI Team roster: fetched on first show, once (portal#2238)', () => {
     const calls = stubFetch({ read: () => rosterOk });
     const target = await mountPage({ teamRoster: rosterOk });
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     target.querySelector<HTMLElement>('#tab-chats')!.click();
     await settled();
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     expect(rosterCalls(calls)).toHaveLength(0);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
@@ -201,6 +217,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
     const base: Record<string, unknown> = {
       ...(await pageData()),
+      ...(await memberData()),
       teamRoster: null,
       user: { id: 'u1' },
       staff: [{
@@ -229,7 +246,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
     const { target } = await mountStaffHeld();
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     expect(rosterCalls(calls)).toHaveLength(1);
     expect(target.querySelector('#panel-staff')!.textContent).toContain('Fix the login handoff');
@@ -265,7 +282,7 @@ describe('AI Team roster: re-asked after a roster-invalidating action (portal#22
     });
     const { props, base, target } = await mountStaffHeld();
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled();
     expect(rosterCalls(calls)).toEqual(['/app/apps/a1/roster']);
 
@@ -321,7 +338,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const calls = stubRosterResponses((n) => json(200, n === 0 ? { kind: 'failed' } : rosterOk));
     const target = await mountPage({ teamRoster: null });
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     const panel = target.querySelector('#panel-staff')!;
     expect(panel.textContent).toContain('Task and pause state could not be loaded');
@@ -343,7 +360,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const calls = stubRosterResponses(() => json(200, rosterOk));
     const target = await mountPage({ teamRoster: { kind: 'failed' } });
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     const panel = target.querySelector('#panel-staff')!;
     expect(panel.textContent).toContain('Task and pause state could not be loaded');
@@ -365,7 +382,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
         }),
       );
       const target = await mountPage({ teamRoster: null });
-      target.querySelector<HTMLElement>('#tab-staff')!.click();
+      await openAiTeam(target);
       await tick(3);
       expect(target.querySelector('#panel-staff')!.textContent).toContain('Loading');
 
@@ -388,7 +405,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     stubRosterResponses(() => json(401, { kind: 'failed' }));
     const target = await mountPage({ teamRoster: null });
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     // Kit's shallow replaceState moves the address bar to the new tab and leaves
     // $page.url (the stub page, ?tab=chats) on the loaded one; mirror that.
     window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
@@ -433,7 +450,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     let release: (r: Response) => void = () => {};
     stubRosterResponses(() => new Promise<Response>((resolve) => { release = resolve; }));
     const target = await mountPage({ teamRoster: null });
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
     await settled();
     const panel = target.querySelector('#panel-staff')!;
@@ -455,7 +472,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
   it('portal#2581: a second identical failure is a new element in the same region, so it is announced again', async () => {
     stubRosterResponses(() => json(200, { kind: 'failed' }));
     const target = await mountPage({ teamRoster: null });
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     const panel = target.querySelector('#panel-staff')!;
     const regionOf = () => [...panel.querySelectorAll<HTMLElement>('[role="status"]')].find((e) => e.textContent?.includes('could not be loaded'))!;
@@ -476,7 +493,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
       n === 0 ? json(200, { kind: 'failed' }) : new Promise<Response>((resolve) => { release = resolve; }),
     );
     const target = await mountPage({ teamRoster: null });
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     const panel = target.querySelector('#panel-staff')!;
     const retry = retryButton(panel)!;
@@ -496,7 +513,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
   it('portal#2282: a 401 on a retried fetch takes the signed-out branch', async () => {
     stubRosterResponses((n) => (n === 0 ? json(200, { kind: 'failed' }) : json(401, { kind: 'failed' })));
     const target = await mountPage({ teamRoster: null });
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     const panel = target.querySelector('#panel-staff')!;
     retryButton(panel)!.click();
@@ -512,7 +529,7 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
       return new Promise<Response>(() => {});
     });
     const target = await mountPage({ teamRoster: null });
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     expect(signals).toHaveLength(1);
     expect(signals[0].aborted).toBe(false);
@@ -531,14 +548,14 @@ describe('AI Team roster: follow-ups from the #2243 review (portal#2246)', () =>
     const calls = stubFetch({ read: () => read });
     setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
     window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
-    const base = { ...(await pageData()), teamRoster: null, user: { id: 'u1' } } as Record<string, any>;
+    const base = { ...(await pageData()), ...(await memberData()), teamRoster: null, user: { id: 'u1' } } as Record<string, any>;
     Object.assign(base.app, { agents: [{ id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' }] });
     const m = mountComponent(Page as never, reactiveProps<Record<string, unknown>>({ data: base, form: null }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
     const target = m.target;
 
-    target.querySelector<HTMLElement>('#tab-staff')!.click();
+    await openAiTeam(target);
     await settled(3);
     expect(rosterCalls(calls)).toHaveLength(1);
 

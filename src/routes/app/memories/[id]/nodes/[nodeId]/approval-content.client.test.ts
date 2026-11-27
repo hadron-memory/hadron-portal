@@ -76,7 +76,11 @@ it.each(['APPROVED', 'SUPERSEDED'] as const)('renders server %s after metadata r
     return answer(doc);
   });
   const { target } = await mountPage();
-  const badge = target.querySelector('[data-testid="node-approval"]')!;
+  // The detail lives in the approval icon's panel; the icon itself says the state in words.
+  const badge = target.querySelector('#node-status-approval')!;
+  const icon = target.querySelector('[data-testid="status-icon-approval"]')!;
+  expect(icon.getAttribute('aria-label')).toBe(state === 'APPROVED' ? 'Approval: Approved' : 'Approval: Content changed since approval');
+  expect(icon.getAttribute('data-look')).toBe(state === 'APPROVED' ? 'done' : 'attention');
   expect(badge.textContent).toContain('Content approved at revision 3');
   if (state === 'APPROVED') {
     expect(badge.textContent).toContain('Current revision 4');

@@ -85,7 +85,8 @@ describe('portal#1943: ?tab= follows the shown tab', () => {
       target.querySelector<HTMLElement>(`#tab-${id}`)!.click();
       await tick(3);
       expect(target.querySelector(`#tab-${id}`)?.getAttribute('aria-selected'), id).toBe('true');
-      expect(lastWrittenTab(), id).toBe(id);
+      // The Team entry opens the Human team, whose address is `?tab=members`.
+      expect(lastWrittenTab(), id).toBe(id === 'staff' ? 'members' : id);
       expect(navigationCalls.filter((c) => c.fn === 'pushState'), id).toHaveLength(0);
       expect(navigationCalls.filter((c) => c.fn === 'goto'), id).toHaveLength(0);
     }
