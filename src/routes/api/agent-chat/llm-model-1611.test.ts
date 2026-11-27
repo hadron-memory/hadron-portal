@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PROCESS_CHAT_RESPONSE_MUTATION,
   RESOLVE_AI_CONFIG_QUERY,
+  CHAT_AI_CONFIG_CHOICES_QUERY,
   SEND_CHAT_MESSAGE_MUTATION,
   START_CHAT_MUTATION,
 } from '$lib/server/queries';
@@ -53,6 +54,8 @@ function setup(o: { resolve?: Array<unknown | Error>; start?: Error; send?: Erro
   let n = 0;
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc.includes('chatEffectiveToolChoice(')) return { chatEffectiveToolChoice: 'FORCED' };
+    // portal#2683: every start now names an App, so the App's config choices are read before the model resolves.
+    if (doc === CHAT_AI_CONFIG_CHOICES_QUERY) return { chatAiConfigChoices: [] };
     if (doc === RESOLVE_AI_CONFIG_QUERY) {
       const r = resolve[Math.min(n++, resolve.length - 1)];
       if (r instanceof Error) throw r;
@@ -76,7 +79,7 @@ function setup(o: { resolve?: Array<unknown | Error>; start?: Error; send?: Erro
 
 function ev(body: unknown) {
   return {
-    request: new Request('http://test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    request: new Request('http://test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify('chatId' in (body as object) ? body : { appId: 'app-1', ...(body as object) }) }),
     locals: { token: 'test-token', user: { id: 'u1' } },
   } as never;
 }
@@ -98,7 +101,7 @@ describe('portal#1611 /start reports the model it will call', () => {
     setup({ resolve: [config('model-X')] });
     const res = await start();
     expect(res.status).toBe(200);
-    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', conversationName: null, scope: 'private', llmModel: 'model-X' }]);
+    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', appRef: 'app-1', conversationName: null, scope: 'private', llmModel: 'model-X' }]);
   });
 
   it('A2: the welcome turn runs the SAME model, and the config is resolved once per /start', async () => {
@@ -198,7 +201,7 @@ describe('portal#1611 /turn reports the model it will call, every turn', () => {
     await turn({ agentId: 'agent-1', chatId: 'chat-1', userMessage: 'hi', configName: 'fast' });
     const wire = JSON.stringify([...callsOf(START_CHAT_MUTATION), ...callsOf(SEND_CHAT_MESSAGE_MUTATION)]);
     expect(wire).not.toContain(KEY);
-    expect(callsOf(RESOLVE_AI_CONFIG_QUERY)[0]).toEqual({ name: 'fast', agentRef: 'agent-1' });
+    expect(callsOf(RESOLVE_AI_CONFIG_QUERY)[0]).toEqual({ name: 'fast', appRef: 'app-1', agentRef: 'agent-1' });
   });
 });
 
@@ -207,7 +210,7 @@ describe('portal#1611 the tester endpoints are chats too (A5)', () => {
     setup({ resolve: [config('model-X'), config('model-DRIFT')] });
     const res = await testRun();
     expect(res.status).toBe(200);
-    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' }]);
+    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', appRef: 'app-1', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' }]);
     expect(callsOf(SEND_CHAT_MESSAGE_MUTATION).map((v) => v.llmModel)).toEqual(['model-X']);
     expect(callsOf(RESOLVE_AI_CONFIG_QUERY)).toHaveLength(1);
     expect(mockLlm.mock.calls.every((c) => c[0].model === 'model-X')).toBe(true);
@@ -217,7 +220,7 @@ describe('portal#1611 the tester endpoints are chats too (A5)', () => {
     setup({ resolve: [config('model-X'), config('model-DRIFT')] });
     const res = await persona();
     expect(res.status).toBe(200);
-    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', conversationName: 'setup', scope: 'private', isTestRun: true, llmModel: 'model-X' }]);
+    expect(callsOf(START_CHAT_MUTATION)).toEqual([{ agentRef: 'agent-1', appRef: 'app-1', conversationName: 'setup', scope: 'private', isTestRun: true, llmModel: 'model-X' }]);
     expect(callsOf(SEND_CHAT_MESSAGE_MUTATION).map((v) => v.llmModel)).toEqual(['model-X', 'model-X']);
     expect(callsOf(RESOLVE_AI_CONFIG_QUERY)).toHaveLength(1);
   });

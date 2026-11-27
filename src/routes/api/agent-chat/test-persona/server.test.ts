@@ -42,7 +42,7 @@ function ev(opts: { body: unknown; token?: string | null }) {
     request: new Request('http://test/api/agent-chat/test-persona', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(opts.body),
+      body: JSON.stringify({ appId: 'app-1', ...(opts.body as object) }),
     }),
     locals: { token: opts.token === undefined ? 'test-token' : opts.token, user: { id: 'u1' } },
   } as Parameters<Awaited<ReturnType<typeof importPOST>>>[0];
@@ -104,6 +104,7 @@ describe('POST /api/agent-chat/test-persona', () => {
     // Exact equality: a dropped flag fails, and so does an unexpected one.
     expect(startCalls[0][1]).toEqual({
       agentRef: 'agent-1',
+      appRef: 'app-1',
       conversationName: 'setup',
       scope: 'private',
       isTestRun: true,

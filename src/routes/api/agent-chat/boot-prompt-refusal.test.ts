@@ -39,7 +39,7 @@ function refusal(code: string) {
 }
 
 const post = (url: string, body: unknown) =>
-  new Request(`http://localhost${url}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  new Request(`http://localhost${url}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appId: 'app-1', ...(body as object) }) });
 
 const consoleSpies = () =>
   (['log', 'info', 'warn', 'error', 'debug'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => undefined));

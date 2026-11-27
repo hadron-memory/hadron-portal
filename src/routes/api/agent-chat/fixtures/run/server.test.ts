@@ -73,7 +73,7 @@ function ev(opts: { body: unknown; token?: string | null }) {
     request: new Request('http://test/api/agent-chat/fixtures/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(opts.body),
+      body: JSON.stringify({ appId: 'app-1', ...(opts.body as object) }),
     }),
     locals: { token: opts.token === undefined ? 'test-token' : opts.token, user: { id: 'u1' } },
   } as Parameters<Awaited<ReturnType<typeof importPOST>>>[0];
@@ -159,7 +159,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(res.status).toBe(200);
     expect(mockResolveChatAi).toHaveBeenCalledTimes(1);
     const startVars = mockRequest.mock.calls.find((c) => c[0] === START_CHAT_MUTATION)![1];
-    expect(startVars).toEqual({ agentRef: 'agent-aaa', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' });
+    expect(startVars).toEqual({ agentRef: 'agent-aaa', appRef: 'app-1', conversationName: null, scope: 'private', isTestRun: true, llmModel: 'model-X' });
     const resolution = await mockResolveChatAi.mock.results[0].value;
     expect(mockRunChatTurn).toHaveBeenCalledTimes(2);
     expect(mockRunChatTurn.mock.calls.map((c) => c[0].ai)).toEqual([resolution, resolution]);
