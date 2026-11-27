@@ -271,7 +271,7 @@ describe('adding an existing memory', () => {
   try{await tick();
   await press(m.target,'Add memory');
   await press(document.body,'Choose an existing memory');
-  await vi.waitFor(()=>expect(document.body.querySelector('[aria-label="Choose a memory"] [role=alert]')?.textContent).toContain(words));
+  await vi.waitFor(()=>expect([...document.body.querySelectorAll("[aria-label=\"Choose a memory\"] [role=status]")].map(e=>e.textContent).join(" ")).toContain(words));
   expect(document.body.querySelector('[aria-label="Choose a memory"] table')).toBeNull();
   }finally{m.unmount();get.mockRestore();}
  });

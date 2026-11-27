@@ -6,6 +6,7 @@
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import LiveRegion from './LiveRegion.svelte';
   import Urn from './Urn.svelte';
 
   interface Memory {
@@ -210,10 +211,12 @@
 
       <!-- Table -->
       <div class="flex-1 overflow-auto">
-        {#if remote?.error}
-          <p role="alert" class="px-4 py-8 text-center text-sm text-red-600 dark:text-red-400">{remote.error}</p>
-        {:else if remote?.loading && rows.length === 0}
-          <div role="status" class="px-4 py-8 text-center text-sm text-zinc-500">{t('select-memory.loading', 'Loading…')}</div>
+        {#if remote}
+          <!-- Persistent regions: the status and the refusal are announced as content that changes inside them (portal#2344). -->
+          <LiveRegion>{#if remote.loading && rows.length === 0}<p class="px-4 py-8 text-center text-sm text-zinc-500">{t('select-memory.loading', 'Loading…')}</p>{/if}</LiveRegion>
+          <LiveRegion>{#if remote.error}<p class="px-4 py-8 text-center text-sm text-red-600 dark:text-red-400">{remote.error}</p>{/if}</LiveRegion>
+        {/if}
+        {#if remote?.error || (remote?.loading && rows.length === 0)}
         {:else if rows.length === 0}
           <div class="px-4 py-8 text-center text-sm text-zinc-500">No memories found.</div>
         {:else}
