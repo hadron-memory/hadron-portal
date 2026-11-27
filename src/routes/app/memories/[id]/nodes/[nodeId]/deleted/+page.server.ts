@@ -4,6 +4,7 @@ import { nodeWriteErrorText } from '$lib/node-role-refusal';
 import { requireNonConsumer } from '$lib/server/guards';
 import { RECOVERY_NODE_QUERY, RESTORE_NODE_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
+import { limitRefusal } from '$lib/server/limit-refusal';
 
 /**
  * #1159 — a retained, soft-deleted node. `node(ref:)` never resolves it, so the
@@ -32,6 +33,8 @@ export const actions: Actions = {
     } catch (e: unknown) {
       // The server's own refusal says what to do first (e.g. restore a deleted
       // ancestor), so it is shown as-is rather than paraphrased.
+      const limit = limitRefusal(e);
+      if (limit) return fail(limit.status, { error: limit.text });
       return fail(409, { error: nodeWriteErrorText(e, 'Failed to restore', ["CONFLICT"]) });
     }
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);

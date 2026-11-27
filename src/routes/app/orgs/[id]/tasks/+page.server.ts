@@ -10,6 +10,7 @@ import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
 import { orgTaskMemoryIds } from '$lib/server/org-task-memories';
 import type { Actions, PageServerLoad } from './$types';
+import { limitRefusal } from '$lib/server/limit-refusal';
 
 // "Task Nodes" — runnable nodes (Node.isRunnable=true) scoped to the ACTIVE
 // org's memories, mirroring the other org-scoped sections (memories/agents/
@@ -167,6 +168,8 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       if (e instanceof NoNodeDoorError) return exportFail(409, nodeId, 'no-door', e.message);
+      const limit = limitRefusal(e);
+      if (limit) return exportFail(limit.status, nodeId, 'rejected', limit.text);
       const text = extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"]);
       // #588 / server#1286: a memory-schema verdict — a strict collection, or
       // one declaring `exports` as a scalar field, refuses the declaration.

@@ -21,6 +21,7 @@ import {
   ORIGINAL_NODE_QUERY,
   CREATE_CUSTOMISATION_MUTATION,
 } from './queries';
+import { limitRefusal } from '$lib/server/limit-refusal';
 type Client = Pick<GraphQLClient, 'request'>;
 // node(ref:) resolves a PK or a urn:node: ref by itself and ignores memoryRef
 // (#1504 §10), so a customisation read would show a different node than the
@@ -174,6 +175,8 @@ export async function writeCustomisation(
     }
     return { saved: true };
   } catch (e) {
+    const limit = limitRefusal(e);
+    if (limit) return fail(limit.status, { customisationFailed: { code: limit.code, detail: limit.text } });
     const code = extractGqlErrorCode(e);
     const fixed = t(
       'customisation.failed-save',

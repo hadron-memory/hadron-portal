@@ -5,6 +5,7 @@ import { NODE_QUERY } from '$lib/server/queries';
 import { assertNodeUpdateDoor, nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
+import { limitBody, limitRefusal } from '$lib/server/limit-refusal';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -57,6 +58,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     return json({ ok: true });
   } catch (e: unknown) {
+    const limit = limitRefusal(e);
+    if (limit) return json(limitBody(limit), { status: limit.status });
     return json({ error: extractGqlError(e, 'Failed to reorder') }, { status: 500 });
   }
 };

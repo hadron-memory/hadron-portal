@@ -56,3 +56,8 @@ export function limitRefusal(e: unknown): LimitRefusal | null {
 export function limitMessage(r: LimitRefusal): { type: 'error'; text: string; action?: LimitAction } {
   return r.action ? { type: 'error', text: r.text, action: r.action } : { type: 'error', text: r.text };
 }
+
+/** The JSON body a JSON endpoint answers with (C3-R4): the server's text and code, plus the link only when there is one. */
+export function limitBody(r: LimitRefusal): { error: string; code: LimitRefusal['code']; action?: LimitAction } {
+  return r.action ? { error: r.text, code: r.code, action: r.action } : { error: r.text, code: r.code };
+}

@@ -6,6 +6,7 @@ import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
+import { limitBody, limitRefusal } from '$lib/server/limit-refusal';
 
 // Tree drag-move endpoint (MemoryBrowser). #564 (#501) reshaped moveNode to
 // sourceRef + targetUrn, so the body is now { sourceRef, toLoc }: the node's
@@ -40,6 +41,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
     return json({ ok: true });
   } catch (e: unknown) {
+    const limit = limitRefusal(e);
+    if (limit) return json(limitBody(limit), { status: limit.status });
     const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
     return json({ error: extractGqlError(e, 'Failed to move node') }, { status });
   }

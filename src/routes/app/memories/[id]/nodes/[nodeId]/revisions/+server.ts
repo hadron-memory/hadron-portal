@@ -9,6 +9,7 @@ import {
   UPDATE_NODE_REVISION_MUTATION,
 } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
+import { limitBody, limitRefusal } from '$lib/server/limit-refusal';
 
 // #529: node revision-history write actions (restore / delete / clear), driven
 // by the node-detail History tab's row menu + Clear button (#623 rename from
@@ -64,6 +65,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     }
     return json({ error: 'Unknown action.' }, { status: 400 });
   } catch (e: unknown) {
+    const limit = limitRefusal(e);
+    if (limit) return json(limitBody(limit), { status: limit.status });
     // portal#1142 S2b: a restore refused for an include tag restored nothing.
     // 409 with the server's words, the tag and a restore-safe next step; the
     // History dialog stays open and shows it.

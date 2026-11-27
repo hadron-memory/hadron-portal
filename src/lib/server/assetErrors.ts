@@ -57,6 +57,10 @@ const KNOWN: Record<string, number> = {
   // deliberately still absent: the portal has no restore path, so mapping them
   // would be a claim about a surface that does not exist here.
   MEMORY_ENCRYPTED_NO_KEY: 409,
+  // #2569 (C3): an owner at a limit (file bytes, or nodes for the reference node) and a node over the
+  // size ceiling. The server's message is forwarded below; the client falls back to it for a code it has no copy for.
+  OWNER_LIMIT_REACHED: 409,
+  NODE_CONTENT_TOO_LARGE: 400,
   TOOL_NOT_ENABLED: 403,
   // Genuine client faults.
   BAD_USER_INPUT: 400,

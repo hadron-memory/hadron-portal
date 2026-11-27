@@ -33,6 +33,7 @@ import {
   applyTransferSchema,
   vectorIndexSettingsSchema,
 } from './schema';
+import { limitRefusal } from '$lib/server/limit-refusal';
 
 const memorySettingsFormAdapter = zod4(memorySettingsSchema);
 const vectorIndexSettingsFormAdapter = zod4(vectorIndexSettingsSchema);
@@ -406,6 +407,8 @@ export const actions: Actions = {
       }
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
+      const limit = limitRefusal(e);
+      if (limit) return fail(limit.status, { _kind: 'applyTransfer' as const, transferSelection: selection, transferError: limit.text });
       const stale = extractGqlErrorCode(e) === 'STALE_TRANSFER_PREVIEW';
       return fail(stale ? 409 : 400, {
         _kind: 'applyTransfer' as const,

@@ -24,6 +24,7 @@ import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import type { MemoryNode } from '$lib/types';
 import { NODE_STORAGE_FORM_ID, nodeStorageSchema } from './storage-schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 export type NodeStorageForm = Infer<typeof nodeStorageSchema, 'zod4'>;
 
@@ -137,6 +138,8 @@ export async function updateStorage({ request, params, locals }: RequestEvent<{ 
   try {
     await client.request(nodeUpdateDocument(currentNode, input), { input });
   } catch (e: unknown) {
+    const limit = limitRefusal(e);
+    if (limit) return message(form, limitMessage(limit), { status: limit.status });
     const text = nodeWriteErrorText(e, 'Failed to save', ["BAD_USER_INPUT"]);
     // #588: a memory-schema violation (undeclared collection, missing
     // required field, wrong type, unknown key under strict) — surface the

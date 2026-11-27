@@ -51,6 +51,7 @@ import { loadSkillCheck } from '$lib/server/skill-check';
 import { ceremonyOrigin, pinCeremonyUrl } from '$lib/ceremony-origin';
 import { nodeStorageSeed, noWriteDoor, runnableBlockedBy, updateStorage } from './storage-action';
 import { sendChatMessageFormId, sendChatMessageSchema } from '$lib/forms/chat-message-schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 import {
   nodeApproveSchema,
   nodeConvertToTaskSchema,
@@ -767,6 +768,9 @@ async function saveNodeText(
     await client.request(nodeUpdateDocument(node, input), { input });
   } catch (e: unknown) {
     if (e instanceof NoNodeDoorError) return fail(409, { [failed]: { code: 'no-door', detail: e.message } });
+    // #2569 (C3): the node is over the deployment's size ceiling; the server's words, nothing was written.
+    const tooLarge = limitRefusal(e);
+    if (tooLarge) return fail(tooLarge.status, { [failed]: { code: 'too-large', detail: tooLarge.text } });
     // The server's words are kept: NODE_WRITE_CONFLICT is not only a revision
     // mismatch (a concurrent move answers with it too), so the page words the
     // conflict generically unless the reload shows THIS field moved.
@@ -859,6 +863,8 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('node.create-parent.saved', 'Parent node created.') }),
       };
     } catch (e: unknown) {
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to create parent node', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
@@ -948,12 +954,16 @@ export const actions: Actions = {
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {
+      const limit = limitRefusal(e);
+      if (limit) return refuse(limit.status, limit.text);
       return refuse(500, nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS));
     }
 
     try {
       await client.request(nodeUpdateDocument(currentNode, input), { input });
     } catch (e: unknown) {
+      const limit = limitRefusal(e);
+      if (limit) return refuse(limit.status, limit.text);
       return refuse(500, nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS));
     }
 
@@ -992,8 +1002,9 @@ export const actions: Actions = {
       } catch (e: unknown) {
         // An occupied destination is a 409 Conflict, not a 500 — matches the
         // /api/nodes/move endpoint and keeps it out of error monitoring.
-        const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-        const detail = nodeWriteErrorText(e, 'Failed to move node', NODE_WRITE_REFUSALS);
+        const limit = limitRefusal(e);
+        const status = limit ? limit.status : extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+        const detail = limit ? limit.text : nodeWriteErrorText(e, 'Failed to move node', NODE_WRITE_REFUSALS);
         // #1989: say what is true now: the edits are saved, nothing moved, and
         // the node is still at its old address (a refused move writes nothing,
         // hrn:node:hadronmemory.com:specs:cor:api:190:01). The page keeps this
@@ -1176,6 +1187,8 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       if (e instanceof NoNodeDoorError) return fail(409, { dataFailed: { code: 'no-door', detail: e.message } });
+      const tooLarge = limitRefusal(e);
+      if (tooLarge) return fail(tooLarge.status, { dataFailed: { code: 'rejected', detail: tooLarge.text } });
       const detail = nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS);
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { dataFailed: { code: 'rejected', detail } });
       return fail(500, { dataFailed: { code: 'failed', detail } });
@@ -1241,6 +1254,8 @@ export const actions: Actions = {
       if (e instanceof NoNodeDoorError) {
         return fail(409, { propertiesFailed: { code: 'no-door', detail: e.message } });
       }
+      const tooLarge = limitRefusal(e);
+      if (tooLarge) return fail(tooLarge.status, { propertiesFailed: { code: 'rejected', detail: tooLarge.text } });
       const detail = nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS);
       // #588: a memory-schema verdict (strict collection, wrong type, missing
       // required field) — the server's words, verbatim.
@@ -1294,6 +1309,8 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
       return message(form, { type: 'success', text: t('node.flow.saved', 'Flow settings saved.') });
     } catch (e: unknown) {
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Save failed', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
@@ -1373,6 +1390,8 @@ export const actions: Actions = {
       } catch (e: unknown) {
         // An occupied -copy slot just means "try the next suffix"; anything
         // else surfaces as-is.
+        const limit = limitRefusal(e);
+        if (limit) return message(form, limitMessage(limit), { status: limit.status });
         if (extractGqlErrorCode(e) !== 'NODE_ALREADY_EXISTS') {
           return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to duplicate node', NODE_WRITE_REFUSALS) }, { status: 500 });
         }
@@ -1435,6 +1454,8 @@ export const actions: Actions = {
       // are server faults, so don't bury them in a generic 500: surface the
       // server's message verbatim on the `target` field (it names the offending
       // memory/node), the same way NODE_ALREADY_EXISTS already did.
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const code = extractGqlErrorCode(e);
       // portal#1014: a node with live discussions can't move into a memory
       // that takes no comments (hrn:node:hadronmemory.com:specs:cor:dmo:110:02). Fixed copy names
@@ -1494,6 +1515,8 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('node-actions.convert-to-task.saved', 'Node converted to a task.') }),
       };
     } catch (e: unknown) {
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to convert node to a task', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
@@ -1666,6 +1689,8 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
       return message(form, { type: 'success', text: t('node.edges.saved', 'Edges saved.') });
     } catch (e: unknown) {
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to update edges', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
@@ -1725,6 +1750,8 @@ export const actions: Actions = {
         await client.request(nodeUpdateDocument(node, input), { input });
       }
     } catch (e: unknown) {
+      const limit = limitRefusal(e);
+      if (limit) return fail(limit.status, { error: limit.text });
       return fail(500, { error: nodeWriteErrorText(e, 'Reorder failed', NODE_WRITE_REFUSALS) });
     }
   },
