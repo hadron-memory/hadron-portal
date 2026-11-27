@@ -17,7 +17,7 @@ import { lookupOwn } from '$lib/lookup';
  *
  *  #1007/#1008: `keys` and `ai-configs` were sections of Settings; they are
  *  their own tabs now, so each is linkable on its own. #1005/#1006: so are
- *  `members` (the former /members page) and `agents` (Settings' Agent section). */
+ *  `members` (the former /members page). `agents` is a Settings section again, and the id stays as the name of its data. */
 export const APP_TAB_IDS = [
   // portal#2241: the App's own identity, read-only. Left-most and the page's default: a URL with no
   // `?tab=` opens it (Holger, 2026-11-23).
@@ -79,6 +79,7 @@ export const SETTINGS_SECTION_IDS = [
   'stops',
   'channels',
   'register',
+  'agents',
   'danger-zone',
 ] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -96,6 +97,7 @@ export const SECTION_DATA_TAB: Partial<Record<SettingsSectionId, AppTabId>> = {
   stops: 'stops',
   channels: 'channels',
   register: 'register',
+  agents: 'agents',
 };
 
 /** Tabs that became Settings sections: the tab id, and the section it now is. */
@@ -108,6 +110,7 @@ const TAB_TO_SECTION: Record<string, SettingsSectionId> = {
   stops: 'stops',
   channels: 'channels',
   register: 'register',
+  agents: 'agents',
 };
 
 /** The Settings section a retired tab id became, or null. */

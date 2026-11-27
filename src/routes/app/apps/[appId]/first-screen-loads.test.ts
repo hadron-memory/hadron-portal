@@ -172,7 +172,7 @@ const opSet = () => [...new Set(h.ops)].sort();
 const expected = (tab: string) => [...new Set([...FRAME, ...TAB_OPS[tab]])].sort();
 /** App Keys, AI Service Configs and Node-role templates are sections of Settings. A link that still says `?tab=keys` opens Settings with that
  *  section open, so its first screen is Settings' reads plus the section's own. */
-const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops', 'channels', 'register'];
+const SECTION_TABS = ['keys', 'ai-configs', 'node-role-templates', 'secrets', 'tickers', 'stops', 'channels', 'register', 'agents'];
 const expectedOpening = (tab: string) => SECTION_TABS.includes(tab)
   ? [...new Set([...FRAME, ...TAB_OPS.settings, ...TAB_OPS[tab]])].sort()
   : expected(tab);
@@ -213,14 +213,14 @@ describe('App page loader: the first screen only (portal#2240)', () => {
     expect(opSet()).toEqual(expectedOpening(section));
   });
 
-  it('an org-owned App adds the org to the frame, and its picker reads to Agents only', async () => {
+  it('an org-owned App adds the org to the frame, and its picker reads to the Agents section only', async () => {
     h.opts.orgApp = true;
     await loadPage('?tab=worklog');
     expect(opSet()).toEqual([...FRAME, 'AppDetailOrg', 'TeamWorkItems'].sort());
     h.ops.length = 0;
-    await loadPage('?tab=agents');
+    await loadPage('?tab=settings&section=agents');
     expect(opSet()).toEqual(
-      [...FRAME, 'AppDetailOrg', 'AppOrgAgents', 'AppOrgAgentGrants', 'AppBootPointers', 'AppInstallMarks', 'SelfCanManage'].sort(),
+      [...new Set([...FRAME, ...TAB_OPS.settings, 'AppDetailOrg', 'AppOrgAgents', 'AppOrgAgentGrants', 'AppBootPointers', 'AppInstallMarks', 'SelfCanManage'])].sort(),
     );
   });
 
