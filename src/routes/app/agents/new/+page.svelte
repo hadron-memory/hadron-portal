@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LimitActionLink from '$lib/components/LimitActionLink.svelte';
   // #636: org-less "create an agent" form for individual users. Mirrors the
   // personal-memory create form's slug-from-name derivation (via oninput, NOT an
   // effect, to avoid the superForm self-loop from #624).
@@ -65,6 +66,7 @@
   {#if actionError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
       {actionError}
+      <LimitActionLink action={$message?.type === 'error' ? $message.action : null} />
     </div>
   {/if}
 

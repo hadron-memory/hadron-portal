@@ -885,7 +885,7 @@
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
   let customisationPanel = $state<{ reveal: () => void; mayLeave: () => boolean }>();
-  let agentsHeading = $state<HTMLHeadingElement>();
+  let agentsHeading = $state<HTMLParagraphElement>();
   let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
   const customisationAgent = $derived(
     customisationChoice?.appRef === data.bootPointerAppKey
@@ -1080,16 +1080,17 @@
   function keyActionSubmitted(result: unknown): boolean {
     return !!(submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey') || submittedForm<GrantAppKeyScopeForm>(result, 'grantKeyScope') || submittedForm<RevokeAppKeyScopeForm>(result, 'revokeKeyScope'));
   }
+  function agentActionSubmitted(result: unknown): boolean {
+    return !!(submittedForm<AddAgentForm>(result, 'addAgent') || submittedForm<RemoveAppAgentForm>(result, 'removeAgent'));
+  }
   function tabForActionResult(result: unknown, current: TabId | null): TabId | null {
     if (keyActionSubmitted(result)) {
       // The Client tab lists the same keys and shares the revoke action, so a
       // revoke made THERE stays there. Otherwise the keys are the App Keys section of Settings (opened below).
       return current === 'client' ? 'client' : 'settings';
     }
-    // #1006: installing and unlinking an agent happen on the Agents tab now.
-    if (submittedForm<AddAgentForm>(result, 'addAgent') || submittedForm<RemoveAppAgentForm>(result, 'removeAgent')) {
-      return 'agents';
-    }
+    // #1006: installing and unlinking an agent happen in the Agents section of Settings (opened below).
+    if (agentActionSubmitted(result)) return 'settings';
     // #1005: member changes land back on the Human team view of the Team tab.
     if (
       submittedForm(result, 'addAppMember') ||
@@ -1267,7 +1268,7 @@
   let openSections = $state<Record<SettingsSectionId, boolean>>(untrack(() => {
     const named = resolveSectionIntent($page.url.searchParams) ?? sectionForTab(data.initialTab ?? null);
     // A key action's answer lands on the App Keys section, open, so the outcome (above all a one-time raw key) is in view.
-    const open = named ?? (keyActionSubmitted(form) && data.initialTab !== 'client' ? 'keys' : null);
+    const open = named ?? (keyActionSubmitted(form) && data.initialTab !== 'client' ? 'keys' : agentActionSubmitted(form) ? 'agents' : null);
     return Object.fromEntries(SETTINGS_SECTION_IDS.map((id) => [id, id === open])) as Record<SettingsSectionId, boolean>;
   }));
   // The Settings panel stays mounted once shown, hidden on another tab: a tab switch is not a full-page readback, so a
@@ -1379,8 +1380,6 @@
     // active for either view); `?tab=staff` and `?tab=members` stay the addresses of the two views.
     // `members` (#1005) is always present: an App with no members yet still needs the way to add one.
     { id: 'staff', label: t('app.tabs.team', 'Team') },
-    // #1006: the agents installed in the App, and the way to install another.
-    { id: 'agents', label: t('app.tabs.agents', 'Agents') },
     // #733: the worklog — the authoritative artifact-to-worker-session join.
     // Always present for the same reason as Staff: nine records nobody can see
     // is the problem this tab exists to fix, and an empty worklog is
@@ -2544,6 +2543,7 @@
   $effect(() => {
     const tab = tabForActionResult(form, untrack(() => activeTab));
     if (tab) activeTab = tab;
+    if (agentActionSubmitted(form)) openSections['agents'] = true;
   });
   $effect(() => {
     if (submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools')) {
@@ -3286,10 +3286,10 @@
               )}
             </p>
             <button
-              onclick={() => activeTab = 'agents'}
+              onclick={() => { openSections['agents'] = true; activeTab = 'settings'; }}
               class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
             >
-              {t('app-chat.empty.link-agent-cta', 'Link an agent on the Agents tab')}
+              {t('app-chat.empty.link-agent-cta', 'Link an agent in the Agents section of Settings')}
             </button>
           </div>
         </div>
@@ -4158,13 +4158,12 @@
     </div>
   {/if}
 
-  <!-- ───────────── AGENTS TAB (#1006) ───────────── -->
-  {#if activeTab === 'agents' && tabShown('agents')}
-    <div id="panel-agents" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+  <!-- ───────────── AGENTS (#1006): the Agents section of Settings ───────────── -->
+  {#snippet agentsBody()}
     <div class="space-y-4">
       <div>
-        <h2 bind:this={agentsHeading} tabindex="-1" class="rounded font-semibold text-zinc-900 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
-        <p class="mt-1 max-w-2xl text-sm text-zinc-500">
+        <!-- The section's own title says "Agents"; the intro is the focus target a closed panel returns to (it shows a ring). -->
+        <p bind:this={agentsHeading} tabindex="-1" class="max-w-2xl rounded text-sm text-zinc-500 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600">
           {t(
             'app.agents.description',
             'The agents installed in this App. Cast a worker from one of them on the Team tab.',
@@ -4290,7 +4289,7 @@
               <BootPromptPointer
                 read={appRowPointer(tabData.bootPointers, pointerAgent.id)}
                 canManage={tabData.canManageApp}
-                action="?tab=agents&/setAppAgentBootPrompt"
+                action="?tab=settings&section=agents&/setAppAgentBootPrompt"
                 hidden={{ agentRef: pointerAgent.id }}
                 result={pointerResultFor(formPointer, appAgentPointerKey(data.bootPointerAppKey, pointerAgent.id))}
                 idPrefix="app-agent-pointer"
@@ -4302,7 +4301,7 @@
 
       <!-- #1020: Unlink's submit target — one hidden form for every row. -->
       {#key app.id}
-        <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
+        <form bind:this={removeAgentFormEl} method="POST" action="?tab=settings&section=agents&/removeAgent" use:removeAgentEnhance class="hidden">
           <input type="hidden" name="__superform_id" value={$removeAgentFormId} />
           <input type="hidden" name="_kind" value="removeAgent" />
           <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
@@ -4338,7 +4337,7 @@
           </p>
         {:else if addableAgents.length > 0}
           {#key app.id}
-          <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
+          <form method="POST" action="?tab=settings&section=agents&/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
             <input type="hidden" name="__superform_id" value={$addAgentFormId} />
             <input type="hidden" name="_kind" value={$addAgentForm._kind} />
             <div class="flex-1 min-w-[200px]">
@@ -4380,7 +4379,7 @@
            so a late answer can be told from B's own (installRequestGeneration). -->
       {#if !agentsWithheld}
         {#key app.id}
-          <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+          <form bind:this={installAgentFormEl} method="POST" action="?tab=settings&section=agents&/addAgent" use:installAgentEnhance class="hidden">
             <input type="hidden" name="_kind" value="addAgent" />
             <input type="hidden" name="__superform_id" value={installFormId} />
             <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
@@ -4388,8 +4387,8 @@
         {/key}
       {/if}
     </div>
-    </div>
-  {/if}
+  {/snippet}
+
 
   {#if activeTab === 'memory' && tabShown('memory')}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
@@ -4926,6 +4925,11 @@
         {:else}
           {@render tabArriving('register')}
         {/if}
+      </CollapsibleSection>
+
+      <!-- #1006: the former Agents tab, in place. Read when the section unfolds; its writes are the page's own actions. -->
+      <CollapsibleSection id="agents" title={t('app.tabs.agents', 'Agents')} bind:open={openSections['agents']}>
+        {#if tabShown('agents')}{@render agentsBody()}{:else}{@render tabArriving('agents')}{/if}
       </CollapsibleSection>
 
       <CollapsibleSection id="ai-configs" title={t('app.tabs.ai-configs', 'AI Service Configs')} bind:open={openSections['ai-configs']}>

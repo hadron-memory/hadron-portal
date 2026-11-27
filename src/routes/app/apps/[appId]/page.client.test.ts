@@ -1444,7 +1444,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     expect(m.target.textContent).toContain('Key revoked.');
   });
 
-  it('opens Agents for an agent action result that arrives on a fresh page (#1006)', async () => {
+  it('opens the Agents section of Settings for an agent action result that arrives on a fresh page (#1006)', async () => {
     setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
     const f = await superValidate({ _kind: 'removeAgent', agentId: 'ag1' }, zod4(removeAppAgentSchema));
     f.message = { type: 'success', text: 'Agent removed.' };
@@ -1454,7 +1454,8 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     mounted.push(m);
     await tick(2);
     await enterNavigation();
-    expect(selectedTab(m)).toBe('tab-agents');
+    expect(selectedTab(m)).toBe('tab-settings');
+    expect(m.target.querySelector('#section-agents-toggle')!.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('still follows the loader on an enter navigation with no action result', async () => {
@@ -2343,7 +2344,7 @@ describe('App key inventory states (portal#1068)', () => {
     const m = mountComponent(Page as never, reactiveProps({ data: { ...data, initialTab: tab, appKeys, keyScopes: { kind: 'hidden' } }, form: null }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' ? `#section-${tab}-body` : `#panel-${tab}`)!;
   }
   it.each(['keys', 'client'] as const)('%s tab: a manager with keys sees them and no refusal copy', async (tab) => {
     const panel = await mountTab(tab, { kind: 'ok', keys: [key] });
@@ -2388,7 +2389,7 @@ describe('withheld App rosters (portal#1148)', () => {
     }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' || tab === 'agents' ? `#section-${tab}-body` : `#panel-${tab}`)!;
   }
   const WITHHELD_AGENTS = 'The agents installed in this App aren’t visible to you.';
 
@@ -2396,7 +2397,7 @@ describe('withheld App rosters (portal#1148)', () => {
     const panel = await mountTab('agents', { agents: null });
     expect(panel.textContent).toContain(WITHHELD_AGENTS);
     expect(panel.textContent).not.toContain('No agents are installed in this App yet.');
-    expect(panel.querySelector('form[action="?/addAgent"]')).toBeNull();
+    expect(panel.querySelector('form[action="?tab=settings&section=agents&/addAgent"]')).toBeNull();
   });
   it('Agents tab: known-empty control — [] keeps "No agents are installed"', async () => {
     const panel = await mountTab('agents', { agents: [] });
@@ -2985,7 +2986,7 @@ describe('key controls follow App.viewerManages (portal#1153)', () => {
     }) as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
-    return m.target.querySelector(tab === 'keys' ? '#section-keys-body' : `#panel-${tab}`)!;
+    return m.target.querySelector(tab === 'keys' ? `#section-${tab}-body` : `#panel-${tab}`)!;
   }
   const manager = { viewerManages: { kind: 'known', manages: true } };
   const nonManager = { viewerManages: { kind: 'known', manages: false } };
@@ -4762,7 +4763,7 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     return { ...data, bootPointerAppKey: appId, installMarks: { ag1: { kind: 'derived', importer: IMPORTER } } };
   }
   const installForm = (target: HTMLElement) =>
-    [...target.querySelectorAll<HTMLFormElement>('form[action="?/addAgent"]')].find((f) =>
+    [...target.querySelectorAll<HTMLFormElement>('form[action="?tab=settings&section=agents&/addAgent"]')].find((f) =>
       f.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value.startsWith('installAgent:'))!;
   const actions = (target: HTMLElement) => target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Beta"]')!;
   async function mountAgents() {
@@ -5138,14 +5139,14 @@ describe('one agent write at a time on the Agents tab (portal#1715)', () => {
       e.preventDefault();
       const form = e.target as HTMLFormElement;
       const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value ?? '';
-      writes.push(id.startsWith('installAgent:') ? 'install' : form.getAttribute('action') === '?/removeAgent' ? 'unlink' : 'link');
+      writes.push(id.startsWith('installAgent:') ? 'install' : form.getAttribute('action') === '?tab=settings&section=agents&/removeAgent' ? 'unlink' : 'link');
     }, { capture: true });
     return { m, writes };
   }
   const forms = (target: HTMLElement) => [...target.querySelectorAll<HTMLFormElement>('form')];
   const installForm = (target: HTMLElement) => forms(target).find((f) => f.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value.startsWith('installAgent:'))!;
-  const linkForm = (target: HTMLElement) => forms(target).find((f) => f.getAttribute('action') === '?/addAgent' && !f.classList.contains('hidden'))!;
-  const unlinkForm = (target: HTMLElement) => target.querySelector<HTMLFormElement>('form[action="?/removeAgent"]')!;
+  const linkForm = (target: HTMLElement) => forms(target).find((f) => f.getAttribute('action') === '?tab=settings&section=agents&/addAgent' && !f.classList.contains('hidden'))!;
+  const unlinkForm = (target: HTMLElement) => target.querySelector<HTMLFormElement>('form[action="?tab=settings&section=agents&/removeAgent"]')!;
   const linkButton = (target: HTMLElement) => linkForm(target).querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const menu = (target: HTMLElement, name: string) => target.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!;
   const item = (target: HTMLElement, label: string) => [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === label)!;
@@ -5279,8 +5280,8 @@ describe('Link and Unlink answers belong to their App visit (#1776)', () => {
     return { m, props };
   }
   const formOf = (target: HTMLElement, kind: Kind) => kind === 'unlink'
-    ? target.querySelector<HTMLFormElement>('form[action="?/removeAgent"]')!
-    : [...target.querySelectorAll<HTMLFormElement>('form[action="?/addAgent"]')].find(f => !f.classList.contains('hidden'))!;
+    ? target.querySelector<HTMLFormElement>('form[action="?tab=settings&section=agents&/removeAgent"]')!
+    : [...target.querySelectorAll<HTMLFormElement>('form[action="?tab=settings&section=agents&/addAgent"]')].find(f => !f.classList.contains('hidden'))!;
   async function begin(target: HTMLElement, kind: Kind) {
     if (kind === 'link') {
       const select = formOf(target, kind).querySelector<HTMLSelectElement>('[name="agentId"]')!;

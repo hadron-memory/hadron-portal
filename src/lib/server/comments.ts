@@ -8,6 +8,7 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { commentFailure, type CommentAction, type CommentPermissions, type CommentSummary, type CommentThread, type Discussion, type DiscussionThread } from '$lib/comments';
+import { limitRefusal } from '$lib/server/limit-refusal';
 
 const COMMENT_ACTOR_FIELDS = /* GraphQL */ `
   fragment CommentActorFields on CommentActorRef { id name handle urn }
@@ -311,6 +312,9 @@ export async function sendCommentWrite(
     }
     return { ok: true };
   } catch (e) {
+    // #2569 (C3): a body over the node-size ceiling is the server's own words, as a 400.
+    const limit = limitRefusal(e, { link: false });
+    if (limit) return { ok: false, status: limit.status, text: limit.text, code: limit.code };
     const code = extractGqlErrorCode(e);
     const { status, text } = commentFailure(code, w.op);
     if (status === 500) console.error(`[comments] ${w.op} failed:`, e);

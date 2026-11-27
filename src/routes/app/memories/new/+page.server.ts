@@ -6,6 +6,7 @@ import { gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError'
 import { CREATE_PERSONAL_MEMORY_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { createPersonalMemorySchema } from './schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 const adapter = zod4(createPersonalMemorySchema);
 
@@ -38,6 +39,8 @@ export const actions: Actions = {
       redirect(303, `/app/memories/${result.createMemory.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const error = extractGqlError(e, 'Failed to create memory');
       if (/memory with URN/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'slug', error, { status: 409 });

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import LimitActionLink from '$lib/components/LimitActionLink.svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -90,6 +91,7 @@
     {#if actionError}
       <div role="alert" class="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         <p>{actionError}</p>
+        <LimitActionLink action={$message?.type === 'error' ? $message.action : null} />
         {#if blockers.length}
           <ul class="mt-2 list-disc pl-5">
             {#each blockers as b, i (i)}

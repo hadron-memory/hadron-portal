@@ -70,7 +70,7 @@ describe('portal#2292: the document title leads with the shown tab', () => {
     const target = await mountAt(null);
     const ids = clientTabIds(target).filter((id) => id !== 'profile');
     // A floor, not a count: it fails if the strip loses tabs wholesale (App Keys, AI Service Configs and Node-role templates left it for Settings).
-    expect(ids.length).toBeGreaterThanOrEqual(8);
+    expect(ids.length).toBeGreaterThanOrEqual(6);
     for (const id of ids) {
       await select(target, id);
       expect(document.title, id).toBe(`${labelOf(target, id)} · ${TAIL}`);

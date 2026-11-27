@@ -169,3 +169,38 @@ describe('create-memory action (spec 034)', () => {
     expect(result).toMatchObject({ status: 500, data: { form: { message: { type: 'error', text: 'Something went wrong on our side.' } } } });
   });
 });
+
+import type { PortalExtension } from '$lib/ext/types';
+const limitFx = vi.hoisted(() => ({ exts: [] as PortalExtension[] }));
+vi.mock('$lib/ext/registry', async (orig) => {
+  const real = await orig<typeof import('$lib/ext/registry')>();
+  return { ...real, extensionLimitAction: (c: Parameters<typeof real.extensionLimitAction>[0]) => real.extensionLimitAction(c, limitFx.exts) };
+});
+
+// #2569 (C3): an owner at a limit is the server's refusal, shown as such: 409, the server's words, no generic text.
+describe('owner limit reached (#2569)', () => {
+  beforeEach(() => { limitFx.exts = []; });
+  const reached = (callerCanManageOwner: boolean, message: string) => ({
+    response: { errors: [{ message, extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'memories', ownerType: 'organization', callerCanManageOwner, ...(callerCanManageOwner ? { ownerId: 'o1', limit: '3' } : {}) } }] },
+  });
+  it('answers 409 with the server text, and no link in a public build', async () => {
+    mockRequest.mockRejectedValueOnce(reached(true, 'This organization has reached its limit of 3 memories.'));
+    const result = (await runCreate({ slug: 'my-notes', displayName: 'My Notes', memoryClass: 'knowledge', visibility: 'ORGANIZATION' })) as { status: number; data: { form: { message?: { text: string; action?: unknown } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message?.text).toBe('This organization has reached its limit of 3 memories.');
+    expect(result.data.form.message?.action).toBeUndefined();
+  });
+  it('shows the no-number form unchanged for a caller who cannot manage the owner', async () => {
+    mockRequest.mockRejectedValueOnce(reached(false, 'The owner of this memory has reached a limit of their account.'));
+    const result = (await runCreate({ slug: 'my-notes', displayName: 'My Notes', memoryClass: 'knowledge', visibility: 'ORGANIZATION' })) as { status: number; data: { form: { message?: { text: string } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message?.text).toBe('The owner of this memory has reached a limit of their account.');
+  });
+  it('carries the extension link to the form message when the server says the caller can manage the owner', async () => {
+    limitFx.exts = [{ id: 'fx', limitAction: () => ({ label: 'See limits', href: '/app/orgs/o1/x' }) }];
+    mockRequest.mockRejectedValueOnce(reached(true, 'This organization has reached its limit of 3 memories.'));
+    const result = (await runCreate({ slug: 'my-notes', displayName: 'My Notes', memoryClass: 'knowledge', visibility: 'ORGANIZATION' })) as { data: { form: { message?: { action?: unknown } } } };
+    expect(result.data.form.message?.action).toEqual({ label: 'See limits', href: '/app/orgs/o1/x' });
+    limitFx.exts = [];
+  });
+});

@@ -8,6 +8,7 @@ import { CREATE_MEMORY_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createMemorySchema } from './schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 const createMemoryFormAdapter = zod4(createMemorySchema);
 
@@ -83,6 +84,8 @@ export const actions: Actions = {
       redirect(303, `/app/orgs/${params.id}/memories${tab}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
+      const limit = limitRefusal(e);
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const error = extractGqlError(e, 'Failed to create memory');
       if (/memory with URN/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'slug', error, { status: 409 });

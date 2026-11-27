@@ -10,6 +10,7 @@ import { t } from '$lib/i18n/t';
 import type { Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { mergeMemoryFields, mergeMemorySchema } from './schema';
+import { limitMessage, limitRefusal } from '$lib/server/limit-refusal';
 
 const mergeMemoryFormAdapter = zod4(mergeMemorySchema);
 type MergeMemoryForm = Infer<typeof mergeMemorySchema, 'zod4'>;
@@ -93,6 +94,8 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('commands.merge-memory.success', 'Memory merged.') }),
       };
     } catch (e) {
+      const limit = limitRefusal(e, { link: false });
+      if (limit) return message(form, limitMessage(limit), { status: limit.status });
       const code = extractGqlErrorCode(e);
       const errorText = extractGqlError(e, t('commands.merge-memory.error.failed', 'Merge failed.'));
       // hadron-server#1682: threads that can't follow the merge get fixed copy.

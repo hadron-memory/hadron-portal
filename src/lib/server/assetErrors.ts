@@ -15,6 +15,7 @@
 import { ClientError } from 'graphql-request';
 import { LOC_CONFLICT_CODE } from '$lib/assets/error-codes';
 import { lookupOwn } from '$lib/lookup';
+import { limitRefusal } from '$lib/server/limit-refusal';
 
 /**
  * Codes hadron-server actually emits on the asset surface, each with the status
@@ -57,6 +58,10 @@ const KNOWN: Record<string, number> = {
   // deliberately still absent: the portal has no restore path, so mapping them
   // would be a claim about a surface that does not exist here.
   MEMORY_ENCRYPTED_NO_KEY: 409,
+  // #2569 (C3): an owner at a limit (file bytes, or nodes for the reference node) and a node over the
+  // size ceiling. The server's message is forwarded below; the client falls back to it for a code it has no copy for.
+  OWNER_LIMIT_REACHED: 409,
+  NODE_CONTENT_TOO_LARGE: 400,
   TOOL_NOT_ENABLED: 403,
   // Genuine client faults.
   BAD_USER_INPUT: 400,
@@ -79,6 +84,8 @@ const KNOWN: Record<string, number> = {
 export interface AssetErrorBody {
   code: string;
   message: string;
+  /** #2569: a link an installed extension offers beside an OWNER_LIMIT_REACHED message. */
+  action?: { label: string; href: string };
 }
 
 /**
@@ -105,7 +112,8 @@ export function mapAssetError(
     // `console.error` path underneath is written to produce.
     const status = lookupOwn(KNOWN, code);
     if (code && status) {
-      return [{ code, message: first.message ?? 'asset request failed' }, { status }];
+      const action = limitRefusal(err)?.action;
+      return [{ code, message: first.message ?? 'asset request failed', ...(action ? { action } : {}) }, { status }];
     }
     console.error(`[assets] ${context}: unmapped GraphQL error`, code ?? '(no code)', first.message);
     return [{ code: 'INTERNAL', message: 'the server had a problem' }, { status: 500 }];

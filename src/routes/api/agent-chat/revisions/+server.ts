@@ -11,6 +11,7 @@ import {
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { RequestHandler } from './$types';
+import { limitBody, limitRefusal } from '$lib/server/limit-refusal';
 
 // Resolve the agent's system-memory id server-side from agentId, gated by the
 // caller's org memberships (ORGANIZATIONS_QUERY only returns orgs the caller
@@ -194,6 +195,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
+    const limit = limitRefusal(e, { link: false });
+    if (limit) {
+      return new Response(JSON.stringify(limitBody(limit)), { status: limit.status, headers: { 'Content-Type': 'application/json' } });
+    }
     const msg = extractGqlError(e, 'Request failed');
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,

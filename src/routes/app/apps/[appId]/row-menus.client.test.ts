@@ -96,7 +96,7 @@ describe('App Agents tab row ⋯ menu (#1020)', () => {
     openMenu(target, 'Actions for Beta').find((i) => i.textContent?.trim() === 'Unlink')!.click();
     await tick(2);
     const form = requestSubmit.mock.contexts[0] as HTMLFormElement;
-    expect(form.getAttribute('action')).toBe('?/removeAgent');
+    expect(form.getAttribute('action')).toBe('?tab=settings&section=agents&/removeAgent');
     expect(form.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).toBe('ag1');
     expect((await submitEnhanced(form)).cancelled).toBe(false);
   });
@@ -155,7 +155,7 @@ describe('A derived agent on the Agents tab (#1684)', () => {
     openMenu(target, 'Actions for Beta').find((i) => i.textContent?.trim() === 'Install')!.click();
     await tick(2);
     const form = requestSubmit.mock.contexts[0] as HTMLFormElement;
-    expect(form.getAttribute('action')).toBe('?/addAgent');
+    expect(form.getAttribute('action')).toBe('?tab=settings&section=agents&/addAgent');
     expect(form.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).toBe('ag1');
     expect(form.querySelector<HTMLInputElement>('input[name="__superform_id"]')!.value).toMatch(/^installAgent:/);
     expect((await submitEnhanced(form)).cancelled).toBe(false);
@@ -190,7 +190,7 @@ describe('A derived agent on the Agents tab (#1684)', () => {
     const roster = mountComponent(Page as never, { data: { ...data, app: { ...data.app, agents: [] }, installMarks: {}, staff: [worker] }, form: null } as never) as Mounted<Record<string, unknown>>;
     mounted.push(roster);
     await tick(2);
-    expect(roster.target.querySelector('#panel-agents')!.textContent).not.toContain('Beta');
+    expect(roster.target.querySelector('#section-agents-body')!.textContent).not.toContain('Beta');
     const staff = mountComponent(Page as never, { data: { ...data, initialTab: 'staff', app: { ...data.app, agents: [] }, installMarks: {}, staff: [worker] }, form: null } as never) as Mounted<Record<string, unknown>>;
     mounted.push(staff);
     await tick(2);
@@ -539,7 +539,7 @@ describe('switching Agents with an unsaved customisation draft (#1369)', () => {
 });
 
 describe('closing the customisation panel when its opener is gone (#1369)', () => {
-  it('returns focus to the Agents heading, which shows a focus ring', async () => {
+  it('returns focus to the Agents intro, which shows a focus ring', async () => {
     const target = await mountTab('agents', {}, [AGENT, GAMMA]);
     pickCustomisation(target, 'Beta');
     await settle();
@@ -553,8 +553,8 @@ describe('closing the customisation panel when its opener is gone (#1369)', () =
       .click();
     await settle();
     const heading = document.activeElement as HTMLElement;
-    expect(heading.tagName).toBe('H2');
-    expect(heading.textContent?.trim()).toBe('Agents');
+    expect(heading.tagName).toBe('P');
+    expect(heading.textContent).toContain('The agents installed in this App.');
     expect(heading.className).toMatch(/focus:outline/);
   });
 });

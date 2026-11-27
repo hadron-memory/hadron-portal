@@ -297,3 +297,14 @@ describe('#1786 organization Agents on /app/apps/new', () => {
     },
   );
 });
+
+describe('limit refusal (#2569, door 6)', () => {
+  it('personal App create: 409 with the server text, not 400/500 (C3-R2)', async () => {
+    routeFetch({ mine: [OWN], pub: [PUB] });
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Your account has reached its limit of 3 Apps.', extensions: { code: 'OWNER_LIMIT_REACHED', limitKey: 'apps', ownerType: 'user', callerCanManageOwner: true, ownerId: 'u1', limit: '3' } }] } });
+    const { actions } = await importMod();
+    const result = (await actions.default(actionEv({ agentId: 'a-own', name: 'My App', urn: 'my-app', appType: 'WORKSTATION' }))) as { status: number; data: { form: { message?: { text: string } } } };
+    expect(result.status).toBe(409);
+    expect(result.data.form.message?.text).toBe('Your account has reached its limit of 3 Apps.');
+  });
+});

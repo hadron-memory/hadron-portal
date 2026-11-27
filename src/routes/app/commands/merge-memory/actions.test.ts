@@ -132,3 +132,12 @@ describe('merge memory command action', () => {
   });
 });
 
+describe('limit refusal (#2569, door 16)', () => {
+const wire = (ext: Record<string, unknown>, message: string) => ({ response: { errors: [{ message, extensions: ext }] } });
+  it('merge memories: 409 with the server text (on main: 500, generic)', async () => {
+    mockRequest.mockRejectedValueOnce(wire({ code: 'OWNER_LIMIT_REACHED', limitKey: 'memories', ownerType: 'organization', callerCanManageOwner: false }, 'The owner of this memory has reached a limit of their account.'));
+    const result = (await run({ _kind: 'mergeMemory', source: 'hrn:memory:hadronmemory.com::source', target: 'hrn:memory:hadronmemory.com::target', include: ['CONTENT'], deleteSourceMem: 'false' })) as { status: number };
+    expect(result.status).toBe(409);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'The owner of this memory has reached a limit of their account.' });
+  });
+});
