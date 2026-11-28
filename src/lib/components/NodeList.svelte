@@ -6,6 +6,7 @@
   import { commentHitView, openFeedbackCue } from '$lib/comments';
   import { onMount, untrack } from 'svelte';
   import type { PortalColumnDef } from '$lib/table/features';
+  import type { SavedView } from '$lib/table/savedView';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
   import NodeEmbeddingBadges from './NodeEmbeddingBadges.svelte';
@@ -39,8 +40,14 @@
     onretrycolumns,
     onvisiblenodes,
     serverPaged = false,
+    serverView,
+    emptyMessage = 'No nodes.',
   }: {
     nodes: MemoryNode[];
+    /** portal#2705: the owner's server-run search, as the two slices a saved view can hold. */
+    serverView?: { get: () => Pick<SavedView, 'sorting' | 'columnFilters'>; apply: (view: SavedView, options?: { initial?: boolean }) => void };
+    /** Text for an empty list; '' when the owner already says it. */
+    emptyMessage?: string;
     basePath?: string;
     memoryUrn?: string;
     orderable?: boolean;
@@ -211,6 +218,15 @@
     // Start at the default on both server and client; a stored preference is
     // applied after mount (below) to avoid an SSR hydration mismatch.
     initialState: { pagination: { pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE } },
+    // A stable object of closures (never a spread), so the owner's live criteria are read at call time.
+    // Only a list whose owner runs the search declares a server view: for every other list the
+    // table's own sorting and filters are the view (savedView.extractTableView / applyView).
+    meta: untrack(() => serverView)
+      ? {
+          getServerView: () => serverView!.get(),
+          applyServerView: (v: SavedView, o?: { initial?: boolean }) => serverView!.apply(v, o),
+        }
+      : {},
   });
 
   onMount(() => {
@@ -314,7 +330,7 @@
        An orderable list with no search has no controls, so no frame either. -->
   {#snippet tableBody()}
   {#if nodes.length === 0}
-    <p class="text-sm text-zinc-500">No nodes.</p>
+    {#if emptyMessage}<p class="text-sm text-zinc-500">{emptyMessage}</p>{/if}
   {:else}
     {#if showColumns}
       <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">

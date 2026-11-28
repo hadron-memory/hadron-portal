@@ -583,3 +583,79 @@ describe('teardown', () => {
     expect(fetched).toEqual(['page?offset=0']);
   });
 });
+
+describe('saved views on the Nodes tab (#2705)', () => {
+  const q = (m: Mounted<Record<string, unknown>>, id: string) => m.target.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+  async function mountAs(viewerId: string) {
+    const m = mountComponent(LazyNodesBrowser as never, { memoryId: MEM, viewerId } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await wait(10);
+    flushSync();
+    return m;
+  }
+  const seed = (viewerId: string, view: Record<string, unknown>) => {
+    const key = `hadron:views:v1:nodes-tab:${viewerId}:${MEM}`;
+    window.localStorage.setItem(key, JSON.stringify([{ id: 'v1', name: 'Mine', isDefault: true, createdAt: 't', updatedAt: 't', view }]));
+  };
+  const filters = (c: Array<{ id: string; value: unknown }>) => ({ sorting: [], columnFilters: c, globalFilter: '', columnVisibility: {}, columnOrder: [], columnSizing: {}, pagination: { pageIndex: 0, pageSize: 25 } });
+
+  it('no viewer id means no strip and no storage key', async () => {
+    replies['page?offset=0'] = [{ rows: range(0, 3), hasMore: false }];
+    const m = await mountAs('');
+    expect(text(m)).not.toMatch(/New view/i);
+    expect(Object.keys(window.localStorage).filter((k) => k.startsWith('hadron:views:v1'))).toEqual([]);
+  });
+
+  it('a saved view is applied on mount as the same bounded, offset-paged read as typing it', async () => {
+    seed('u1', filters([{ id: 'q', value: 'auth' }, { id: 'types', value: ['info'] }]));
+    replies['page?offset=0&q=auth&type=info'] = [{ rows: range(0, 2), hasMore: false }];
+    const m = await mountAs('u1');
+    expect(fetched).toContain('page?offset=0&q=auth&type=info');
+    expect((q(m, 'nodes-search') as HTMLInputElement).value).toBe('auth');
+    expect(text(m)).toContain('Mine');
+  });
+
+  it('two users in one browser storage never see or apply each other\'s views', async () => {
+    seed('u1', filters([{ id: 'q', value: 'secret-keyword' }]));
+    replies['page?offset=0'] = [{ rows: range(0, 2), hasMore: false }];
+    const m = await mountAs('u2');
+    expect(text(m)).not.toContain('Mine');
+    expect(fetched.join(' ')).not.toContain('secret-keyword');
+    expect((q(m, 'nodes-search') as HTMLInputElement).value).toBe('');
+  });
+
+  it('a view that can no longer be read is a retryable error, never "no results"', async () => {
+    seed('u1', filters([{ id: 'q', value: 'gone' }]));
+    replies['page?offset=0&q=gone'] = ['fail', { rows: range(0, 1), hasMore: false }];
+    const m = await mountAs('u1');
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toMatch(/Could not load/);
+    expect(text(m)).not.toMatch(/No nodes match/);
+    await click(btn(m, /^Retry$/));
+    expect(fetched.filter((f) => f === 'page?offset=0&q=gone')).toHaveLength(2);
+    expect(text(m)).toContain('Node 0');
+  });
+
+  it('the strip stays when a view finds nothing', async () => {
+    seed('u1', filters([{ id: 'q', value: 'zzz' }]));
+    replies['page?offset=0&q=zzz'] = [{ rows: [], hasMore: false }];
+    const m = await mountAs('u1');
+    expect(text(m)).toContain('Mine');
+    expect(text(m)).toMatch(/No nodes match/);
+  });
+
+  it('ViewTabs\' async init resolving after unmount starts no read; a mounted one does (both directions)', async () => {
+    seed('u1', filters([{ id: 'q', value: 'late' }]));
+    replies['page?offset=0&q=late'] = [{ rows: range(0, 1), hasMore: false }, { rows: range(0, 1), hasMore: false }];
+    replies['page?offset=0'] = [{ rows: range(0, 1), hasMore: false }];
+    const rejections = await captureUnhandledRejections(async () => {
+      const m = mountComponent(LazyNodesBrowser as never, { memoryId: MEM, viewerId: 'u1' } as never) as Mounted<Record<string, unknown>>;
+      m.unmount(); // before the strip's awaited storage read resumes
+      await wait(30);
+    });
+    expect(rejections).toEqual([]);
+    expect(fetched.filter((f) => f.includes('q=late'))).toEqual([]);
+    // the mounted direction: the same record applies when the component is alive
+    await mountAs('u1');
+    expect(fetched.filter((f) => f.includes('q=late'))).toHaveLength(1);
+  });
+});

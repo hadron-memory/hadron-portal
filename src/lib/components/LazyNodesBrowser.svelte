@@ -15,8 +15,12 @@
   import { t } from '$lib/i18n/t';
   import { NO_CRITERIA, appendUnique, hasCriteria, readTablePage, readTreePage, type TableCriteria } from '$lib/nodes-tab-client';
   import type { MemoryNode } from '$lib/types';
+  import type { SavedView } from '$lib/table/savedView';
+  import { FILTER_MAX, SEARCH_MAX, TAG_MAX, criteriaToServerView, nodesListKey, viewToCriteria } from '$lib/nodes-tab-views';
 
-  let { memoryId }: { memoryId: string } = $props();
+  // portal#2705: `viewerId` scopes the saved views (browser storage is per profile, not per person);
+  // with no id there is no strip, never a shared key.
+  let { memoryId, viewerId = '' }: { memoryId: string; viewerId?: string } = $props();
 
   type Status = 'idle' | 'loading' | 'failed' | 'done';
   interface Folder {
@@ -149,9 +153,6 @@
   // portal#2693: content search, filters and sort are run by the SERVER over the whole memory (the
   // nodes/page door); none is ever a filter over the rows loaded so far. `typed` is the search box,
   // `criteria` what the list currently answers (NO_CRITERIA = the plain paged list).
-  const SEARCH_MAX = 200;
-  const TAG_MAX = 100;
-  const FILTER_MAX = 20;
   const SEARCH_DEBOUNCE_MS = 300;
   // The same list the door allow-lists (visible types only), derived from the one shared source.
   const TYPE_CHOICES: readonly string[] = NODE_TYPES.filter((n) => !isHiddenNodeType(n));
@@ -186,6 +187,22 @@
     tableStatus = 'idle';
     void loadTablePage();
   }
+
+  // portal#2705: the views strip reads and applies the criteria through the same setCriteria, so a
+  // view is the typed search again: one bounded nodes/page read, the viewer's own token.
+  const listKey = $derived(viewerId ? nodesListKey(viewerId, memoryId) : undefined);
+  const serverView = {
+    get: () => criteriaToServerView(criteria),
+    apply: (view: SavedView) => {
+      // ViewTabs' init resumes after an awaited storage read: it can land after teardown.
+      if (!alive) return;
+      const next = viewToCriteria(view, TYPE_CHOICES);
+      clearTimeout(searchTimer);
+      typed = next.q;
+      tagDraft = '';
+      setCriteria(next);
+    },
+  };
 
   function onSearchInput() {
     clearTimeout(searchTimer);
@@ -427,7 +444,11 @@
       {/if}
       {#if tableRows.length > 0}{t('nodes-tab.loaded-count', '{n} loaded', { n: tableRows.length })}{/if}
     </p>
-    {#if tableRows.length > 0}
+    {#if listKey}
+      <!-- The strip must outlive an empty answer (a view that finds nothing still has to be switched away from),
+           so the list is always mounted; the page above says "no match" once. -->
+      <NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} {listKey} {serverView} emptyMessage="" />
+    {:else if tableRows.length > 0}
       <!-- keyed on the criteria: a new search starts a fresh table (page, sort and scroll reset) -->
       {#key criteria}<NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />{/key}
     {/if}
