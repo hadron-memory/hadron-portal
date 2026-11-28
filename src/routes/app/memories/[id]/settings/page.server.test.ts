@@ -1258,3 +1258,31 @@ describe('memory-detail `checkVectorIndexHealth` action (#1346)', () => {
     expect(JSON.stringify(mockRequest.mock.calls)).not.toContain('validateMemory');
   });
 });
+
+describe('memory-detail `update` action: a fixed slug (#2653)', () => {
+  const refusal = () => Object.assign(new Error('outer'), {
+    response: { errors: [{ message: 'raw server words', extensions: { code: 'APP_MEMORY_SLUG_FIXED', memoryClass: 'personal' } }] },
+  });
+
+  it('maps APP_MEMORY_SLUG_FIXED to a plain message, not the generic failure or the server words', async () => {
+    mockRequest.mockRejectedValueOnce(refusal());
+    const actions = await importActions();
+    const result = await actions.update(updateEv({ displayName: 'Mine', urnSlug: 'renamed', originalUrnSlug: 'mine', currentUrn: 'hrn:mem:owner:mine' }));
+    const m = successMessage(result) as { type: string; text: string };
+    expect(m.type).toBe('error');
+    expect(m.text).toContain('keeps its address');
+    expect(m.text).toContain('name can be changed');
+    expect(m.text).not.toContain('raw server words');
+    expect(m.text).not.toBe('Failed to update');
+  });
+
+  it('a display-name-only save sends no urn and succeeds', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+    const result = await actions.update(updateEv({ displayName: 'New name' }));
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.urn).toBeUndefined();
+    expect(vars.name).toBe('New name');
+    expect((successMessage(result) as { type: string }).type).toBe('success');
+  });
+});
