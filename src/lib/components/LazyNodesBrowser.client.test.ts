@@ -474,6 +474,26 @@ describe('filters and sort (#2693 step 1)', () => {
   });
 });
 
+describe('a filter change while page 2 is in flight (#2693 amended gate)', () => {
+  it('resets to offset 0 and the old page 2 is never appended to the new list', async () => {
+    let releaseOld!: (r: Response) => void;
+    replies['page?offset=0'] = [{ rows: range(0, 50), hasMore: true }];
+    replies['page?offset=50'] = [new Promise<Response>((r) => { releaseOld = r; }) as never];
+    replies['page?offset=0&type=data'] = [{ rows: [node(900, { name: 'Filtered first page' })], hasMore: false }];
+    const m = await mount();
+    await click(btn(m, /Load more nodes/));
+    const type = m.target.querySelector('[data-testid="nodes-type-data"]') as HTMLButtonElement;
+    await click(type);
+    releaseOld(new Response(JSON.stringify({ rows: range(50, 50), hasMore: true }), { status: 200 }));
+    await wait(10);
+    flushSync();
+    expect(fetched.slice(-1)).toEqual(['page?offset=0&type=data']);
+    expect(text(m)).toContain('Filtered first page');
+    expect(text(m)).not.toContain('Node 50');
+    expect(text(m)).toMatch(/1 loaded/);
+  });
+});
+
 describe('teardown', () => {
   it('a memory switch (unmount) with a read in flight leaves no rejection and no later read', async () => {
     let release!: (r: Response) => void;
