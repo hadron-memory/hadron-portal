@@ -1,4 +1,4 @@
-/** #2653 — the portal's copy of the server's rule (cor:dmo:060:20): personal or private WITH an App keeps its slug. */
+/** #2653 — the portal's copy of the server's rule (hrn:node:hadronmemory.com:specs:cor:dmo:060:20): personal or private WITH an App keeps its slug. */
 import { describe, expect, it } from 'vitest';
 import { memorySlugIsFixed } from './memory-slug';
 
