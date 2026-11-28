@@ -25,8 +25,38 @@ async function readPage(url: string, signal?: AbortSignal): Promise<NodesPage | 
 export const readTreePage = (memoryRef: string, parentLoc: string, offset: number, signal?: AbortSignal) =>
   readPage(`/app/memories/${encodeURIComponent(memoryRef)}/nodes/children?parent=${encodeURIComponent(parentLoc)}&offset=${offset}`, signal);
 
-export const readTablePage = (memoryRef: string, offset: number, signal?: AbortSignal) =>
-  readPage(`/app/memories/${encodeURIComponent(memoryRef)}/nodes/page?offset=${offset}`, signal);
+/** What the reader asked the Nodes tab to narrow by; empty means the plain paged list. */
+export interface TableCriteria {
+  q: string;
+  types: string[];
+  tags: string[];
+  /** '' = any time. */
+  changed: '' | '24h' | '7d' | '30d';
+  /** The signed-in user's own nodes; the server reads the user from the token. */
+  mine: boolean;
+  /** '' = the default order. */
+  sort: '' | 'loc' | 'updated' | 'relevance';
+}
+
+export const NO_CRITERIA: TableCriteria = { q: '', types: [], tags: [], changed: '', mine: false, sort: '' };
+
+export const hasCriteria = (c: TableCriteria): boolean =>
+  c.q !== '' || c.types.length > 0 || c.tags.length > 0 || c.changed !== '' || c.mine || c.sort !== '';
+
+export function tableQuery(c: TableCriteria): string {
+  const p = new URLSearchParams();
+  if (c.q) p.set('q', c.q);
+  for (const t of c.types) p.append('type', t);
+  for (const t of c.tags) p.append('tag', t);
+  if (c.changed) p.set('changed', c.changed);
+  if (c.mine) p.set('mine', '1');
+  if (c.sort) p.set('sort', c.sort);
+  const s = p.toString();
+  return s ? `&${s}` : '';
+}
+
+export const readTablePage = (memoryRef: string, offset: number, signal?: AbortSignal, criteria: TableCriteria = NO_CRITERIA) =>
+  readPage(`/app/memories/${encodeURIComponent(memoryRef)}/nodes/page?offset=${offset}${tableQuery(criteria)}`, signal);
 
 /** Append `incoming` to `rows`, dropping any id already shown (offset paging can repeat rows). */
 export function appendUnique<T extends { id: string }>(rows: T[], incoming: T[]): T[] {

@@ -5,7 +5,7 @@
  * failure, never an empty page.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MEMORY_SCOPE_QUERY, NODES_PAGE_QUERY, NODE_CHILDREN_QUERY } from '$lib/server/queries';
+import { MEMORY_SCOPE_QUERY, NODES_PAGE_QUERY, NODES_SEARCH_PAGE_QUERY, NODE_CHILDREN_QUERY } from '$lib/server/queries';
 import { fakeFindNodesChildren } from '$lib/test/fakeFindNodesChildren';
 
 const mockRequest = vi.fn();
@@ -20,7 +20,7 @@ function serve({ readable = true, tree = rows(45), fail = false }: Opts = {}) {
   mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
     if (doc === MEMORY_SCOPE_QUERY) return { memory: readable ? { id: MEM, urn: 'hrn:mem:acme.com:m' } : null };
     if (fail) throw new Error('boom');
-    if (doc === NODES_PAGE_QUERY) {
+    if (doc === NODES_PAGE_QUERY || doc === NODES_SEARCH_PAGE_QUERY) {
       const off = vars!.offset as number;
       const lim = vars!.limit as number;
       return { findNodes: { hits: tree.slice(off, off + lim).map((node) => ({ node })) } };
@@ -35,11 +35,11 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
-async function call(door: 'page' | 'children', search: string, token: string | null = 'tok', id = MEM) {
+async function call(door: 'page' | 'children', search: string, token: string | null = 'tok', id = MEM, user: { id: string } | null = { id: 'user-1' }) {
   const mod = door === 'page' ? await import('./page/+server') : await import('./children/+server');
   const res = await mod.GET({
     params: { id },
-    locals: { token },
+    locals: { token, user },
     url: new URL(`http://localhost/app/memories/${id}/nodes/${door}${search}`),
   } as never);
   return { status: res.status, cache: res.headers.get('cache-control'), body: await res.json() };
@@ -139,6 +139,136 @@ describe('GET nodes/page', () => {
     const r = await call('page', '?offset=0');
     expect(r.body.rows.map((x: { memoryId: string }) => x.memoryId)).toEqual([MEM, 'mem-base']);
     expect(r.body.rows[1].memory.id).toBe('mem-base');
+  });
+});
+
+describe('GET nodes/page?q (portal#2693)', () => {
+  it('searches on the server: keyword mode, the memory pinned, 51 rows from the offset', async () => {
+    serve({ tree: rows(120) });
+    const r = await call('page', '?offset=50&q=%20hello%20world%20');
+    const read = mockRequest.mock.calls.find(([d]) => d === NODES_SEARCH_PAGE_QUERY)!;
+    expect(read[1]).toEqual({ memoryId: MEM, query: 'hello world', mode: 'keyword', sort: null, createdBy: null, updatedAfter: null, nodeTypes: null, tags: null, limit: 51, offset: 50 });
+    expect(NODES_SEARCH_PAGE_QUERY).toMatch(/memoryRefs: \[\$memoryId\]/);
+    expect(docs()).not.toContain(NODES_PAGE_QUERY);
+    expect(r.body.rows).toHaveLength(50);
+    expect(r.body.hasMore).toBe(true);
+  });
+
+  it.each(['', '&q=', '&q=%20%20'])('an absent or blank q (%s) browses exactly as before', async (q) => {
+    serve({ tree: rows(60) });
+    await call('page', `?offset=0${q}`);
+    expect(docs()).toContain(NODES_PAGE_QUERY);
+    expect(docs()).not.toContain(NODES_SEARCH_PAGE_QUERY);
+  });
+
+  it('refuses a repeated q and a q over the cap with a 400 before any read; the cap itself passes', async () => {
+    serve();
+    for (const search of ['?offset=0&q=a&q=b', `?offset=0&q=${'x'.repeat(201)}`]) {
+      const r = await call('page', search);
+      expect(r.status).toBe(400);
+      expect(r.body).toEqual({ failed: true });
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect((await call('page', `?offset=0&q=${'x'.repeat(200)}`)).status).toBe(200);
+  });
+
+  it('an unreadable memory answers the same empty page for a search, and reads nothing', async () => {
+    serve({ readable: false });
+    const r = await call('page', '?offset=0&q=secret');
+    expect(r.body).toEqual({ rows: [], hasMore: false });
+    expect(docs()).toEqual([MEMORY_SCOPE_QUERY]);
+  });
+
+  it('a failed search is a retryable failure, never an empty result', async () => {
+    serve({ fail: true });
+    const r = await call('page', '?offset=0&q=x');
+    expect(r.body).toEqual({ failed: true });
+  });
+});
+
+describe('GET nodes/page filters and sort (portal#2693 step 1)', () => {
+  const vars = () => mockRequest.mock.calls.find(([d]) => d === NODES_SEARCH_PAGE_QUERY)![1] as Record<string, unknown>;
+
+  it('passes types, tags, sort and the changed window to findNodes, and no query or mode for a filter-only list', async () => {
+    serve({ tree: rows(60) });
+    const now = Date.now();
+    const r = await call('page', '?offset=0&type=info&type=prompt&type=info&tag=a&tag=b&sort=updated&changed=7d');
+    const v = vars();
+    expect(v).toMatchObject({ memoryId: MEM, query: null, mode: null, sort: 'updatedAt', nodeTypes: ['info', 'prompt'], tags: ['a', 'b'], createdBy: null, limit: 51, offset: 0 });
+    const ms = now - Date.parse(v.updatedAfter as string);
+    expect(Math.abs(ms - 7 * 86_400_000)).toBeLessThan(10_000);
+    expect(r.body.rows).toHaveLength(50);
+    expect(docs()).not.toContain(NODES_PAGE_QUERY);
+  });
+
+  it("'my nodes' is the signed-in user of the token, and is refused with no user", async () => {
+    serve();
+    await call('page', '?offset=0&mine=1');
+    expect(vars().createdBy).toBe('user-1');
+    mockRequest.mockClear();
+    const r = await call('page', '?offset=0&mine=1', 'tok', MEM, null);
+    expect(r.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('a client-supplied user id is ignored: createdBy is never read from the URL', async () => {
+    serve();
+    await call('page', '?offset=0&createdBy=someone-else&userId=someone-else');
+    expect(docs()).toContain(NODES_PAGE_QUERY);
+    expect(docs()).not.toContain(NODES_SEARCH_PAGE_QUERY);
+    mockRequest.mockClear();
+    await call('page', '?offset=0&mine=1&createdBy=someone-else');
+    expect(vars().createdBy).toBe('user-1');
+  });
+
+  it.each([
+    '&type=system', '&type=record', '&type=comment', '&type=nope', '&type=info%0Aprompt',
+    '&sort=seq', '&sort=score', '&sort=updated&sort=loc',
+    '&changed=1y', '&changed=2026-01-01', '&changed=7d&changed=24h',
+    '&mine=0', '&mine=true', '&mine=1&mine=1',
+    `&tag=${'x'.repeat(101)}`, '&tag=a%00b',
+    `&${Array.from({ length: 21 }, (_, i) => `tag=t${i}`).join('&')}`,
+    `&${['info', 'reference', 'prompt', 'data', 'chat', 'abstract', 'info2'].map((t) => `type=${t}`).join('&')}`,
+  ])('%s is a 400 before any read', async (extra) => {
+    serve();
+    const r = await call('page', `?offset=0${extra}`);
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ failed: true });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('the caps themselves pass: 20 tags, 100-char tag, every listed type', async () => {
+    serve();
+    const tags = Array.from({ length: 20 }, (_, i) => `tag=${'x'.repeat(100 - String(i).length)}${i}`).join('&');
+    expect((await call('page', `?offset=0&${tags}`)).status).toBe(200);
+    expect((await call('page', '?offset=0&type=info&type=reference&type=prompt&type=data&type=chat&type=abstract')).status).toBe(200);
+  });
+
+  it("'my nodes' with a client-sent userId is still the token's user", async () => {
+    serve();
+    await call('page', '?offset=0&mine=1&userId=someone-else');
+    expect(vars().createdBy).toBe('user-1');
+  });
+
+  it('sort=relevance with no q is accepted and passed through; the server answers its unranked browse', async () => {
+    serve({ tree: rows(5) });
+    const r = await call('page', '?offset=0&sort=relevance');
+    expect(r.status).toBe(200);
+    expect(vars()).toMatchObject({ query: null, mode: null, sort: 'relevance' });
+  });
+
+  it('never asks the server for regex, vector, hybrid, deleted rows or a property filter', async () => {
+    serve();
+    await call('page', '?offset=0&q=x&mode=regex&includeDeleted=true&where=%7B%7D');
+    expect(NODES_SEARCH_PAGE_QUERY).not.toMatch(/includeDeleted|where|regex|vector|hybrid/);
+    expect(vars().mode).toBe('keyword');
+  });
+
+  it('an unreadable memory answers the same empty page for a filtered read, and reads nothing', async () => {
+    serve({ readable: false });
+    const r = await call('page', '?offset=0&type=info&mine=1');
+    expect(r.body).toEqual({ rows: [], hasMore: false });
+    expect(docs()).toEqual([MEMORY_SCOPE_QUERY]);
   });
 });
 
