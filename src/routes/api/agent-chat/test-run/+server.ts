@@ -71,12 +71,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'agentId and message are required' }, 400);
   }
 
-  // Validate assertion shape up-front so the user gets a 400 (not a
-  // 500) on malformed input.
   // portal#2683: the Tester names the App it tests under; no App is refused before anything runs.
   const appRef = cleanChatAppRef(body.appId);
   if (!appRef) return appRequiredResponse();
 
+  // Validate assertion shape up-front so the user gets a 400 (not a
+  // 500) on malformed input.
   if (body.assertion) {
     const validationError = validateAssertion(body.assertion);
     if (validationError) return json({ error: validationError }, 400);
