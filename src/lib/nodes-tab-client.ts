@@ -34,14 +34,16 @@ export interface TableCriteria {
   changed: '' | '24h' | '7d' | '30d';
   /** The signed-in user's own nodes; the server reads the user from the token. */
   mine: boolean;
+  /** '' = content only (the default); the server reads comments through contentScope. */
+  scope: '' | 'comments' | 'all';
   /** '' = the default order. */
   sort: '' | 'loc' | 'updated' | 'relevance';
 }
 
-export const NO_CRITERIA: TableCriteria = { q: '', types: [], tags: [], changed: '', mine: false, sort: '' };
+export const NO_CRITERIA: TableCriteria = { q: '', types: [], tags: [], changed: '', mine: false, scope: '', sort: '' };
 
 export const hasCriteria = (c: TableCriteria): boolean =>
-  c.q !== '' || c.types.length > 0 || c.tags.length > 0 || c.changed !== '' || c.mine || c.sort !== '';
+  c.q !== '' || c.types.length > 0 || c.tags.length > 0 || c.changed !== '' || c.mine || c.scope !== '' || c.sort !== '';
 
 export function tableQuery(c: TableCriteria): string {
   const p = new URLSearchParams();
@@ -50,6 +52,7 @@ export function tableQuery(c: TableCriteria): string {
   for (const t of c.tags) p.append('tag', t);
   if (c.changed) p.set('changed', c.changed);
   if (c.mine) p.set('mine', '1');
+  if (c.scope) p.set('scope', c.scope);
   if (c.sort) p.set('sort', c.sort);
   const s = p.toString();
   return s ? `&${s}` : '';

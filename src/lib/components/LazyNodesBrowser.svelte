@@ -276,7 +276,7 @@
     onselect={show}
   />
   <p class="text-xs text-zinc-500" data-testid="nodes-scope">
-    {t('nodes-tab.scope', 'Listing live nodes. System nodes and comments are not listed here. Pages load as you ask; the list can skip or repeat a row if the memory changes while you browse.')}
+    {t('nodes-tab.scope', 'Listing live nodes. System nodes are not listed here, and comments only when you choose them. Pages load as you ask; the list can skip or repeat a row if the memory changes while you browse.')}
   </p>
 
   {#if pane === 'tree'}
@@ -372,6 +372,17 @@
         <option value="30d">{t('nodes-tab.changed-30d', 'Changed in the last 30 days')}</option>
       </select>
       <select
+        data-testid="nodes-scope-select"
+        aria-label={t('nodes-tab.filter-scope', 'Show')}
+        class="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 pointer-coarse:min-h-11"
+        value={criteria.scope}
+        onchange={(e) => setCriteria({ scope: e.currentTarget.value as TableCriteria['scope'] })}
+      >
+        <option value="">{t('nodes-tab.scope-content', 'Nodes')}</option>
+        <option value="comments">{t('nodes-tab.scope-comments', 'Comments')}</option>
+        <option value="all">{t('nodes-tab.scope-all', 'Nodes and comments')}</option>
+      </select>
+      <select
         data-testid="nodes-sort"
         aria-label={t('nodes-tab.sort', 'Sort')}
         class="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 pointer-coarse:min-h-11"
@@ -406,7 +417,7 @@
     </div>
     <LiveRegion data-testid="nodes-tab-none">
       {#if tableStatus === 'done' && tableRows.length === 0}
-        <p class="text-sm text-zinc-500">{!narrowed ? t('nodes-tab.none', 'No matching or visible nodes.') : criteria.q !== '' ? t('nodes-tab.search-none', 'No nodes match “{q}” anywhere in this memory.', { q: criteria.q }) : t('nodes-tab.filter-none', 'No nodes in this memory match these filters.')}</p>
+        <p class="text-sm text-zinc-500">{!narrowed ? t('nodes-tab.none', 'No matching or visible nodes.') : criteria.q !== '' ? t('nodes-tab.search-none', 'No nodes match “{q}” anywhere in this memory.', { q: criteria.q }) : criteria.scope === 'comments' ? t('nodes-tab.filter-none-comments', 'No comments in this memory match these filters.') : t('nodes-tab.filter-none', 'No nodes in this memory match these filters.')}</p>
       {/if}
     </LiveRegion>
     <p class="text-xs text-zinc-500" data-testid="table-partial">

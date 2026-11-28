@@ -28,7 +28,8 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
     const page = await readTablePage(client, memoryId, offset, search);
     return json(page, { headers });
   } catch (e) {
-    console.warn(`[nodes-tab] table page read failed for ${params.id}:`, e);
+    // The error is NOT logged: a GraphQL error carries the request variables, i.e. the reader's search text.
+    console.warn(`[nodes-tab] table page read failed for ${params.id}: ${e instanceof Error ? e.name : typeof e}`);
     return failed(200);
   }
 };

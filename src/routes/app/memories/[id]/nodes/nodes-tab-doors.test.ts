@@ -147,7 +147,7 @@ describe('GET nodes/page?q (portal#2693)', () => {
     serve({ tree: rows(120) });
     const r = await call('page', '?offset=50&q=%20hello%20world%20');
     const read = mockRequest.mock.calls.find(([d]) => d === NODES_SEARCH_PAGE_QUERY)!;
-    expect(read[1]).toEqual({ memoryId: MEM, query: 'hello world', mode: 'keyword', sort: null, createdBy: null, updatedAfter: null, nodeTypes: null, tags: null, limit: 51, offset: 50 });
+    expect(read[1]).toEqual({ memoryId: MEM, query: 'hello world', mode: 'keyword', sort: null, createdBy: null, updatedAfter: null, nodeTypes: null, tags: null, contentScope: null, limit: 51, offset: 50 });
     expect(NODES_SEARCH_PAGE_QUERY).toMatch(/memoryRefs: \[\$memoryId\]/);
     expect(docs()).not.toContain(NODES_PAGE_QUERY);
     expect(r.body.rows).toHaveLength(50);
@@ -269,6 +269,75 @@ describe('GET nodes/page filters and sort (portal#2693 step 1)', () => {
     const r = await call('page', '?offset=0&type=info&mine=1');
     expect(r.body).toEqual({ rows: [], hasMore: false });
     expect(docs()).toEqual([MEMORY_SCOPE_QUERY]);
+  });
+});
+
+describe('GET nodes/page comments scope (portal#2706 PR 1)', () => {
+  const vars = () => mockRequest.mock.calls.find(([d]) => d === NODES_SEARCH_PAGE_QUERY)![1] as Record<string, unknown>;
+  const asComment = { id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 2, deleted: false, author: { kind: 'USER', user: { id: 'u', handle: 'h', name: 'H', urn: null }, agent: null, worker: null, app: null }, target: { id: 't', name: 'Target', nodeType: 'info', revSeq: 3, urn: 'hrn:node:acme.com:m:t' } };
+
+  it('comments and all pass the server enum; the pinned memory still scopes the read', async () => {
+    serve();
+    await call('page', '?offset=0&scope=comments');
+    expect(vars()).toMatchObject({ memoryId: MEM, contentScope: 'COMMENTS', query: null, mode: null, limit: 51 });
+    mockRequest.mockClear();
+    serve();
+    await call('page', '?offset=0&q=x&scope=all');
+    expect(vars()).toMatchObject({ memoryId: MEM, contentScope: 'ALL', query: 'x', mode: 'keyword' });
+  });
+
+  it('the default stays content only: no scope param is the plain list, and scope=content sends no contentScope', async () => {
+    serve();
+    await call('page', '?offset=0');
+    expect(docs()).toContain(NODES_PAGE_QUERY);
+    expect(docs()).not.toContain(NODES_SEARCH_PAGE_QUERY);
+    mockRequest.mockClear();
+    serve();
+    await call('page', '?offset=0&scope=content&q=x');
+    expect(vars().contentScope).toBeNull();
+  });
+
+  it.each(['?offset=0&scope=regex', '?offset=0&scope=COMMENTS', '?offset=0&scope=all&scope=comments', '?offset=0&scope=__proto__'])(
+    'refuses %s with a 400 before any read',
+    async (search) => {
+      serve();
+      const r = await call('page', search);
+      expect(r.status).toBe(400);
+      expect(mockRequest).not.toHaveBeenCalled();
+    },
+  );
+
+  it('a comment hit keeps its feedback shape as `comment`; a content hit has none', async () => {
+    serve({ tree: [{ id: 'k1', loc: 'comments:c1', name: 'c', memoryId: MEM, asComment } as never, { id: 'n1', loc: 'a:n1', name: 'N', memoryId: MEM, asComment: null } as never] });
+    const r = await call('page', '?offset=0&scope=all');
+    expect(r.body.rows[0].comment).toMatchObject({ id: 'c1', target: { name: 'Target' } });
+    expect(r.body.rows[0]).not.toHaveProperty('asComment');
+    expect(r.body.rows[1]).not.toHaveProperty('comment');
+  });
+
+  it('the search selection reads asComment (author, target, anchor)', () => {
+    expect(NODES_SEARCH_PAGE_QUERY).toMatch(/asComment\s*{[\s\S]*target\s*{/);
+    expect(NODES_SEARCH_PAGE_QUERY).toMatch(/\$contentScope: NodeContentScope/);
+  });
+
+  it('an unreadable memory answers the same empty page and reads nothing', async () => {
+    serve({ readable: false });
+    const r = await call('page', '?offset=0&scope=comments');
+    expect(r.body).toEqual({ rows: [], hasMore: false });
+    expect(docs()).toEqual([MEMORY_SCOPE_QUERY]);
+  });
+
+  it('a cancelled or timed-out search is a retryable failure, and the search text never reaches the log', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warn.mockClear();
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === MEMORY_SCOPE_QUERY) return { memory: { id: MEM } };
+      throw Object.assign(new Error('canceling statement due to statement timeout: SECRET-PATTERN-42'), { request: { variables: { query: 'SECRET-PATTERN-42' } } });
+    });
+    const r = await call('page', '?offset=0&scope=comments&q=SECRET-PATTERN-42');
+    expect(r.body).toEqual({ failed: true });
+    expect(JSON.stringify(r)).not.toContain('SECRET-PATTERN-42');
+    expect(JSON.stringify(warn.mock.calls.map((c) => c.map((a) => (a instanceof Error ? [a.name, a.message, a.stack] : a))))).not.toContain('SECRET-PATTERN-42');
   });
 });
 
