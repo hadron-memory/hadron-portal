@@ -363,7 +363,7 @@
        MemoryBrowser is not rendered here (it takes a loaded array). -->
   {#if !isNodeDetail && activeTab === 'nodes'}
     {#key g.id}
-      <div class="pb-14"><LazyNodesBrowser memoryId={g.id} /></div>
+      <div class="pb-14"><LazyNodesBrowser memoryId={g.id} viewerId={data.user?.id ?? ''} /></div>
     {/key}
     <!-- The same destination as the ⋯ menu's Add node, offered where the nodes are listed. -->
     {#if memoryActions.some((action) => action.id === 'add-node')}
