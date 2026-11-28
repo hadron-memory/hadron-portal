@@ -8,6 +8,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { memorySlugIsFixed } from '$lib/memory-slug';
   import MarketplaceListingCard from './MarketplaceListingCard.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -89,6 +90,8 @@
   const myMember = $derived(
     data.org?.members?.find((m) => m.user?.id === data.user?.id),
   );
+  // #2653: a personal or private memory with an App keeps its slug; the server refuses a rename, so the input is not offered.
+  const slugFixed = $derived(memorySlugIsFixed(g));
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
 
   // #652 — who owns this memory, named rather than assumed.
@@ -315,7 +318,7 @@
       ...current,
       displayName: g.name ?? '',
       urnSlug,
-      urnSlugPresent: isAgentSystem ? '' : 'true',
+      urnSlugPresent: isAgentSystem || slugFixed ? '' : 'true',
       originalUrnSlug: urnSlug,
       currentUrn: g.urn ?? '',
       organizationId: g.organizationId ?? '',
@@ -768,6 +771,13 @@
           <input type="hidden" name="currentOrganizationId" value={$settingsForm.currentOrganizationId} />
           <input type="hidden" name="organizationId" value={$settingsForm.organizationId} />
 
+          {#if slugFixed}
+            <div>
+              <p class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('memory-settings.urn', 'URN')}</p>
+              <Urn value={g.urn ?? ''} type="mem" label={t('memory-settings.urn', 'URN')} />
+              <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('memory-settings.slug-fixed', 'This memory keeps its address. Its name can be changed.')}</p>
+            </div>
+          {:else}
           <div>
             <label for="urnSlugInput" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
             <div class="flex items-stretch">
@@ -795,6 +805,7 @@
               <p id="urnSlugError" class="mt-1 text-xs text-red-600 dark:text-red-400">{urnSlugError}</p>
             {/if}
           </div>
+          {/if}
         {/if}
 
         <div>
