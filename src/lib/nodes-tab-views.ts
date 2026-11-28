@@ -8,6 +8,8 @@ import { NO_CRITERIA, type TableCriteria } from '$lib/nodes-tab-client';
 export const SEARCH_MAX = 200;
 export const TAG_MAX = 100;
 export const FILTER_MAX = 20;
+/** The longest node-type id the door allow-lists. */
+const TYPE_ID_MAX = 40;
 
 const CHANGED: readonly TableCriteria['changed'][] = ['', '24h', '7d', '30d'];
 const SORTS: readonly TableCriteria['sort'][] = ['', 'loc', 'updated', 'relevance'];
@@ -38,14 +40,17 @@ const strings = (v: unknown, max: number, count: number, refuse: (s: string) => 
 
 /** Criteria back from a stored view; anything outside the allow-list is dropped, never passed on. */
 export function viewToCriteria(view: SavedView, allowedTypes: readonly string[]): TableCriteria {
-  const get = (id: string) => view.columnFilters?.find((f) => f.id === id)?.value;
+  // A stored record is untrusted JSON: a non-array slice or a null entry is "absent", never a throw.
+  const filters = Array.isArray(view?.columnFilters) ? view.columnFilters : [];
+  const get = (id: string) => filters.find((f) => typeof f === 'object' && f !== null && f.id === id)?.value;
   const q = get('q');
   const changed = get('changed');
-  const sortId = view.sorting?.[0]?.id;
+  const first: unknown = Array.isArray(view?.sorting) ? view.sorting[0] : undefined;
+  const sortId = typeof first === 'object' && first !== null ? (first as { id?: unknown }).id : undefined;
   const out: TableCriteria = {
     ...NO_CRITERIA,
     q: typeof q === 'string' ? q.slice(0, SEARCH_MAX).trim() : '',
-    types: strings(get('types'), 40, FILTER_MAX, (s) => !allowedTypes.includes(s)),
+    types: strings(get('types'), TYPE_ID_MAX, FILTER_MAX, (s) => !allowedTypes.includes(s)),
     tags: strings(get('tags'), TAG_MAX, FILTER_MAX, (s) => CONTROL.test(s)),
     changed: CHANGED.includes(changed as TableCriteria['changed']) ? (changed as TableCriteria['changed']) : '',
     mine: get('mine') === true,

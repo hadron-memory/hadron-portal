@@ -610,7 +610,8 @@ describe('saved views on the Nodes tab (#2705)', () => {
     seed('u1', filters([{ id: 'q', value: 'auth' }, { id: 'types', value: ['info'] }]));
     replies['page?offset=0&q=auth&type=info'] = [{ rows: range(0, 2), hasMore: false }];
     const m = await mountAs('u1');
-    expect(fetched).toContain('page?offset=0&q=auth&type=info');
+    // exactly one read, the view's: no plain first read that the view then replaces
+    expect(fetched).toEqual(['page?offset=0&q=auth&type=info']);
     expect((q(m, 'nodes-search') as HTMLInputElement).value).toBe('auth');
     expect(text(m)).toContain('Mine');
   });
@@ -633,6 +634,37 @@ describe('saved views on the Nodes tab (#2705)', () => {
     await click(btn(m, /^Retry$/));
     expect(fetched.filter((f) => f === 'page?offset=0&q=gone')).toHaveLength(2);
     expect(text(m)).toContain('Node 0');
+  });
+
+  it('a default view that only holds columns still reads the list once', async () => {
+    seed('u1', filters([]));
+    replies['page?offset=0'] = [{ rows: range(0, 2), hasMore: false }];
+    const m = await mountAs('u1');
+    expect(fetched).toEqual(['page?offset=0']);
+    expect(text(m)).toContain('Node 0');
+  });
+
+  it('a malformed stored record (null filter entry, non-array slices) never kills the strip or the list', async () => {
+    window.localStorage.setItem(`hadron:views:v1:nodes-tab:u1:${MEM}`, JSON.stringify([
+      { id: 'v1', name: 'Odd', isDefault: true, createdAt: 't', updatedAt: 't', view: { ...filters([]), columnFilters: [null, 7, { id: 'q', value: 'x' }], sorting: 'nope' } },
+    ]));
+    replies['page?offset=0&q=x'] = [{ rows: range(0, 1), hasMore: false }];
+    const rejections = await captureUnhandledRejections(async () => { await mountAs('u1'); });
+    expect(rejections).toEqual([]);
+    expect(fetched).toEqual(['page?offset=0&q=x']);
+  });
+
+  it('a new search goes back to page one, not an empty later page', async () => {
+    replies['page?offset=0'] = [{ rows: range(0, 60), hasMore: false }];
+    replies['page?offset=0&q=zz'] = [{ rows: range(100, 60), hasMore: false }];
+    const m = await mountAs('u1');
+    await click(btn(m, /^Next$/));
+    expect(text(m)).toContain('Node 25');
+    const box = q(m, 'nodes-search') as HTMLInputElement;
+    box.value = 'zz'; box.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(340); flushSync();
+    expect(text(m)).toContain('Node 100');
+    expect(btn(m, /^Previous$/)?.disabled).toBe(true);
   });
 
   it('the strip stays when a view finds nothing', async () => {

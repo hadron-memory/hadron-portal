@@ -44,6 +44,13 @@ describe('nodes-tab saved views (#2705)', () => {
     expect(Object.keys(c).sort()).toEqual(Object.keys(NO_CRITERIA).sort());
   });
 
+  it('malformed stored records are absent values, not a throw', () => {
+    const odd = { ...asView(NO_CRITERIA), columnFilters: [null, 3, { id: 'q', value: 'k' }], sorting: [null] } as unknown as SavedView;
+    expect(viewToCriteria(odd, TYPES).q).toBe('k');
+    expect(viewToCriteria({ columnFilters: 'x', sorting: 'y' } as unknown as SavedView, TYPES)).toEqual(NO_CRITERIA);
+    expect(viewToCriteria(null as unknown as SavedView, TYPES)).toEqual(NO_CRITERIA);
+  });
+
   it('Best match without a text search is dropped, as the box itself does', () => {
     expect(viewToCriteria({ ...asView(NO_CRITERIA), sorting: [{ id: 'relevance', desc: false }] }, TYPES).sort).toBe('');
   });

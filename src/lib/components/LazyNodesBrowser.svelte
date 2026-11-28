@@ -16,6 +16,8 @@
   import { NO_CRITERIA, appendUnique, hasCriteria, readTablePage, readTreePage, type TableCriteria } from '$lib/nodes-tab-client';
   import type { MemoryNode } from '$lib/types';
   import type { SavedView } from '$lib/table/savedView';
+  import { localStorageViewStore } from '$lib/table/localStorageViewStore';
+  import { resolveInitialView } from '$lib/table/viewStore';
   import { FILTER_MAX, SEARCH_MAX, TAG_MAX, criteriaToServerView, nodesListKey, viewToCriteria } from '$lib/nodes-tab-views';
 
   // portal#2705: `viewerId` scopes the saved views (browser storage is per profile, not per person);
@@ -201,6 +203,8 @@
       typed = next.q;
       tagDraft = '';
       setCriteria(next);
+      // An empty-criteria view changes nothing, yet the list still has to be read once.
+      ensureLoaded();
     },
   };
 
@@ -277,8 +281,23 @@
     } catch {
       /* fine pointer */
     }
-    ensureLoaded();
+    // portal#2705: a stored view that will apply on its own replaces the plain first read, so the
+    // plain one is not made first (it would be aborted, and a wasted door call).
+    if (listKey && pane === 'table') void startWithViews(listKey);
+    else ensureLoaded();
   });
+
+  async function startWithViews(key: string) {
+    let willApply = false;
+    try {
+      const views = await localStorageViewStore.list(key);
+      willApply = resolveInitialView(views, await localStorageViewStore.getActiveId(key)) !== null;
+    } catch {
+      /* unreadable storage: read the plain list */
+    }
+    if (!alive) return;
+    if (!willApply) ensureLoaded();
+  }
 </script>
 
 <section class="space-y-3" data-testid="lazy-nodes-browser" aria-label={t('nodes-tab.label', 'Nodes')}>
@@ -445,7 +464,8 @@
       {#if tableRows.length > 0}{t('nodes-tab.loaded-count', '{n} loaded', { n: tableRows.length })}{/if}
     </p>
     {#if listKey}
-      <!-- The strip must outlive an empty answer (a view that finds nothing still has to be switched away from),
+      <!-- No re-key here: TanStack's autoResetPageIndex returns to page one when the rows change (pinned in the client test).
+           The strip must outlive an empty answer (a view that finds nothing still has to be switched away from),
            so the list is always mounted; the page above says "no match" once. -->
       <NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} {listKey} {serverView} emptyMessage="" />
     {:else if tableRows.length > 0}
