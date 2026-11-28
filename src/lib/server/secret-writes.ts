@@ -30,12 +30,17 @@ export async function secretWrite<D>(
     if (staged?.kind === 'staged-unlinked') return { kind: 'refused', message: STAGED_UNLINKED_TEXT() };
     if (staged) return { kind: 'plain-protected' };
     // Mapped on the code, never a number: the caps are an engineering bound, not ruled
-    // (hrn:node:hadronmemory.com:specs:cor:sec:070:02). For these two codes the server's wording is
+    // (hrn:node:hadronmemory.com:specs:cor:sec:070:02). For these codes the server's wording is
     // not shown; every other code goes through extractGqlError, which already withholds free text
     // for any code outside the framework/access set.
     const code = extractGqlErrorCode(e);
+    // portal#2652: the server raises this code for a person's share of one secret and of the whole App
+    // (hadron-server#5285), so the copy names neither.
     if (code === 'SECRET_CHANGE_REQUESTER_LIMIT') {
-      return { kind: 'refused', message: t('secrets.write.requester-limit', 'You have too many open changes for this secret. Withdraw one of your open requests, or wait for one to expire, then try again.') };
+      return { kind: 'refused', message: t('secrets.write.requester-limit', 'You have too many open changes. Withdraw one of your open requests, or wait for one to expire, then try again.') };
+    }
+    if (code === 'SECRET_CHANGE_APP_LIMIT') {
+      return { kind: 'refused', message: t('secrets.write.app-limit', 'This App has too many open secret changes. Finish or withdraw one, or wait for them to expire, then try again.') };
     }
     if (code === 'SECRET_CHANGE_REQUEST_LIMIT') {
       return { kind: 'refused', message: t('secrets.write.request-limit', 'This secret has too many open change requests. Wait for one to be signed or withdrawn, or to expire, then try again.') };
