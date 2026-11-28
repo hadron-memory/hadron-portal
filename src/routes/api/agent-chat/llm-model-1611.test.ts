@@ -79,7 +79,7 @@ function setup(o: { resolve?: Array<unknown | Error>; start?: Error; send?: Erro
 
 function ev(body: unknown) {
   return {
-    request: new Request('http://test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify('chatId' in (body as object) ? body : { appId: 'app-1', ...(body as object) }) }),
+    request: new Request('http://test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body && typeof body === 'object' && 'chatId' in body ? body : { appId: 'app-1', ...(body as object) }) }),
     locals: { token: 'test-token', user: { id: 'u1' } },
   } as never;
 }
@@ -201,7 +201,11 @@ describe('portal#1611 /turn reports the model it will call, every turn', () => {
     await turn({ agentId: 'agent-1', chatId: 'chat-1', userMessage: 'hi', configName: 'fast' });
     const wire = JSON.stringify([...callsOf(START_CHAT_MUTATION), ...callsOf(SEND_CHAT_MESSAGE_MUTATION)]);
     expect(wire).not.toContain(KEY);
-    expect(callsOf(RESOLVE_AI_CONFIG_QUERY)).toContainEqual({ name: 'fast', agentRef: 'agent-1' });
+    // Exactly two resolutions: /start's (the App's default) and the turn's named one. A third would be a stray read.
+    expect(callsOf(RESOLVE_AI_CONFIG_QUERY)).toEqual([
+      { name: 'default', appRef: 'app-1', agentRef: 'agent-1' },
+      { name: 'fast', agentRef: 'agent-1' },
+    ]);
   });
 });
 

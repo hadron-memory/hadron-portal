@@ -174,6 +174,23 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect('llmModel' in startVars).toBe(false);
   });
 
+  it('portal#2683: a CHAT_APP_NOT_IDENTIFIED refusal is that fixture\'s fixed message, never server text', async () => {
+    setupChat({ nodes: [fixtureNode('fixtures:abc')] });
+    const base = mockRequest.getMockImplementation()!;
+    const prose = 'raw server prose that must not reach the user';
+    mockRequest.mockImplementation(async (query: string, vars: unknown) => {
+      if (query === START_CHAT_MUTATION) {
+        throw Object.assign(new Error(prose), { response: { errors: [{ message: prose, extensions: { code: 'CHAT_APP_NOT_IDENTIFIED' } }] } });
+      }
+      return base(query, vars);
+    });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    const body = await res.json();
+    expect(body.results[0].error).toBe("This chat can't start because it isn't tied to an App. Open it from an App that installs this Agent and try again.");
+    expect(JSON.stringify(body)).not.toContain(prose);
+  });
+
   it('keeps provider text out of per-fixture failures', async () => {
     setupChat({ nodes: [fixtureNode('fixtures:abc')] });
     mockRunChatTurn.mockReset().mockRejectedValueOnce(new Error('Authorization: Bearer sk-synthetic-966'));

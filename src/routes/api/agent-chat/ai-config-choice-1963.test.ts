@@ -72,7 +72,7 @@ function setup(o: { refuseChoice?: boolean } = {}) {
 
 function ev(body: unknown) {
   return {
-    request: new Request('http://test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify('chatId' in (body as object) ? body : { appId: 'app-1', ...(body as object) }) }),
+    request: new Request('http://test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body && typeof body === 'object' && 'chatId' in body ? body : { appId: 'app-1', ...(body as object) }) }),
     locals: { token: 'test-token', user: { id: 'u1' } },
   } as never;
 }

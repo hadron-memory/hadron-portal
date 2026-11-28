@@ -10,7 +10,7 @@ import { mountComponent } from '$lib/test/mountComponent';
 import Page from './+page.svelte';
 
 const cleanup: Array<() => void> = [];
-afterEach(() => { while (cleanup.length) cleanup.pop()!(); vi.restoreAllMocks(); });
+afterEach(() => { while (cleanup.length) cleanup.pop()!(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const app = (id: string, name: string) => ({ id, name, urn: `hrn:app:hadronmemory.com:${id}` });
 function mountPage(over: Record<string, unknown> = {}) {
@@ -87,6 +87,5 @@ describe('portal#2683 Tester App choice', () => {
     const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('/api/agent-chat/test-run'));
     expect(call).toBeDefined();
     expect(JSON.parse(call![1]!.body as string)).toMatchObject({ agentId: 'agent-1', appId: 'a2', message: 'hello' });
-    vi.unstubAllGlobals();
   });
 });

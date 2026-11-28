@@ -21,9 +21,10 @@ export function appRefVariable(appRef: string): { appRef: string } {
 /** What a route answers when the request names no App, before it asks the server to start anything. */
 export function appRequiredResponse(): Response {
   return new Response(
+    // The same envelope as every other refusal on these routes: the sentence in `error`, a code beside it.
     JSON.stringify({
-      error: 'app-required',
-      message: t('agent-chat.error.app-required', 'A chat runs under an App. Open it from an App that installs this Agent.'),
+      error: t('agent-chat.error.app-required', 'A chat runs under an App. Open it from an App that installs this Agent.'),
+      code: 'appRequired',
     }),
     { status: 400, headers: { 'Content-Type': 'application/json' } },
   );

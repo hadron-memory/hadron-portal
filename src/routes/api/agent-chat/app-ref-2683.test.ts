@@ -5,7 +5,7 @@
  * refuses with CHAT_APP_NOT_IDENTIFIED. The exact `appRef` on each start is also pinned in that route's own test.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { START_CHAT_MUTATION } from '$lib/server/queries';
+import { AGENT_APPS_QUERY, AGENT_OWNED_APPS_QUERY, START_CHAT_MUTATION } from '$lib/server/queries';
 import { __resetRateLimit } from '$lib/server/rate-limit';
 import { asTesterManager } from '$lib/test/tester-manage';
 
@@ -47,13 +47,15 @@ describe.each(ROUTES)('portal#2683 $name', ({ body, call, name }) => {
     const res = await call({ ...body, appId });
     expect(res.status).toBe(400);
     const out = await res.json();
-    expect(out.error).toBe('app-required');
-    expect(out.message).toMatch(/App/);
+    expect(out.code).toBe('appRequired');
+    expect(out.error).toMatch(/App/);
+    expect(out.message).toBeUndefined();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it('does not report a start as a success when the server refuses CHAT_APP_NOT_IDENTIFIED', async () => {
-    if (name === 'fixtures/run') return; // reports each fixture's refusal through publicChatError, the same mapping the other routes use
+    // fixtures/run starts only for stored fixtures, so its refusal is asserted with fixtures in fixtures/run/server.test.ts.
+    if (name === 'fixtures/run') return;
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === START_CHAT_MUTATION) throw refused;
       return {};
@@ -75,6 +77,17 @@ describe('portal#2683 the document', () => {
     expect(START_CHAT_MUTATION).toMatch(/\bappRef: \$appRef\b/);
     expect(START_CHAT_MUTATION).not.toMatch(/\$appRef: ID!/);
   });
+});
+
+describe('portal#2683 the Tester\'s Apps reads', () => {
+  // Same trap as the mutation: page.server.test.ts only sees that `agentId` was passed, not that the document uses it.
+  it.each([['AGENT_APPS_QUERY', AGENT_APPS_QUERY], ['AGENT_OWNED_APPS_QUERY', AGENT_OWNED_APPS_QUERY]])(
+    '%s declares $agentId and filters the install on it',
+    (_name, doc) => {
+      expect(doc).toMatch(/\$agentId: ID\b/);
+      expect(doc).toMatch(/agentRef: \$agentId\b/);
+    },
+  );
 });
 
 describe('portal#2683 start', () => {
