@@ -12,6 +12,7 @@ export const FILTER_MAX = 20;
 const TYPE_ID_MAX = 40;
 
 const CHANGED: readonly TableCriteria['changed'][] = ['', '24h', '7d', '30d'];
+const SCOPES: readonly TableCriteria['scope'][] = ['', 'comments', 'all'];
 const SORTS: readonly TableCriteria['sort'][] = ['', 'loc', 'updated', 'relevance'];
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/;
@@ -30,6 +31,7 @@ export function criteriaToServerView(c: TableCriteria): Server {
   if (c.tags.length) columnFilters.push({ id: 'tags', value: [...c.tags] });
   if (c.changed !== '') columnFilters.push({ id: 'changed', value: c.changed });
   if (c.mine) columnFilters.push({ id: 'mine', value: true });
+  if (c.scope !== '') columnFilters.push({ id: 'scope', value: c.scope });
   return { sorting: c.sort ? [{ id: c.sort, desc: false }] : [], columnFilters };
 }
 
@@ -54,6 +56,7 @@ export function viewToCriteria(view: SavedView, allowedTypes: readonly string[])
     tags: strings(get('tags'), TAG_MAX, FILTER_MAX, (s) => CONTROL.test(s)),
     changed: CHANGED.includes(changed as TableCriteria['changed']) ? (changed as TableCriteria['changed']) : '',
     mine: get('mine') === true,
+    scope: SCOPES.includes(get('scope') as TableCriteria['scope']) ? (get('scope') as TableCriteria['scope']) : '',
     sort: SORTS.includes(sortId as TableCriteria['sort']) ? (sortId as TableCriteria['sort']) : '',
   };
   if (out.sort === 'relevance' && out.q === '') out.sort = '';

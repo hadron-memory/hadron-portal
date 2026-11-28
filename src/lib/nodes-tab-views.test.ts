@@ -4,7 +4,7 @@ import { criteriaToServerView, nodesListKey, viewToCriteria } from './nodes-tab-
 import type { SavedView } from '$lib/table/savedView';
 
 const TYPES = ['info', 'reference', 'prompt'];
-const full: TableCriteria = { q: 'auth', types: ['info'], tags: ['a', 'b'], changed: '7d', mine: true, sort: 'relevance' };
+const full: TableCriteria = { q: 'auth', types: ['info'], tags: ['a', 'b'], changed: '7d', mine: true, scope: 'all', sort: 'relevance' };
 const asView = (c: TableCriteria): SavedView => ({
   ...criteriaToServerView(c), globalFilter: '', columnVisibility: {}, columnOrder: [], columnSizing: {}, pagination: { pageIndex: 0, pageSize: 25 },
 });
@@ -30,6 +30,7 @@ describe('nodes-tab saved views (#2705)', () => {
         { id: 'tags', value: ['ok', 'bad\u0007', 7, ''] },
         { id: 'changed', value: '1y' },
         { id: 'mine', value: 'yes' },
+        { id: 'scope', value: 'everything' },
         { id: 'memoryIds', value: ['other'] },
         { id: 'q', value: 'x'.repeat(500) },
       ],
@@ -39,6 +40,7 @@ describe('nodes-tab saved views (#2705)', () => {
     expect(c.tags).toEqual(['ok']);
     expect(c.changed).toBe('');
     expect(c.mine).toBe(false);
+    expect(c.scope).toBe('');
     expect(c.sort).toBe('');
     expect(c.q).toHaveLength(200);
     expect(Object.keys(c).sort()).toEqual(Object.keys(NO_CRITERIA).sort());
