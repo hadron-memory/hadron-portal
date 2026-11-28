@@ -1285,4 +1285,20 @@ describe('memory-detail `update` action: a fixed slug (#2653)', () => {
     expect(vars.name).toBe('New name');
     expect((successMessage(result) as { type: string }).type).toBe('success');
   });
+
+  // The page's whole slug-fixed path rides on `graph.appId`, which fixtures inject. Pin the wire side: the read behind
+  // the memory layout selects it, so a production Memory carries it.
+  it('the read behind the settings page selects appId', async () => {
+    const { MEMORY_BY_ID_QUERY } = await import('$lib/server/queries');
+    expect(MEMORY_BY_ID_QUERY).toMatch(/fragment MemoryFields on Memory \{[^]*?\n\s+appId\b/);
+  });
+
+  it('the realistic submit of a fixed slug (slug prefilled, not validated) sends no urn', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+    const result = await actions.update(updateEv({ displayName: 'New name', urnSlug: 'mine', originalUrnSlug: 'mine', urnSlugPresent: '', currentUrn: 'hrn:mem:owner:mine' }));
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.urn).toBeUndefined();
+    expect((successMessage(result) as { type: string }).type).toBe('success');
+  });
 });
