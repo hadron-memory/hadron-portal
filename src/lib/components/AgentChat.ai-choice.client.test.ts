@@ -118,6 +118,19 @@ describe('AgentChat: the AI config dropdown (#1963)', () => {
     m.unmount();
   });
 
+  it('portal#2683: the start carries the App the chat is mounted in, and the turn does too', async () => {
+    // /start refuses a request with no App and the server never searches for one, so the component is where the
+    // App the page is on becomes `appId`. A change here would break every chat start.
+    stub();
+    const m = mountChat({ agentId: 'a1', appId: 'app-from-the-page', aiChoices: CHOICES });
+    await listLoaded();
+    await newChat();
+    expect(last('/api/agent-chat/start').appId).toBe('app-from-the-page');
+    await send('hi');
+    expect(last('/api/agent-chat/turn').appId).toBe('app-from-the-page');
+    m.unmount();
+  });
+
   it('with no choice made, starts and sends no config name and no aiConfigChoice (the server resolves)', async () => {
     stub();
     const m = mountChat({ agentId: 'a1', appId: 'app-1', aiChoices: CHOICES });
