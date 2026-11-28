@@ -47,7 +47,26 @@ describe('open-change cap refusals have their own copy (portal#2460)', () => {
     expect(m).not.toMatch(/\d/);
     expect(m).not.toBe(await refuse('SECRET_CHANGE_REQUESTER_LIMIT'));
   });
-  it.each(['SECRET_CHANGE_REQUESTER_LIMIT', 'SECRET_CHANGE_REQUEST_LIMIT'])('%s shows the portal copy, not the server message', async (code) => {
+  // portal#2652: the requester code is also raised for a person's share of the whole App's cap (hadron-server#5285), so its
+  // copy names no secret; the App-wide cap has a message of its own.
+  it('the requester cap does not say the limit is for one secret, because it is also the App-wide share', async () => {
+    const m = await refuse('SECRET_CHANGE_REQUESTER_LIMIT');
+    expect(m).not.toMatch(/for this secret/i);
+    expect(m).not.toMatch(/secret/i);
+    expect(m).toBe('You have too many open changes. Withdraw one of your open requests, or wait for one to expire, then try again.');
+  });
+  it('the App-wide cap says the App has too many open secret changes and what to do, with no number', async () => {
+    const m = await refuse('SECRET_CHANGE_APP_LIMIT');
+    expect(m).not.toBe(internalErrorText());
+    expect(m).toMatch(/this App has too many open secret changes/i);
+    expect(m).toMatch(/withdraw/i);
+    expect(m).toMatch(/expire/i);
+    expect(m).not.toMatch(/you have too many/i);
+    expect(m).not.toMatch(/\d/);
+    expect(m).not.toBe(await refuse('SECRET_CHANGE_REQUESTER_LIMIT'));
+    expect(m).not.toBe(await refuse('SECRET_CHANGE_REQUEST_LIMIT'));
+  });
+  it.each(['SECRET_CHANGE_REQUESTER_LIMIT', 'SECRET_CHANGE_REQUEST_LIMIT', 'SECRET_CHANGE_APP_LIMIT'])('%s shows the portal copy, not the server message', async (code) => {
     expect(await refuse(code, 'leaks: 2 of 5 for user u1')).not.toMatch(/leaks|u1/);
   });
   it('an unknown code keeps the generic text and never the server message', async () => {
