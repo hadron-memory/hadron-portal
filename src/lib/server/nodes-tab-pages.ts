@@ -40,6 +40,8 @@ export const TAG_MAX_LENGTH = 100;
 /** The types the tab lists (hidden ones are not offered: see isHiddenNodeType). */
 export const FILTERABLE_NODE_TYPES: readonly string[] = NODE_TYPES.filter((n) => !isHiddenNodeType(n));
 export const CHANGED_WINDOWS = { '24h': 1, '7d': 7, '30d': 30 } as const;
+/** portal#2706: the comments door. Absent (or 'content') is the default, content only; never passed through. */
+export const SCOPES = { comments: 'COMMENTS', all: 'ALL' } as const;
 export const SORTS = { loc: 'loc', updated: 'updatedAt', relevance: 'relevance' } as const;
 
 export interface PageQuery {
@@ -49,6 +51,7 @@ export interface PageQuery {
   sort?: (typeof SORTS)[keyof typeof SORTS];
   updatedAfter?: string;
   createdBy?: string;
+  contentScope?: (typeof SCOPES)[keyof typeof SCOPES];
 }
 
 /** The one value of a single-valued param: undefined = absent or blank, null = repeated. */
@@ -89,6 +92,9 @@ export function parsePageQuery(url: URL, viewerId: string | null, now = Date.now
   if (changed !== undefined) {
     out.updatedAfter = new Date(now - CHANGED_WINDOWS[changed as keyof typeof CHANGED_WINDOWS] * 86_400_000).toISOString();
   }
+  const scope = one(url, 'scope');
+  if (scope === null || (scope !== undefined && scope !== 'content' && !Object.hasOwn(SCOPES, scope))) return null;
+  if (scope !== undefined && scope !== 'content') out.contentScope = SCOPES[scope as keyof typeof SCOPES];
   const mine = one(url, 'mine');
   if (mine === null || (mine !== undefined && mine !== '1')) return null;
   if (mine !== undefined) {
@@ -98,7 +104,7 @@ export function parsePageQuery(url: URL, viewerId: string | null, now = Date.now
   return Object.keys(out).length ? out : undefined;
 }
 
-export type TablePageRow = Pick<MemoryNode, 'id' | 'urn' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'memoryId' | 'updatedAt' | 'memory'>;
+export type TablePageRow = Pick<MemoryNode, 'id' | 'urn' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'memoryId' | 'updatedAt' | 'memory'> & { comment?: unknown };
 
 export async function readTablePage(
   client: NodesTabClient,
@@ -106,7 +112,7 @@ export async function readTablePage(
   offset: number,
   query?: PageQuery,
 ): Promise<{ rows: TablePageRow[]; hasMore: boolean }> {
-  const d = await client.request<{ findNodes: { hits: Array<{ node: TablePageRow & { commentSummary?: unknown } }> } }>(
+  const d = await client.request<{ findNodes: { hits: Array<{ node: TablePageRow & { commentSummary?: unknown; asComment?: unknown } }> } }>(
     query === undefined ? NODES_PAGE_QUERY : NODES_SEARCH_PAGE_QUERY,
     query === undefined
       ? { memoryId, limit: TABLE_PAGE_SIZE + 1, offset }
@@ -120,11 +126,13 @@ export async function readTablePage(
           updatedAfter: query.updatedAfter ?? null,
           nodeTypes: query.nodeTypes ?? null,
           tags: query.tags ?? null,
+          contentScope: query.contentScope ?? null,
           limit: TABLE_PAGE_SIZE + 1,
           offset,
         },
   );
-  const rows = d.findNodes.hits.map(({ node: { commentSummary: _c, ...n } }) => n as TablePageRow);
+  // portal#2706: a comment hit keeps its feedback shape as `comment` (what NodeList renders); content has none.
+  const rows = d.findNodes.hits.map(({ node: { commentSummary: _c, asComment, ...n } }) => (asComment ? { ...n, comment: asComment } : n) as TablePageRow);
   return { rows: rows.slice(0, TABLE_PAGE_SIZE), hasMore: rows.length > TABLE_PAGE_SIZE };
 }
 
