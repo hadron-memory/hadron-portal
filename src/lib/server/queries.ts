@@ -3531,6 +3531,7 @@ export const NODES_SEARCH_PAGE_QUERY = /* GraphQL */ `
     $updatedAfter: String
     $nodeTypes: [String!]
     $tags: [String!]
+    $contentScope: NodeContentScope
     $limit: Int!
     $offset: Int!
   ) {
@@ -3538,11 +3539,31 @@ export const NODES_SEARCH_PAGE_QUERY = /* GraphQL */ `
       query: $query
       mode: $mode
       sort: $sort
-      filter: { memoryRefs: [$memoryId], createdBy: $createdBy, updatedAfter: $updatedAfter, nodeTypes: $nodeTypes, tags: $tags }
+      filter: { memoryRefs: [$memoryId], createdBy: $createdBy, updatedAfter: $updatedAfter, nodeTypes: $nodeTypes, tags: $tags, contentScope: $contentScope }
       limit: $limit
       offset: $offset
     ) {
-      hits { node { id urn loc name description nodeType tags seq isRunnable memoryId updatedAt memory { id urn name } commentSummary { openThreads } } }
+      hits {
+        node {
+          id urn loc name description nodeType tags seq isRunnable memoryId updatedAt memory { id urn name } commentSummary { openThreads }
+          # portal#2706: under the Comments or All scope a hit AS a comment (null for content), so it renders as feedback.
+          asComment {
+            id
+            isTopLevel
+            state
+            anchorRevision
+            deleted
+            author {
+              kind
+              user { id handle name urn }
+              agent { id handle name urn }
+              worker { id handle name urn }
+              app { id handle name urn }
+            }
+            target { id name nodeType revSeq urn }
+          }
+        }
+      }
     }
   }
 `;

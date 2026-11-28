@@ -129,11 +129,11 @@ describe('Table (default)', () => {
     expect(before!.textContent).toContain('No matching or visible nodes');
   });
 
-  it('states the listing scope (system nodes and comments are not listed) and the offset caveat', async () => {
+  it('states the listing scope (system nodes are not listed, comments only when chosen) and the offset caveat', async () => {
     replies['page?offset=0'] = [{ rows: range(0, 1), hasMore: false }];
     const m = await mount();
     const scope = m.target.querySelector('[data-testid="nodes-scope"]')?.textContent ?? '';
-    expect(scope).toMatch(/System nodes and comments are not listed/);
+    expect(scope).toMatch(/System nodes are not listed here, and comments only when you choose them/);
     expect(scope).toMatch(/skip or repeat a row/);
   });
 
@@ -403,6 +403,35 @@ describe('filters and sort (#2693 step 1)', () => {
     expect(fetched.slice(-1)).toEqual(['page?offset=0&type=prompt&changed=7d&mine=1&sort=updated']);
     expect(text(m)).toContain('Sorted');
     expect(text(m)).toMatch(/Filtered the whole memory/);
+  });
+
+  it('the scope control reads comments from the server: default content only, the URL carries scope, comment rows show as comments, and Clear returns to the plain list', async () => {
+    const comment = { id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 2, deleted: false, author: { kind: 'USER', user: { id: 'u', handle: 'h', name: 'Hana', urn: null }, agent: null, worker: null, app: null }, target: { id: 't', name: 'Target node', nodeType: 'info', revSeq: 3, urn: 'hrn:node:acme.com:m:t' } };
+    replies['page?offset=0'] = [found(range(0, 1)), found(range(0, 1))];
+    replies['page?offset=0&scope=comments'] = [found([node(9, { name: 'A comment', nodeType: 'comment', comment })])];
+    const m = await mount();
+    const scope = q(m, 'nodes-scope-select') as HTMLSelectElement;
+    expect(scope.value).toBe('');
+    expect([...scope.options].map((o) => o.value)).toEqual(['', 'comments', 'all']);
+    await pick(scope, 'comments');
+    expect(fetched.slice(-1)).toEqual(['page?offset=0&scope=comments']);
+    expect(text(m)).toContain('Target node');
+    expect(text(m)).not.toContain('Node 0');
+    await click(q(m, 'nodes-search-clear') as HTMLButtonElement);
+    expect(fetched.slice(-1)).toEqual(['page?offset=0']);
+    expect((q(m, 'nodes-scope-select') as HTMLSelectElement).value).toBe('');
+  });
+
+  it('a failed comments read offers Retry and the same read again; it is never shown as no results', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&scope=comments'] = ['fail', found([node(9, { name: 'A comment' })])];
+    const m = await mount();
+    await pick(q(m, 'nodes-scope-select') as HTMLSelectElement, 'comments');
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load');
+    expect(text(m)).not.toMatch(/No nodes/);
+    await click(m.target.querySelector('[role="alert"] button') as HTMLButtonElement);
+    expect(fetched.slice(-2)).toEqual(['page?offset=0&scope=comments', 'page?offset=0&scope=comments']);
+    expect(text(m)).toContain('A comment');
   });
 
   it('tags are added with Enter, shown as chips, sent as repeated params, removed from the chip, and capped', async () => {
