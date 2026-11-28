@@ -7,7 +7,7 @@
 // read is a retryable failure, never an empty page.
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { parseOffset, parsePageQuery, readTablePage, resolveMemoryId } from '$lib/server/nodes-tab-pages';
+import { isInvalidPatternError, parseOffset, parsePageQuery, readTablePage, resolveMemoryId } from '$lib/server/nodes-tab-pages';
 import type { RequestHandler } from './$types';
 
 const headers = { 'cache-control': 'no-store' };
@@ -28,6 +28,8 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
     const page = await readTablePage(client, memoryId, offset, search);
     return json(page, { headers });
   } catch (e) {
+    // A pattern the server refused is the reader's to fix, not a retry; its text is never echoed or logged.
+    if (search?.regex && isInvalidPatternError(e)) return json({ invalid: true }, { headers });
     // The error is NOT logged: a GraphQL error carries the request variables, i.e. the reader's search text.
     console.warn(`[nodes-tab] table page read failed for ${params.id}: ${e instanceof Error ? e.name : typeof e}`);
     return failed(200);

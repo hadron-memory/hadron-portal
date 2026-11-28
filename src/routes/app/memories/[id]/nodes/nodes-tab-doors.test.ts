@@ -257,10 +257,10 @@ describe('GET nodes/page filters and sort (portal#2693 step 1)', () => {
     expect(vars()).toMatchObject({ query: null, mode: null, sort: 'relevance' });
   });
 
-  it('never asks the server for regex, vector, hybrid, deleted rows or a property filter', async () => {
+  it('never asks the server for vector, hybrid, deleted rows or a property filter', async () => {
     serve();
-    await call('page', '?offset=0&q=x&mode=regex&includeDeleted=true&where=%7B%7D');
-    expect(NODES_SEARCH_PAGE_QUERY).not.toMatch(/includeDeleted|where|regex|vector|hybrid/);
+    await call('page', '?offset=0&q=x&includeDeleted=true&where=%7B%7D');
+    expect(NODES_SEARCH_PAGE_QUERY).not.toMatch(/includeDeleted|where|vector|hybrid/);
     expect(vars().mode).toBe('keyword');
   });
 
@@ -338,6 +338,75 @@ describe('GET nodes/page comments scope (portal#2706 PR 1)', () => {
     expect(r.body).toEqual({ failed: true });
     expect(JSON.stringify(r)).not.toContain('SECRET-PATTERN-42');
     expect(JSON.stringify(warn.mock.calls.map((c) => c.map((a) => (a instanceof Error ? [a.name, a.message, a.stack] : a))))).not.toContain('SECRET-PATTERN-42');
+  });
+});
+
+describe('GET nodes/page regex mode (portal#2706 PR 2)', () => {
+  const vars = () => mockRequest.mock.calls.find(([d]) => d === NODES_SEARCH_PAGE_QUERY)![1] as Record<string, unknown>;
+  const PATTERN = 'SECRET-(a|b)+$';
+
+  it('mode=regex sends the pattern as the query in regex mode, keyword stays the default, and the memory stays pinned', async () => {
+    serve();
+    await call('page', `?offset=0&mode=regex&q=${encodeURIComponent(PATTERN)}`);
+    expect(vars()).toMatchObject({ memoryId: MEM, query: PATTERN, mode: 'regex', limit: 51 });
+    mockRequest.mockClear();
+    serve();
+    await call('page', '?offset=0&mode=keyword&q=x');
+    expect(vars().mode).toBe('keyword');
+  });
+
+  it.each(['?offset=0&mode=vector&q=x', '?offset=0&mode=hybrid&q=x', '?offset=0&mode=REGEX&q=x', '?offset=0&mode=regex&mode=keyword&q=x', '?offset=0&mode=regex', '?offset=0&mode=regex&q=%20%20'])(
+    'refuses %s with a 400 before any read',
+    async (search) => {
+      serve();
+      const r = await call('page', search);
+      expect(r.status).toBe(400);
+      expect(mockRequest).not.toHaveBeenCalled();
+    },
+  );
+
+  it('the 200-character cap: 201 is a 400 before any read naming no pattern text; 200 passes', async () => {
+    serve();
+    const r = await call('page', `?offset=0&mode=regex&q=${'a'.repeat(201)}`);
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).not.toContain('aaaa');
+    expect(mockRequest).not.toHaveBeenCalled();
+    const ok = await call('page', `?offset=0&mode=regex&q=${'a'.repeat(200)}`);
+    expect(ok.status).toBe(200);
+    expect(vars().mode).toBe('regex');
+  });
+
+  it('an invalid pattern is its own answer, not a retryable failure, and the pattern reaches neither the response nor the log', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warn.mockClear();
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === MEMORY_SCOPE_QUERY) return { memory: { id: MEM } };
+      throw Object.assign(new Error(`invalid regular expression: ${PATTERN}`), {
+        response: { errors: [{ message: `invalid regular expression: ${PATTERN}`, extensions: { code: 'BAD_USER_INPUT' } }] },
+        request: { variables: { query: PATTERN } },
+      });
+    });
+    const r = await call('page', `?offset=0&mode=regex&q=${encodeURIComponent(PATTERN)}`);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ invalid: true });
+    expect(JSON.stringify(r)).not.toContain('SECRET');
+    expect(JSON.stringify(warn.mock.calls.map((c) => c.map((a) => (a instanceof Error ? [a.name, a.message, a.stack] : a))))).not.toContain('SECRET');
+  });
+
+  it('a server timeout in regex mode is a retryable failure, never an empty result or an invalid pattern', async () => {
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === MEMORY_SCOPE_QUERY) return { memory: { id: MEM } };
+      throw Object.assign(new Error('canceling statement due to statement timeout'), { response: { errors: [{ message: 'timeout', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } });
+    });
+    const r = await call('page', `?offset=0&mode=regex&q=${encodeURIComponent(PATTERN)}`);
+    expect(r.body).toEqual({ failed: true });
+  });
+
+  it('an unreadable memory answers the same empty page for a regex search and reads nothing', async () => {
+    serve({ readable: false });
+    const r = await call('page', '?offset=0&mode=regex&q=a');
+    expect(r.body).toEqual({ rows: [], hasMore: false });
+    expect(docs()).toEqual([MEMORY_SCOPE_QUERY]);
   });
 });
 

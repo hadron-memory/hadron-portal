@@ -16,7 +16,7 @@ const node = (i: number, extra: Record<string, unknown> = {}) => ({
 });
 const range = (from: number, n: number) => Array.from({ length: n }, (_, i) => node(from + i));
 
-type Reply = { rows: unknown[]; hasMore: boolean } | 'fail' | Promise<Response>;
+type Reply = { rows: unknown[]; hasMore: boolean } | { invalid: true } | 'fail' | Promise<Response>;
 let replies: Record<string, Reply[]>;
 let fetched: string[];
 const key = (url: string) => url.replace(/^.*\/nodes\//, '');
@@ -405,7 +405,7 @@ describe('filters and sort (#2693 step 1)', () => {
     expect(text(m)).toMatch(/Filtered the whole memory/);
   });
 
-  it('the scope control reads comments from the server: default content only, the URL carries scope, comment rows show as comments, and Clear returns to the plain list', async () => {
+  it('the scope control reads comments from the server: default content only, the request carries scope, comment rows show as comments, and Clear returns to the plain list', async () => {
     const comment = { id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 2, deleted: false, author: { kind: 'USER', user: { id: 'u', handle: 'h', name: 'Hana', urn: null }, agent: null, worker: null, app: null }, target: { id: 't', name: 'Target node', nodeType: 'info', revSeq: 3, urn: 'hrn:node:acme.com:m:t' } };
     replies['page?offset=0'] = [found(range(0, 1)), found(range(0, 1))];
     replies['page?offset=0&scope=comments'] = [found([node(9, { name: 'A comment', nodeType: 'comment', comment })])];
@@ -610,5 +610,163 @@ describe('teardown', () => {
     });
     expect(rejections).toEqual([]);
     expect(fetched).toEqual(['page?offset=0']);
+  });
+});
+
+describe('regex mode and the scope-aware empty states (#2706 PR 2)', () => {
+  const found = (rows: unknown[], hasMore = false) => ({ rows, hasMore });
+  const q = (m: Mounted<Record<string, unknown>>, id: string) => m.target.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+  const pick = async (el: HTMLSelectElement, value: string) => { el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })); await wait(5); flushSync(); };
+  const typeIn = (m: Mounted<Record<string, unknown>>, value: string, enter = false) => {
+    const box = q(m, 'nodes-search') as HTMLInputElement;
+    box.value = value;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    if (enter) box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  };
+  const toggleRegex = async (m: Mounted<Record<string, unknown>>) => { const c = q(m, 'nodes-regex') as HTMLInputElement; c.checked = !c.checked; c.dispatchEvent(new Event('change', { bubbles: true })); await wait(5); flushSync(); };
+
+  it('a regex search runs only on Enter (typing never fires one), carries mode=regex, and the box is capped at 200', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=a.b&mode=regex'] = [found([node(7, { name: 'Matched' })])];
+    const m = await mount();
+    expect((q(m, 'nodes-search') as HTMLInputElement).maxLength).toBe(200);
+    await toggleRegex(m);
+    typeIn(m, 'a.b');
+    await wait(340);
+    flushSync();
+    expect(fetched).toEqual(['page?offset=0']);
+    typeIn(m, 'a.b', true);
+    await wait(5);
+    flushSync();
+    expect(fetched.slice(-1)).toEqual(['page?offset=0&q=a.b&mode=regex']);
+    expect(text(m)).toContain('Matched');
+  });
+
+  it('turning regex off returns to a keyword search of the same text; Best match is not offered for a pattern', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=ab&mode=regex'] = [found([node(7)])];
+    replies['page?offset=0&q=ab'] = [found([node(8, { name: 'Keyword hit' })])];
+    const m = await mount();
+    await toggleRegex(m);
+    typeIn(m, 'ab', true);
+    await wait(5);
+    flushSync();
+    expect((q(m, 'nodes-sort').querySelector('option[value="relevance"]') as HTMLOptionElement).disabled).toBe(true);
+    await toggleRegex(m);
+    expect(fetched.slice(-1)).toEqual(['page?offset=0&q=ab']);
+    expect(text(m)).toContain('Keyword hit');
+  });
+
+  it('an invalid pattern is said once, without the pattern, with no Retry and no "no results"; fixing it searches again', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=SECRET%28&mode=regex'] = [{ invalid: true }];
+    replies['page?offset=0&q=SECRET&mode=regex'] = [found([node(9, { name: 'Fixed' })])];
+    const m = await mount();
+    await toggleRegex(m);
+    typeIn(m, 'SECRET(', true);
+    await wait(5);
+    flushSync();
+    const alert = m.target.querySelector('[role="alert"]');
+    expect(alert?.textContent).toMatch(/not a valid pattern/i);
+    expect(alert?.textContent).not.toContain('SECRET');
+    expect(alert?.querySelector('button')).toBeNull();
+    expect(text(m)).not.toMatch(/No nodes|No comments|Nothing in this memory/);
+    typeIn(m, 'SECRET', true);
+    await wait(5);
+    flushSync();
+    expect(text(m)).toContain('Fixed');
+    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('a timed-out regex read is the retryable failure with Retry', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=a.b&mode=regex'] = ['fail', found([node(3, { name: 'After retry' })])];
+    const m = await mount();
+    await toggleRegex(m);
+    typeIn(m, 'a.b', true);
+    await wait(5);
+    flushSync();
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load');
+    await click(m.target.querySelector('[role="alert"] button') as HTMLButtonElement);
+    expect(text(m)).toContain('After retry');
+  });
+
+  it('single-flight: a newer regex search aborts the one in flight, and the older answer is never shown', async () => {
+    const signals: AbortSignal[] = [];
+    const gates: Array<(r: Response) => void> = [];
+    vi.stubGlobal('fetch', (url: string, init?: { signal?: AbortSignal }) => {
+      fetched.push(key(url));
+      if (key(url) === 'page?offset=0') return Promise.resolve(new Response(JSON.stringify(found(range(0, 1))), { status: 200 }));
+      signals.push(init!.signal!);
+      return new Promise<Response>((resolve) => gates.push(resolve));
+    });
+    const m = await mount();
+    await toggleRegex(m);
+    typeIn(m, 'aa', true);
+    await wait(5);
+    typeIn(m, 'bb', true);
+    await wait(5);
+    flushSync();
+    expect(signals).toHaveLength(2);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    gates[0](new Response(JSON.stringify(found([node(1, { name: 'Stale answer' })])), { status: 200 }));
+    gates[1](new Response(JSON.stringify(found([node(2, { name: 'Fresh answer' })])), { status: 200 }));
+    await wait(10);
+    flushSync();
+    expect(text(m)).toContain('Fresh answer');
+    expect(text(m)).not.toContain('Stale answer');
+    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it.each([
+    ['comments', 'zebra', /No comments match “zebra”/],
+    ['all', 'zebra', /Nothing in this memory matches “zebra”/],
+    ['', 'zebra', /No nodes match “zebra”/],
+  ])('empty search under scope %j says what was searched', async (scope, term, expected) => {
+    const sc = scope ? `&scope=${scope}` : '';
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies[`page?offset=0&q=${term}${sc}`] = [found([])];
+    replies[`page?offset=0${sc}`] = [found([])];
+    const m = await mount();
+    if (scope) await pick(q(m, 'nodes-scope-select') as HTMLSelectElement, scope);
+    typeIn(m, term, true);
+    await wait(5);
+    flushSync();
+    expect(text(m)).toMatch(expected);
+  });
+
+  it.each([
+    ['comments', /No comments in this memory match these filters/],
+    ['all', /Nothing in this memory matches these filters/],
+  ])('an empty %s list with no search says so', async (scope, expected) => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies[`page?offset=0&scope=${scope}`] = [found([])];
+    const m = await mount();
+    await pick(q(m, 'nodes-scope-select') as HTMLSelectElement, scope);
+    expect(text(m)).toMatch(expected);
+  });
+
+  it('an empty regex search says it without echoing the pattern', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=SECRET.x&mode=regex'] = [found([])];
+    const m = await mount();
+    await toggleRegex(m);
+    typeIn(m, 'SECRET.x', true);
+    await wait(5);
+    flushSync();
+    expect(text(m)).toMatch(/Nothing in this memory matches that pattern/);
+    expect(text(m)).not.toContain('SECRET');
+  });
+
+  it('scope=all reads content and comment rows together, each as what it is', async () => {
+    const comment = { id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 2, deleted: false, author: { kind: 'USER', user: { id: 'u', handle: 'h', name: 'Hana', urn: null }, agent: null, worker: null, app: null }, target: { id: 't', name: 'Target node', nodeType: 'info', revSeq: 3, urn: 'hrn:node:acme.com:m:t' } };
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&scope=all'] = [found([node(5, { name: 'Plain content' }), node(6, { name: 'c', nodeType: 'comment', comment })])];
+    const m = await mount();
+    await pick(q(m, 'nodes-scope-select') as HTMLSelectElement, 'all');
+    expect(fetched.slice(-1)).toEqual(['page?offset=0&scope=all']);
+    expect(text(m)).toContain('Plain content');
+    expect(text(m)).toContain('Target node');
   });
 });

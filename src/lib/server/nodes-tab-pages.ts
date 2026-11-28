@@ -40,12 +40,14 @@ export const TAG_MAX_LENGTH = 100;
 /** The types the tab lists (hidden ones are not offered: see isHiddenNodeType). */
 export const FILTERABLE_NODE_TYPES: readonly string[] = NODE_TYPES.filter((n) => !isHiddenNodeType(n));
 export const CHANGED_WINDOWS = { '24h': 1, '7d': 7, '30d': 30 } as const;
-/** portal#2706: the comments door. Absent (or 'content') is the default, content only; never passed through. */
+/** portal#2706: which kinds of node a read returns. Absent (or 'content') is the default, content only; never passed through. */
 export const SCOPES = { comments: 'COMMENTS', all: 'ALL' } as const;
 export const SORTS = { loc: 'loc', updated: 'updatedAt', relevance: 'relevance' } as const;
 
 export interface PageQuery {
   q?: string;
+  /** portal#2706 PR 2: the query is a POSIX pattern (server mode regex). Only ever with a q. */
+  regex?: true;
   nodeTypes?: string[];
   tags?: string[];
   sort?: (typeof SORTS)[keyof typeof SORTS];
@@ -77,6 +79,13 @@ export function parsePageQuery(url: URL, viewerId: string | null, now = Date.now
     if (q.length > SEARCH_MAX_LENGTH) return null;
     out.q = q;
   }
+  // Only keyword (the default) and regex are asked from the browser; never vector or hybrid. A regex needs a pattern.
+  const mode = one(url, 'mode');
+  if (mode === null || (mode !== undefined && mode !== 'keyword' && mode !== 'regex')) return null;
+  if (mode === 'regex') {
+    if (out.q === undefined) return null;
+    out.regex = true;
+  }
   const types = [...new Set(url.searchParams.getAll('type').map((v) => v.trim()).filter((v) => v !== ''))];
   if (types.length > FILTER_LIST_MAX || !types.every((v) => FILTERABLE_NODE_TYPES.includes(v))) return null;
   if (types.length) out.nodeTypes = types;
@@ -104,6 +113,12 @@ export function parsePageQuery(url: URL, viewerId: string | null, now = Date.now
   return Object.keys(out).length ? out : undefined;
 }
 
+/** A server refusal of the reader's own pattern (bad syntax): the server answers BAD_USER_INPUT. Anything else (a timeout, a transport failure) is retryable. */
+export function isInvalidPatternError(e: unknown): boolean {
+  const first = (e as { response?: { errors?: { extensions?: { code?: unknown } }[] } } | null)?.response?.errors?.[0];
+  return first?.extensions?.code === 'BAD_USER_INPUT';
+}
+
 export type TablePageRow = Pick<MemoryNode, 'id' | 'urn' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'memoryId' | 'updatedAt' | 'memory'> & { comment?: unknown };
 
 export async function readTablePage(
@@ -119,8 +134,8 @@ export async function readTablePage(
       : {
           memoryId,
           query: query.q ?? null,
-          // keyword only: never regex, vector or hybrid from the browser
-          mode: query.q === undefined ? null : 'keyword',
+          // keyword or regex only: never vector or hybrid from the browser
+          mode: query.q === undefined ? null : query.regex ? 'regex' : 'keyword',
           sort: query.sort ?? null,
           createdBy: query.createdBy ?? null,
           updatedAfter: query.updatedAfter ?? null,

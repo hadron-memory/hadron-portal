@@ -18,7 +18,7 @@
 
   let { memoryId }: { memoryId: string } = $props();
 
-  type Status = 'idle' | 'loading' | 'failed' | 'done';
+  type Status = 'idle' | 'loading' | 'failed' | 'invalid' | 'done';
   interface Folder {
     rows: MemoryNode[];
     /** Rows the server has handed out so far: the next page's offset (dedupe can make rows.length smaller). */
@@ -169,13 +169,16 @@
   const TAG_REFUSED = /[\u0000-\u001f\u007f]/;
   let typed = $state('');
   let tagDraft = $state('');
+  // portal#2706: the search box holds a pattern, not words. A pattern runs only on Enter (never as you type).
+  let regexOn = $state(false);
   let criteria = $state<TableCriteria>(NO_CRITERIA);
   const narrowed = $derived(hasCriteria(criteria));
 
   function setCriteria(patch: Partial<TableCriteria>) {
     const next = { ...criteria, ...patch };
-    // Relevance only means something for a text search.
-    if (next.sort === 'relevance' && next.q === '') next.sort = '';
+    if (next.q === '') next.regex = false;
+    // Relevance only means something for a text search, and a pattern match has no ranking.
+    if (next.sort === 'relevance' && (next.q === '' || next.regex)) next.sort = '';
     if (JSON.stringify(next) === JSON.stringify(criteria)) return;
     criteria = next;
     tableCtl.abort();
@@ -189,7 +192,21 @@
 
   function onSearchInput() {
     clearTimeout(searchTimer);
+    if (regexOn) return;
     searchTimer = setTimeout(() => setCriteria({ q: typed.trim() }), SEARCH_DEBOUNCE_MS);
+  }
+
+  function submitSearch() {
+    clearTimeout(searchTimer);
+    const q = typed.trim();
+    setCriteria({ q, regex: regexOn && q !== '' });
+  }
+
+  function setRegex(on: boolean) {
+    regexOn = on;
+    clearTimeout(searchTimer);
+    // A search already showing is asked again in the other mode; typed text waits for Enter (or the debounce).
+    if (criteria.q !== '') setCriteria({ regex: on });
   }
 
   function toggleType(type: string) {
@@ -207,6 +224,7 @@
     clearTimeout(searchTimer);
     typed = '';
     tagDraft = '';
+    regexOn = false;
     setCriteria(NO_CRITERIA);
   }
 
@@ -222,12 +240,31 @@
       tableStatus = 'failed';
       return;
     }
+    if (page === 'invalid') {
+      tableStatus = 'invalid';
+      return;
+    }
     if (tableConsumed !== offset) return;
     tableRows = appendUnique(tableRows, page.rows);
     tableConsumed = offset + page.rows.length;
     tableHasMore = page.hasMore;
     tableStatus = 'done';
   }
+
+  // What an empty answer says: what was searched (the scope), and never the pattern (a regex is not echoed).
+  const emptyText = $derived.by(() => {
+    const { q, regex, scope } = criteria;
+    if (!narrowed) return t('nodes-tab.none', 'No matching or visible nodes.');
+    if (q !== '' && regex) return t('nodes-tab.regex-none', 'Nothing in this memory matches that pattern.');
+    if (q !== '') {
+      if (scope === 'comments') return t('nodes-tab.search-none-comments', 'No comments match “{q}” anywhere in this memory.', { q });
+      if (scope === 'all') return t('nodes-tab.search-none-all', 'Nothing in this memory matches “{q}”.', { q });
+      return t('nodes-tab.search-none', 'No nodes match “{q}” anywhere in this memory.', { q });
+    }
+    if (scope === 'comments') return t('nodes-tab.filter-none-comments', 'No comments in this memory match these filters.');
+    if (scope === 'all') return t('nodes-tab.filter-none-all', 'Nothing in this memory matches these filters.');
+    return t('nodes-tab.filter-none', 'No nodes in this memory match these filters.');
+  });
 
   // The Table's rows: an empty name or the empty loc still gets a label (the Tree's "(root node)").
   const tableView = $derived(
@@ -337,12 +374,19 @@
         maxlength={SEARCH_MAX}
         bind:value={typed}
         oninput={onSearchInput}
-        onkeydown={(e) => { if (e.key === 'Enter') { clearTimeout(searchTimer); setCriteria({ q: typed.trim() }); } }}
+        onkeydown={(e) => { if (e.key === 'Enter') submitSearch(); }}
       />
+      <label class="inline-flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400 pointer-coarse:min-h-11">
+        <input type="checkbox" data-testid="nodes-regex" checked={regexOn} onchange={(e) => setRegex(e.currentTarget.checked)} />
+        {t('nodes-tab.regex', 'Regular expression')}
+      </label>
       {#if typed !== '' || narrowed}
         <button type="button" data-testid="nodes-search-clear" class="rounded-md px-2 py-1.5 text-sm text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-3" onclick={clearSearch}>{t('nodes-tab.search-clear', 'Clear')}</button>
       {/if}
     </div>
+    {#if regexOn}
+      <p class="text-xs text-zinc-500" data-testid="nodes-regex-help">{t('nodes-tab.regex-help', 'Press Enter to search with the pattern. Patterns are limited to {max} characters.', { max: SEARCH_MAX })}</p>
+    {/if}
     <div class="flex flex-wrap items-center gap-2" data-testid="nodes-filters">
       <div role="group" aria-label={t('nodes-tab.filter-types', 'Node type')} class="flex flex-wrap gap-1">
         {#each TYPE_CHOICES as type (type)}
@@ -392,7 +436,7 @@
         <option value="">{t('nodes-tab.sort-default', 'Default order')}</option>
         <option value="loc">{t('nodes-tab.sort-loc', 'By location')}</option>
         <option value="updated">{t('nodes-tab.sort-updated', 'Recently changed')}</option>
-        <option value="relevance" disabled={criteria.q === ''}>{t('nodes-tab.sort-relevance', 'Best match')}</option>
+        <option value="relevance" disabled={criteria.q === '' || criteria.regex}>{t('nodes-tab.sort-relevance', 'Best match')}</option>
       </select>
     </div>
     <div class="flex flex-wrap items-center gap-2" data-testid="nodes-tags">
@@ -417,12 +461,14 @@
     </div>
     <LiveRegion data-testid="nodes-tab-none">
       {#if tableStatus === 'done' && tableRows.length === 0}
-        <p class="text-sm text-zinc-500">{!narrowed ? t('nodes-tab.none', 'No matching or visible nodes.') : criteria.q !== '' ? t('nodes-tab.search-none', 'No nodes match “{q}” anywhere in this memory.', { q: criteria.q }) : criteria.scope === 'comments' ? t('nodes-tab.filter-none-comments', 'No comments in this memory match these filters.') : t('nodes-tab.filter-none', 'No nodes in this memory match these filters.')}</p>
+        <p class="text-sm text-zinc-500">{emptyText}</p>
       {/if}
     </LiveRegion>
     <p class="text-xs text-zinc-500" data-testid="table-partial">
       {#if narrowed && tableStatus === 'done' && tableRows.length > 0}
-        {#if criteria.q !== ''}
+        {#if criteria.q !== '' && criteria.regex}
+          {tableHasMore ? t('nodes-tab.regex-more', 'Searched the whole memory with the pattern; more matches are available.') : t('nodes-tab.regex-all', 'Searched the whole memory with the pattern; these are all the matches.')}
+        {:else if criteria.q !== ''}
           {tableHasMore ? t('nodes-tab.search-more', 'Searched the whole memory for “{q}”; more matches are available.', { q: criteria.q }) : t('nodes-tab.search-all', 'Searched the whole memory for “{q}”; these are all the matches.', { q: criteria.q })}
         {:else}
           {tableHasMore ? t('nodes-tab.filter-more', 'Filtered the whole memory; more matches are available.') : t('nodes-tab.filter-all', 'Filtered the whole memory; these are all the matches.')}
@@ -445,6 +491,9 @@
     <LiveRegion>{#if tableStatus === 'loading'}<p class="text-sm text-zinc-500">{t('nodes-tab.loading', 'Loading…')}</p>{/if}</LiveRegion>
     {#if tableStatus === 'loading'}
       <!-- announced by the LiveRegion above -->
+    {:else if tableStatus === 'invalid'}
+      <!-- the reader's own pattern: said once, never echoed, and nothing to retry -->
+      <p class="text-sm text-red-500" role="alert">{t('nodes-tab.regex-invalid', 'That is not a valid pattern. Change it and press Enter.')}</p>
     {:else if tableStatus === 'failed'}
       <p class="text-sm text-red-500" role="alert">
         {t('nodes-tab.failed', 'Could not load this page.')}
