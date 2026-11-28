@@ -5,6 +5,7 @@ import {
   UPDATE_NODE_MUTATION,
   NODE_BY_ID_QUERY,
 } from '$lib/server/queries';
+import { appRefVariable, appRequiredResponse, cleanChatAppRef } from '$lib/server/llm/chatApp.js';
 import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
@@ -66,6 +67,8 @@ interface RunBody {
   fixtureLoc?: string | null;
   costCapAcknowledged?: boolean;
   acceptNewBaseline?: boolean; // single-fixture mode only
+  /** portal#2683: the App the Tester runs under (one that installs the Agent). */
+  appId?: string;
 }
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -79,6 +82,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try { body = await request.json(); }
   catch { return json({ error: 'Invalid JSON body' }, 400); }
   if (!body.agentId) return json({ error: 'agentId is required' }, 400);
+  // portal#2683: the Tester names the App it tests under; no App is refused before any fixture runs.
+  const appRef = cleanChatAppRef(body.appId);
+  if (!appRef) return appRequiredResponse();
 
   const systemMemoryId = (await requireTesterAgent(gqlClient(locals.token), locals.user?.id, body.agentId))?.agent.systemMemoryId;
   if (!systemMemoryId) return json({ error: 'Agent not found or no longer available' }, 404);
@@ -123,7 +129,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   for (const t of target) {
     let result: RunOneResult | RunErrorResult;
     try {
-      result = await runOneFixture(locals.token, body.agentId, t);
+      result = await runOneFixture(locals.token, body.agentId, appRef, t);
       const v = (result as RunOneResult).newVerdict;
       if (v === 'pass') passed++;
       else if (v === 'fail') failed++;
@@ -235,6 +241,7 @@ interface RunOneResult {
 async function runOneFixture(
   token: string,
   agentId: string,
+  appRef: string,
   fixture: LoadedFixture,
 ): Promise<RunOneResult> {
   const turn = fixture.record.turns[0];
@@ -254,6 +261,7 @@ async function runOneFixture(
     };
   }>(START_CHAT_MUTATION, {
     agentRef: agentId,
+    ...appRefVariable(appRef),
     conversationName: null,
     // Spec 019: match the test-run endpoint's posture. scope hardcoded
     // to private (no sharing a fixture run across AppMembers);

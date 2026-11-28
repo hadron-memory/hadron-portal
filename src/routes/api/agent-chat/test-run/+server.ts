@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { appRefVariable, appRequiredResponse, cleanChatAppRef } from '$lib/server/llm/chatApp.js';
 import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
@@ -44,6 +45,8 @@ interface TestRunBody {
   persona?: string | null;
   resetSession?: boolean;
   assertion?: Assertion | null;
+  /** portal#2683: the App the Tester runs under (one that installs the Agent). */
+  appId?: string;
 }
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -67,6 +70,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!body.agentId || !body.message) {
     return json({ error: 'agentId and message are required' }, 400);
   }
+
+  // portal#2683: the Tester names the App it tests under; no App is refused before anything runs.
+  const appRef = cleanChatAppRef(body.appId);
+  if (!appRef) return appRequiredResponse();
 
   // Validate assertion shape up-front so the user gets a 400 (not a
   // 500) on malformed input.
@@ -103,6 +110,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       };
     }>(START_CHAT_MUTATION, {
       agentRef: body.agentId,
+      ...appRefVariable(appRef),
       conversationName: null,
       scope: 'private',
       isTestRun: true,

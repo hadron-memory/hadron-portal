@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { appRefVariable, appRequiredResponse, cleanChatAppRef } from '$lib/server/llm/chatApp.js';
 import { requireTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import {
   START_CHAT_MUTATION,
@@ -61,6 +62,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     followUpMessages?: string[];
     conversationName?: string;
     expectedConversations?: string[];
+    /** portal#2683: the App the Tester runs under (one that installs the Agent). */
+    appId?: string;
   };
   try {
     body = await request.json();
@@ -77,6 +80,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       { status: 400, headers: { 'Content-Type': 'application/json' } },
     );
   }
+  // portal#2683: the Tester names the App it tests under; no App is refused before anything runs.
+  const appRef = cleanChatAppRef(body.appId);
+  if (!appRef) return appRequiredResponse();
 
   // #441: hard-cap the fan-out and total payload before issuing any LLM calls.
   const followUps = body.followUpMessages ?? [];
@@ -139,6 +145,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       };
     }>(START_CHAT_MUTATION, {
       agentRef: body.agentId,
+      ...appRefVariable(appRef),
       conversationName: body.conversationName ?? null,
       scope: 'private',
       isTestRun: true,

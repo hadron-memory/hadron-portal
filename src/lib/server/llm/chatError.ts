@@ -41,6 +41,9 @@ export const CHAT_ERROR = {
   startInvalidCondition: t('agent-chat.error.start-invalid-condition', "This chat can't start because its first conversation's start condition can't be checked. Ask whoever set up this agent to fix it."),
   startTypeMismatch: t('agent-chat.error.start-type-mismatch', "This chat can't start because the information its start condition checks isn't in the form it expects. Ask whoever set up this agent to fix it."),
   startUnavailable: t('agent-chat.error.start-unavailable', "This chat can't start right now."),
+  // portal#2683 (hadron-server#5394, hrn:node:hadronmemory.com:specs:cor:cht:010:02): startChat refused with
+  // CHAT_APP_NOT_IDENTIFIED. The server never searches for an App, so a start must name one. Fixed copy, no ids.
+  appNotIdentified: t('agent-chat.error.app-not-identified', "This chat can't start because it isn't tied to an App. Open it from an App that installs this Agent and try again."),
   failed: t('agent-chat.error.failed', 'Chat request failed. Please try again.'),
 } as const;
 
@@ -67,6 +70,11 @@ const BOOT_PROMPT_REFUSALS: Readonly<Record<string, ChatErrorCode>> = {
 export function bootPromptRefusalCode(error: unknown): ChatErrorCode | null {
   const serverCode = extractGqlErrorCode(error);
   return serverCode && Object.hasOwn(BOOT_PROMPT_REFUSALS, serverCode) ? BOOT_PROMPT_REFUSALS[serverCode] : null;
+}
+
+/** portal#2683: startChat refused because the call named no App (code alone, never the message). */
+export function appNotIdentifiedCode(error: unknown): ChatErrorCode | null {
+  return extractGqlErrorCode(error) === 'CHAT_APP_NOT_IDENTIFIED' ? 'appNotIdentified' : null;
 }
 
 /** portal#1963: startChat / sendChatMessage refused the `aiConfigChoice` (code alone, never the message). */
@@ -104,10 +112,11 @@ const CONFLICT_CODES: ReadonlySet<ChatErrorCode> = new Set<ChatErrorCode>([
   'startInvalidCondition',
   'startTypeMismatch',
   'startUnavailable',
+  'appNotIdentified',
 ]);
 
 export function publicChatError(error: unknown): { code: ChatErrorCode; message: string; status: number } {
-  const code = error instanceof ChatError ? error.code : (bootPromptRefusalCode(error) ?? configChoiceRefusalCode(error) ?? entryConditionRefusalCode(error) ?? 'failed');
+  const code = error instanceof ChatError ? error.code : (bootPromptRefusalCode(error) ?? configChoiceRefusalCode(error) ?? entryConditionRefusalCode(error) ?? appNotIdentifiedCode(error) ?? 'failed');
   return { code, message: CHAT_ERROR[code], status: CONFLICT_CODES.has(code) ? 409 : 500 };
 }
 

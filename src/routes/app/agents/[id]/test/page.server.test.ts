@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { FIXTURE_NODES_QUERY, AI_CONFIG_READINESS_QUERY, MY_AGENTS_QUERY, ORGANIZATIONS_QUERY, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
+import { AGENT_APPS_QUERY, AGENT_OWNED_APPS_QUERY, FIXTURE_NODES_QUERY, AI_CONFIG_READINESS_QUERY, MY_AGENTS_QUERY, ORGANIZATIONS_QUERY, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
 import { asTesterManager } from '$lib/test/tester-manage';
 
 const mockRequest = vi.fn();
@@ -133,6 +133,53 @@ const personalAgent = {
 };
 
 describe('/app/agents/[id]/test loader', () => {
+  // portal#2683: the Tester runs under an App that installs the Agent, chosen by name, never searched for.
+  const lite = (id: string, name: string) => ({ id, name, urn: `hrn:app:hadronmemory.com:${id}`, organizationId: null, agents: [], appAgents: [] });
+  function routeApps(handlers: { orgApps?: unknown[] | Error; ownedApps?: unknown[] | Error }) {
+    routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] });
+    const base = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (query: string, vars: unknown) => {
+      for (const [doc, h] of [[AGENT_APPS_QUERY, handlers.orgApps], [AGENT_OWNED_APPS_QUERY, handlers.ownedApps]] as const) {
+        if (query !== doc) continue;
+        if (h instanceof Error) throw h;
+        return { apps: { items: h ?? [], total: (h ?? []).length } };
+      }
+      return base(query, vars);
+    });
+  }
+
+  it('portal#2683: offers the Apps that install the Agent, member-org and own, once each, by name', async () => {
+    routeApps({ orgApps: [lite('b', 'Beta'), lite('a', 'Alpha')], ownedApps: [lite('a', 'Alpha'), lite('c', 'Gamma')] });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-aaa' }))) as { apps: unknown[]; appsError: boolean };
+    expect(result.appsError).toBe(false);
+    expect(result.apps).toEqual([
+      { id: 'a', name: 'Alpha', urn: 'hrn:app:hadronmemory.com:a' },
+      { id: 'b', name: 'Beta', urn: 'hrn:app:hadronmemory.com:b' },
+      { id: 'c', name: 'Gamma', urn: 'hrn:app:hadronmemory.com:c' },
+    ]);
+    // Both reads filter on this Agent's install.
+    const calls = mockRequest.mock.calls.filter((c) => c[0] === AGENT_APPS_QUERY || c[0] === AGENT_OWNED_APPS_QUERY);
+    expect(calls.every((c) => (c[1] as { agentId: string }).agentId === 'agent-aaa')).toBe(true);
+  });
+
+  it('portal#2683: an Agent installed nowhere has no Apps and no error', async () => {
+    routeApps({});
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-aaa' }))) as { apps: unknown[]; appsError: boolean };
+    expect(result).toMatchObject({ apps: [], appsError: false });
+  });
+
+  it.each([['member-org', { orgApps: new Error('outage') }], ['own', { ownedApps: new Error('outage') }]])(
+    'portal#2683: a failed %s Apps read is appsError, never "installed nowhere"',
+    async (_label, handlers) => {
+      routeApps(handlers);
+      const load = await importLoad();
+      const result = (await load(ev({ agentId: 'agent-aaa' }))) as { apps: unknown[]; appsError: boolean };
+      expect(result).toMatchObject({ apps: [], appsError: true });
+    },
+  );
+
   it('#1226: a failed fixtures read (even a later page) is fixturesError, never an empty fixture list', async () => {
     routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] });
     const base = mockRequest.getMockImplementation()!;

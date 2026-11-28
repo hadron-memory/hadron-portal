@@ -21,7 +21,9 @@ async function canManageStrict(client: ReturnType<typeof gqlClient>, userId: str
  *
  * Resolve an agent the caller may use: only one the caller can MANAGE
  * (portal#2083), since after hadron-server#4095 `startChat` refuses a
- * non-manager and the Tester has no licensed App chat home to admit. The
+ * non-manager. The Tester starts its chats under an App the person chooses
+ * (portal#2683): after hadron-server#5394 a start names its App with `appRef` and
+ * the server never searches for one, so the old manager start with no App is gone. The
  * organization list preserves its original member/admin scope; ownedByMe adds
  * only the caller's own user-owned agents, including when the caller is a
  * platform admin. Public find-one reads are deliberately outside this tester

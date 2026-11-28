@@ -3,7 +3,7 @@
   import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import { t } from '$lib/i18n/t';
 
-  let { agentId }: { agentId: string } = $props();
+  let { agentId, appId }: { agentId: string; appId: string } = $props();
 
   let personaName = $state('');
   let openingMessage = $state('');
@@ -75,6 +75,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId,
+          appId,
           personaName: personaName.trim(),
           openingMessage: openingMessage.trim(),
           followUpMessages: trimmedFollowUps,
