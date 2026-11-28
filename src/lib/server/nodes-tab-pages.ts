@@ -1,6 +1,7 @@
 import type { gqlClient } from '$lib/server/api';
 import { MEMORY_SCOPE_QUERY, NODES_PAGE_QUERY, NODES_SEARCH_PAGE_QUERY } from '$lib/server/queries';
 import { CHILDREN_PAGE_SIZE, readChildrenPage, type ChildRow } from '$lib/server/node-children';
+import { NODE_TYPES, isHiddenNodeType } from '$lib/node-types';
 import type { MemoryNode } from '$lib/types';
 
 /**
@@ -33,17 +34,68 @@ export function parseOffset(url: URL): number | null {
   return n > OFFSET_MAX ? null : n;
 }
 
-/**
- * The optional `q`: undefined = browse (absent or blank), a string = keyword
- * search, null = a client bug (repeated, or over the cap) answered 400.
- */
-export function parseSearch(url: URL): string | undefined | null {
-  const raw = url.searchParams.getAll('q');
+/** What the Nodes tab may filter and sort by: every value is an allow-list entry or a capped shape, never passed through. */
+export const FILTER_LIST_MAX = 20;
+export const TAG_MAX_LENGTH = 100;
+/** The types the tab lists (hidden ones are not offered: see isHiddenNodeType). */
+export const FILTERABLE_NODE_TYPES: readonly string[] = NODE_TYPES.filter((n) => !isHiddenNodeType(n));
+export const CHANGED_WINDOWS = { '24h': 1, '7d': 7, '30d': 30 } as const;
+export const SORTS = { loc: 'loc', updated: 'updatedAt', relevance: 'relevance' } as const;
+
+export interface PageQuery {
+  q?: string;
+  nodeTypes?: string[];
+  tags?: string[];
+  sort?: (typeof SORTS)[keyof typeof SORTS];
+  updatedAfter?: string;
+  createdBy?: string;
+}
+
+/** The one value of a single-valued param: undefined = absent or blank, null = repeated. */
+function one(url: URL, name: string): string | undefined | null {
+  const raw = url.searchParams.getAll(name);
   if (raw.length === 0) return undefined;
   if (raw.length !== 1) return null;
-  const q = raw[0].trim();
-  if (q === '') return undefined;
-  return q.length > SEARCH_MAX_LENGTH ? null : q;
+  const v = raw[0].trim();
+  return v === '' ? undefined : v;
+}
+
+/**
+ * The optional search, filters and sort of one page. Returns undefined for the plain paged list
+ * (nothing asked), a PageQuery for a narrowed one, or null for a request the client should never
+ * send (answered 400 before any read): a repeated single param, an over-cap or unlisted value, or
+ * `mine` with no signed-in viewer. `viewerId` is the TOKEN's user, never a client-supplied id.
+ */
+export function parsePageQuery(url: URL, viewerId: string | null, now = Date.now()): PageQuery | undefined | null {
+  const out: PageQuery = {};
+  const q = one(url, 'q');
+  if (q === null) return null;
+  if (q !== undefined) {
+    if (q.length > SEARCH_MAX_LENGTH) return null;
+    out.q = q;
+  }
+  const types = [...new Set(url.searchParams.getAll('type').map((v) => v.trim()).filter((v) => v !== ''))];
+  if (types.length > FILTER_LIST_MAX || !types.every((v) => FILTERABLE_NODE_TYPES.includes(v))) return null;
+  if (types.length) out.nodeTypes = types;
+  const tags = [...new Set(url.searchParams.getAll('tag').map((v) => v.trim()).filter((v) => v !== ''))];
+  // eslint-disable-next-line no-control-regex
+  if (tags.length > FILTER_LIST_MAX || !tags.every((v) => v.length <= TAG_MAX_LENGTH && !/[\u0000-\u001f\u007f]/.test(v))) return null;
+  if (tags.length) out.tags = tags;
+  const sort = one(url, 'sort');
+  if (sort === null || (sort !== undefined && !Object.hasOwn(SORTS, sort))) return null;
+  if (sort !== undefined) out.sort = SORTS[sort as keyof typeof SORTS];
+  const changed = one(url, 'changed');
+  if (changed === null || (changed !== undefined && !Object.hasOwn(CHANGED_WINDOWS, changed))) return null;
+  if (changed !== undefined) {
+    out.updatedAfter = new Date(now - CHANGED_WINDOWS[changed as keyof typeof CHANGED_WINDOWS] * 86_400_000).toISOString();
+  }
+  const mine = one(url, 'mine');
+  if (mine === null || (mine !== undefined && mine !== '1')) return null;
+  if (mine !== undefined) {
+    if (!viewerId) return null;
+    out.createdBy = viewerId;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 export type TablePageRow = Pick<MemoryNode, 'id' | 'urn' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'memoryId' | 'updatedAt' | 'memory'>;
@@ -52,13 +104,25 @@ export async function readTablePage(
   client: NodesTabClient,
   memoryId: string,
   offset: number,
-  search?: string,
+  query?: PageQuery,
 ): Promise<{ rows: TablePageRow[]; hasMore: boolean }> {
   const d = await client.request<{ findNodes: { hits: Array<{ node: TablePageRow & { commentSummary?: unknown } }> } }>(
-    search === undefined ? NODES_PAGE_QUERY : NODES_SEARCH_PAGE_QUERY,
-    search === undefined
+    query === undefined ? NODES_PAGE_QUERY : NODES_SEARCH_PAGE_QUERY,
+    query === undefined
       ? { memoryId, limit: TABLE_PAGE_SIZE + 1, offset }
-      : { memoryId, query: search, limit: TABLE_PAGE_SIZE + 1, offset },
+      : {
+          memoryId,
+          query: query.q ?? null,
+          // keyword only: never regex, vector or hybrid from the browser
+          mode: query.q === undefined ? null : 'keyword',
+          sort: query.sort ?? null,
+          createdBy: query.createdBy ?? null,
+          updatedAfter: query.updatedAfter ?? null,
+          nodeTypes: query.nodeTypes ?? null,
+          tags: query.tags ?? null,
+          limit: TABLE_PAGE_SIZE + 1,
+          offset,
+        },
   );
   const rows = d.findNodes.hits.map(({ node: { commentSummary: _c, ...n } }) => n as TablePageRow);
   return { rows: rows.slice(0, TABLE_PAGE_SIZE), hasMore: rows.length > TABLE_PAGE_SIZE };

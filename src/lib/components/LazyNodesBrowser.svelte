@@ -12,7 +12,7 @@
   import LiveRegion from '$lib/components/LiveRegion.svelte';
   import ViewToggle from '$lib/components/ViewToggle.svelte';
   import { t } from '$lib/i18n/t';
-  import { appendUnique, readTablePage, readTreePage } from '$lib/nodes-tab-client';
+  import { NO_CRITERIA, appendUnique, hasCriteria, readTablePage, readTreePage, type TableCriteria } from '$lib/nodes-tab-client';
   import type { MemoryNode } from '$lib/types';
 
   let { memoryId }: { memoryId: string } = $props();
@@ -145,19 +145,25 @@
   let tableHasMore = $state(false);
   let tableStatus = $state<Status>('idle');
 
-  // portal#2693: content search is run by the SERVER over the whole memory (the nodes/page door's
-  // `q`); it is never a filter over the rows loaded so far. `typed` is the box, `searched` the
-  // trimmed query the list currently answers (undefined = the plain paged list).
+  // portal#2693: content search, filters and sort are run by the SERVER over the whole memory (the
+  // nodes/page door); none is ever a filter over the rows loaded so far. `typed` is the search box,
+  // `criteria` what the list currently answers (NO_CRITERIA = the plain paged list).
   const SEARCH_MAX = 200;
+  const TAG_MAX = 100;
+  const FILTER_MAX = 20;
   const SEARCH_DEBOUNCE_MS = 300;
+  const TYPE_CHOICES = ['info', 'reference', 'prompt', 'data', 'chat', 'abstract'];
   let typed = $state('');
-  let searched = $state<string | undefined>(undefined);
+  let tagDraft = $state('');
+  let criteria = $state<TableCriteria>(NO_CRITERIA);
+  const narrowed = $derived(hasCriteria(criteria));
 
-  function applySearch(raw: string) {
-    const q = raw.trim();
-    const next = q === '' ? undefined : q;
-    if (next === searched) return;
-    searched = next;
+  function setCriteria(patch: Partial<TableCriteria>) {
+    const next = { ...criteria, ...patch };
+    // Relevance only means something for a text search.
+    if (next.sort === 'relevance' && next.q === '') next.sort = '';
+    if (JSON.stringify(next) === JSON.stringify(criteria)) return;
+    criteria = next;
     tableCtl.abort();
     tableCtl = new AbortController();
     tableRows = [];
@@ -169,13 +175,25 @@
 
   function onSearchInput() {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => applySearch(typed), SEARCH_DEBOUNCE_MS);
+    searchTimer = setTimeout(() => setCriteria({ q: typed.trim() }), SEARCH_DEBOUNCE_MS);
+  }
+
+  function toggleType(type: string) {
+    setCriteria({ types: criteria.types.includes(type) ? criteria.types.filter((x) => x !== type) : [...criteria.types, type] });
+  }
+
+  function addTag() {
+    const tag = tagDraft.trim();
+    tagDraft = '';
+    if (tag === '' || criteria.tags.includes(tag) || criteria.tags.length >= FILTER_MAX) return;
+    setCriteria({ tags: [...criteria.tags, tag] });
   }
 
   function clearSearch() {
     clearTimeout(searchTimer);
     typed = '';
-    applySearch('');
+    tagDraft = '';
+    setCriteria(NO_CRITERIA);
   }
 
   async function loadTablePage() {
@@ -183,7 +201,7 @@
     tableStatus = 'loading';
     const offset = tableConsumed;
     const ctl = tableCtl;
-    const page = await readTablePage(memoryId, offset, ctl.signal, searched);
+    const page = await readTablePage(memoryId, offset, ctl.signal, criteria);
     // A newer search replaced this one while it was in flight: its answer is not ours to show.
     if (!alive || ctl !== tableCtl) return;
     if (!page) {
@@ -306,18 +324,82 @@
         bind:value={typed}
         oninput={onSearchInput}
       />
-      {#if typed !== '' || searched !== undefined}
+      {#if typed !== '' || narrowed}
         <button type="button" data-testid="nodes-search-clear" class="rounded-md px-2 py-1.5 text-sm text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-3" onclick={clearSearch}>{t('nodes-tab.search-clear', 'Clear')}</button>
       {/if}
     </div>
+    <div class="flex flex-wrap items-center gap-2" data-testid="nodes-filters">
+      <div role="group" aria-label={t('nodes-tab.filter-types', 'Node type')} class="flex flex-wrap gap-1">
+        {#each TYPE_CHOICES as type (type)}
+          <button
+            type="button"
+            data-testid={`nodes-type-${type}`}
+            aria-pressed={criteria.types.includes(type)}
+            class="rounded-full border px-2.5 py-1 text-xs pointer-coarse:min-h-11 pointer-coarse:px-3 {criteria.types.includes(type) ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400'}"
+            onclick={() => toggleType(type)}
+          >{type}</button>
+        {/each}
+      </div>
+      <label class="inline-flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400 pointer-coarse:min-h-11">
+        <input type="checkbox" data-testid="nodes-mine" checked={criteria.mine} onchange={(e) => setCriteria({ mine: e.currentTarget.checked })} />
+        {t('nodes-tab.filter-mine', 'My nodes')}
+      </label>
+      <select
+        data-testid="nodes-changed"
+        aria-label={t('nodes-tab.filter-changed', 'Changed')}
+        class="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 pointer-coarse:min-h-11"
+        value={criteria.changed}
+        onchange={(e) => setCriteria({ changed: e.currentTarget.value as TableCriteria['changed'] })}
+      >
+        <option value="">{t('nodes-tab.changed-any', 'Changed any time')}</option>
+        <option value="24h">{t('nodes-tab.changed-24h', 'Changed in the last 24 hours')}</option>
+        <option value="7d">{t('nodes-tab.changed-7d', 'Changed in the last 7 days')}</option>
+        <option value="30d">{t('nodes-tab.changed-30d', 'Changed in the last 30 days')}</option>
+      </select>
+      <select
+        data-testid="nodes-sort"
+        aria-label={t('nodes-tab.sort', 'Sort')}
+        class="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 pointer-coarse:min-h-11"
+        value={criteria.sort}
+        onchange={(e) => setCriteria({ sort: e.currentTarget.value as TableCriteria['sort'] })}
+      >
+        <option value="">{t('nodes-tab.sort-default', 'Default order')}</option>
+        <option value="loc">{t('nodes-tab.sort-loc', 'By location')}</option>
+        <option value="updated">{t('nodes-tab.sort-updated', 'Recently changed')}</option>
+        <option value="relevance" disabled={criteria.q === ''}>{t('nodes-tab.sort-relevance', 'Best match')}</option>
+      </select>
+    </div>
+    <div class="flex flex-wrap items-center gap-2" data-testid="nodes-tags">
+      <input
+        type="text"
+        data-testid="nodes-tag-input"
+        class="w-40 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white pointer-coarse:min-h-11"
+        placeholder={t('nodes-tab.tag-placeholder', 'Filter by tag')}
+        aria-label={t('nodes-tab.tag-label', 'Filter by a tag')}
+        maxlength={TAG_MAX}
+        bind:value={tagDraft}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+      />
+      <button type="button" data-testid="nodes-tag-add" class="rounded-md px-2 py-1 text-xs text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-3" disabled={tagDraft.trim() === ''} onclick={addTag}>{t('nodes-tab.tag-add', 'Add')}</button>
+      {#each criteria.tags as tag (tag)}
+        <span class="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" data-testid="nodes-tag-chip">
+          {tag}
+          <button type="button" aria-label={t('nodes-tab.tag-remove', 'Remove tag {tag}', { tag })} class="text-zinc-500 hover:text-zinc-900 dark:hover:text-white pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={() => setCriteria({ tags: criteria.tags.filter((x) => x !== tag) })}>×</button>
+        </span>
+      {/each}
+    </div>
     <LiveRegion data-testid="nodes-tab-none">
       {#if tableStatus === 'done' && tableRows.length === 0}
-        <p class="text-sm text-zinc-500">{searched === undefined ? t('nodes-tab.none', 'No matching or visible nodes.') : t('nodes-tab.search-none', 'No nodes match “{q}” anywhere in this memory.', { q: searched })}</p>
+        <p class="text-sm text-zinc-500">{!narrowed ? t('nodes-tab.none', 'No matching or visible nodes.') : criteria.q !== '' ? t('nodes-tab.search-none', 'No nodes match “{q}” anywhere in this memory.', { q: criteria.q }) : t('nodes-tab.filter-none', 'No nodes in this memory match these filters.')}</p>
       {/if}
     </LiveRegion>
     <p class="text-xs text-zinc-500" data-testid="table-partial">
-      {#if searched !== undefined && tableStatus === 'done' && tableRows.length > 0}
-        {tableHasMore ? t('nodes-tab.search-more', 'Searched the whole memory for “{q}”; more matches are available.', { q: searched }) : t('nodes-tab.search-all', 'Searched the whole memory for “{q}”; these are all the matches.', { q: searched })}
+      {#if narrowed && tableStatus === 'done' && tableRows.length > 0}
+        {#if criteria.q !== ''}
+          {tableHasMore ? t('nodes-tab.search-more', 'Searched the whole memory for “{q}”; more matches are available.', { q: criteria.q }) : t('nodes-tab.search-all', 'Searched the whole memory for “{q}”; these are all the matches.', { q: criteria.q })}
+        {:else}
+          {tableHasMore ? t('nodes-tab.filter-more', 'Filtered the whole memory; more matches are available.') : t('nodes-tab.filter-all', 'Filtered the whole memory; these are all the matches.')}
+        {/if}
       {:else if tableStatus === 'done' && !tableHasMore}
         {t('nodes-tab.table-end', 'End of the list.')}
       {:else}
@@ -326,7 +408,7 @@
       {#if tableRows.length > 0}{t('nodes-tab.loaded-count', '{n} loaded', { n: tableRows.length })}{/if}
     </p>
     {#if tableRows.length > 0}
-      {#key searched}<NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />{/key}
+      {#key criteria}<NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />{/key}
     {/if}
     <LiveRegion>{#if tableStatus === 'loading'}<p class="text-sm text-zinc-500">{t('nodes-tab.loading', 'Loading…')}</p>{/if}</LiveRegion>
     {#if tableStatus === 'loading'}

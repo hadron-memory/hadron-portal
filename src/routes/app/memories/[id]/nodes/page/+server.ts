@@ -7,7 +7,7 @@
 // read is a retryable failure, never an empty page.
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { parseOffset, parseSearch, readTablePage, resolveMemoryId } from '$lib/server/nodes-tab-pages';
+import { parseOffset, parsePageQuery, readTablePage, resolveMemoryId } from '$lib/server/nodes-tab-pages';
 import type { RequestHandler } from './$types';
 
 const headers = { 'cache-control': 'no-store' };
@@ -17,8 +17,9 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
   if (!locals.token) return failed(401);
   const offset = parseOffset(url);
   if (offset === null) return failed(400);
-  // portal#2693: an optional keyword search, run by the server over the whole memory.
-  const search = parseSearch(url);
+  // portal#2693: an optional keyword search, filters and sort, run by the server over the whole
+  // memory. 'My nodes' is the signed-in user of the TOKEN, never an id the client sends.
+  const search = parsePageQuery(url, locals.user?.id ?? null);
   if (search === null) return failed(400);
   try {
     const client = gqlClient(locals.token);

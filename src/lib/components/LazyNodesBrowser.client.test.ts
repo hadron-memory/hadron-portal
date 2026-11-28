@@ -381,6 +381,99 @@ describe('content search (#2693)', () => {
   });
 });
 
+describe('filters and sort (#2693 step 1)', () => {
+  const found = (rows: unknown[], hasMore = false) => ({ rows, hasMore });
+  const q = (m: Mounted<Record<string, unknown>>, id: string) => m.target.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+  const pick = async (el: HTMLSelectElement, value: string) => { el.value = value; el.dispatchEvent(new Event('change', { bubbles: true })); await wait(5); flushSync(); };
+
+  it('every control is a server read with the criteria in the URL; nothing is filtered locally', async () => {
+    replies['page?offset=0'] = [found(range(0, 2))];
+    replies['page?offset=0&type=prompt'] = [found([node(5, { name: 'Only prompt' })])];
+    replies['page?offset=0&type=prompt&mine=1'] = [found([node(6, { name: 'Mine prompt' })])];
+    replies['page?offset=0&type=prompt&changed=7d&mine=1'] = [found([node(7, { name: 'Recent mine' })])];
+    replies['page?offset=0&type=prompt&changed=7d&mine=1&sort=updated'] = [found([node(8, { name: 'Sorted' })])];
+    const m = await mount();
+    await click(q(m, 'nodes-type-prompt') as HTMLButtonElement);
+    expect(q(m, 'nodes-type-prompt').getAttribute('aria-pressed')).toBe('true');
+    expect(text(m)).toContain('Only prompt');
+    expect(text(m)).not.toContain('Node 0');
+    await click(q(m, 'nodes-mine') as HTMLButtonElement);
+    await pick(q(m, 'nodes-changed') as HTMLSelectElement, '7d');
+    await pick(q(m, 'nodes-sort') as HTMLSelectElement, 'updated');
+    expect(fetched.slice(-1)).toEqual(['page?offset=0&type=prompt&changed=7d&mine=1&sort=updated']);
+    expect(text(m)).toContain('Sorted');
+    expect(text(m)).toMatch(/Filtered the whole memory/);
+  });
+
+  it('tags are added with Enter, shown as chips, sent as repeated params, removed from the chip, and capped', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&tag=alpha'] = [found([node(3)])];
+    replies['page?offset=0&tag=alpha&tag=beta'] = [found([node(4)])];
+    replies['page?offset=0&tag=beta'] = [found([node(5)])];
+    const m = await mount();
+    const input = q(m, 'nodes-tag-input') as HTMLInputElement;
+    expect(input.maxLength).toBe(100);
+    for (const tag of ['alpha', 'alpha', 'beta']) {
+      input.value = tag;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await wait(5);
+      flushSync();
+    }
+    expect(fetched.filter((f) => f.includes('tag='))).toEqual(['page?offset=0&tag=alpha', 'page?offset=0&tag=alpha&tag=beta']);
+    expect([...m.target.querySelectorAll('[data-testid="nodes-tag-chip"]')].map((c) => c.textContent?.replace('×', '').trim())).toEqual(['alpha', 'beta']);
+    await click(m.target.querySelector('[aria-label="Remove tag alpha"]') as HTMLButtonElement);
+    expect(fetched.slice(-1)).toEqual(['page?offset=0&tag=beta']);
+  });
+
+  it('Best match needs a text search: disabled without one, and dropped when the text is cleared', async () => {
+    replies['page?offset=0'] = [found(range(0, 1)), found(range(0, 1))];
+    replies['page?offset=0&q=zeta'] = [found([node(2)])];
+    replies['page?offset=0&q=zeta&sort=relevance'] = [found([node(3)])];
+    const m = await mount();
+    const sort = q(m, 'nodes-sort') as HTMLSelectElement;
+    expect((sort.querySelector('option[value="relevance"]') as HTMLOptionElement).disabled).toBe(true);
+    const box = q(m, 'nodes-search') as HTMLInputElement;
+    box.value = 'zeta';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(340);
+    flushSync();
+    expect((sort.querySelector('option[value="relevance"]') as HTMLOptionElement).disabled).toBe(false);
+    await pick(sort, 'relevance');
+    await click(q(m, 'nodes-search-clear') as HTMLButtonElement);
+    expect(fetched.slice(-1)).toEqual(['page?offset=0']);
+    expect((q(m, 'nodes-sort') as HTMLSelectElement).value).toBe('');
+  });
+
+  it('a filter with no hit says so for the whole memory; a failed filter is a retry, never that', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&type=chat'] = [found([])];
+    replies['page?offset=0&type=chat&type=data'] = ['fail', found([node(9, { name: 'Back' })])];
+    const m = await mount();
+    await click(q(m, 'nodes-type-chat') as HTMLButtonElement);
+    expect(text(m)).toMatch(/No nodes in this memory match these filters/);
+    await click(q(m, 'nodes-type-data') as HTMLButtonElement);
+    expect(text(m)).toMatch(/Could not load this page/);
+    expect(text(m)).not.toMatch(/match these filters/);
+    await click(btn(m, /Retry/));
+    expect(text(m)).toContain('Back');
+  });
+
+  it('a stale answer to an older filter never lands while the newer read is pending', async () => {
+    let releaseOld!: (r: Response) => void;
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&type=info'] = [new Promise<Response>((r) => { releaseOld = r; }) as never];
+    replies['page?offset=0&type=info&type=data'] = [new Promise<Response>(() => {}) as never];
+    const m = await mount();
+    await click(q(m, 'nodes-type-info') as HTMLButtonElement);
+    await click(q(m, 'nodes-type-data') as HTMLButtonElement);
+    releaseOld(new Response(JSON.stringify(found([node(8, { name: 'Stale filter answer' })])), { status: 200 }));
+    await wait(10);
+    flushSync();
+    expect(text(m)).not.toContain('Stale filter answer');
+  });
+});
+
 describe('teardown', () => {
   it('a memory switch (unmount) with a read in flight leaves no rejection and no later read', async () => {
     let release!: (r: Response) => void;
