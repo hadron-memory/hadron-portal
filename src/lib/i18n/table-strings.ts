@@ -37,6 +37,12 @@ export const tableStrings = {
   /** Same toggle on a table with search off: it must not offer what it does not hold. */
   showHeaderNoSearch: (): string => t('table.header.show-no-search', 'Views & columns'),
 
+  /** Same toggle on a table with neither search nor saved views: only Columns is behind it. */
+  showHeaderColumnsOnly: (): string => t('table.header.show-columns-only', 'Columns'),
+
+  /** Same toggle on a table with search but no saved-views strip. */
+  showHeaderNoViews: (): string => t('table.header.show-no-views', 'Search & columns'),
+
   /** Button that folds the header again. */
   hideHeader: (): string => t('table.header.hide', 'Hide'),
 

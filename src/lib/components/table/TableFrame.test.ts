@@ -18,4 +18,12 @@ describe('TableFrame toggle label', () => {
     expect(out).toContain('Views &amp; columns');
     expect(out).not.toMatch(/search/i);
   });
+  it('says "Search & columns" when search is on and there are no saved views', () => {
+    const out = toggle({ showViews: false });
+    expect(out).toContain('Search &amp; columns');
+    expect(out).not.toMatch(/views/i);
+  });
+  it('says "Columns" when there is neither search nor views', () => {
+    expect(toggle({ showSearch: false, showViews: false }).split('</svg>')[1].replace(/<!--.*?-->/g, '').trim()).toBe('Columns');
+  });
 });

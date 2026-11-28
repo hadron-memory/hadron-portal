@@ -21,6 +21,7 @@
     active = false,
     open = $bindable(false),
     showSearch = true,
+    showViews = true,
   }: {
     /** The search / ViewTabs / ColumnToggle row. */
     controls: Snippet;
@@ -31,6 +32,8 @@
     open?: boolean;
     /** The table has a search box; when it has none the toggle must not say so. */
     showSearch?: boolean;
+    /** The table has a saved-views strip; the toggle names only the controls it holds. */
+    showViews?: boolean;
   } = $props();
 
   // Stable across SSR and hydration (a random id would differ between them).
@@ -64,7 +67,7 @@
     <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
       <path d="M3 5a1 1 0 0 1 1-1h12a1 1 0 0 1 .8 1.6L12 12v4a1 1 0 0 1-1.45.9l-2-1A1 1 0 0 1 8 15v-3L3.2 5.6A1 1 0 0 1 3 5Z" />
     </svg>
-    {showSearch ? tableStrings.showHeader() : tableStrings.showHeaderNoSearch()}
+    {showSearch ? (showViews ? tableStrings.showHeader() : tableStrings.showHeaderNoViews()) : showViews ? tableStrings.showHeaderNoSearch() : tableStrings.showHeaderColumnsOnly()}
     {#if active}<span data-testid="table-header-active" class="h-1.5 w-1.5 rounded-full bg-indigo-500" title={tableStrings.headerActive()}></span>{/if}
   </button>
 

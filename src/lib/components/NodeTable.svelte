@@ -73,7 +73,7 @@
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">{emptyLabel}</p>
   {:else}
-    <TableFrame active={globalFilter.trim() !== ''}>
+    <TableFrame active={globalFilter.trim() !== ''} showViews={!!listKey}>
       {#snippet controls()}
         <input type="text" placeholder={searchPlaceholder} bind:value={globalFilter}
         class="min-w-[10rem] max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />

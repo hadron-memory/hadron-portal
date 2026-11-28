@@ -132,6 +132,8 @@
   const DEFAULT_PAGE_SIZE = 25;
 
   // Global filter (search across the visible columns), held in runes state.
+  // One condition for the saved-views strip and for the header toggle's label, so they cannot drift.
+  const hasViews = $derived(!orderable && !!listKey);
   let globalFilter = $state('');
   const tableCanSortAndResize = untrack(() => !orderable);
 
@@ -582,7 +584,7 @@
   {/if}
   {/snippet}
   {#if !hideSearch || !orderable}
-    <TableFrame active={globalFilter.trim() !== ''}>
+    <TableFrame active={globalFilter.trim() !== ''} showSearch={!hideSearch} showViews={hasViews}>
       {#snippet controls()}
     {#if !hideSearch}
       <input
@@ -592,7 +594,7 @@
         class="min-w-[10rem] max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
       />
     {/if}
-    {#if !orderable && listKey}
+    {#if hasViews && listKey}
       <ViewTabs {table} {listKey} bordered={false} class="min-w-[14rem] flex-1" />
     {/if}
     {#if !orderable}
