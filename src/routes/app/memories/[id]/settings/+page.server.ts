@@ -21,6 +21,7 @@ import {
 } from '$lib/server/queries';
 import { VECTOR_HEALTH_LIMIT, embedFailedView, type ValidateMemoryResult } from '$lib/vector-health';
 import { toBareMemorySlugInput } from '$lib/urn/form-validation';
+import { memorySlugIsFixed } from '$lib/memory-slug';
 import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
@@ -97,7 +98,8 @@ function settingsFormDefaults(memory: Memory) {
   return {
     displayName: memory.name ?? '',
     urnSlug: toBareMemorySlugInput(memory.urn),
-    urnSlugPresent: memory.class === 'system' ? '' : 'true',
+    // #2653: the slug input is absent for a fixed slug, so it must not be validated either.
+    urnSlugPresent: memory.class === 'system' || memorySlugIsFixed(memory) ? '' : 'true',
     originalUrnSlug: toBareMemorySlugInput(memory.urn),
     currentUrn: memory.urn ?? '',
     organizationId: memory.organizationId ?? '',
@@ -313,6 +315,10 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
+      // #2653: a stale form or a forged submit asked to rename a personal or private App memory. The server applied nothing.
+      if (extractGqlErrorCode(e) === 'APP_MEMORY_SLUG_FIXED') {
+        return message(form, { type: 'error', text: t('memory-settings.slug-fixed', 'This memory keeps its address. Its name can be changed.') }, { status: 400 });
+      }
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update') }, { status: 500 });
     }
   },
