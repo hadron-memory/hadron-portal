@@ -7,6 +7,7 @@
   // partial page. Those controls are not offered here; the Table's own column
   // sort and paging apply to the rows loaded so far, and say so.
   import { onDestroy, onMount } from 'svelte';
+  import { NODE_TYPES, isHiddenNodeType } from '$lib/node-types';
   import { SvelteMap } from 'svelte/reactivity';
   import NodeList from './NodeList.svelte';
   import LiveRegion from '$lib/components/LiveRegion.svelte';
@@ -152,7 +153,20 @@
   const TAG_MAX = 100;
   const FILTER_MAX = 20;
   const SEARCH_DEBOUNCE_MS = 300;
-  const TYPE_CHOICES = ['info', 'reference', 'prompt', 'data', 'chat', 'abstract'];
+  // The same list the door allow-lists (visible types only), derived from the one shared source.
+  const TYPE_CHOICES: readonly string[] = NODE_TYPES.filter((n) => !isHiddenNodeType(n));
+  const typeLabel = (type: string) =>
+    ({
+      info: t('nodes-tab.type-info', 'Info'),
+      reference: t('nodes-tab.type-reference', 'Reference'),
+      prompt: t('nodes-tab.type-prompt', 'Prompt'),
+      data: t('nodes-tab.type-data', 'Data'),
+      chat: t('nodes-tab.type-chat', 'Chat'),
+      abstract: t('nodes-tab.type-abstract', 'Abstract'),
+    })[type] ?? type;
+  // The door refuses control characters in a tag (a 400 a Retry could never fix), so the box does too.
+  // eslint-disable-next-line no-control-regex
+  const TAG_REFUSED = /[\u0000-\u001f\u007f]/;
   let typed = $state('');
   let tagDraft = $state('');
   let criteria = $state<TableCriteria>(NO_CRITERIA);
@@ -185,7 +199,7 @@
   function addTag() {
     const tag = tagDraft.trim();
     tagDraft = '';
-    if (tag === '' || criteria.tags.includes(tag) || criteria.tags.length >= FILTER_MAX) return;
+    if (tag === '' || TAG_REFUSED.test(tag) || criteria.tags.includes(tag) || criteria.tags.length >= FILTER_MAX) return;
     setCriteria({ tags: [...criteria.tags, tag] });
   }
 
@@ -317,12 +331,13 @@
       <input
         type="search"
         data-testid="nodes-search"
-        class="min-w-[10rem] max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+        class="min-w-[10rem] max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 pointer-coarse:min-h-11"
         placeholder={t('nodes-tab.search-placeholder', 'Search this memory')}
         aria-label={t('nodes-tab.search-label', 'Search the content of every node in this memory')}
         maxlength={SEARCH_MAX}
         bind:value={typed}
         oninput={onSearchInput}
+        onkeydown={(e) => { if (e.key === 'Enter') { clearTimeout(searchTimer); setCriteria({ q: typed.trim() }); } }}
       />
       {#if typed !== '' || narrowed}
         <button type="button" data-testid="nodes-search-clear" class="rounded-md px-2 py-1.5 text-sm text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-3" onclick={clearSearch}>{t('nodes-tab.search-clear', 'Clear')}</button>
@@ -337,7 +352,7 @@
             aria-pressed={criteria.types.includes(type)}
             class="rounded-full border px-2.5 py-1 text-xs pointer-coarse:min-h-11 pointer-coarse:px-3 {criteria.types.includes(type) ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400'}"
             onclick={() => toggleType(type)}
-          >{type}</button>
+          >{typeLabel(type)}</button>
         {/each}
       </div>
       <label class="inline-flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400 pointer-coarse:min-h-11">
@@ -381,6 +396,7 @@
         onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
       />
       <button type="button" data-testid="nodes-tag-add" class="rounded-md px-2 py-1 text-xs text-indigo-500 hover:underline pointer-coarse:min-h-11 pointer-coarse:px-3" disabled={tagDraft.trim() === ''} onclick={addTag}>{t('nodes-tab.tag-add', 'Add')}</button>
+      {#if criteria.tags.length >= FILTER_MAX}<span class="text-xs text-zinc-500" data-testid="nodes-tag-limit">{t('nodes-tab.tag-limit', 'Tag limit reached')}</span>{/if}
       {#each criteria.tags as tag (tag)}
         <span class="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" data-testid="nodes-tag-chip">
           {tag}
@@ -400,6 +416,10 @@
         {:else}
           {tableHasMore ? t('nodes-tab.filter-more', 'Filtered the whole memory; more matches are available.') : t('nodes-tab.filter-all', 'Filtered the whole memory; these are all the matches.')}
         {/if}
+      {:else if narrowed && tableStatus === 'loading'}
+        {t('nodes-tab.searching', 'Searching the whole memory…')}
+      {:else if narrowed && tableStatus !== 'done'}
+        <!-- failed: the alert below says so; the plain-list caveat does not apply to a server search -->
       {:else if tableStatus === 'done' && !tableHasMore}
         {t('nodes-tab.table-end', 'End of the list.')}
       {:else}
@@ -408,6 +428,7 @@
       {#if tableRows.length > 0}{t('nodes-tab.loaded-count', '{n} loaded', { n: tableRows.length })}{/if}
     </p>
     {#if tableRows.length > 0}
+      <!-- keyed on the criteria: a new search starts a fresh table (page, sort and scroll reset) -->
       {#key criteria}<NodeList nodes={tableView} hideSearch viewMemoryId={memoryId} />{/key}
     {/if}
     <LiveRegion>{#if tableStatus === 'loading'}<p class="text-sm text-zinc-500">{t('nodes-tab.loading', 'Loading…')}</p>{/if}</LiveRegion>

@@ -244,6 +244,19 @@ describe('GET nodes/page filters and sort (portal#2693 step 1)', () => {
     expect((await call('page', '?offset=0&type=info&type=reference&type=prompt&type=data&type=chat&type=abstract')).status).toBe(200);
   });
 
+  it("'my nodes' with a client-sent userId is still the token's user", async () => {
+    serve();
+    await call('page', '?offset=0&mine=1&userId=someone-else');
+    expect(vars().createdBy).toBe('user-1');
+  });
+
+  it('sort=relevance with no q is accepted and passed through; the server answers its unranked browse', async () => {
+    serve({ tree: rows(5) });
+    const r = await call('page', '?offset=0&sort=relevance');
+    expect(r.status).toBe(200);
+    expect(vars()).toMatchObject({ query: null, mode: null, sort: 'relevance' });
+  });
+
   it('never asks the server for regex, vector, hybrid, deleted rows or a property filter', async () => {
     serve();
     await call('page', '?offset=0&q=x&mode=regex&includeDeleted=true&where=%7B%7D');

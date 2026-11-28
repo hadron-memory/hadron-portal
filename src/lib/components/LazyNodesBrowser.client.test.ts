@@ -474,6 +474,80 @@ describe('filters and sort (#2693 step 1)', () => {
   });
 });
 
+describe('status line and tag box (#2696 blind P2, P3s)', () => {
+  const found = (rows: unknown[], hasMore = false) => ({ rows, hasMore });
+  const q = (m: Mounted<Record<string, unknown>>, id: string) => m.target.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+  const CAVEAT = /apply to the rows loaded so far/;
+
+  it('while a narrowed read is loading, or has failed, the plain-list caveat is not shown; it says it is searching the whole memory', async () => {
+    replies['page?offset=0'] = [found(range(0, 3), true)];
+    replies['page?offset=0&type=data'] = [new Promise<Response>(() => {}) as never];
+    replies['page?offset=0&type=chat'] = ['fail'];
+    const m = await mount();
+    expect(q(m, 'table-partial').textContent).toMatch(CAVEAT);
+    await click(q(m, 'nodes-type-data') as HTMLButtonElement);
+    expect(q(m, 'table-partial').textContent).not.toMatch(CAVEAT);
+    expect(q(m, 'table-partial').textContent).toMatch(/Searching the whole memory/);
+    await click(q(m, 'nodes-type-data') as HTMLButtonElement);
+    await click(q(m, 'nodes-type-chat') as HTMLButtonElement);
+    expect(text(m)).toMatch(/Could not load this page/);
+    expect(q(m, 'table-partial').textContent).not.toMatch(CAVEAT);
+  });
+
+  const addTags = async (m: Mounted<Record<string, unknown>>, tags: string[]) => {
+    const input = q(m, 'nodes-tag-input') as HTMLInputElement;
+    for (const tag of tags) {
+      input.value = tag;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await wait(2);
+      flushSync();
+    }
+  };
+
+  it('a 21st tag is never sent and the box says the limit is reached', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    for (let i = 1; i <= 20; i++) replies[`page?offset=0&${Array.from({ length: i }, (_, j) => `tag=t${j}`).join('&')}`] = [found(range(0, 1))];
+    const m = await mount();
+    await addTags(m, Array.from({ length: 21 }, (_, i) => `t${i}`));
+    expect(m.target.querySelectorAll('[data-testid="nodes-tag-chip"]')).toHaveLength(20);
+    expect(fetched.some((f) => f.includes('tag=t20'))).toBe(false);
+    expect(q(m, 'nodes-tag-limit')).toBeTruthy();
+  });
+
+  it('a tag with a control character is refused in the box, so no 400 Retry can be offered', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    const m = await mount();
+    await addTags(m, ['bad\u0000tag', 'tab\there']);
+    expect(m.target.querySelectorAll('[data-testid="nodes-tag-chip"]')).toHaveLength(0);
+    expect(fetched).toEqual(['page?offset=0']);
+  });
+
+  it('Enter runs the search at once, without waiting out the debounce', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    replies['page?offset=0&q=now'] = [found([node(4, { name: 'Immediate' })])];
+    const m = await mount();
+    const box = q(m, 'nodes-search') as HTMLInputElement;
+    box.value = 'now';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await wait(20);
+    flushSync();
+    expect(fetched.slice(-1)).toEqual(['page?offset=0&q=now']);
+    expect(text(m)).toContain('Immediate');
+    await wait(340);
+    expect(fetched.filter((f) => f === 'page?offset=0&q=now')).toHaveLength(1);
+  });
+
+  it('the type buttons offer exactly the types the door allow-lists', async () => {
+    replies['page?offset=0'] = [found(range(0, 1))];
+    const m = await mount();
+    const offered = [...m.target.querySelectorAll('[data-testid^="nodes-type-"]')].map((b) => b.getAttribute('data-testid')!.replace('nodes-type-', ''));
+    const { FILTERABLE_NODE_TYPES } = await import('$lib/server/nodes-tab-pages');
+    expect(offered).toEqual([...FILTERABLE_NODE_TYPES]);
+  });
+});
+
 describe('a filter change while page 2 is in flight (#2693 amended gate)', () => {
   it('resets to offset 0 and the old page 2 is never appended to the new list', async () => {
     let releaseOld!: (r: Response) => void;
