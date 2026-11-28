@@ -102,7 +102,7 @@ function jsonReq(url: string, method: string, body?: unknown) {
   return new Request(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify({ appId: 'app-1', ...(body as object) }),
   });
 }
 

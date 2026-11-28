@@ -91,7 +91,7 @@ function ev(opts: {
     request: new Request('http://test/api/agent-chat/test-run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(opts.body),
+      body: JSON.stringify({ appId: 'app-1', ...(opts.body as object) }),
     }),
     locals: { token: opts.token === undefined ? 'test-token' : opts.token, user: { id: 'u1' } },
   } as Parameters<Awaited<ReturnType<typeof importPOST>>>[0];

@@ -72,7 +72,7 @@ function setup(o: { refuseChoice?: boolean } = {}) {
 
 function ev(body: unknown) {
   return {
-    request: new Request('http://test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    request: new Request('http://test/api', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body && typeof body === 'object' && 'chatId' in body ? body : { appId: 'app-1', ...(body as object) }) }),
     locals: { token: 'test-token', user: { id: 'u1' } },
   } as never;
 }
@@ -97,7 +97,7 @@ describe('portal#1963 /start', () => {
     const res = await start({ agentId: 'agent-1', appId: 'app-1', configName: 'fast', aiConfigChoice: 'cfg-fast' });
     expect(res.status).toBe(200);
     expect(callsOf(START_CHAT_MUTATION)).toEqual([
-      { agentRef: 'agent-1', conversationName: null, scope: 'private', llmModel: 'model-fast', aiConfigChoice: 'cfg-fast' },
+      { agentRef: 'agent-1', appRef: 'app-1', conversationName: null, scope: 'private', llmModel: 'model-fast', aiConfigChoice: 'cfg-fast' },
     ]);
     expect(mockLlm.mock.calls[0][0].model).toBe('model-fast');
   });

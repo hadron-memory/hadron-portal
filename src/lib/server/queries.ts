@@ -2611,6 +2611,7 @@ export const CHAT_HISTORY_QUERY = /* GraphQL */ `
 export const START_CHAT_MUTATION = /* GraphQL */ `
   mutation StartChat(
     $agentRef: ID!
+    $appRef: ID
     $conversationName: String
     $scope: ChatScope
     $isTestRun: Boolean
@@ -2619,6 +2620,9 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
   ) {
     startChat(
       agentRef: $agentRef
+      # portal#2683 (hadron-server#5394 PR 1, server 0.54.0): the App the chat runs under. The server refuses
+      # CHAT_APP_NOT_IDENTIFIED without it and never searches for one, so every start sends it.
+      appRef: $appRef
       conversationName: $conversationName
       scope: $scope
       isTestRun: $isTestRun
